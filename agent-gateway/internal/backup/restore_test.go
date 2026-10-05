@@ -132,7 +132,7 @@ func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) 
 	require.NoError(t, ownership.Close())
 
 	for _, suffix := range []string{"-wal", "-shm"} {
-		require.NoError(t, os.WriteFile(filepath.Join(root, gatewaypaths.DatabaseName)+suffix, []byte("stale"), 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(root, gatewaypaths.DatabaseName)+suffix, nil, 0o600))
 	}
 	replacementSink := new(captureSink)
 	identity, err := Restore(ctx, RestoreOptions{

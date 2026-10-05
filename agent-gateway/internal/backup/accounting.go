@@ -96,6 +96,10 @@ func readAccountingMetadata(directory *os.File, id string) (artifactMetadata, er
 	if err := strictjson.DecodeReader(file, &metadata, strictjson.Options{MaxBytes: 8192, MaxDepth: 2, RejectUnknownMembers: true}); err != nil {
 		return artifactMetadata{}, err
 	}
+	controlLimit, _ := contract.FixedLimitByName("database_bytes")
+	if metadata.SizeBytes > controlLimit.Maximum {
+		return artifactMetadata{}, ErrInvalidArtifact
+	}
 	if metadata.ID != id || !backupIDPattern.MatchString(metadata.InstallationID) || !accountingDigest(metadata.SHA256) || !accountingDigest(metadata.AuthorityHash) || !accountingDigest(metadata.KeyHash) || !accountingDigest(metadata.InputHash) || metadata.SizeBytes <= 0 {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
@@ -107,12 +111,16 @@ func readAccountingMetadata(directory *os.File, id string) (artifactMetadata, er
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
 	switch metadata.Format {
+	case 3:
+		if metadata.History != "omitted" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
+			return artifactMetadata{}, ErrInvalidArtifact
+		}
 	case 0:
-		if metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
+		if metadata.History != "" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
 			return artifactMetadata{}, ErrInvalidArtifact
 		}
 	case 2:
-		if !backupIDPattern.MatchString(metadata.TrafficGeneration) || !accountingDigest(metadata.TrafficSHA256) || metadata.TrafficSizeBytes <= 0 || metadata.TrafficBudgetBytes <= 0 {
+		if metadata.History != "" || !backupIDPattern.MatchString(metadata.TrafficGeneration) || !accountingDigest(metadata.TrafficSHA256) || metadata.TrafficSizeBytes <= 0 || metadata.TrafficSizeBytes > metadata.TrafficBudgetBytes || metadata.TrafficBudgetBytes < 1<<20 || metadata.TrafficBudgetBytes > 16<<30 {
 			return artifactMetadata{}, ErrInvalidArtifact
 		}
 	default:

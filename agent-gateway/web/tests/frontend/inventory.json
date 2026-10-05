@@ -26,7 +26,7 @@
     "server-reads.tsx": "68dde3a78f52db470a985fd3b04d909eb3da37f68da98d54debde5b0f8954aa2",
     "sinks-ui.tsx": "441f2fc37576566fe89003f1c951ff740629609384867beb648eccde922ebb65",
     "styles.css": "d9385ee728eef3014741a64b5e4611d5cf80c8c368cadc92e736922d819c27a7",
-    "system.tsx": "65a8ba27c17ea5d81aff89c1daee573318a886e2834f109a15ae75940d8919e6",
+    "system.tsx": "38ac6af0670d44ba6877b9a8c97d819f893b9520deb7bb1918aa9906ab273eca",
     "time.tsx": "d7bdf2985dce8c64c48e87640096f284facbbc859335cc4fad3cbe1cd6b4f2be",
     "toast.tsx": "29724123c1efd625a7a7e79bfd7917f8a61481b2018736f856ead6ee6d158c2c"
   },
@@ -119,6 +119,8 @@
       "oauth-one-time-lost": "standard"
     },
     "backups": {
+      "backup-history-export": "standard",
+      "backup-history-unavailable": "standard",
       "backup-create": "standard",
       "backup-create-confirmation": "standard",
       "backup-create-uncertain": "standard",

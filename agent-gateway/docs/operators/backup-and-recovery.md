@@ -7,6 +7,7 @@ Purpose: Create backups and perform restore or stopped-process recovery safely.
 This guide owns Agent Gateway operator procedures for backup lifecycle, restore verification, administrator reset, stopped-process recovery, and uncertain failures. [Installation safety](installation-safety.md) owns executable retirement and retained identities. Renaming a binary never bypasses the installation lock. [Storage and recovery](../design/storage-and-recovery.md) owns normative compatibility, durability, and recovery semantics. Generated help owns exact syntax:
 
 - `agent-gateway backup --help`
+- `agent-gateway history --help`
 - `agent-gateway maintenance restore-backup --help`
 - `agent-gateway maintenance --help`
 - `agent-gateway maintenance verify-and-recover-storage --help`
@@ -46,8 +47,8 @@ Existing configuration, grants and credentials survive the lifecycle upgrade.
 Shutdown may report unconfirmed cleanup while still retaining the opener/writer and
 installation lock. Wait for actual settlement; a timeout does not cancel fsync or
 permit another owner. This is not isolation from shared-filesystem stalls,
-uninterruptible I/O or physical disk exhaustion. Paired backup creation still needs
-ready history; optional backup formats are a separate change.
+uninterruptible I/O or physical disk exhaustion. Security backup and restore do
+not require ready history.
 
 ## Create and manage backups
 
@@ -60,14 +61,19 @@ agent-gateway backup get BACKUP_ID
 agent-gateway backup delete BACKUP_ID --yes
 ```
 
-Backup creation uses SQLite's online backup facility to capture a consistent pair.
-Format-2 internal metadata binds the control selector, installation, schema and
-revision to traffic generation, budget, sizes and SHA-256 digests. Admission and
-writers pause only to pin stable snapshots, with a one-second acquisition ceiling;
-overrun fails the backup. Copying then proceeds outside that fence with a 30-second
-snapshot bound. Capacity/headroom refusal leaves healthy stores usable. Already
-admitted work may finish after the snapshot, so missing completion stays unknown.
-Both staged databases are verified before atomic directory publication. A backup contains safe durable Gateway state but no raw administrator bearer, agent bearer, keyring value, browser session, MCP session, runtime handle, or in-flight work.
+New backups use **format 3**, explicitly reporting `history:"omitted"`. They capture
+configuration, authority and administrative audit from one control-only SQLite
+snapshot, without pausing or opening optional traffic history. Embedded legacy
+invocation rows are removed from the private copy and the copy is compacted; the
+live installation is not rewritten. Creation has a 30-second cooperative snapshot
+bound and reserves up to 4 GiB for bounded control staging, never the traffic budget.
+Capacity refusal leaves existing authority intact. The closed control copy is
+verified and digested before atomic publication. No raw bearer, keyring value,
+browser/MCP session, runtime handle or in-flight work is included.
+
+Existing format-0 single-store and format-2 paired artifacts keep their original
+meaning. Full verification still includes their claimed history. They are never
+silently converted, rewritten or declared valid when a payload is missing.
 
 Startup and `backup list` discover bounded metadata only; a list entry does not
 certify payload integrity. `backup get`, delete, idempotent creation and restore
@@ -76,6 +82,28 @@ serving. Malformed or unsafe inventory makes backup administration unavailable,
 never an empty inventory or permission to delete artifacts.
 
 Creation generates an idempotency key unless one is supplied. If the response is uncertain, retain the reported key and canonical `{}` digest and use a backup read before deciding whether deliberate same-tuple replay is necessary. The CLI never retries automatically. Deletion requires confirmation and read-before-retry recovery.
+
+## Export optional history
+
+History is separate from security backups. Use the authenticated read-only command:
+
+```bash
+agent-gateway history export --json
+agent-gateway history export --after-sequence 123 --limit 100 --json
+```
+
+To retain output, redirect it to a new protected file using your shell's no-clobber
+and owner-only permissions. The browser's **System → Backups → Export optional traffic
+history** reads the same bounded JSON. Neither interface repairs or removes history.
+
+Each response identifies generation, capture time, shared high-water/pruning, retained
+count, returned records, next sequence and truncation. It contains at most 256 total
+MCP/HTTP/Git records and 900 KiB from one read transaction. A later request is a **new
+snapshot**, not continuation of the previous transaction; compare generation and
+coverage before combining output. Missing records do not prove nonexecution, missing
+completion is unknown, and no export is a complete traffic audit. Unavailable history
+returns `history_unavailable`, not empty success; occupied capacity or an expired read
+returns `history_busy`. Neither failure blocks security backup/restore or forwarding.
 
 ## Verify the current installation
 
@@ -121,16 +149,45 @@ signing key; surviving retired keyring items cannot reactivate a backed-up CA.
 Key loss likewise requires a new CA. See [stopped CA management](#stopped-interception-ca-commands)
 and [proxy activation](http-proxy.md); restore neither selects a proxy nor installs client trust.
 
-Restore verifies the artifact ID, installation binding, supported schema, source revision, size, digest, and full SQLite integrity. Both backup databases must be closed: nonempty WAL/journal files refuse inspection, revalidation and restore. A CLI restore plan may replace missing or corrupt current traffic only when bounded closed-file evidence can be captured; it explicitly reports that current traffic integrity is unverified. That evidence (including absence) is compared again after consent, so a changed target refuses before staging or bearer publication. It accepts schemas 3 through the current schema 21, stages and immediately forward-migrates historical lineages, then revalidates authorization and grant-request semantics before atomically selecting only the current schema. There is no legacy-schema runtime or compatibility mode. Restore removes stale WAL/SHM sidecars; failure before selection leaves the original database generation authoritative. `maintenance verify-and-recover-storage` requires the current schema and validates the current generation rather than providing an obsolete-form migration path.
+Restore verifies artifact ID, installation, supported schema, revision, size, digest,
+SQLite integrity and staged authority. Format 3 restores security only and disables
+history capture without selecting any retained traffic file. Current control and
+artifact control must be closed; nonempty control WAL/journals, unknown security
+markers, unsafe mutation targets and conflicting stages refuse. Consent binds the
+actual control state (including selector), markers and selected artifact, not untouched
+optional history or unrelated retained artifacts. Existing history, links and journals
+are preserved without validation, repair or cleanup.
 
-Format-2 restore verifies both stores before selecting a fresh traffic generation.
-Accepted legacy single-database backups receive staged extraction; pre-invocation
-schemas legitimately restore empty history. Restored traffic preserves IDs and
-unknown outcomes but deliberately invalidates cursor continuity. No execution pin
-or pending call is restored. Retain enough free space for original, staging and
-rollback generations; the traffic database/WAL budget is not a total disk quota.
+Schemas 3 through current schema 22 are supported through staged forward migration
+and full authorization/grant-request validation. Failure before selection leaves the
+original control authoritative. There is no legacy-schema runtime. Ordinary upgrade
+preserves configuration, grants and credentials; restore deliberately invalidates
+restored authority.
 
-A successful restore preserves safe agents, grants, requests, request evidence, server configuration, and compatible history. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
+For an explicit security-only import of an old artifact:
+
+```bash
+agent-gateway maintenance restore-backup BACKUP_ID --security-only \
+  --data-dir /path/to/gateway-data \
+  --secret-output /safe/new/restored-admin-bearer --dry-run
+```
+
+The plan reports `history:"omitted-not-verified"`, including when paired history is
+missing or corrupt. This is not a whole-pair-valid claim. Original artifacts are
+unchanged; embedded history is omitted only in bounded control staging. Execute the
+same command without `--dry-run` after inspecting it, with confirmation as usual.
+Capture stays disabled until an explicit stopped migration creates/selects a new
+history generation; old unrelated history is never automatically adopted.
+
+Without `--security-only`, format-0/format-2 restore retains full history verification,
+closed-history evidence and fresh-generation extraction/restoration. Missing/corrupt
+claimed history refuses. Pre-invocation schemas legitimately restore empty history.
+IDs and unknown outcomes are preserved but cursor continuity changes. Security-only
+staging reserves 4 GiB independently of traffic; history-inclusive legacy restore
+additionally reserves the traffic stage. Originals and interrupted stages remain
+recovery evidence, not permission to delete them or retry blindly.
+
+A successful restore preserves safe agents, grants, requests, request evidence, server configuration and administrative audit; optional history follows the explicit plan. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 
 Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation in MCP-only mode, then explicitly select its replacement authority for online recovery:
 
@@ -195,7 +252,7 @@ inspect before another deliberate attempt; no automatic retry or rollback occurs
 ## Migrate existing invocation storage
 
 This is a separate schema/storage cutover, not the command rename above. Existing
-single-store installations cannot serve until explicitly migrated. Obtain consent
+single-store installations can serve security-ready with capture disabled until explicitly migrated. Obtain consent
 to stop the installation; disable its service supervisor and all other launchers.
 Retain an existing verified backup and confirm the exact installation ID and root.
 Do not run this procedure against a live user installation as a test.
@@ -260,10 +317,10 @@ Maintenance defaults to human output; `--json` selects one safe result on stdout
 
 ```json
 {"ok":true,"operation":"verify-and-recover-storage","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"0"}
-{"ok":true,"operation":"restore-backup","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"2","backup_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW"}
+{"ok":true,"operation":"restore-backup","installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","revision":"2","backup_id":"01ARZ3NDEKTSV4RRFFQ69G5FAW","history":"omitted-not-verified"}
 ```
 
-IDs and decimal-string revisions above are illustrative. Verification omits `backup_id`; neither result contains secret values or paths. These are CLI-only projections: backup files and API backup representations retain their existing fields, as do durable audit category/action pairs.
+IDs and decimal-string revisions above are illustrative. Verification omits `backup_id` and `history`; neither result contains secret values or paths. History-inclusive legacy restore reports `history:"restored"`. New backup metadata/API representations add `history:"omitted"`; old artifacts omit that member. Durable audit category/action pairs are unchanged.
 
 Success exits 0. Invalid arguments/output/flags and unusable replacement sinks exit 2 (`client_invalid_input` / `secret_output_unavailable`); missing, invalid, corrupt, or foreign backups exit 4 (`invalid_backup`); a running owner exits 5 (`gateway_running`); other recovery/storage failures exit 7 (including `storage_latched`, `inspection_unavailable`, or `maintenance_unavailable`). Output delivery failure exits 1 and can leave incomplete output after work already occurred. JSON problems have exactly `status` (null), `code`, `title`, `exit_code`, and `uncertain` (true when the owner cannot establish a mutation or selection outcome). For example:
 

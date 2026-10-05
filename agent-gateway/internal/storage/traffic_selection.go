@@ -56,6 +56,19 @@ func (store *Store) SelectTraffic(ctx context.Context, expected, generation stri
 	if !installationIDPattern.MatchString(generation) || expected != "" && !installationIDPattern.MatchString(expected) {
 		return ErrInvalidDatabase
 	}
+	return store.selectTraffic(ctx, expected, generation, "migrate")
+}
+
+// DisableTraffic is only for a verified stopped replacement: restoring security
+// never selects unrelated retained history. The selector and audit commit together.
+func (store *Store) DisableTraffic(ctx context.Context, expected string) error {
+	if expected != "" && !installationIDPattern.MatchString(expected) {
+		return ErrInvalidDatabase
+	}
+	return store.selectTraffic(ctx, expected, nil, "migrate")
+}
+
+func (store *Store) selectTraffic(ctx context.Context, expected string, generation any, action string) error {
 	return store.Mutate(ctx, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE traffic_selection SET generation=? WHERE singleton=1 AND COALESCE(generation,'')=?`, generation, expected)
 		if err != nil {
@@ -72,6 +85,6 @@ func (store *Store) SelectTraffic(ctx context.Context, expected, generation stri
 		if err := tx.QueryRowContext(ctx, `SELECT installation_id FROM gateway_meta WHERE singleton=1`).Scan(&installation); err != nil {
 			return err
 		}
-		return audit.MutationTx(audit.WithOffline(ctx), tx, time.Now(), "storage", "migrate", contract.AuditTarget{Type: "installation", ID: installation})
+		return audit.MutationTx(audit.WithOffline(ctx), tx, time.Now(), "storage", action, contract.AuditTarget{Type: "installation", ID: installation})
 	})
 }

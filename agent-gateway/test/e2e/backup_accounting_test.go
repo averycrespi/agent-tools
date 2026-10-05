@@ -41,9 +41,11 @@ func TestGatewayBinaryStatusUsesMetadataOnlyBackupAccounting(t *testing.T) {
 	check(1)
 	directory := filepath.Join(harness.root, "backups", artifact.ID)
 	// This exercises the real serving closure, not a configured status mock.
-	// Removing both database files makes any verification/content-read path fail.
+	// Removing the security database makes any verification/content-read path fail.
+	require.Equal(t, "omitted", artifact.History)
+	_, err := os.Lstat(filepath.Join(directory, "traffic.db"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 	require.NoError(t, os.Remove(filepath.Join(directory, "gateway.db")))
-	require.NoError(t, os.Remove(filepath.Join(directory, "traffic.db")))
 	check(1)
 	response = harness.adminSnapshot(http.MethodGet, "/api/v2/backups/"+artifact.ID, nil)
 	require.NotEqual(t, http.StatusOK, response.StatusCode)

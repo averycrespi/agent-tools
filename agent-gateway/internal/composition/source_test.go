@@ -356,6 +356,16 @@ var _ invocation.Service
 			want:     "internal/invocation/search.go: prohibited S4 SQL table invocations",
 		},
 		{
+			name: "history export cannot mutate evidence", path: "internal/invocation/history_export.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/history_export.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "history export cannot join mutable authority", path: "internal/invocation/history_export.go",
+			contents: "package invocation\nfunc join() { _ = `SELECT invocations.id FROM invocations JOIN principals ON 1 = 1` }\n",
+			want:     "internal/invocation/history_export.go: prohibited S4 SQL table invocations",
+		},
+		{
 			name: "S4 join in read owner", path: "internal/invocation/reads.go",
 			contents: "package invocation\nfunc join() { _ = `SELECT invocations.id FROM invocations JOIN principals ON 1 = 1` }\n",
 			want:     "internal/invocation/reads.go: prohibited S4 SQL table invocations",
@@ -468,7 +478,7 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/httpproxy/engine.go" && source.path != "internal/httpproxy/git.go" {
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/api/history_export.go" && source.path != "internal/httpproxy/engine.go" && source.path != "internal/httpproxy/git.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
 		}
 		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
@@ -689,7 +699,7 @@ func s4SQLViolations(source productionSource) []string {
 		switch source.path {
 		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go", "internal/invocation/traffic_migration.go":
 			return true
-		case "internal/invocation/reads.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
+		case "internal/invocation/reads.go", "internal/invocation/history_export.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}

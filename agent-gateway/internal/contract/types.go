@@ -112,6 +112,7 @@ type AdminCredentialRotationResult struct {
 }
 
 type Backup struct {
+	History        string `json:"history,omitempty"`
 	ID             string `json:"id"`
 	CreatedAt      string `json:"created_at"`
 	InstallationID string `json:"installation_id"`

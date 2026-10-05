@@ -277,7 +277,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
 	})
 	defer unsubscribeEvents()
-	backupManager, err := backup.New(backup.Options{Traffic: runtime.Traffic(), Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
+	backupManager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
 	if err != nil {
 		return false, err
 	}
@@ -304,6 +304,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Servers:       serverRepository,
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
+		HistoryExport: controlAPI.Invocations,
 		Invocations:   controlAPI.Invocations,
 		HTTPTraffic:   controlAPI.HTTPTraffic,
 		GitTraffic:    controlAPI.GitTraffic,
@@ -798,6 +799,7 @@ type recoveryResult struct {
 	InstallationID string `json:"installation_id"`
 	Revision       string `json:"revision"`
 	BackupID       string `json:"backup_id,omitempty"`
+	History        string `json:"history,omitempty"`
 }
 
 func offlineUsageProblem(title, usage string) *controlclient.Problem {

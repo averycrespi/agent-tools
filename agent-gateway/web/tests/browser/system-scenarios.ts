@@ -283,6 +283,7 @@ export async function runBackups(
 ): Promise<void> {
   const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FB0", "01ARZ3NDEKTSV4RRFFQ69G5FB1"];
   const backup = (index: number) => ({
+    ...(index === 1 ? { history: "omitted" } : {}),
     id: ids[index],
     created_at: `2026-08-2${8 + index}T12:00:00Z`,
     installation_id: "11111111-2222-3333-4444-555555555555",
@@ -297,6 +298,44 @@ export async function runBackups(
   let details = 0;
   let backupReadFails = false;
   let recoveryKey: string | undefined;
+  let exports = 0;
+  await page.route("**/api/v2/history/export", async (route) => {
+    exports += 1;
+    if (route.request().method() !== "GET")
+      fail("history export mutated state");
+    if (exports === 2) {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/problem+json",
+        body: JSON.stringify({
+          status: 503,
+          code: "history_unavailable",
+          title: "Optional history is unavailable.",
+        }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        format: 1,
+        installation_id: ids[0],
+        generation: ids[1],
+        captured_at: "2026-08-29T12:00:00Z",
+        high_water: "0",
+        pruning: "0",
+        retained: 0,
+        after_sequence: "0",
+        next_sequence: "0",
+        truncated: false,
+        complete_traffic_audit: false,
+        absence:
+          "Absent records do not establish nonexecution; missing completion remains unknown. Each response is a new snapshot of rolling best-effort history.",
+        records: [],
+      }),
+    });
+  });
   await page.route("**/api/v2/backups**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -422,7 +461,7 @@ export async function runBackups(
   };
   await assertSimplifiedInventory();
   await expect(rows.first().getByRole("rowheader")).toHaveText(
-    `Gateway backup${ids[0]}`,
+    `Legacy backup${ids[0]}`,
   );
   await expect(rows.first().locator('[data-label="Source"]')).toHaveText(
     "Schema 10Revision 7",
@@ -434,6 +473,23 @@ export async function runBackups(
     "datetime",
     backup(0).created_at,
   );
+  expect(exports).toBe(0);
+  const exportPanel = page.getByTestId("history-export");
+  await exportPanel.locator("summary").click();
+  await exportPanel.getByRole("button", { name: "Read export" }).click();
+  await expect(exportPanel.getByLabel("History export JSON")).toContainText(
+    '"complete_traffic_audit": false',
+  );
+  await captureFrontend(page, "backup-history-export");
+  await exportPanel.getByRole("button", { name: "Read export" }).click();
+  await expect(
+    exportPanel.getByText("History export unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(exportPanel.getByLabel("History export JSON")).toHaveCount(0);
+  await captureFrontend(page, "backup-history-unavailable");
+  expect(exports).toBe(2);
+  expect(creates).toBe(0);
+  await exportPanel.locator("summary").click();
   await page.locator('[data-testid="backup-create"]').click();
   await captureFrontend(page, "backup-create");
   await page
@@ -459,6 +515,7 @@ export async function runBackups(
   await page.locator('[data-testid="backup-replay"]').click();
   await page.getByText(/is durably published/).waitFor();
   await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText("Security backup · history omitted");
   await expect(rows.first()).toContainText(ids[1]!);
   await inventory.getByRole("button", { name: "Size", exact: true }).click();
   await expect(rows.first()).toContainText(ids[0]!);

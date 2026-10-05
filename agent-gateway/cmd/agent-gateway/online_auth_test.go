@@ -94,7 +94,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"git traffic list", "git traffic get ID",
 			"http grant list", "http grant get ID", "http default get ID", "http test-access --file PATH",
 			"http credential list", "http credential get ID", "http traffic list", "http traffic get ID",
-			"audit list", "audit get AUDIT_EVENT_ID",
+			"audit list", "audit get AUDIT_EVENT_ID", "history export",
 			"admin credential list", "admin credential get ID", "backup list", "backup get BACKUP_ID",
 			"mcp server list", "mcp server get ID", "mcp server operation list ID", "mcp server operation get ID OPERATION_ID",
 			"mcp server auth-flow list ID", "mcp server auth-flow get ID FLOW_ID", "mcp server descriptor list ID", "mcp server descriptor get ID TOOL_ID",

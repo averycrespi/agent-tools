@@ -30,6 +30,8 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runHTTPPolicy(command, options, args, "test-access", "preview")
 	case "http credential list", "http credential get", "http credential create", "http credential update", "http credential rotate", "http credential delete":
 		return runHTTPCredential(command, options, args, spec.Path[len(spec.Path)-1])
+	case "history export":
+		return runHistoryExport(command, options)
 	case "audit list", "audit get":
 		return runAuditRead(command, options, args)
 	case "status":

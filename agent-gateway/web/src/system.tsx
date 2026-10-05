@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useUnsavedChanges } from "./navigation";
+import { readHistoryExport, type HistoryExport } from "./history-export";
 import { parseFragment } from "./location";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
@@ -53,6 +54,7 @@ type AdminCredential = {
 };
 type CreatedAdminCredential = AdminCredential & { bearer: string };
 type Backup = {
+  history: "omitted" | "legacy";
   id: string;
   createdAt: string;
   installationID: string;
@@ -134,7 +136,12 @@ function decodeCreatedCredential(value: unknown): CreatedAdminCredential {
 }
 
 function decodeBackup(value: unknown): Backup {
+  const historyKeys =
+    value !== null && typeof value === "object" && "history" in value
+      ? ["history"]
+      : [];
   const item = record(value, [
+    ...historyKeys,
     "id",
     "created_at",
     "installation_id",
@@ -148,6 +155,7 @@ function decodeBackup(value: unknown): Backup {
   if (
     !gatewayID.test(id) ||
     !/^[0-9a-f]{64}$/.test(sha256) ||
+    (historyKeys.length > 0 && item.history !== "omitted") ||
     typeof item.size_bytes !== "number" ||
     !Number.isSafeInteger(item.size_bytes) ||
     item.size_bytes < 0
@@ -160,6 +168,7 @@ function decodeBackup(value: unknown): Backup {
     schemaVersion: text(item.schema_version),
     sourceRevision: text(item.source_revision),
     sizeBytes: item.size_bytes,
+    history: item.history === "omitted" ? "omitted" : "legacy",
     sha256,
   };
 }
@@ -291,12 +300,29 @@ export class SystemController {
   private value: StatusView | undefined;
   private credentials: AdminCredential[] | undefined;
   private backups: Backup[] | undefined;
+  private history: HistoryExport | undefined;
+  private readonly historyListeners = new Set<
+    (value: HistoryExport | undefined) => void
+  >();
+  private readonly views: ViewCoordinator;
 
   constructor(
     session: SessionClient,
     views: ViewCoordinator,
     setStorageLatched: (latched: boolean) => void,
   ) {
+    this.views = views;
+    views.registerPanel({
+      id: "history-export",
+      matches: (viewKey) => tab(viewKey) === "backups",
+      invalidations: [],
+      shouldRefresh: (reason) => reason === "panel",
+      read: (context) => readHistoryExport(context.csrfToken, context.signal),
+      publish: (value) => {
+        this.history = value;
+        for (const listener of this.historyListeners) listener(value);
+      },
+    });
     views.registerPanel({
       id: "mutation-latch",
       matches: () => true,
@@ -354,6 +380,8 @@ export class SystemController {
       this.value = undefined;
       this.credentials = undefined;
       this.backups = undefined;
+      this.history = undefined;
+      for (const listener of this.historyListeners) listener(undefined);
       setStorageLatched(false);
       this.emit();
       this.emitCredentials();
@@ -379,6 +407,18 @@ export class SystemController {
     this.credentialListeners.add(listener);
     listener(this.credentials);
     return () => this.credentialListeners.delete(listener);
+  }
+
+  exportHistory(): void {
+    void this.views.refreshPanel("history-export");
+  }
+
+  subscribeHistory(
+    listener: (value: HistoryExport | undefined) => void,
+  ): () => void {
+    this.historyListeners.add(listener);
+    listener(this.history);
+    return () => this.historyListeners.delete(listener);
   }
 
   backupSnapshot(): Backup[] | undefined {
@@ -895,12 +935,14 @@ function ResourceLimits({
 
 function Backups({
   backups,
+  controller: systemController,
   view,
   mutations,
   onRefresh,
   createMode,
 }: {
   backups: Backup[] | undefined;
+  controller: SystemController;
   view: ViewSnapshot;
   mutations: MutationCoordinator;
   onRefresh: () => void;
@@ -912,6 +954,13 @@ function Backups({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
+  const [history, setHistory] = useState<HistoryExport>();
+  const [exportRequested, setExportRequested] = useState(false);
+  useEffect(
+    () => systemController.subscribeHistory(setHistory),
+    [systemController],
+  );
+  const historyPanel = view.panels["history-export"];
   const [deleting, setDeleting] = useState<Backup>();
   const [notice, setNotice] = useState<string>();
   const createButton = useRef<HTMLButtonElement>(null);
@@ -1000,8 +1049,10 @@ function Backups({
           </div>
         </div>
         <p>
-          A backup is an immutable owner-only recovery artifact. Restore remains
-          a stopped-process operation documented in the operator guide.
+          Security backups are immutable owner-only artifacts containing
+          configuration, authority and administrative audit. Traffic history is
+          omitted. Restore invalidates credentials and disables history capture;
+          it remains a stopped-process operation.
         </p>
         {mutation.availability === "storage_latched" && (
           <StateNotice state="error" title="Storage mutation is closed" />
@@ -1045,7 +1096,7 @@ function Backups({
           id="backup-create-confirm"
           open={mutation.state === "confirming"}
           title="Review backup"
-          consequence="Create one immutable owner-only backup artifact. Restore remains a separate stopped-process operation."
+          consequence="Create one security-only recovery artifact. Optional traffic history is omitted. Restore remains a separate stopped-process operation."
           confirmLabel="Create backup"
           returnFocus={createButton}
           onCancel={() => controller.abandon()}
@@ -1078,6 +1129,55 @@ function Backups({
           Create backup
         </a>
       </div>
+      <details class="detail-group" data-testid="history-export">
+        <summary>Export optional traffic history</summary>
+        <p>
+          One bounded MCP, HTTP and Git snapshot, separate from security
+          backups. Missing records never prove nonexecution.
+        </p>
+        <button
+          type="button"
+          disabled={historyPanel?.refreshing === true}
+          onClick={() => {
+            setExportRequested(true);
+            systemController.exportHistory();
+          }}
+        >
+          Read export
+        </button>
+        {exportRequested && historyPanel?.refreshing === true && (
+          <StateNotice state="loading" title="Reading history export" />
+        )}
+        {exportRequested && historyPanel?.status === "error" && (
+          <StateNotice state="error" title="History export unavailable">
+            Security backup and restore do not require history.
+          </StateNotice>
+        )}
+        {exportRequested &&
+          history !== undefined &&
+          historyPanel?.status === "current" && (
+            <>
+              <p>
+                {history.records} of {history.retained} retained records in
+                generation <code>{history.generation}</code>.{" "}
+                {history.truncated
+                  ? `Truncated; the next export can start after sequence ${history.nextSequence}.`
+                  : "No further retained records in this snapshot."}
+              </p>
+              <pre
+                class="inert-json"
+                tabIndex={0}
+                aria-label="History export JSON"
+              >
+                {history.json}
+              </pre>
+            </>
+          )}
+        <p>
+          For file output: <code>agent-gateway history export --json</code>.
+          Each export reads a new snapshot, not a complete traffic audit.
+        </p>
+      </details>
       {mutation.availability === "storage_latched" && (
         <StateNotice state="error" title="Storage mutation is closed">
           <p>
@@ -1136,7 +1236,14 @@ function Backups({
               label: "Backup",
               role: "identity",
               render: (backup) => (
-                <TableIdentity primary="Gateway backup" secondary={backup.id} />
+                <TableIdentity
+                  primary={
+                    backup.history === "omitted"
+                      ? "Security backup · history omitted"
+                      : "Legacy backup"
+                  }
+                  secondary={backup.id}
+                />
               ),
             },
             {
@@ -1722,6 +1829,7 @@ export function System({
       ) : current === "backups" ? (
         <Backups
           backups={backups}
+          controller={controller}
           view={view}
           mutations={mutations}
           onRefresh={onRefresh}

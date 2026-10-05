@@ -46,6 +46,7 @@ var documentationCommandFamilies = []DocumentationCommandFamily{
 	{ID: "docs.command.audit", CommandPath: "audit", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway audit --help"},
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway admin credential --help"},
 	{ID: "docs.command.admin.reset", CommandPath: "maintenance reset-admin-credentials", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway maintenance reset-admin-credentials --help"},
+	{ID: "docs.command.history", CommandPath: "history", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway history --help"},
 	{ID: "docs.command.backup", CommandPath: "backup", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway backup --help"},
 	{ID: "docs.command.catalog", CommandPath: "mcp catalog", CanonicalOwner: "docs/operators/upstream-servers.md", HelpInvocation: "agent-gateway mcp catalog --help"},
 	{ID: "docs.command.grant", CommandPath: "mcp grant", CanonicalOwner: "docs/operators/access-control.md", HelpInvocation: "agent-gateway mcp grant --help"},

@@ -22,6 +22,8 @@ const (
 	ProblemMisdirectedRequest                 ProblemCode = "misdirected_request"
 	ProblemResourceLimit                      ProblemCode = "resource_limit"
 	ProblemStorageUnavailable                 ProblemCode = "storage_unavailable"
+	ProblemHistoryUnavailable                 ProblemCode = "history_unavailable"
+	ProblemHistoryBusy                        ProblemCode = "history_busy"
 	ProblemKeyringUnavailable                 ProblemCode = "keyring_unavailable"
 	ProblemShuttingDown                       ProblemCode = "shutting_down"
 	ProblemInvalidServerConfiguration         ProblemCode = "invalid_server_configuration"
@@ -104,6 +106,8 @@ var problems = []Problem{
 	{Status: 412, Code: ProblemStaleAdminAuthority, Title: "The administrator authority revision is stale."},
 	{Status: 428, Code: ProblemAdminAuthorityPreconditionRequired, Title: "The administrator authority revision is required."},
 	{Status: 409, Code: ProblemAuditHistoryReplaced, Title: "The audit history generation has changed."},
+	{Status: 503, Code: ProblemHistoryUnavailable, Title: "Optional history is unavailable; security operations remain independent."},
+	{Status: 503, Code: ProblemHistoryBusy, Title: "Optional history export capacity or deadline was exceeded."},
 }
 
 func Problems() []Problem {

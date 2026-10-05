@@ -83,6 +83,26 @@ MCP invocation reads have moved from `/api/v2/invocations` and its item resource
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned separately snapshotted principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
 
+## Optional history export
+
+`GET` on `/api/v2/history/export` uses administrator bearer/session authority, bodyless
+`no-store` reads (`HistoryExportQuery` → `HistoryExport`). Singleton query members
+are canonical nonnegative int64 `after_sequence` (default 0) and `limit` (default/max
+256, minimum 1). Unknown, empty, duplicate or noncanonical members refuse.
+
+Format 1 export returns installation/generation, UTC capture time, decimal-string
+high-water/pruning and after/next sequence, retained count, `truncated`, protocol-tagged
+records, `complete_traffic_audit:false`, and explicit absence semantics. The response
+contains at most 256 aggregate records and 900 KiB from one transaction. A subsequent
+request is a new snapshot, not a frozen continuation. Missing observations never prove
+nonexecution; missing completion remains unknown. `history_unavailable` (503) means
+optional history cannot be read; `history_busy` (503) means reader capacity or deadline
+refusal. Neither is a control-security failure. See [storage and recovery](storage-and-recovery.md#independent-history-export).
+
+New backup representations additionally carry `history:"omitted"` for distinct format-3
+security artifacts. Legacy representations omit it; full artifact reads retain their
+original verification requirements. Inventory remains metadata-only.
+
 ## Recorded activity summary
 
 `GET /api/v2/recorded-activity` is an authenticated, bodyless, queryless, read-only `no-store` resource (`None` → `RecordedActivitySummary`). It observes bounded process-local acknowledged traffic-write counts; it neither scans retained history nor calls downstream services. A missing observer returns unavailable, never successful empty counts. Session, Origin, work-admission and shutdown rules remain with the existing administration boundary.
@@ -392,6 +412,8 @@ Problems normally have exactly `status`, `code`, and `title`. The `invalid_serve
 |    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                             |
 |    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                        |
 |    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                             |
+|    503 | `history_unavailable`                   | Optional history is unavailable; security operations remain independent.                    |
+|    503 | `history_busy`                          | Optional history export capacity or deadline was exceeded.                                  |
 
 ## Fixed numeric limits
 

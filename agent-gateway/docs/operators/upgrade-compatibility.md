@@ -11,6 +11,26 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 3. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
 4. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
+## Security backup and history separation
+
+Upgrade CLI/API consumers and reload browser tabs together. New backups use distinct
+format 3 and add `history:"omitted"` to their representation; format 0 and paired
+format 2 retain their original verification semantics. Older binaries must reject
+format 3 rather than reinterpret it. Preserve old artifacts for rollback; never edit
+metadata or rewrite an original to manufacture compatibility.
+
+New security-only restore disables capture, preserves retained traffic files and
+reports `history:"omitted-not-verified"`. Explicit `--security-only` imports old inputs
+without claiming their omitted history was verified. History-inclusive legacy restore
+still requires every claimed payload and reports `history:"restored"`. Every restore
+invalidates restored agent/HTTP/Git/CA authority and rekeys administration. This differs
+from an ordinary upgrade, which preserves live configuration, grants and credentials.
+Use separate `history export --json` or the browser export disclosure for bounded
+rolling history; no export proves complete traffic coverage or safe replay. See the
+[recovery guide](backup-and-recovery.md) for staging, consent and preservation rules.
+No installed-resource mutation or live qualification is authorized by this source
+cutover.
+
 ## HTTP URL compatibility expansion
 
 Before deploying this change, review HTTP defaults, any-path and root/ancestor-prefix

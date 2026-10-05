@@ -49,16 +49,16 @@ func TestAccountingNeverReadsDatabaseContentsAndRetainsVerification(t *testing.T
 		}
 		t.Run(name, func(t *testing.T) {
 			manager, control, owner := newBackupManager(t, nil)
+			var history *invocation.TrafficStore
 			if paired {
 				generation := "01ARZ3NDEKTSV4RRFFQ69G5FA0"
 				traffic, err := invocation.CreateTraffic(t.Context(), owner, backupTestInstallationID, generation, invocation.DefaultTrafficConfig())
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, traffic.Close()) })
 				require.NoError(t, control.SelectTraffic(t.Context(), "", generation))
-				manager.traffic = traffic
+				history = traffic
 			}
-			created, _, err := manager.Create(t.Context(), "authority", "no-content")
-			require.NoError(t, err)
+			created := legacyArtifact(t, manager, history)
 			directory := filepath.Join(owner.Layout().Backups, created.ID)
 			// Preserve metadata, but remove every database: any SQLite/hash/content path
 			// must fail, while metadata occupancy must still report the artifact.
@@ -76,7 +76,7 @@ func TestAccountingNeverReadsDatabaseContentsAndRetainsVerification(t *testing.T
 			_, err = manager.Get(t.Context(), created.ID)
 			require.ErrorIs(t, err, ErrInvalidArtifact)
 			require.ErrorIs(t, manager.Delete(t.Context(), created.ID), ErrInvalidArtifact)
-			_, _, err = manager.Create(t.Context(), "authority", "no-content")
+			_, _, err = manager.Create(t.Context(), "authority", "legacy-fixture")
 			require.ErrorIs(t, err, ErrInvalidArtifact)
 		})
 	}

@@ -110,6 +110,13 @@ func OpenReplacement(ctx context.Context, ownership *gatewaypaths.Ownership, pat
 	return store, nil
 }
 
+// CompactReplacement removes freed pages from a private, unselected stage.
+// Callers reserve control-sized database, WAL and compaction headroom first.
+func (store *Store) CompactReplacement(ctx context.Context) error {
+	_, err := store.database.ExecContext(ctx, `VACUUM`)
+	return err
+}
+
 // Checkpoint closes the replacement's WAL into its database file before generation publication.
 func (store *Store) Checkpoint(ctx context.Context) error {
 	var busy, logFrames, checkpointed int

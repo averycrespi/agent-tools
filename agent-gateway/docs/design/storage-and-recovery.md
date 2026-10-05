@@ -238,15 +238,27 @@ Authorization separately owns general stopped-stage credential surgery on a supp
 
 The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, and `maintenance migrate-traffic-storage`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
 
-Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Security-only verification and administrator reset hash the closed control database and marker slots; this also binds the control-owned selector without reading untouched optional history. Explicit migration and restore additionally inspect and bind their history targets; restore verifies the selected artifact metadata and payloads. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
+Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Security-only verification and administrator reset hash the closed control database and marker slots; this also binds the control-owned selector without reading untouched optional history. Explicit migration and history-inclusive restore additionally inspect and bind their history targets. Security-only restore binds only control, security markers and independently verified artifact control; untouched optional history and unrelated retained artifacts do not participate in approval. A changed control-owned selector still invalidates consent. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
 
-CLI success projections use `operation:"verify-and-recover-storage"` or `operation:"restore-backup"`, with no `mode` member. Both retain `ok`, `installation_id`, and decimal-string `revision`; only restore has `backup_id`. This projection is separate from durable backup metadata and audit vocabulary. Exact JSON, typed exits, stopped-service prerequisites, and rollback/uncertainty procedures are published in the [operator recovery guide](../operators/backup-and-recovery.md#structured-results-and-exits). No command rename alters data-root precedence, schema support, installed service argv, installation/credential/keyring identities, lineage, or recovery markers. No automatic replay or compensation is added.
+CLI success projections use `operation:"verify-and-recover-storage"` or `operation:"restore-backup"`, with no `mode` member. Both retain `ok`, `installation_id`, and decimal-string `revision`; only restore has `backup_id` and `history` (`omitted-not-verified` or `restored`). This projection is separate from durable backup metadata and audit vocabulary. Exact JSON, typed exits, stopped-service prerequisites, and rollback/uncertainty procedures are published in the [operator recovery guide](../operators/backup-and-recovery.md#structured-results-and-exits). No command rename alters data-root precedence, schema support, installed service argv, installation/credential/keyring identities, lineage, or recovery markers. No automatic replay or compensation is added.
 
 ## Backup and generation replacement
 
 ### Backup publication
 
-Format 2 binds the control selector and installation to a verified traffic
+New artifacts use distinct **format 3**, with `history:"omitted"` in metadata and
+public backup representations. They contain only the control database and metadata,
+not a traffic database. Creation pins one control-only SQLite snapshot with a
+30-second cooperative lifetime, then removes embedded legacy invocation rows from
+the private copy and compacts it before verification/digest/publication. It never
+acquires the traffic writer, opens history, validates omitted history or reserves
+traffic-sized staging. The control copy, compaction and WAL use a cooperative
+four-times-control-limit reservation (4 GiB), independent of history occupancy or
+budget. Configuration, authority and administrative audit remain intact. Inventory
+continues to enforce safe metadata, formats and the fixed record bound.
+
+Format 0 remains the original single-store artifact and format 2 remains a fully
+verified pair. Neither is reinterpreted as security-only. Existing format 2 binds the control selector and installation to a verified traffic
 generation, with independent sizes, SHA-256 digests and traffic budget metadata.
 Under a one-second maximum admission/writer pause, Gateway pins exact coherent
 SQLite read connections for both stores. Actual acquisition overruns fail even
@@ -283,11 +295,8 @@ to 4096; excess or malformed inventory is explicit backup-administration
 unavailability, never healthy zero or automatic deletion. Backup-manager construction
 does not fail security startup for an inventory error. Creation/publication,
 selected get/delete, idempotent creation and stopped restore retain full verification.
-A listed artifact establishes inventory presence, not restore integrity. The current
-paired creation format still needs ready history; changing that format is separate
-from optional serving. Metadata
-accounting is not restore or mutation authorization; supported artifact formats
-and the successful status representation are unchanged.
+A listed artifact establishes inventory presence, not restore integrity. New creation uses the history-independent format 3. Metadata accounting is not
+restore or mutation authorization; the successful status representation is unchanged.
 
 ### Generation replacement
 
@@ -296,11 +305,43 @@ and publishes a generation-addressed traffic file first, then installs its match
 control selector by one atomic rename. The original control inode is checkpointed
 and retained under a unique `.previous-*` name before replacement; old traffic and
 interrupted stages remain. Two fixed-file renames are never described as atomic.
-Initial setup creates the matching pair before publishing authority. Restore uses
+Initial setup creates the matching pair before publishing authority. An explicitly history-inclusive legacy restore uses
 a fresh traffic generation, invalidating history cursors while preserving IDs,
 high-water, pruning and unknown outcomes. Legacy single-store backups receive
 bounded semantic evidence validation and stopped extraction; accepted schemas
 before invocation history legitimately extract an empty store. No path restores
 execution pins or falls back to empty history.
 
-Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete generation. Accepted schema-3-through-current (currently 22) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
+Format-3 restore and explicit `--security-only` imports of format 0 or 2 retain
+stopped-exclusive ownership, current closed-control/marker checks, independently
+verified control metadata, size, digest, schema and staged authority validation.
+They publish a coherent control replacement with a NULL history selector, never an
+unrelated existing history generation. Selector disabling is audited in the supplied
+transaction. Legacy embedded rows are omitted only from the bounded private stage,
+which is compacted before installation; originals are unchanged. Missing/corrupt
+paired history is not read and is reported `omitted-not-verified`, never a valid
+whole pair. Full `backup get`/delete and default legacy restore still verify every
+claimed history payload. Unknown or conflicting control markers, control WAL/journals,
+unsafe mutation targets and preexisting restore stages refuse. Unrelated retained
+artifacts, including unsafe history paths, are neither followed nor removed.
+
+Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete control generation. Accepted schema-3-through-current (currently 22) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
+
+### Independent history export
+
+`GET /api/v2/history/export` and `history export` materialize one existing bounded
+read-only traffic transaction. The administrator-only response identifies installation,
+generation, capture time, high-water, pruning, retained count, requested/next sequence,
+truncation and protocol-tagged full MCP/HTTP/Git records. At most 256 aggregate records
+and 900 KiB are returned, within the existing one-second reader lifetime and immediate
+capacity refusal. There is no control mutation, traffic writer pause, export job,
+filesystem stage, execution queue or replay. Security backup and restore do not depend
+on export success. Unavailable history is `history_unavailable`, never a successful
+empty export; capacity/deadline failure is `history_busy`.
+
+Coverage is only that response's rolling-history snapshot, not a complete traffic
+audit. `after_sequence` requests a new transaction, not a continuation of a frozen
+snapshot: completion, pruning and generation can change between calls. Consumers
+must compare generation/coverage; absent rows never establish nonexecution and missing
+completion remains unknown. Export neither repairs nor deletes original files,
+unsafe paths, journals or interrupted stages.

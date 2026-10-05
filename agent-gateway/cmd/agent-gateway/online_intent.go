@@ -150,6 +150,14 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 	switch strings.Join(spec.Path, " ") {
 	case "mcp server list", "mcp server descriptor list", "mcp server operation list", "mcp catalog list":
 		maximumPage = 50
+	case "history export":
+		maximumPage = contract.HistoryExportMaxRecords
+		if command.Flags().Changed("after-sequence") && *options.filters["after-sequence"] == "" {
+			return controlclient.NewInputError("The --after-sequence must be a nonnegative integer.")
+		}
+		if _, err := historyExportPath(options); err != nil {
+			return controlclient.NewInputError("Use a nonnegative --after-sequence and --limit between 1 and 256.")
+		}
 	}
 	if command.Flags().Changed("limit") && (options.limit < 1 || options.limit > maximumPage) {
 		return controlclient.NewInputError("The page limit is invalid.")
