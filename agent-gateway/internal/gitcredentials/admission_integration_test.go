@@ -30,9 +30,6 @@ func TestIntegrationGitCredentialMutationFencesPendingAdmission(t *testing.T) {
 	require.NotNil(t, evaluation.Candidate)
 	_, err = s.Rotate(ctx, created.ID, created.Revision, []byte("rotated-pending-private-canary"))
 	require.NoError(t, err)
-	_, err = s.authority.ConfirmEvaluation(ctx, evaluation.Candidate, installation, func(contract.AuthorizationResult, func() bool) bool {
-		t.Fatal("older pending admission confirmed after credential rotation")
-		return false
-	})
+	_, err = s.authority.ConfirmEvaluation(ctx, evaluation.Candidate, installation)
 	require.Error(t, err)
 }

@@ -15,18 +15,12 @@ func TestHTTPTrafficReadsSeparateDomainsAndBindCursors(t *testing.T) {
 	reader, err := NewReadService(audits, authority)
 	require.NoError(t, err)
 	for n := 1; n <= 3; n++ {
-		receipt, err := traffic.AdmitHTTP(t.Context(), httpTrafficAdmission(n))
-		require.NoError(t, err)
+		observation := recordHTTP(t, traffic, httpTrafficAdmission(n))
 		if n == 3 {
-			require.True(t, traffic.Confirm(t.Context(), receipt))
-			require.NoError(t, traffic.CompleteHTTP(t.Context(), receipt, httpTrafficCompletion()))
-		} else {
-			traffic.Release(receipt)
+			recordHTTPCompletion(t, traffic, observation, httpTrafficCompletion())
 		}
 	}
-	mcp, err := traffic.Admit(t.Context(), trafficPrepared(4))
-	require.NoError(t, err)
-	traffic.Release(mcp)
+	recordMCP(t, traffic, trafficPrepared(4))
 	query := contract.HTTPTrafficQuery{Limit: 1}
 	page, err := reader.ListHTTP(t.Context(), query)
 	require.NoError(t, err)

@@ -67,7 +67,6 @@ func TestTrafficStoppedMigrationPreservesEvidenceAndSelection(t *testing.T) {
 			require.NotNil(t, history.Records[0].TerminalClass)
 			assert.Equal(t, contract.TerminalDownstreamFailure, *history.Records[0].TerminalClass)
 			assert.Equal(t, diagnostic, history.Records[0].Diagnostics)
-			assert.Empty(t, traffic.pins)
 		})
 	}
 }

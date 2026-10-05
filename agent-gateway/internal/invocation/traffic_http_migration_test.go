@@ -16,13 +16,12 @@ import (
 func legacyTrafficFixture(t *testing.T) (*TrafficStore, func(func(string) error) (*TrafficStore, error)) {
 	t.Helper()
 	s, owner := trafficFixture(t, nil, nil)
-	receipt, err := s.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), receipt))
+	observation := recordMCP(t, s, trafficPrepared(1))
 	completion := trafficCompletion()
 	completion.Class = contract.TerminalDownstreamFailure
-	require.NoError(t, s.complete(t.Context(), receipt, completion, &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: "protocol", Reason: "rpc_error"}}))
-	_, err = s.db.ExecContext(t.Context(), `DROP TABLE git_traffic; DROP TABLE http_traffic; PRAGMA user_version=1`)
+	require.NoError(t, s.ObserveMCPCompletion(observation, completion, &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: "protocol", Reason: "rpc_error"}}))
+	waitTraffic(t, s)
+	_, err := s.db.ExecContext(t.Context(), `DROP TABLE git_traffic; DROP TABLE http_traffic; PRAGMA user_version=1`)
 	require.NoError(t, err)
 	require.NoError(t, trafficCheckpoint(t.Context(), s.db))
 	require.NoError(t, s.Close())
@@ -71,9 +70,7 @@ func TestTrafficHTTPStartupRejectsCorruptEvidence(t *testing.T) {
 	for _, mode := range []string{"decision", "charge", "cross-domain identity"} {
 		t.Run(mode, func(t *testing.T) {
 			s, owner := trafficFixture(t, nil, nil)
-			receipt, err := s.Admit(t.Context(), trafficPrepared(1))
-			require.NoError(t, err)
-			s.Release(receipt)
+			recordMCP(t, s, trafficPrepared(1))
 			admission := httpTrafficAdmission(2)
 			if mode == "cross-domain identity" {
 				admission.ID = invocationID(1)

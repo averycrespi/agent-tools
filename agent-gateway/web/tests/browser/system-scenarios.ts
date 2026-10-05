@@ -3192,7 +3192,7 @@ export async function runSystemStatus(
   ).toBeVisible();
   await expect(
     statusPanel.getByText(
-      "New dispatch is blocked by control or traffic storage.",
+      "New dispatch is blocked by control authority or lifecycle state.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -3258,7 +3258,7 @@ export async function runSystemStatus(
   for (const faulted of [false, true]) {
     currentStatus = {
       ...currentStatus,
-      http_proxy: { ...currentStatus.http_proxy, ready: !faulted },
+      http_proxy: { ...currentStatus.http_proxy, ready: true },
       traffic: {
         ...currentStatus.traffic,
         ready: !faulted,
@@ -3279,6 +3279,17 @@ export async function runSystemStatus(
         .getAttribute("data-mutation-availability")) !== "enabled"
     )
       fail("Traffic-only failure disabled healthy administration");
+    if (faulted) {
+      await expect(
+        page.getByText(
+          "Traffic history is unavailable. Authorized MCP, HTTP and Git execution can continue; missing records do not prove nonexecution.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(
+        page.getByText("HTTP proxy is unavailable", { exact: true }),
+      ).toHaveCount(0);
+    }
     await expect(
       page.getByText("Shared traffic storage", { exact: true }),
     ).toBeVisible();

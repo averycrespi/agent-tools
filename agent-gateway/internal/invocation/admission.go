@@ -2,7 +2,6 @@ package invocation
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
@@ -20,11 +19,11 @@ type AuditAdmissionRequest struct {
 }
 
 type AdmissionResult struct {
-	receipt            *TrafficReceipt
+	observation        *TrafficObservation
 	InvocationID       string
 	Class              contract.InvocationAdmissionClass
 	Decision           *contract.AuthorizationDecision
-	Committed          bool
+	Evaluated          bool
 	DispatchAuthorized bool
 	Subject            *authorization.AdmittedSubject
 }
@@ -41,128 +40,64 @@ func NewAdmissionCoordinator(audits *Repository, authority *authorization.Reposi
 	return &AdmissionCoordinator{audits: audits, authority: authority}, nil
 }
 
-func (coordinator *AdmissionCoordinator) Admit(
-	ctx context.Context,
-	lease *authorization.Lease,
-	identity PreparedAdmission,
-	request AuditAdmissionRequest,
-) (AdmissionResult, error) {
-	if coordinator.audits.traffic != nil {
-		return coordinator.admitTraffic(ctx, lease, identity, request)
-	}
+func (c *AdmissionCoordinator) Admit(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, request AuditAdmissionRequest) (AdmissionResult, error) {
 	result := AdmissionResult{InvocationID: identity.InvocationID}
-	if lease == nil || !validAdmissionIdentity(identity) || !validAuditAdmissionRequest(request) {
+	if lease == nil || !validExecutionRequest(request) {
 		return result, ErrInvalidInput
 	}
-	var pending *authorization.PendingDetachment
-	err := coordinator.authority.WithAdmission(ctx, lease, func(admission *authorization.Admission) error {
-		mutationErr := coordinator.audits.mutate(ctx, func(transaction *sql.Tx) error {
-			binding := lease.Binding()
-			evidence := Admission{
-				Admission: activity.Admission{
-					PrincipalID: binding.PrincipalID, CredentialID: binding.CredentialID,
-					CredentialFingerprint: binding.CredentialFingerprint, CredentialRevision: binding.CredentialRevision,
-					Class: request.Class,
-				},
-				MCP: request.MCP,
-			}
-			if request.Class != contract.AdmissionEvaluated {
-				if _, err := admission.VerifyBindingOnlyTx(ctx, transaction); err != nil {
-					return err
-				}
-				prepared, err := identity.WithAdmission(evidence)
-				if err != nil {
-					return err
-				}
-				if err := coordinator.audits.InsertTx(ctx, transaction, prepared); err != nil {
-					return err
-				}
-				result.Class = request.Class
-				return nil
-			}
-
-			authorizationResult, detachment, phase, err := admission.VerifyResolvedTx(ctx, transaction, authorization.ResolvedVerification{
-				Target: request.MCP.Route.Target, ReadOnlyHint: request.ReadOnlyHint,
-				Arguments: request.Arguments, ObservedAuthorizationRevision: request.ObservedAuthorizationRevision,
-			})
-			if err != nil {
-				if phase != authorization.ResolvedBindingVerified || !errors.Is(err, authorization.ErrAuthorizationUnavailable) {
-					return err
-				}
-				evidence.Class = contract.AdmissionAuthorizationUnavailable
-				prepared, prepareErr := identity.WithAdmission(evidence)
-				if prepareErr != nil {
-					return prepareErr
-				}
-				if insertErr := coordinator.audits.InsertTx(ctx, transaction, prepared); insertErr != nil {
-					return insertErr
-				}
-				result.Class = contract.AdmissionAuthorizationUnavailable
-				return nil
-			}
-			if phase != authorization.ResolvedEvaluated {
-				return authorization.ErrAuthorizationUnavailable
-			}
-			evidence.Authorization = &activity.Authorization{
-				Decision: authorizationResult.Decision, AuthorizationRevision: authorizationResult.AuthorizationRevision,
-				EvaluatedAt: authorizationResult.EvaluatedAt, GrantID: authorizationResult.GrantID,
-			}
-			prepared, err := identity.WithAdmission(evidence)
-			if err != nil {
-				return err
-			}
-			if err := coordinator.audits.InsertTx(ctx, transaction, prepared); err != nil {
-				return err
-			}
-			decision := authorizationResult.Decision
-			result.Class = contract.AdmissionEvaluated
-			result.Decision = &decision
-			pending = detachment
-			return nil
-		})
-		if mutationErr != nil {
-			return mutationErr
-		}
-		result.Committed = true
-		if pending == nil {
-			return nil
-		}
-		if err := pending.CommitSucceeded(); err != nil {
-			return err
-		}
-		subject, err := pending.Subject()
-		if err != nil {
-			return err
-		}
-		result.Subject = &subject
-		result.DispatchAuthorized = true
-		return nil
-	})
-	if err == nil && result.Committed {
-		coordinator.audits.publish(result.InvocationID)
+	var resolved *authorization.ResolvedVerification
+	if request.Class == contract.AdmissionEvaluated {
+		resolved = &authorization.ResolvedVerification{Target: request.MCP.Route.Target, ReadOnlyHint: request.ReadOnlyHint, Arguments: request.Arguments, ObservedAuthorizationRevision: request.ObservedAuthorizationRevision}
 	}
-	return result, err
+	evaluation, err := c.authority.EvaluateAdmission(ctx, lease, identity.InvocationID, resolved)
+	binding := lease.Binding()
+	evidence := Admission{Admission: activity.Admission{PrincipalID: binding.PrincipalID, CredentialID: binding.CredentialID, CredentialFingerprint: binding.CredentialFingerprint, CredentialRevision: binding.CredentialRevision, Class: request.Class}, MCP: request.MCP}
+	if err != nil {
+		if evaluation.Phase != authorization.ResolvedBindingVerified || !errors.Is(err, authorization.ErrAuthorizationUnavailable) {
+			return result, err
+		}
+		evidence.Class = contract.AdmissionAuthorizationUnavailable
+	} else if resolved != nil {
+		if evaluation.Phase != authorization.ResolvedEvaluated {
+			return result, authorization.ErrAuthorizationUnavailable
+		}
+		evidence.Authorization = &activity.Authorization{Decision: evaluation.Result.Decision, AuthorizationRevision: evaluation.Result.AuthorizationRevision, EvaluatedAt: evaluation.Result.EvaluatedAt, GrantID: evaluation.Result.GrantID}
+		decision := evaluation.Result.Decision
+		result.Decision = &decision
+	}
+	result.Evaluated, result.Class = true, evidence.Class
+	// Capture validation cannot gate a valid executable request. An invalid or lost
+	// identity/redaction drops both observations rather than retaining raw input.
+	if c.audits.traffic != nil {
+		if prepared, prepareErr := identity.WithAdmission(evidence); prepareErr == nil {
+			result.observation = c.audits.traffic.ObserveMCP(prepared)
+		} else {
+			c.audits.traffic.drop()
+		}
+	}
+	if evaluation.Candidate == nil {
+		return result, nil
+	}
+	subject, err := c.authority.ConfirmEvaluation(ctx, evaluation.Candidate, identity.InvocationID)
+	if err != nil {
+		return result, err
+	}
+	result.Subject, result.DispatchAuthorized = &subject, true
+	return result, nil
 }
 
-func validAdmissionIdentity(identity PreparedAdmission) bool {
-	return identity.admission.Class == "" && validOpaqueInvocationID(identity.InvocationID) && identity.AdmittedAt != ""
-}
-
-func validAuditAdmissionRequest(request AuditAdmissionRequest) bool {
-	hasCall := request.MCP.RequestedName != nil && request.MCP.RedactedArguments != nil
-	if request.MCP.RequestedName != nil && !validInvocationName(*request.MCP.RequestedName) ||
-		request.MCP.RedactedArguments != nil && !validRedactedArguments(request.MCP.RedactedArguments) {
-		return false
-	}
+// Live route/argument validation is independent of optional redacted captures.
+func validExecutionRequest(request AuditAdmissionRequest) bool {
+	hasName := request.MCP.RequestedName != nil && validInvocationName(*request.MCP.RequestedName)
 	switch request.Class {
 	case contract.AdmissionInvalidParams:
 		return request.MCP.Route == nil
 	case contract.AdmissionUnknownTool:
-		return hasCall && request.MCP.Route == nil
+		return hasName && request.MCP.Route == nil
 	case contract.AdmissionInvalidArguments:
-		return hasCall && validRouteEvidence(request.MCP.Route)
+		return hasName && validRouteEvidence(request.MCP.Route)
 	case contract.AdmissionEvaluated:
-		return hasCall && validRouteEvidence(request.MCP.Route) && request.Arguments.Type == strictjson.ValueObject
+		return hasName && validRouteEvidence(request.MCP.Route) && request.Arguments.Type == strictjson.ValueObject
 	default:
 		return false
 	}

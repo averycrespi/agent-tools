@@ -39,9 +39,7 @@ func TestHTTPTrafficConnectSelectionAndRecordedRelations(t *testing.T) {
 	invalid.Connect = inner.Connect
 	legacy := httpTrafficAdmission(6)
 	for _, a := range []contract.HTTPTrafficAdmission{intercepted, denied, tunnel, inner, invalid, legacy} {
-		receipt, admitErr := traffic.AdmitHTTP(t.Context(), a)
-		require.NoError(t, admitErr)
-		traffic.Release(receipt)
+		recordHTTP(t, traffic, a)
 	}
 	for _, tc := range []struct {
 		outcome string

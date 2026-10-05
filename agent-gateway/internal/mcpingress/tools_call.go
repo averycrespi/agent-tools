@@ -157,7 +157,7 @@ func encodeToolsCallResponse(ctx context.Context, id json.RawMessage, response T
 	}
 	validID := response.InvocationID == "" || toolsCallIDPattern.MatchString(response.InvocationID)
 	validCombination := ok && validReason && response.Result == nil && validID &&
-		(response.ErrorCode == contract.AuditUnavailable && response.InvocationID == "" || response.ErrorCode != contract.AuditUnavailable && response.InvocationID != "")
+		(response.ErrorCode != contract.AuditUnavailable || response.InvocationID == "")
 	if !validCombination {
 		callError, _ = contract.AgentCallErrorForCode(contract.AuditUnavailable)
 		response = ToolsCallResponse{ErrorCode: contract.AuditUnavailable}

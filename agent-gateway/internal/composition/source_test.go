@@ -295,7 +295,7 @@ var _ = mcp.NewClient
 		{
 			name: "foreign storage wait", path: "internal/catalog/bad.go",
 			contents: "package catalog\nfunc mutate() { store.MutateInvocation(ctx, nil, callback) }\n",
-			want:     "internal/catalog/bad.go: invocation-only storage waiting outside audit repository",
+			want:     "internal/catalog/bad.go: retired invocation storage waiting",
 		},
 		{
 			name: "duplicate invocation", path: "internal/api/bad.go",
@@ -489,10 +489,10 @@ func productionSliceViolations(source productionSource) []string {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate discovery constructor %s", source.path, symbol))
 		}
 	}
-	if strings.Contains(source.contents, ".MutateInvocation(") && source.path != "internal/invocation/repository.go" {
-		violations = append(violations, fmt.Sprintf("%s: invocation-only storage waiting outside audit repository", source.path))
+	if strings.Contains(source.contents, ".MutateInvocation(") {
+		violations = append(violations, fmt.Sprintf("%s: retired invocation storage waiting", source.path))
 	}
-	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewTrafficRepository(", "invocation.NewRepositoryWithWaitStop(", "invocation.NewReadService(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
+	for _, symbol := range []string{"invocation.NewRepository(", "invocation.NewTrafficRepository(", "invocation.NewReadService(", "invocation.NewPipelineFence(", "invocation.NewServiceWithLocal("} {
 		if strings.Contains(source.contents, symbol) && (source.path != "internal/composition/composition.go" || strings.Count(source.contents, symbol) != 1) {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate invocation constructor %s", source.path, symbol))
 		}

@@ -340,6 +340,10 @@ func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testi
 	assert.Contains(t, response.Body.String(), `"reason":"unknown_tool"`)
 	assert.Contains(t, response.Body.String(), `"message":"Request rejected: unknown tool. Refresh tools/list and check the tool name."`)
 	require.NotNil(t, callError.Error.Data.InvocationID)
+	require.Eventually(t, func() bool {
+		_, found, err := built.invocationRepository.Read(t.Context(), *callError.Error.Data.InvocationID)
+		return err == nil && found
+	}, 3*time.Second, 10*time.Millisecond)
 	record, found, err := built.invocationRepository.Read(t.Context(), *callError.Error.Data.InvocationID)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -360,11 +364,16 @@ func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testi
 		assert.NotContains(t, response.Body.String(), private)
 	}
 
+	require.Eventually(t, func() bool {
+		count, err := built.invocationRepository.Count(t.Context())
+		return err == nil && count == 3
+	}, 3*time.Second, 10*time.Millisecond)
 	countBefore, err := built.invocationRepository.Count(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, runtimes.DrainResult{}, <-built.Drain(context.Background()))
 	rejected := agentIngress.CallTools.Call(t.Context(), nil, mcpingress.ToolsCallRequest{})
-	assert.Equal(t, contract.AuditUnavailable, rejected.ErrorCode)
+	assert.Equal(t, contract.CallRejected, rejected.ErrorCode)
+	assert.Equal(t, contract.RejectionAuthorizationUnavailable, rejected.RejectionReason)
 	history := trafficAfterDrain(t, options)
 	assert.Equal(t, countBefore, int64(len(history.Records)), "drained invocation adapter wrote a new audit row")
 	drained := newAgentRequest(issued.Bearer, `{"jsonrpc":"2.0","id":"drained","method":"tools/list"}`)
@@ -422,13 +431,19 @@ func TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
 		response <- built.callTools.Call(context.Background(), lease, mcpingress.ToolsCallRequest{Params: params, WireValid: true})
 	}()
 	<-handlerEntered
+	// Deliberately retain the initial observation before testing drain's loss of completion.
+	require.Eventually(t, func() bool {
+		count, err := built.invocationRepository.Count(t.Context())
+		return err == nil && count == 1
+	}, 3*time.Second, 10*time.Millisecond)
 
 	deadline, cancel := context.WithCancel(context.Background())
 	firstDrain := built.Drain(deadline)
 	cancel()
 	assert.Equal(t, runtimes.DrainResult{Unconfirmed: 1}, <-firstDrain)
 	rejected := built.callTools.Call(context.Background(), lease, mcpingress.ToolsCallRequest{Params: params, WireValid: true})
-	assert.Equal(t, contract.AuditUnavailable, rejected.ErrorCode)
+	assert.Equal(t, contract.CallRejected, rejected.ErrorCode)
+	assert.Equal(t, contract.RejectionAuthorizationUnavailable, rejected.RejectionReason)
 
 	joined := built.Drain(context.Background())
 	select {

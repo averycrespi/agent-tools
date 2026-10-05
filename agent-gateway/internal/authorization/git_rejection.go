@@ -11,7 +11,7 @@ import (
 // GitRejection binds a classified pre-dispatch rejection to the authenticated
 // principal without retaining any unsupported client coordinates or controls.
 func (r *Repository) GitRejection(ctx context.Context, lease *Lease, id, admittedAt, reason string) (out contract.GitTrafficAdmission, err error) {
-	if lease == nil || !validOpaqueID(id) || !slices.Contains([]string{"unsupported", "repository_unavailable", "destination_unavailable"}, reason) {
+	if lease == nil || !slices.Contains([]string{"unsupported", "repository_unavailable", "destination_unavailable"}, reason) {
 		return out, ErrInvalidInput
 	}
 	err = r.WithAdmission(ctx, lease, func(admission *Admission) error {

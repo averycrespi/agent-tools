@@ -26,9 +26,7 @@ func TestTrafficPairedSnapshotContinuityAndWriterRelease(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, control.Close()) }()
 	require.NoError(t, control.SelectTraffic(ctx, "", invocationID(90)))
-	receipt, err := traffic.Admit(ctx, trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, traffic.Confirm(ctx, receipt))
+	observation := recordMCP(t, traffic, trafficPrepared(1))
 	afterPinned = func() error {
 		if err := control.Mutate(ctx, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, `UPDATE gateway_meta SET revision=revision+1 WHERE singleton=1`)
@@ -36,7 +34,9 @@ func TestTrafficPairedSnapshotContinuityAndWriterRelease(t *testing.T) {
 		}); err != nil {
 			return err
 		}
-		return traffic.Complete(ctx, receipt, trafficCompletion())
+		err := traffic.ObserveMCPCompletion(observation, trafficCompletion(), nil)
+		waitTraffic(t, traffic)
+		return err
 	}
 	root := t.TempDir()
 	controlPath, trafficPath := filepath.Join(root, "control.db"), filepath.Join(root, "traffic.db")
@@ -75,9 +75,7 @@ func TestTrafficSnapshotPauseOverrunSettlesWithoutLatching(t *testing.T) {
 	assert.True(t, traffic.Healthy())
 	assert.False(t, control.Latched())
 	require.NoError(t, control.Mutate(t.Context(), func(tx *sql.Tx) error { _, err := tx.Exec(`UPDATE gateway_meta SET revision=revision+1`); return err }))
-	receipt, err := traffic.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	traffic.Release(receipt)
+	recordMCP(t, traffic, trafficPrepared(1))
 }
 
 func TestTrafficPinnedSnapshotPressureRefusesWithoutWaiting(t *testing.T) {
@@ -97,24 +95,24 @@ func TestTrafficPinnedSnapshotPressureRefusesWithoutWaiting(t *testing.T) {
 	afterPinned = func() error {
 		for id := 1; id <= 100; id++ {
 			started := time.Now()
-			receipt, err := traffic.Admit(ctx, trafficPrepared(id))
-			if err != nil {
-				require.ErrorIs(t, err, ErrTrafficCapacity)
+			require.NotNil(t, traffic.ObserveMCP(trafficPrepared(id)))
+			waitTraffic(t, traffic)
+			traffic.mu.Lock()
+			refused := traffic.quotaRefusals > 0
+			traffic.mu.Unlock()
+			if refused {
 				assert.Less(t, time.Since(started), time.Second)
 				assert.True(t, traffic.Healthy())
 				assert.False(t, control.Latched())
 				return nil
 			}
-			traffic.Release(receipt)
 		}
 		t.Fatal("fixture did not reach pinned WAL pressure")
 		return nil
 	}
 	root := t.TempDir()
 	require.NoError(t, traffic.BackupPair(ctx, control, filepath.Join(root, "control"), filepath.Join(root, "traffic")))
-	receipt, err := traffic.Admit(ctx, trafficPrepared(101))
-	require.NoError(t, err, "released snapshot permits checkpoint and subsequent admission")
-	traffic.Release(receipt)
+	recordMCP(t, traffic, trafficPrepared(101))
 }
 
 func TestTrafficPairedSnapshotRefusalDoesNotLatch(t *testing.T) {
@@ -122,13 +120,11 @@ func TestTrafficPairedSnapshotRefusalDoesNotLatch(t *testing.T) {
 	control, err := storage.Initialize(t.Context(), owner, invocationTestInstallationID)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, control.Close()) }()
-	traffic.admissionGate.RLock()
+	traffic.writerGate.Lock()
 	err = traffic.BackupPair(t.Context(), control, filepath.Join(t.TempDir(), "control"), filepath.Join(t.TempDir(), "traffic"))
-	traffic.admissionGate.RUnlock()
+	traffic.writerGate.Unlock()
 	require.ErrorIs(t, err, ErrTrafficCapacity)
 	assert.True(t, traffic.Healthy())
 	assert.False(t, control.Latched())
-	receipt, err := traffic.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	traffic.Release(receipt)
+	recordMCP(t, traffic, trafficPrepared(1))
 }

@@ -10,6 +10,9 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 
 	"github.com/stretchr/testify/require"
 
@@ -53,6 +56,18 @@ func (f *proxyFixture) connectFailureSnapshot(ctx context.Context) connectFailur
 	return out
 }
 
+// Recording is asynchronous; only evidence assertions wait, never request helpers.
+func (f *proxyFixture) waitHTTPHistory(t *testing.T, count int) invocation.HTTPTrafficHistory {
+	t.Helper()
+	var history invocation.HTTPTrafficHistory
+	require.Eventually(t, func() bool {
+		var err error
+		history, err = f.traffic.HTTPHistory(t.Context(), 0, 100)
+		return err == nil && len(history.Records) >= count
+	}, 3*time.Second, 10*time.Millisecond)
+	return history
+}
+
 func TestIntegrationConnectFailureSnapshot(t *testing.T) {
 	f := fixture(t)
 	var upstreamDials atomic.Int64
@@ -71,6 +86,7 @@ func TestIntegrationConnectFailureSnapshot(t *testing.T) {
 	defer upstream.Close()
 	conn := f.intercept(t, upstream.URL, "http/1.1")
 	require.NoError(t, conn.Close())
+	f.waitHTTPHistory(t, 1)
 	selected := f.connectFailureSnapshot(t.Context())
 	require.True(t, selected.HistoryAvailable)
 	require.Equal(t, 1, selected.WindowRecords)

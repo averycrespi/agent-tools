@@ -3,9 +3,7 @@ package selfservice
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/base64"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -223,26 +221,13 @@ func admitSubject(t *testing.T, authority *authorization.Repository, store *stor
 	t.Helper()
 	lease, err := authority.Authenticate(context.Background(), bearer)
 	require.NoError(t, err)
-	var pending *authorization.PendingDetachment
-	require.NoError(t, authority.WithAdmission(context.Background(), lease, func(admission *authorization.Admission) error {
-		if mutationErr := store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			result, token, phase, verifyErr := admission.VerifyResolvedTx(context.Background(), transaction, authorization.ResolvedVerification{
-				Target: accesstarget.Tool(contract.SyntheticServerID, "get_identity"), Arguments: strictjson.Value{Type: strictjson.ValueObject},
-			})
-			if verifyErr != nil {
-				return verifyErr
-			}
-			if result.Decision != contract.DecisionAllow || phase != authorization.ResolvedEvaluated || token == nil {
-				return errors.New("test admission was not allowed")
-			}
-			pending = token
-			return nil
-		}); mutationErr != nil {
-			return mutationErr
-		}
-		return pending.CommitSucceeded()
-	}))
-	subject, err := pending.Subject()
+	t.Cleanup(lease.Release)
+	evaluation, err := authority.EvaluateAdmission(t.Context(), lease, "", &authorization.ResolvedVerification{
+		Target: accesstarget.Tool(contract.SyntheticServerID, "get_identity"), Arguments: strictjson.Value{Type: strictjson.ValueObject},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, evaluation.Candidate)
+	subject, err := authority.ConfirmEvaluation(t.Context(), evaluation.Candidate, "")
 	require.NoError(t, err)
 	return subject
 }

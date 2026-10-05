@@ -100,13 +100,9 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		reject(w, upstreamStatus(err))
 		return
 	}
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err != nil {
-		reject(w, http.StatusServiceUnavailable)
-		return
-	}
+	identity, _ := e.options.Evidence.PrepareIdentity()
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID, Connect: &contract.HTTPDestinationSelector{Host: destination.Host(), Port: destination.Port()}}, address.Facts(), e.options.Materials)
-	if err != nil || !result.Committed || result.Evidence.Decision == nil {
+	if err != nil || !result.Evaluated || result.Execution.Transport == "" {
 		if err != nil {
 			e.observeRejection(started, result.FailureStage, result.FailureCause, w)
 			if result.FailureCause == diagnostics.Capacity {
@@ -119,7 +115,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		reject(w, http.StatusForbidden)
 		return
 	}
-	decision := result.Evidence.Decision
+	decision := result.Execution
 	if decision.Transport == contract.HTTPTransportTunnel && result.DispatchAuthorized {
 		e.mu.Lock()
 		e.tunnels++
@@ -127,15 +123,15 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		defer func() { e.mu.Lock(); e.tunnels--; e.mu.Unlock() }()
 		completion := contract.HTTPTrafficCompletion{Outcome: "prestart_failure"}
 		defer func() { e.complete(result, identity, completion) }()
-		admittedAt, parseErr := time.Parse(time.RFC3339Nano, identity.AdmittedAt)
+		admittedAt := result.Execution.EvaluatedAt
 		remaining := admittedAt.Add(contract.HTTPProxyTunnelLifetime).Sub(e.options.Now())
-		if parseErr != nil || remaining <= 0 {
+		if remaining <= 0 {
 			reject(w, http.StatusGatewayTimeout)
 			return
 		}
 		completion.Outcome = "outcome_unknown"
 		dialCtx, cancelDial := context.WithTimeout(r.Context(), remaining)
-		upstream, err := address.Dial(dialCtx, decision.PrivateGrant != nil)
+		upstream, err := address.Dial(dialCtx, decision.PrivateNetwork)
 		cancelDial()
 		if err != nil {
 			e.observeFailure(w, diagnostics.ProxyExchange, err)

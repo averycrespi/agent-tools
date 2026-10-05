@@ -112,7 +112,7 @@ func TestGitPolicyMutationFencesPendingConfirmationAndProfileSurvivesDeletion(t 
 	require.NotNil(t, evaluation.Candidate)
 	_, err = r.PutGitGrant(ctx, "", "", GitGrantInput{PrincipalID: principal.ID, RepositoryID: repo.ID, Policy: json.RawMessage(gitReadPolicy)})
 	require.NoError(t, err)
-	_, err = r.ConfirmEvaluation(ctx, evaluation.Candidate, id(88), func(_ contract.AuthorizationResult, detach func() bool) bool { return detach() })
+	_, err = r.ConfirmEvaluation(ctx, evaluation.Candidate, id(88))
 	require.Error(t, err)
 	require.NoError(t, r.DeleteGitRepository(ctx, repo.ID, repo.Revision))
 	retained, err := r.GetGitRoutingProfile(ctx)

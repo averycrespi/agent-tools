@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,8 +23,9 @@ import (
 )
 
 type httpMemoryKeyring struct {
-	mu     sync.Mutex
-	values map[string]string
+	mu         sync.Mutex
+	values     map[string]string
+	getBarrier func()
 }
 
 func (*httpMemoryKeyring) Probe(context.Context, string) error { return nil }
@@ -34,6 +36,9 @@ func (m *httpMemoryKeyring) Set(service, user, value string) error {
 	return nil
 }
 func (m *httpMemoryKeyring) Get(service, user string) (string, error) {
+	if m.getBarrier != nil {
+		m.getBarrier()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	value, ok := m.values[service+user]
@@ -57,7 +62,8 @@ func TestIntegrationHTTPAdmissionSealsSelectedMaterialGeneration(t *testing.T) {
 			coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 			repository, err := httpcredentials.NewRepository(audits.store, audits.clock, rand.Reader, authority)
 			require.NoError(t, err)
-			provider, err := keyring.NewProviderWithBackend(invocationTestInstallationID, &httpMemoryKeyring{values: map[string]string{}})
+			backend := &httpMemoryKeyring{values: map[string]string{}}
+			provider, err := keyring.NewProviderWithBackend(invocationTestInstallationID, backend)
 			require.NoError(t, err)
 			materials, err := httpcredentials.NewService(repository, keyring.NewCoordinator(provider, audits.store, audits.clock, rand.Reader), invocationTestInstallationID)
 			require.NoError(t, err)
@@ -67,23 +73,35 @@ func TestIntegrationHTTPAdmissionSealsSelectedMaterialGeneration(t *testing.T) {
 			policy := json.RawMessage(`{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"example.com","port":443},"methods":{"any":true},"path":{"kind":"any"}},"credential_id":"` + created.ID + `"}`)
 			_, err = authority.PutHTTPGrant(ctx, "", "", authorization.HTTPGrantInput{PrincipalID: principal.ID, Policy: policy})
 			require.NoError(t, err)
+			if mode == "rotate" {
+				lease, err := authority.Authenticate(ctx, credential.Bearer)
+				require.NoError(t, err)
+				defer lease.Release()
+				evaluation, err := authority.EvaluateHTTPAdmission(ctx, lease, "", "", authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/", Method: "GET"}, publicHTTPFacts())
+				require.NoError(t, err)
+				require.NotNil(t, evaluation.Candidate)
+				material, err := materials.Acquire(ctx, evaluation.Execution.Material.Credential)
+				require.NoError(t, err)
+				defer material.Clear()
+				_, err = materials.Rotate(ctx, created.ID, created.Revision, []byte("new-private-canary"))
+				require.NoError(t, err)
+				require.Error(t, authority.ConfirmHTTP(ctx, evaluation.Candidate, "", materials))
+				return
+			}
 			entered, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
-			var once sync.Once
-			traffic, _ := trafficFixture(t, nil, func(point string) error {
-				if point == "acknowledgment" {
-					once.Do(func() {
-						close(entered)
-						select {
-						case <-release:
-						case <-ctx.Done():
-						}
-					})
+			var blocked atomic.Bool
+			backend.getBarrier = func() {
+				if blocked.CompareAndSwap(false, true) {
+					close(entered)
+					select {
+					case <-release:
+					case <-ctx.Done():
+					}
 				}
-				return nil
-			})
-			audits.traffic = traffic
+			}
+			traffic := audits.traffic
 			lease, err := authority.Authenticate(ctx, credential.Bearer)
 			require.NoError(t, err)
 			defer lease.Release()
@@ -99,20 +117,16 @@ func TestIntegrationHTTPAdmissionSealsSelectedMaterialGeneration(t *testing.T) {
 			select {
 			case <-entered:
 			case <-ctx.Done():
-				t.Fatal("admission did not commit")
+				t.Fatal("material acquisition did not enter")
 			}
-			switch mode {
-			case "rotate":
-				_, err = materials.Rotate(ctx, created.ID, created.Revision, []byte("new-private-canary"))
-				require.NoError(t, err)
-			case "edit":
+			if mode == "edit" {
 				definition.Name = "Renamed injection"
 				_, err = materials.Update(ctx, created.ID, created.Revision, definition)
 				require.NoError(t, err)
 			}
 			unblock()
 			result, admissionErr := <-results, <-failures
-			require.True(t, result.Committed)
+			require.True(t, result.Evaluated)
 			assert.Equal(t, mode == "allow", result.DispatchAuthorized)
 			if mode == "allow" {
 				require.NoError(t, admissionErr)
@@ -122,11 +136,13 @@ func TestIntegrationHTTPAdmissionSealsSelectedMaterialGeneration(t *testing.T) {
 				headers, headerErr := result.Material.Headers(target, nil)
 				require.NoError(t, headerErr)
 				assert.Equal(t, "Bearer injected-private-canary", headers.Get("Authorization"))
+				result.Settle()
 				require.NoError(t, coordinator.CompleteHTTP(ctx, result, httpTrafficCompletion()))
 			} else {
 				require.Error(t, admissionErr)
 				assert.Nil(t, result.Material)
 			}
+			waitTraffic(t, traffic)
 			history, err := traffic.HTTPHistory(ctx, 0, 10)
 			require.NoError(t, err)
 			require.Len(t, history.Records, 1)

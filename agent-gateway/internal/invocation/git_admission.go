@@ -2,6 +2,7 @@ package invocation
 
 import (
 	"context"
+	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -11,34 +12,44 @@ import (
 )
 
 type GitAdmissionResult struct {
-	Evidence                      contract.GitTrafficAdmission
-	Committed, DispatchAuthorized bool
+	Execution                     authorization.GitExecution
+	Evaluated, DispatchAuthorized bool
 	Material                      *gitcredentials.Material
-	receipt                       *TrafficReceipt
+	observation                   *TrafficObservation
+	owner                         *gitExecutionOwner
+}
+type gitExecutionOwner struct {
+	once     sync.Once
+	material *gitcredentials.Material
+}
+
+// Settle belongs to the network owner, never the history writer.
+func (result GitAdmissionResult) Settle() {
+	if result.owner != nil {
+		result.owner.once.Do(func() {
+			if result.owner.material != nil {
+				result.owner.material.Clear()
+			}
+		})
+	}
 }
 
 func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, request *gitwire.Request, facts httppolicy.AddressFacts, materials *gitcredentials.Service) (result GitAdmissionResult, err error) {
-	if c == nil || c.audits.traffic == nil || !validAdmissionIdentity(identity) {
+	if c == nil {
 		return result, ErrInvalidInput
 	}
-	traffic := c.audits.traffic
-	if !traffic.admissionGate.TryRLock() {
-		return result, ErrTrafficCapacity
-	}
-	defer traffic.admissionGate.RUnlock()
-	defer c.audits.publishTrafficStatus()
 	evaluation, err := c.authority.EvaluateGitAdmission(ctx, lease, identity.InvocationID, identity.AdmittedAt, request, facts)
 	if err != nil {
 		return result, authorization.ErrAdmissionUnavailable
 	}
-	result.Evidence = evaluation.Evidence
+	result.Execution, result.Evaluated = evaluation.Execution, true
 	var materialErr error
-	if evaluation.Evidence.Material != nil {
+	if evaluation.Execution.Material != nil {
 		if materials == nil {
 			materialErr = gitcredentials.ErrUnavailable
 		} else {
-			result.Material, materialErr = materials.Acquire(ctx, evaluation.Evidence.Material.Credential)
-			if materialErr == nil && result.Material.Generation() != evaluation.Evidence.Material.Generation {
+			result.Material, materialErr = materials.Acquire(ctx, evaluation.Execution.Material.Credential)
+			if materialErr == nil && result.Material.Generation() != evaluation.Execution.Material.Generation {
 				materialErr = gitcredentials.ErrUnavailable
 			}
 		}
@@ -53,58 +64,41 @@ func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorizatio
 		evaluation.Evidence.Allowed = false
 		evaluation.Evidence.Denial = "credential_unavailable"
 		evaluation.Evidence.Material = nil
-		result.Evidence = evaluation.Evidence
+		result.Execution.Allowed = false
+		result.Execution.CredentialUnavailable = true
 	}
-	receipt, err := traffic.AdmitGit(ctx, evaluation.Evidence)
-	if err != nil {
-		return result, err
+	if c.audits.traffic != nil {
+		result.observation = c.audits.traffic.ObserveGit(evaluation.Evidence)
 	}
-	result.Committed = true
 	if evaluation.Candidate == nil || materialErr != nil {
-		traffic.Release(receipt)
 		if materialErr != nil {
 			return result, authorization.ErrAdmissionUnavailable
 		}
 		return result, nil
 	}
-	err = c.authority.ConfirmGit(ctx, evaluation.Candidate, identity.InvocationID, request, materials, func(expected string, detach func() bool) bool {
-		return receipt.gitAdmission == expected && traffic.confirmCandidate(ctx, receipt, identity.InvocationID, detach)
-	})
-	if err != nil {
-		traffic.Release(receipt)
+	if err = c.authority.ConfirmGit(ctx, evaluation.Candidate, identity.InvocationID, request, materials); err != nil {
 		return result, authorization.ErrAdmissionUnavailable
 	}
 	result.DispatchAuthorized = true
-	result.receipt = receipt
+	result.owner = &gitExecutionOwner{material: result.Material}
 	return result, nil
 }
 func (c *AdmissionCoordinator) RejectGit(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, reason string) error {
-	if c == nil || c.audits.traffic == nil || !validAdmissionIdentity(identity) {
+	if c == nil {
 		return ErrInvalidInput
 	}
-	if !c.audits.traffic.admissionGate.TryRLock() {
-		return ErrTrafficCapacity
-	}
-	defer c.audits.traffic.admissionGate.RUnlock()
 	evidence, err := c.authority.GitRejection(ctx, lease, identity.InvocationID, identity.AdmittedAt, reason)
 	if err != nil {
 		return err
 	}
-	defer c.audits.publishTrafficStatus()
-	receipt, err := c.audits.traffic.AdmitGit(ctx, evidence)
-	if err == nil {
-		c.audits.traffic.Release(receipt)
+	if c.audits.traffic != nil {
+		c.audits.traffic.ObserveGit(evidence)
 	}
-	return err
+	return nil
 }
-
-func (c *AdmissionCoordinator) CompleteGit(ctx context.Context, result GitAdmissionResult, completion contract.GitTrafficCompletion) error {
-	if c == nil || c.audits.traffic == nil || !result.DispatchAuthorized {
+func (c *AdmissionCoordinator) CompleteGit(_ context.Context, result GitAdmissionResult, completion contract.GitTrafficCompletion) error {
+	if c == nil || !result.DispatchAuthorized {
 		return ErrInvalidInput
 	}
-	if result.Material != nil {
-		defer result.Material.Clear()
-	}
-	defer c.audits.publishTrafficStatus()
-	return c.audits.traffic.CompleteGit(ctx, result.receipt, completion)
+	return c.audits.traffic.ObserveGitCompletion(result.observation, completion)
 }

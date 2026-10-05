@@ -25,9 +25,7 @@ func TestTrafficHTTPDiagnosticsBoundedAndLegacyReadable(t *testing.T) {
 	modern.Rejection = &contract.HTTPRejection{Stage: "target", Reason: "invalid_request_target"}
 	modern.Connect = &contract.HTTPConnectContext{ID: invocationID(3), Host: "example.com", Port: 443}
 	for _, a := range []contract.HTTPTrafficAdmission{legacy, modern} {
-		receipt, err := s.AdmitHTTP(t.Context(), a)
-		require.NoError(t, err)
-		s.Release(receipt)
+		recordHTTP(t, s, a)
 	}
 	// Optional fields must not rewrite historical canonical JSON or charges.
 	encoded, err := encodeHTTPAdmission(legacy)
@@ -51,8 +49,7 @@ func TestTrafficHTTPDiagnosticsBoundedAndLegacyReadable(t *testing.T) {
 	} {
 		a := modern
 		mutate(&a)
-		_, err := s.AdmitHTTP(t.Context(), a)
-		require.ErrorIs(t, err, ErrInvalidInput)
+		require.Nil(t, s.ObserveHTTP(a))
 	}
 	require.NoError(t, s.Close())
 	reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), s.config)

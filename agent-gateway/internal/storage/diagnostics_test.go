@@ -27,21 +27,19 @@ func storageDiagnosticRecords(t *testing.T, output []byte) []map[string]any {
 	}
 	return records
 }
-func TestStorageDiagnosticsDistinguishWaitExpiryAndAcquire(t *testing.T) {
+func TestStorageDiagnosticsDistinguishBusyAndAcquire(t *testing.T) {
 	var output bytes.Buffer
 	adapter := diagnostics.New(&output, diagnostics.Debug)
 	store, err := Initialize(t.Context(), newOwnership(t), testInstallationID)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()); adapter.Finish(nil); <-adapter.Done() }()
 	store.SetDiagnostics(adapter)
-	require.NoError(t, store.acquireMutation(t.Context(), nil, false))
+	require.NoError(t, store.acquireMutation(t.Context()))
 	ctx := diagnostics.WithCall(t.Context(), 17)
-	require.ErrorIs(t, store.MutateInvocation(ctx, nil, func(*sql.Tx) error { t.Error("expired callback executed"); return nil }), ErrMutationWaitExpired)
-	done := make(chan error, 1)
-	go func() { done <- store.MutateInvocation(ctx, nil, func(*sql.Tx) error { return nil }) }()
-	waitMutationOccupancy(t, store, true, 1)
+	require.ErrorIs(t, store.Mutate(ctx, func(*sql.Tx) error { t.Error("busy callback executed"); return nil }), ErrMutationBusy)
+	waitMutationOccupancy(t, store, true, 0)
 	store.releaseMutation()
-	require.NoError(t, <-done)
+	require.NoError(t, store.Mutate(ctx, func(*sql.Tx) error { return nil }))
 	require.False(t, store.Latched())
 	require.True(t, adapter.Finish(nil))
 	seen := map[string]bool{}
@@ -52,12 +50,9 @@ func TestStorageDiagnosticsDistinguishWaitExpiryAndAcquire(t *testing.T) {
 		require.EqualValues(t, 17, record["call_id"])
 		require.NotContains(t, record, "invocation_id")
 		require.Equal(t, "invocation_admission", record["writer_kind"])
-		if event == "storage_reject" {
-			require.GreaterOrEqual(t, record["duration_ms"].(float64), float64(250))
-		}
 	}
-	require.True(t, seen["storage_wait/"])
-	require.True(t, seen["storage_reject/expired"])
+	require.False(t, seen["storage_wait/"])
+	require.True(t, seen["storage_reject/capacity"])
 	require.True(t, seen["storage_acquire/success"])
 	require.True(t, seen["storage_release/success"])
 }
@@ -106,7 +101,7 @@ func TestStorageDiagnosticDisabledObserverAvoidsConstruction(t *testing.T) {
 	require.True(t, store.diagnosticStart().IsZero())
 	ctx := t.Context()
 	require.NotNil(t, store.mutationContext(ctx))
-	require.NoError(t, store.observedAcquire(ctx, nil, false))
+	require.NoError(t, store.observedAcquire(ctx))
 	store.observedRelease(ctx, time.Time{})
 	require.True(t, adapter.Finish(nil))
 	require.Empty(t, output.String())

@@ -29,7 +29,7 @@ agent-gateway mcp invocation list \
 
 Use `--admission-class`, `--decision`, and `--outcome` only with values shown by generated help. Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
 
-Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output omits captures but includes safe failure diagnostics when available. A missing item can mean the ID never existed or that bounded retention evicted it.
+Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output omits captures but includes safe failure diagnostics when available. A missing item can mean capture was dropped, the ID never existed, or bounded retention evicted it. An unavailable history read is different from a successful read with no matching record; neither proves nonexecution. Live error IDs are optional correlation, not persistence receipts.
 
 ## Filter browser history
 
@@ -56,7 +56,7 @@ The closed projection distinguishes:
 | `invalid_params`            | The request could not be classified as a valid call. No tool dispatch occurred.                           |
 | `unknown_tool`              | No current target matched the requested external name.                                                    |
 | `invalid_arguments`         | The resolved target rejected the unchanged argument object before execution.                              |
-| `authorization_unavailable` | Safe authorization or audit admission could not be established; the call failed closed.                   |
+| `authorization_unavailable` | Safe authorization could not be established; the call failed closed.                                      |
 | `deny`                      | Current policy explicitly denied the call.                                                                |
 | `block`                     | No applicable allow authorized the call.                                                                  |
 | `prestart_failure`          | The admitted call failed before transport or local execution handoff; no tool effect began.               |
@@ -84,7 +84,7 @@ Missing terminal evidence is not proof that no effect occurred. Gateway provides
 
 For a downstream `outcome_unknown`:
 
-1. Record the invocation ID, target, admission time, and authorization evidence.
+1. Record the available correlation ID and target; retain admission time and authorization evidence if history exists.
 2. Inspect the authoritative external system through an independent safe read when one exists.
 3. Decide whether duplication is acceptable for this operation.
 4. Make any retry as a new explicit caller-owned request.
@@ -95,10 +95,10 @@ Gateway-local tools use a narrower result boundary. Known and post-commit-uncert
 
 ## Understand redaction and retention
 
-Gateway keeps rolling bounded traffic history, with a 65,536-row production ceiling
+Gateway keeps optional, rolling bounded traffic history, with a 1,000,000-row production ceiling
 and a configurable combined database/WAL budget (4 GiB by default). It prunes the
-oldest eligible evidence transactionally while protecting live calls through their
-sole completion attempt; this can leave holes around pinned rows. Generation or
+oldest evidence transactionally, including records of active calls. A completion
+can restore useful evidence when its initial record was dropped or pruned. Generation or
 pruning changes invalidate traversal rather than silently omitting evidence.
 Current agent names come from a separate bounded control snapshot, and name
 changes also invalidate affected cursors. Evidence is ordered by durable insertion
@@ -106,8 +106,10 @@ sequence, never client timestamps. A missing row proves neither success nor
 nonexecution; no fixed history window is promised.
 
 **System** and `status` expose independent traffic health, pressure, byte occupancy,
-quota refusals and pruning. Traffic faults reject new dispatch but leave healthy
-administration available, including revocation. Restart restores traffic writes
+quota refusals and pruning. Traffic faults, queue pressure and missing capture do
+not block otherwise authorized MCP, HTTP or Git execution, responses or cleanup.
+History can therefore be incomplete even when the live caller received a result.
+Healthy administration remains available, including revocation. Restart restores traffic writes
 only after full validation; it never repairs history by replay or fabricating
 terminal evidence. Control-storage uncertainty still blocks traffic authority.
 

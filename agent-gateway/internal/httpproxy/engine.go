@@ -156,7 +156,7 @@ type intercepted struct {
 }
 
 func admissionContext(inside *intercepted) authorization.HTTPAdmissionContext {
-	if inside == nil {
+	if inside == nil || inside.connect.ID == "" {
 		return authorization.HTTPAdmissionContext{}
 	}
 	copy := inside.connect
@@ -312,11 +312,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		e.git(w, r, lease, target, address, repository, profile)
 		return
 	}
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err != nil {
-		reject(w, http.StatusServiceUnavailable)
-		return
-	}
+	identity, _ := e.options.Evidence.PrepareIdentity()
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials, admissionContext(inside))
 	if err != nil || !result.DispatchAuthorized {
 		if err != nil {
@@ -328,7 +324,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 			}
 			return
 		}
-		if result.Evidence.Decision != nil && result.Evidence.Decision.Reason == contract.HTTPReasonCredentialUnavailable {
+		if result.Execution.Reason == contract.HTTPReasonCredentialUnavailable {
 			reject(w, http.StatusServiceUnavailable)
 		} else {
 			reject(w, http.StatusForbidden)
@@ -371,7 +367,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		outgoingBody = requestBody
 	}
 	completion.Outcome = "outcome_unknown"
-	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Evidence.Decision.PrivateGrant != nil, e.roots)
+	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Execution.PrivateNetwork, e.roots)
 	if err != nil {
 		completion.Termination = termination(r.Context(), "exchange", err)
 		e.observeFailure(w, diagnostics.ProxyExchange, err)
@@ -424,10 +420,8 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 func (e *Engine) rejectInvalid(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, inside *intercepted, stage, reason string) {
 	metadata := admissionContext(inside)
 	metadata.Rejection = &contract.HTTPRejection{Stage: stage, Reason: reason}
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err == nil {
-		_, err = e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID}, httppolicy.AddressFacts{}, e.options.Materials, metadata)
-	}
+	identity, _ := e.options.Evidence.PrepareIdentity()
+	_, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID}, httppolicy.AddressFacts{}, e.options.Materials, metadata)
 	if err != nil {
 		reject(w, http.StatusServiceUnavailable)
 		return
@@ -436,6 +430,7 @@ func (e *Engine) rejectInvalid(w http.ResponseWriter, r *http.Request, lease *au
 }
 
 func (e *Engine) complete(result invocation.HTTPAdmissionResult, identity invocation.PreparedAdmission, completion contract.HTTPTrafficCompletion) {
+	result.Settle()
 	now := e.options.Now().UTC()
 	start, err := time.Parse(time.RFC3339Nano, identity.AdmittedAt)
 	if err != nil {

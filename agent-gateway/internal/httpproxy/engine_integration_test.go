@@ -238,11 +238,8 @@ func (f *proxyFixture) intercept(t *testing.T, upstream, alpn string) *tls.Conn 
 func TestIntegrationPlainStreamingAdmissionAndNoProxySecret(t *testing.T) {
 	f := fixture(t)
 	var calls atomic.Int64
-	ordering := make(chan bool, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
-		history, err := f.traffic.HTTPHistory(r.Context(), 0, 10)
-		ordering <- err == nil && len(history.Records) == 1 && history.Records[0].Admission.Decision.Allowed
 		if r.Header.Get("Proxy-Authorization") != "" {
 			w.WriteHeader(500)
 			return
@@ -257,7 +254,8 @@ func TestIntegrationPlainStreamingAdmissionAndNoProxySecret(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 200, response.StatusCode)
 	require.Equal(t, payload, body)
-	require.True(t, <-ordering)
+	history := f.waitHTTPHistory(t, 1)
+	require.True(t, history.Records[0].Admission.Decision.Allowed)
 	require.EqualValues(t, 1, calls.Load())
 }
 

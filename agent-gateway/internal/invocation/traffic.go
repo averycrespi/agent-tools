@@ -1,9 +1,9 @@
 package invocation
 
 import (
-	"context"
 	"database/sql"
 	"errors"
+	"math"
 	"path/filepath"
 	"sync"
 	"time"
@@ -23,9 +23,7 @@ var (
 	ErrTrafficFault    = errors.New("traffic storage fault; restart validation required")
 )
 
-// TrafficConfig owns validated persistence bounds; production exposes only the
-// combined byte budget. Active pins bound concurrent live invocations independently
-// of retained history. Timeouts bound cooperative work, never abandon settlement.
+// TrafficConfig bounds optional history, never live execution occupancy.
 type TrafficConfig struct {
 	BudgetBytes     int64
 	RetainedRecords int64
@@ -33,7 +31,6 @@ type TrafficConfig struct {
 	QueueBytes      int64
 	BatchRecords    int
 	BatchBytes      int64
-	ActiveRecords   int
 	Readers         int
 	Dwell           time.Duration
 	QueueLifetime   time.Duration
@@ -44,81 +41,61 @@ type TrafficConfig struct {
 func DefaultTrafficConfig() TrafficConfig {
 	return TrafficConfig{BudgetBytes: 4294967296, RetainedRecords: 1000000,
 		QueueRecords: 128, QueueBytes: 2 << 20, BatchRecords: 32, BatchBytes: 512 << 10,
-		ActiveRecords: 1024, Readers: 2, Dwell: 2 * time.Millisecond,
+		Readers: 2, Dwell: 2 * time.Millisecond,
 		QueueLifetime: 250 * time.Millisecond, WriteLifetime: 2 * time.Second, ReadLifetime: time.Second}
 }
-
 func (c TrafficConfig) valid() bool {
 	return c.BudgetBytes >= 1<<20 && c.BudgetBytes <= 16<<30 &&
 		c.RetainedRecords > 0 && c.RetainedRecords <= 1000000 &&
 		c.QueueRecords > 0 && c.QueueRecords <= 1024 && c.QueueBytes >= 16384 && c.QueueBytes <= 16<<20 &&
 		c.BatchRecords > 0 && c.BatchRecords <= c.QueueRecords && c.BatchBytes >= 16384 && c.BatchBytes <= c.QueueBytes &&
-		c.ActiveRecords >= c.BatchRecords && c.ActiveRecords <= 4096 && c.Readers > 0 && c.Readers <= 4 &&
+		c.Readers > 0 && c.Readers <= 4 &&
 		c.Dwell > 0 && c.Dwell <= 10*time.Millisecond && c.QueueLifetime >= c.Dwell && c.QueueLifetime <= time.Second &&
 		c.WriteLifetime > 0 && c.WriteLifetime <= 5*time.Second && c.ReadLifetime > 0 && c.ReadLifetime <= time.Second
 }
 
-// TrafficReceipt has no public fields or serialization. Its immutable evidence
-// is useful only in its original process/store. Neither an ID nor a history row
-// can create one. Dispatch still requires the authority owner's confirmation.
-type TrafficReceipt struct {
-	evidence         PreparedAdmission
-	owner            *TrafficStore
-	request          context.Context
-	httpAdmission    string
-	httpAllowed      bool
-	gitAdmission     string
-	gitAllowed       bool
-	recordedProtocol recordedProtocol
+// TrafficObservation is an immutable sanitized snapshot. It contains no authority,
+// context, callbacks, secrets or cleanup obligations. It is useful even if its
+// initial enqueue was lost: a terminal observation includes this complete snapshot.
+type TrafficObservation struct {
+	prepared      PreparedAdmission
+	httpAdmission string
+	gitAdmission  string
+	recorded      recordedEvent
+	bytes         int64
 }
 
-type trafficPin struct{ dispatched, completing bool }
-type trafficResult struct {
-	receipt *TrafficReceipt
-	err     error
-}
 type trafficRequest struct {
-	ctx            context.Context
+	observation    TrafficObservation
 	expires        time.Time
-	prepared       PreparedAdmission
-	httpAdmission  string
-	httpAllowed    bool
-	httpCompletion string
-	gitAdmission   string
-	gitAllowed     bool
-	gitCompletion  string
 	completion     *activity.Completion
 	diagnosticJSON any
+	httpCompletion string
+	gitCompletion  string
 	recorded       recordedEvent
-	receipt        *TrafficReceipt
 	bytes          int64
-	result         chan trafficResult
 }
 
-// TrafficStore is the composition-owned MCP, HTTP and Git evidence store. Its worker owns
-// evidence only; there are deliberately no execution callbacks or retry paths.
+// TrafficStore has one bounded nonblocking observation queue and one writer.
+// No caller waits for persistence and an uncertain write never gets replayed.
 type TrafficStore struct {
 	db              *sql.DB
 	readerDB        *sql.DB
 	path            string
 	config          TrafficConfig
 	recorded        *recordedActivity
+	invalidate      func(contract.Invalidation)
 	mu              sync.Mutex
 	closed, faulted bool
 	draining        bool
 	queued          int
 	queuedBytes     int64
-	terminalQueued  int
 	quotaRefusals   int64
-	pins            map[*TrafficReceipt]*trafficPin
-	pendingPins     int
-	admissions      chan *trafficRequest
-	terminals       chan *trafficRequest
+	observations    chan *trafficRequest
 	stop            chan struct{}
 	done            chan struct{}
 	readSlots       chan struct{}
 	readGate        sync.RWMutex
-	admissionGate   sync.RWMutex
 	writerGate      sync.Mutex
 	closeOnce       sync.Once
 	closeErr        error
@@ -127,146 +104,76 @@ type TrafficStore struct {
 }
 
 func (s *TrafficStore) BudgetBytes() int64 { return s.config.BudgetBytes }
-
 func (s *TrafficStore) Healthy() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return !s.closed && !s.faulted && !s.draining
 }
+func (s *TrafficStore) BeginDrain() { s.mu.Lock(); s.draining = true; s.mu.Unlock() }
 
-func (s *TrafficStore) BeginDrain() {
-	s.mu.Lock()
-	s.draining = true
-	s.mu.Unlock()
-}
-
-func (s *TrafficStore) Admit(ctx context.Context, prepared PreparedAdmission) (*TrafficReceipt, error) {
+func (s *TrafficStore) ObserveMCP(prepared PreparedAdmission) *TrafficObservation {
 	prepared.admission = cloneAdmissionEvidence(prepared.admission)
 	if !validPreparedAdmission(prepared) {
-		return nil, ErrInvalidInput
+		s.drop()
+		return nil
 	}
-	r := &trafficRequest{ctx: ctx, prepared: prepared, recorded: mcpRecordedAdmission(prepared), bytes: trafficCharge(prepared),
-		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
-	if r.bytes > 16384 {
-		return nil, ErrTrafficCapacity
+	observation := &TrafficObservation{prepared: prepared, recorded: mcpRecordedAdmission(prepared), bytes: trafficCharge(prepared)}
+	if observation.bytes > 16384 {
+		s.drop()
+		return nil
 	}
-	return s.enqueueAdmission(r)
+	s.observeInitial(observation)
+	return observation
 }
 
-func (s *TrafficStore) enqueueAdmission(r *trafficRequest) (*TrafficReceipt, error) {
-	ctx := r.ctx
-	s.mu.Lock()
-	if s.closed || s.faulted || s.draining {
-		s.mu.Unlock()
-		return nil, ErrTrafficFault
-	}
-	if ctx.Err() != nil {
-		s.mu.Unlock()
-		return nil, errors.Join(ErrTrafficDeadline, ctx.Err())
-	}
-	if s.queued >= s.config.QueueRecords || s.queuedBytes+r.bytes > s.config.QueueBytes ||
-		r.bytes > s.config.BatchBytes || r.bytes > maxTrafficRecordBytes || len(s.pins)+s.pendingPins >= s.config.ActiveRecords {
-		s.quotaRefusals++
-		s.mu.Unlock()
-		return nil, ErrTrafficCapacity
-	}
-	s.queued++
-	s.queuedBytes += r.bytes
-	s.pendingPins++
-	s.admissions <- r
-	s.mu.Unlock()
-	// Cancellation cannot abandon an accepted batch's settlement.
-	result := <-r.result
-	return result.receipt, result.err
+func (s *TrafficStore) observeInitial(observation *TrafficObservation) {
+	_ = s.enqueueObservation(&trafficRequest{observation: *observation, recorded: observation.recorded, bytes: observation.bytes})
 }
 
-// Confirm consumes the receipt's one dispatch disposition. Callers must hold
-// current authority and use the live request context. It never executes work.
-func (s *TrafficStore) Confirm(ctx context.Context, receipt *TrafficReceipt) bool {
-	return s.confirmCandidate(ctx, receipt, "", func() bool { return true })
-}
-
-func (s *TrafficStore) confirmCandidate(ctx context.Context, receipt *TrafficReceipt, invocationID string, detach func() bool) bool {
+// A refused enqueue drops only capture. The caller retains its sanitized snapshot
+// independently of this result and can submit one self-contained terminal later.
+func (s *TrafficStore) enqueueObservation(r *trafficRequest) error {
+	if s == nil {
+		return ErrTrafficFault
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	pin, ok := s.pins[receipt]
-	if !ok || receipt.owner != s || pin.dispatched || pin.completing || s.closed || s.faulted || s.draining || ctx.Err() != nil || receipt.request.Err() != nil {
-		return false
-	}
-	evidence := receipt.evidence.admission.Authorization
-	if receipt.httpAdmission == "" && receipt.gitAdmission == "" && (evidence == nil || evidence.Decision != contract.DecisionAllow) || receipt.httpAdmission != "" && !receipt.httpAllowed || receipt.gitAdmission != "" && !receipt.gitAllowed {
-		return false
-	}
-	if invocationID != "" && receipt.evidence.InvocationID != invocationID || detach == nil || !detach() {
-		return false
-	}
-	pin.dispatched = true
-	return true
-}
-
-// Release settles a no-dispatch disposition. It cannot release a live dispatch
-// or a completion attempt; those remain pinned through Complete settlement.
-func (s *TrafficStore) Release(receipt *TrafficReceipt) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if pin, ok := s.pins[receipt]; ok && !pin.dispatched && !pin.completing {
-		delete(s.pins, receipt)
-	}
-}
-
-// finishWithoutTerminal settles an execution whose local result deliberately
-// has no terminal claim (for example control commit uncertainty). It is called
-// only after execution returns, never as a timeout or cancellation shortcut.
-func (s *TrafficStore) finishWithoutTerminal(receipt *TrafficReceipt) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if pin, ok := s.pins[receipt]; ok && pin.dispatched && !pin.completing {
-		delete(s.pins, receipt)
-	}
-}
-
-// Complete makes exactly one synchronous best-effort attempt. Its return value
-// is evidence persistence, never a replacement for the caller's known result.
-func (s *TrafficStore) Complete(ctx context.Context, receipt *TrafficReceipt, completion activity.Completion) error {
-	return s.complete(ctx, receipt, completion, nil)
-}
-
-func (s *TrafficStore) complete(ctx context.Context, receipt *TrafficReceipt, completion activity.Completion, diagnostic *contract.FailureDiagnostics) error {
-	// Encode before queueing so the writer owns bounded immutable evidence.
-	diagnosticJSON, diagnosticErr := encodeFailureDiagnostics(completion.Class, diagnostic)
-	valid := diagnosticErr == nil && receipt != nil && receipt.httpAdmission == "" && receipt.gitAdmission == "" && validTrafficCompletion(receipt.evidence, completion)
-	r := &trafficRequest{ctx: ctx, receipt: receipt, completion: &completion, recorded: recordedTerminal(recordedMCP, string(completion.Class)), diagnosticJSON: diagnosticJSON, bytes: maxTrafficCompletionBytes,
-		expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}
-	return s.enqueueCompletion(r, valid)
-}
-
-func (s *TrafficStore) enqueueCompletion(r *trafficRequest, valid bool) error {
-	ctx, receipt := r.ctx, r.receipt
-	s.mu.Lock()
-	pin, ok := s.pins[receipt]
-	if !ok || receipt.owner != s || !pin.dispatched || pin.completing {
-		s.mu.Unlock()
-		return ErrInvalidInput
-	}
-	pin.completing = true
-	// Every refusal settles this sole attempt and releases the pin.
-	refuse := func(err error) error { delete(s.pins, receipt); s.mu.Unlock(); return err }
-	if !valid {
-		return refuse(ErrInvalidInput)
-	}
+	refuse := func(err error) error { s.dropLocked(); return err }
 	if s.closed || s.faulted || s.draining {
 		return refuse(ErrTrafficFault)
 	}
-	if ctx.Err() != nil {
-		return refuse(errors.Join(ErrTrafficDeadline, ctx.Err()))
-	}
-	if s.terminalQueued >= s.config.QueueRecords {
+	if s.queued >= s.config.QueueRecords || s.queuedBytes+r.bytes > s.config.QueueBytes ||
+		r.bytes > s.config.BatchBytes || r.bytes > maxTrafficRecordBytes+maxTrafficCompletionBytes {
 		return refuse(ErrTrafficCapacity)
 	}
-	s.terminalQueued++
-	s.terminals <- r
+	r.expires = time.Now().Add(s.config.QueueLifetime)
+	s.queued++
+	s.queuedBytes += r.bytes
+	s.observations <- r
+	return nil
+}
+func (s *TrafficStore) drop() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.dropLocked()
 	s.mu.Unlock()
-	return (<-r.result).err
+}
+func (s *TrafficStore) dropLocked() {
+	if s.quotaRefusals < math.MaxInt64 {
+		s.quotaRefusals++
+	}
+}
+
+func (s *TrafficStore) ObserveMCPCompletion(observation *TrafficObservation, completion activity.Completion, diagnostic *contract.FailureDiagnostics) error {
+	diagnosticJSON, err := encodeFailureDiagnostics(completion.Class, diagnostic)
+	if err != nil || observation == nil || observation.httpAdmission != "" || observation.gitAdmission != "" || !validTrafficCompletion(observation.prepared, completion) {
+		s.drop()
+		return ErrInvalidInput
+	}
+	return s.enqueueObservation(&trafficRequest{observation: *observation, completion: &completion, diagnosticJSON: diagnosticJSON,
+		recorded: recordedTerminal(recordedMCP, string(completion.Class)), bytes: observation.bytes + maxTrafficCompletionBytes})
 }
 
 func validTrafficCompletion(p PreparedAdmission, c activity.Completion) bool {
@@ -280,10 +187,7 @@ func validTrafficCompletion(p PreparedAdmission, c activity.Completion) bool {
 	evaluated, valid := parseCanonicalInvocationTimestamp(p.admission.Authorization.EvaluatedAt)
 	return ok && valid && !at.Before(evaluated)
 }
-
 func trafficCharge(p PreparedAdmission) int64 {
-	// Includes fixed row/index/terminal allowance; this is a conservative logical
-	// retention charge, separate from the hard physical DB+WAL reservation.
 	values, _ := admissionSQLValues(p)
 	total := int64(1024 + contract.FailureDiagnosticMaxBytes)
 	for _, v := range values {
@@ -310,7 +214,6 @@ func (s *TrafficStore) Close() error {
 	})
 	return s.closeErr
 }
-
 func (s *TrafficStore) inject(point string) error {
 	if s.fault != nil {
 		return s.fault(point)

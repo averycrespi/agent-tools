@@ -452,13 +452,13 @@ func (adapter *invocationCallAdapter) Call(
 	request mcpingress.ToolsCallRequest,
 ) mcpingress.ToolsCallResponse {
 	if adapter == nil || adapter.service == nil || adapter.pipelines == nil {
-		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
+		return mcpingress.ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionAuthorizationUnavailable}
 	}
 	ctx = adapter.service.DiagnosticCall(ctx)
 	release, ok := adapter.pipelines.TryEnter()
 	if !ok {
 		adapter.service.DiagnosticStopped(ctx)
-		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
+		return mcpingress.ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionAuthorizationUnavailable}
 	}
 	defer release()
 	response := adapter.service.Call(ctx, lease, invocation.CallRequest{Params: request.Params, WireValid: request.WireValid})

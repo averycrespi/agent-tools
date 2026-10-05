@@ -21,13 +21,6 @@ type Admission struct {
 	verified   atomic.Bool
 }
 
-type PendingDetachment struct {
-	admission *Admission
-	lease     *Lease
-	subject   AdmittedSubject
-	committed atomic.Bool
-}
-
 func (repository *Repository) WithAdmission(ctx context.Context, lease *Lease, use func(*Admission) error) error {
 	if lease == nil || lease.owner != repository.authority || use == nil {
 		return ErrInvalidInput
@@ -53,19 +46,19 @@ func (admission *Admission) VerifyResolvedTx(
 	ctx context.Context,
 	transaction *sql.Tx,
 	request ResolvedVerification,
-) (contract.AuthorizationResult, *PendingDetachment, ResolvedVerificationPhase, error) {
+) (contract.AuthorizationResult, ResolvedVerificationPhase, error) {
 	if !validOpaqueID(request.Target.ServerID) || !validUpstreamName(request.Target.ToolName()) ||
 		request.Arguments.Type != strictjson.ValueObject ||
 		!validObservedAuthorizationRevision(request.ObservedAuthorizationRevision) {
-		return contract.AuthorizationResult{}, nil, ResolvedUnverified, ErrInvalidInput
+		return contract.AuthorizationResult{}, ResolvedUnverified, ErrInvalidInput
 	}
 	finish, err := admission.beginVerification(ctx, transaction)
 	if err != nil {
-		return contract.AuthorizationResult{}, nil, ResolvedUnverified, err
+		return contract.AuthorizationResult{}, ResolvedUnverified, err
 	}
 	defer finish()
 	if err := verifyCurrentBindingTx(ctx, transaction, admission.lease.binding); err != nil {
-		return contract.AuthorizationResult{}, nil, ResolvedUnverified, err
+		return contract.AuthorizationResult{}, ResolvedUnverified, err
 	}
 	evaluatedAt := admission.repository.clock.Now().UTC()
 	result, err := evaluateTx(
@@ -79,15 +72,9 @@ func (admission *Admission) VerifyResolvedTx(
 		request.ReadOnlyHint,
 	)
 	if err != nil {
-		return contract.AuthorizationResult{}, nil, ResolvedBindingVerified, err
+		return contract.AuthorizationResult{}, ResolvedBindingVerified, err
 	}
-	if result.Decision != contract.DecisionAllow {
-		return result, nil, ResolvedEvaluated, nil
-	}
-	return result, &PendingDetachment{
-		admission: admission, lease: admission.lease,
-		subject: admittedSubject(admission.repository, admission.lease.binding, result.AuthorizationRevision),
-	}, ResolvedEvaluated, nil
+	return result, ResolvedEvaluated, nil
 }
 
 func (admission *Admission) VerifyBindingOnlyTx(
@@ -106,9 +93,13 @@ func (admission *Admission) VerifyBindingOnlyTx(
 	if err != nil {
 		return BindingVerification{}, err
 	}
+	now := admission.repository.clock.Now().UTC()
+	if !validEvaluationTime(now) {
+		return BindingVerification{}, ErrAuthorizationUnavailable
+	}
 	return BindingVerification{
 		AuthorizationRevision: revision,
-		EvaluatedAt:           formatAuthorizationTime(admission.repository.clock.Now().UTC()),
+		EvaluatedAt:           formatAuthorizationTime(now),
 	}, nil
 }
 
@@ -140,34 +131,6 @@ func (admission *Admission) beginVerification(ctx context.Context, transaction *
 		return fail(ErrAuthenticationRequired)
 	}
 	return admission.lifecycle.RUnlock, nil
-}
-
-func (pending *PendingDetachment) CommitSucceeded() error {
-	if pending == nil || pending.admission == nil || pending.lease == nil || !pending.subject.validFor(pending.admission.repository) {
-		return ErrAdmissionUnavailable
-	}
-	pending.admission.lifecycle.RLock()
-	defer pending.admission.lifecycle.RUnlock()
-	if !pending.admission.active {
-		return ErrAdmissionUnavailable
-	}
-	if pending.committed.Load() {
-		return nil
-	}
-	if !pending.lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
-		return ErrAdmissionUnavailable
-	}
-	pending.lease.owner.remove(pending.lease)
-	pending.committed.Store(true)
-	return nil
-}
-
-// Subject returns the safe identity detached by an acknowledged ALLOW admission.
-func (pending *PendingDetachment) Subject() (AdmittedSubject, error) {
-	if pending == nil || !pending.committed.Load() || pending.admission == nil || !pending.subject.validFor(pending.admission.repository) {
-		return AdmittedSubject{}, ErrAdmissionUnavailable
-	}
-	return pending.subject, nil
 }
 
 func verifyCurrentBindingTx(ctx context.Context, transaction *sql.Tx, binding CredentialBinding) error {

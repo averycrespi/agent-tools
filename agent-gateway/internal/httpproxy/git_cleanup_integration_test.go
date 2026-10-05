@@ -112,6 +112,10 @@ func TestIntegrationGitUnfinishedUploadSettles(t *testing.T) {
 			require.Zero(t, status.Work.InUse)
 			require.Zero(t, status.ActiveStreams)
 			require.Zero(t, status.Connections.InUse)
+			require.Eventually(t, func() bool {
+				history, err := f.traffic.GitHistory(t.Context(), 0, 10)
+				return err == nil && len(history.Records) == 1 && history.Records[0].Completion != nil
+			}, 3*time.Second, 10*time.Millisecond)
 			history, err := f.traffic.GitHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
 			require.Len(t, history.Records, 1)

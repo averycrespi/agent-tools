@@ -81,7 +81,7 @@ prefixes, hashes, packs, arbitrary messages or secrets. Completion contains only
 closed transport facts: prestart failure, unknown outcome or nonmutation, byte
 counts, duration, status and transfer-complete flag. Missing terminal stays unknown;
 even a complete HTTP 200 push remains outcome_unknown, not Git success. Git rows
-share sequence allocation, cross-domain identity uniqueness, retention, pins and
+share sequence allocation, cross-domain identity uniqueness, retention and
 physical budgets with MCP and HTTP. Every retained row is semantically validated.
 
 Before readiness, under existing installation ownership and before constructing
@@ -107,9 +107,8 @@ Only one traffic store per installation can be open in the process. The existing
 installation process lock remains the interprocess owner; control marker and
 keyring recovery are unchanged. Traffic DDL includes the schema-17 optional bounded
 failure-diagnostics column so shared invocation reads and semantic validation keep
-the current evidence shape. The unselected completion seam still accepts only the
-common time/class pair; production completion additionally persists validated,
-immutable encoded diagnostics in the same terminal update. The fixed retention
+the current evidence shape. Historical control-store write builders are test-only; production completion
+persists validated, immutable encoded diagnostics in the same terminal update. The fixed retention
 charge reserves the maximum diagnostic size before admission. Control schema 18
 adds traffic selection after schema 17 diagnostics; stopped migration and restore
 preserve diagnostics, while older schema-9-through-16 history has none. Unsupported experimental traffic schemas are rejected, not silently recreated.
@@ -121,7 +120,7 @@ are read-only/query-only. At most two readers (configurable 1–4) return at mos
 materialized records per call, with a one-second maximum lifetime and immediate
 capacity refusal. No live SQL rows or snapshots escape. Checkpoint pressure fences
 new readers and makes one bounded TRUNCATE attempt when no snapshot is pinned; a
-busy checkpoint refuses admission rather than growing the WAL indefinitely.
+busy checkpoint drops optional observations rather than growing the WAL indefinitely.
 
 The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
 `serve` and persisted service configuration accept 1 MiB–16 GiB through
@@ -147,15 +146,15 @@ reserves the same 512-byte completion allowance. MCP retains its existing 16,384
 ceiling. Shared batching reserves for the largest accepted domain member. The logical allowance is one quarter of the
 database partition, leaving index/fragmentation headroom. A separately configurable
 1–1,000,000 retained-row ceiling bounds full semantic validation work; it is not a
-promised history window. Each pruning scan is bounded by active capacity plus
-batch capacity plus 256; insufficient eligible space refuses the whole batch.
-The oldest eligible records are removed transactionally, after checking every
-incoming identity for collision. Process-local pins protect active admissions,
-including earlier members of a group commit, through disposition and the sole
-completion attempt. Historical incomplete rows are unknown and unpinned after
-restart. Sequence high-water and a cumulative deleted-record count commit with
-rows and byte/count accounting. Generation plus pruning metadata invalidates a
-prior history snapshot even for non-prefix holes around pinned rows.
+promised history window. Each pruning scan is bounded by batch capacity plus 256;
+insufficient space drops the whole observation batch, not live requests.
+Oldest records are removed transactionally after checking incoming identities for
+conflicting immutable facts. There are no execution pins: a self-contained terminal
+can reconstruct a pruned or dropped initial observation. Late initial observations
+cannot regress retained terminal fields. Sequence high-water and a cumulative
+deleted-record count commit with rows and byte/count accounting. Generation plus
+pruning metadata invalidates prior history snapshots; absent rows and incomplete
+records never establish nonexecution.
 
 The database/WAL budget excludes control storage's existing 1 GiB limit, the
 bounded SHM coordination file (16 MiB maximum), memory, and creation/backup/restore
@@ -166,9 +165,10 @@ Gateway staging on the same filesystem. This is not physical preallocation or pr
 against concurrent noncooperating filesystem consumers. Any later I/O uncertainty
 fails closed. Deterministic tests are not power-loss qualification.
 
-Commit acknowledgment—not row readability or marker cleanup—is the new traffic
-evidence boundary. Statement/storage failures, commit errors, lost acknowledgment,
-and uncertain rollback issue no affected receipt and fault future admission.
+Commit acknowledgment—not row readability or marker cleanup—is the traffic
+evidence boundary. Statement/storage failures, commit errors, lost acknowledgment
+and uncertain rollback fault optional history only, never request-local authority.
+Callers enqueue sanitized observations without waiting for this boundary.
 There is no split, retry, replay, or traffic-only persistent manual-verification
 latch. Restart restores write authority only after exact schema/application/binding,
 physical-budget, complete structural and every-row semantic validation, including
@@ -177,7 +177,9 @@ is streaming and has a 30-second cooperative deadline; incomplete validation is
 failure, never partial readiness. Composition relies on this complete `OpenTraffic`
 validation rather than repeating the legacy invocation scan through an online reader
 with its one-second deadline. Reads may remain available while write authority
-is faulted; readable history alone cannot acknowledge or resume execution.
+is faulted; readable history grants no authority and cannot resume execution.
+Startup still validates the selected pair in this revision; optional startup and
+recovery selection are separate lifecycle work.
 
 ## Installation selection after migration retirement
 
@@ -193,15 +195,15 @@ Retirement preserves installation ULID, SQLite application/schema identity, data
 
 ### Mutation intent and latch
 
-Security mutations share one actual control-storage owner. Ordinary and recovery-bearing mutation APIs attempt immediate acquisition and never queue. The following invocation FIFO seam is retained for legacy migration/test owners only, not production traffic persistence. Invocation admission and synchronous best-effort terminal annotation alone may retain at most 31 FIFO waiters, for at most 250 ms per acquisition, shortened by caller cancellation/deadline or invocation drain. Full capacity rejects immediately. Handoff reserves the same owner for the oldest eligible waiter, so neither later invocation arrivals nor nonqueueing foreign writers can barge. Canceled, expired, drained, or latched waiters leave occupancy exactly once; active ownership includes reserved handoff and lasts through transaction and marker settlement. Foreign writers may therefore reject during a reservation and have no starvation-freedom guarantee.
+Security mutations share one actual control-storage owner. Ordinary and recovery-bearing APIs attempt immediate acquisition and never queue. The obsolete invocation FIFO, waiter deadlines and receipt-dependent runtime path are removed. Active ownership lasts through transaction and marker settlement. Pre-mutation capacity, cancellation or latch refusal creates no intent or row. No waiting deadline substitutes for active settlement and no automatic callback retry is introduced.
 
-Waiting runs in the caller before any intent, transaction, or callback. After acquisition, cancellation, invocation drain, and latch are rechecked before mutation work. Pre-mutation rejection creates no intent or row and never latches storage. Closed internal sentinel errors distinguish wait capacity, wait expiry, invocation stop, caller cancellation/deadline, and storage latch; public MCP vocabulary is unchanged. The acquisition timer never supplies an active transaction deadline. Composition stops only invocation waiting, leaving producer cleanup's ordinary writes available. No worker pool, deferred terminal backlog, callback retry, recursive audit diagnostic, or global storage fence is introduced.
+Authorized self-service access-request create/cancel remains synchronous owner-scoped durable control work behind its admitted subject. Administrative grants, credentials, routing and approval/rejection retain mandatory atomic audit and honest external-effect uncertainty. Optional traffic loss does not relax these controls.
 
 Before a transaction begins, Gateway writes an installation-bound owner-only intent through temp write, file sync, atomic rename, and directory sync. A known commit or rollback moves the intent through a synced tombstone deletion. Marker I/O failures, storage-class statement failures, busy begin, commit errors, and post-commit uncertainty latch mutations; elapsed time, restart, or successful reads cannot clear the latch. The at-most-512-byte marker has one closed recovery union: the existing keyring fence action or one agent credential candidate containing only principal ID, credential ID, and captured positive principal/credential revisions. Recovery-bearing tombstone deletion restores the tombstone if final directory sync fails.
 
 ### Diagnostic observations
 
-The startup-bound storage observer reports actual mutation wait/acquire/release/reject facts, acquisition and hold durations, and process-local mutation-attempt correlation. Invocation context distinguishes admission from terminal annotation; unrelated mutations use the coarse `foreign` writer class without tracing their resource or workflow. Waiting/rejected attempts never acquire an acknowledged invocation ID from storage. Facts are sampled under short owner locks where needed, but encoding and output run only on the separate diagnostic worker, outside storage/authority/catalog locks.
+The startup-bound storage observer reports actual mutation acquire/release/reject facts, hold durations and process-local mutation-attempt correlation. Occupancy is one actual writer with no waiting slots. Control work uses the coarse `foreign` writer class without tracing its resource or workflow; runtime traffic no longer enters this control mutation path. Facts are sampled under short owner locks where needed, but encoding and output run only on the separate diagnostic worker, outside storage/authority/catalog locks.
 
 Durability failure and latch events classify size check, identity check, intent arm, transaction begin/body/commit/rollback, and intent cleanup without serializing errors or marker contents. The closed diagnostic queue is not an audit queue and cannot change intent settlement, latch/recovery, actual slot ownership, or mandatory audit-before-dispatch. Sink loss or flush expiry never marks otherwise settled storage unclean. See [serve diagnostics](administrative-control-plane.md#serve-diagnostics) for bounds and output failure semantics.
 

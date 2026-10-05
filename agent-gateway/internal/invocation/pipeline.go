@@ -10,18 +10,12 @@ type PipelineFence struct {
 	draining bool
 	active   int
 	idle     chan struct{}
-	waitStop chan struct{}
 }
 
 func NewPipelineFence() *PipelineFence {
 	idle := make(chan struct{})
 	close(idle)
-	return &PipelineFence{idle: idle, waitStop: make(chan struct{})}
-}
-
-// WaitStop fences storage acquisition without cancelling active mutation cleanup.
-func (fence *PipelineFence) WaitStop() <-chan struct{} {
-	return fence.waitStop
+	return &PipelineFence{idle: idle}
 }
 
 func (fence *PipelineFence) TryEnter() (func(), bool) {
@@ -29,7 +23,7 @@ func (fence *PipelineFence) TryEnter() (func(), bool) {
 		return nil, false
 	}
 	fence.mu.Lock()
-	if fence.draining {
+	if fence.draining || fence.active >= 1024 {
 		fence.mu.Unlock()
 		return nil, false
 	}
@@ -58,7 +52,6 @@ func (fence *PipelineFence) BeginDrain() {
 	fence.mu.Lock()
 	if !fence.draining {
 		fence.draining = true
-		close(fence.waitStop)
 	}
 	fence.mu.Unlock()
 }

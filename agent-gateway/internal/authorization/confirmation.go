@@ -16,7 +16,7 @@ type EvaluationCandidate struct {
 	lease        *Lease
 	invocationID string
 	revision     string
-	result       contract.AuthorizationResult
+	request      context.Context
 	used         atomic.Bool
 }
 
@@ -27,9 +27,6 @@ type Evaluation struct {
 }
 
 func (repository *Repository) EvaluateAdmission(ctx context.Context, lease *Lease, invocationID string, request *ResolvedVerification) (evaluation Evaluation, err error) {
-	if !validOpaqueID(invocationID) {
-		return evaluation, ErrInvalidInput
-	}
 	err = repository.WithAdmission(ctx, lease, func(admission *Admission) error {
 		return repository.view(ctx, func(tx *sql.Tx) error {
 			if request == nil {
@@ -37,14 +34,9 @@ func (repository *Repository) EvaluateAdmission(ctx context.Context, lease *Leas
 				return e
 			}
 			var e error
-			evaluation.Result, _, evaluation.Phase, e = admission.VerifyResolvedTx(ctx, tx, *request)
+			evaluation.Result, evaluation.Phase, e = admission.VerifyResolvedTx(ctx, tx, *request)
 			if e == nil && evaluation.Result.Decision == contract.DecisionAllow {
-				sealed := evaluation.Result
-				if sealed.GrantID != nil {
-					grant := *sealed.GrantID
-					sealed.GrantID = &grant
-				}
-				evaluation.Candidate = &EvaluationCandidate{repository: repository, lease: lease, invocationID: invocationID, revision: evaluation.Result.AuthorizationRevision, result: sealed}
+				evaluation.Candidate = &EvaluationCandidate{repository: repository, lease: lease, invocationID: invocationID, revision: evaluation.Result.AuthorizationRevision, request: ctx}
 			}
 			return e
 		})
@@ -52,11 +44,11 @@ func (repository *Repository) EvaluateAdmission(ctx context.Context, lease *Leas
 	return evaluation, err
 }
 
-// ConfirmEvaluation reacquires authority only after persistence settlement. The
-// receipt owner invokes detach under its short fault fence, never its SQL writer.
+// ConfirmEvaluation consumes one evaluation under the current control and drain
+// fences. History identity is correlation only; no persistence acknowledges dispatch.
 // All failures consume the candidate: neither reevaluation nor retry is allowed.
-func (repository *Repository) ConfirmEvaluation(ctx context.Context, candidate *EvaluationCandidate, invocationID string, confirmReceipt func(contract.AuthorizationResult, func() bool) bool) (AdmittedSubject, error) {
-	if candidate == nil || candidate.repository != repository || candidate.invocationID != invocationID || confirmReceipt == nil || !candidate.used.CompareAndSwap(false, true) {
+func (repository *Repository) ConfirmEvaluation(ctx context.Context, candidate *EvaluationCandidate, invocationID string) (AdmittedSubject, error) {
+	if candidate == nil || candidate.repository != repository || candidate.invocationID != invocationID || !candidate.used.CompareAndSwap(false, true) {
 		return AdmittedSubject{}, ErrAdmissionUnavailable
 	}
 	lease := candidate.lease
@@ -84,17 +76,15 @@ func (repository *Repository) ConfirmEvaluation(ctx context.Context, candidate *
 	registry := repository.authority
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	if registry.draining.Load() || ctx.Err() != nil {
+	if registry.draining.Load() || ctx.Err() != nil || candidate.request.Err() != nil {
 		return AdmittedSubject{}, ErrAdmissionUnavailable
 	}
 	confirmed := repository.store.ConfirmHealthy(func() bool {
-		return confirmReceipt(candidate.result, func() bool {
-			if ctx.Err() != nil || !lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
-				return false
-			}
-			delete(registry.leases, lease)
-			return true
-		})
+		if ctx.Err() != nil || candidate.request.Err() != nil || !lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
+			return false
+		}
+		delete(registry.leases, lease)
+		return true
 	})
 	if !confirmed {
 		return AdmittedSubject{}, ErrAdmissionUnavailable

@@ -143,8 +143,11 @@ func TestIntegrationOuterTargetAuthorityOverridesRawHost(t *testing.T) {
 				case <-time.After(time.Second):
 					t.Fatal("missing authoritative target capture")
 				}
-				history, err := f.traffic.HTTPHistory(t.Context(), 0, 10)
-				require.NoError(t, err)
+				count := 1
+				if protocol != "http" {
+					count = 2
+				}
+				history := f.waitHTTPHistory(t, count)
 				found := false
 				for _, record := range history.Records {
 					a := record.Admission

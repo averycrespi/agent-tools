@@ -63,7 +63,7 @@ func TestIntegrationFailureContractPlainWire(t *testing.T) {
 				expected = 503
 				f.engine.options.Ready = func() bool { return false }
 			case "traffic":
-				expected = 503
+				expected = 403
 				f.traffic.BeginDrain()
 			case "connection":
 				expected = 502
@@ -91,7 +91,7 @@ func TestIntegrationFailureContractPlainWire(t *testing.T) {
 			// Join the producer before inspecting the asynchronously encoded sink.
 			require.Eventually(t, func() bool { f.engine.mu.Lock(); defer f.engine.mu.Unlock(); return f.engine.work == 0 }, time.Second, time.Millisecond)
 			require.True(t, observer.Finish(nil))
-			if mode == "traffic" || mode == "connection" || mode == "timeout" || mode == "panic" {
+			if mode == "connection" || mode == "timeout" || mode == "panic" {
 				var record map[string]any
 				require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 				require.Equal(t, id, record["proxy_id"])

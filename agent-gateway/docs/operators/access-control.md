@@ -197,7 +197,7 @@ Modern and legacy `tools/call` rejections retain JSON-RPC `-32000` and `data.cod
 
 Self-service tools require their own grants. A blocked `mcp_gateway` call therefore offers optional administrator review instead of circular advice to call blocked self-service tools. Guidance never submits a request or retries a call automatically. Rejected calls do not execute locally or downstream.
 
-An acknowledged rejection includes `data.invocationId` for administrator investigation, but no grant IDs, constraints, argument values, or raw errors. Without acknowledged admission, Gateway returns `audit_unavailable` without an invocation ID or rejection reason; do not infer a policy decision. Other error codes omit `data.reason`, and uncertain-outcome handling is unchanged. See the [normative response contract](../design/invocation-and-ingress.md#live-call-rejection-contract) for exact messages and [invocation evidence](invocation-evidence.md) before deciding whether to retry an uncertain call.
+A rejection may include `data.invocationId` for administrator investigation, but no grant IDs, constraints, argument values, or raw errors. The optional ID is correlation, not proof that history was stored. Unavailable authority returns `call_rejected` with `authorization_unavailable`; it is not a DENY/BLOCK decision. Missing or failed history does not block otherwise authorized execution or change the live outcome. Other error codes omit `data.reason`, and uncertain-outcome handling is unchanged. See the [normative response contract](../design/invocation-and-ingress.md#live-call-rejection-contract) for exact messages and [invocation evidence](invocation-evidence.md) before deciding whether to retry an uncertain call.
 
 ## Review grant requests
 

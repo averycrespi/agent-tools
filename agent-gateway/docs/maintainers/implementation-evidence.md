@@ -66,6 +66,8 @@ at concurrency four in warn, debug and stalled-diagnostic modes. A downstream HT
 barrier proves overlapping executions; assertions inspect retained admissions and
 terminals and the absence of control-store dual writes. A separate held-control-
 writer scenario proves traffic persistence does not join its wait queue or retain
-authority. Deterministic receipt interleavings prove revocation completes while the
-traffic writer is held and prevents later confirmation. These are correctness and
+authority. Request-local confirmation tests cover cancellation, revocation, drain,
+material changes and exact Git request identity. Recorder barriers separately show
+that stalled/full/lost history cannot gate authorized execution or cleanup;
+self-contained terminals reconstruct dropped initial observations. These are correctness and
 isolation checks, not the dependent throughput qualification or latency promises.

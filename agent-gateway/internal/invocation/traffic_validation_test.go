@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrafficQueueBytesDeadlineAndNoCanceledDispatch(t *testing.T) {
+func TestTrafficQueueExpiryDropsOnlyObservations(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
 	s, _ := trafficFixture(t, func(c *TrafficConfig) {
@@ -35,10 +35,9 @@ func TestTrafficQueueBytesDeadlineAndNoCanceledDispatch(t *testing.T) {
 			close(release)
 		}
 	})
-	first := make(chan trafficResult, 1)
 	big := trafficPrepared(1)
 	big.admission.MCP.RedactedArguments = []byte(`{"value":"` + strings.Repeat("x", 8100) + `"}`)
-	go func() { r, e := s.Admit(context.Background(), big); first <- trafficResult{r, e} }()
+	require.NotNil(t, s.ObserveMCP(big))
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
@@ -46,22 +45,14 @@ func TestTrafficQueueBytesDeadlineAndNoCanceledDispatch(t *testing.T) {
 	}
 	another := big
 	another.InvocationID = invocationID(2)
-	r, err := s.Admit(context.Background(), another)
-	assert.ErrorIs(t, err, ErrTrafficCapacity)
-	assert.Nil(t, r)
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
-	defer cancel()
-	second := make(chan trafficResult, 1)
-	go func() { r, e := s.Admit(ctx, trafficPrepared(3)); second <- trafficResult{r, e} }()
-	require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.queued == 2 }, time.Second, time.Millisecond)
-	<-ctx.Done()
+	require.NotNil(t, s.ObserveMCP(another))
+	require.NotNil(t, s.ObserveMCP(trafficPrepared(3)))
+	// Deterministically expire the queued observation, not an execution context.
+	queued := <-s.observations
+	queued.expires = time.Now().Add(-time.Second)
+	s.observations <- queued
 	close(release)
-	got := <-first
-	require.NoError(t, got.err)
-	s.Release(got.receipt)
-	got = <-second
-	assert.ErrorIs(t, got.err, ErrTrafficDeadline)
-	assert.Nil(t, got.receipt)
+	waitTraffic(t, s)
 	history, err := s.History(context.Background(), 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, history.Records, 1)
@@ -71,9 +62,7 @@ func TestTrafficQueueBytesDeadlineAndNoCanceledDispatch(t *testing.T) {
 func TestTrafficRestartValidatesEveryRowNotOnlyStructure(t *testing.T) {
 	s, owner := trafficFixture(t, nil, nil)
 	for id := 1; id <= 10; id++ {
-		r, err := s.Admit(context.Background(), trafficPrepared(id))
-		require.NoError(t, err)
-		s.Release(r)
+		recordMCP(t, s, trafficPrepared(id))
 	}
 	var trigger string
 	require.NoError(t, s.db.QueryRowContext(context.Background(), `SELECT sql FROM sqlite_schema WHERE name='invocations_terminal_once'`).Scan(&trigger))
@@ -101,12 +90,10 @@ func TestTrafficFailureDiagnosticsReadAndRestartValidation(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s, owner := trafficFixture(t, nil, nil)
-			r, err := s.Admit(t.Context(), trafficPrepared(1))
-			require.NoError(t, err)
-			s.Release(r)
+			recordMCP(t, s, trafficPrepared(1))
 			// Inject retained evidence directly to test invalid combinations that
 			// the production completion boundary refuses before queueing.
-			_, err = s.db.ExecContext(t.Context(), `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=?`, trafficCompletion().CompletedAt, string(contract.TerminalDownstreamFailure), test.diagnostic, invocationID(1))
+			_, err := s.db.ExecContext(t.Context(), `UPDATE invocations SET completed_at=?,terminal_class=?,failure_diagnostics=? WHERE id=?`, trafficCompletion().CompletedAt, string(contract.TerminalDownstreamFailure), test.diagnostic, invocationID(1))
 			require.NoError(t, err)
 			history, err := s.History(t.Context(), 0, 10)
 			if test.valid {
@@ -183,11 +170,9 @@ func TestTrafficGenerationOwnershipBoundsAndPrivacy(t *testing.T) {
 	}
 }
 
-func TestTrafficRestartReleasesUnterminatedPins(t *testing.T) {
+func TestTrafficRestartPreservesIncompleteHistoryWithoutOwners(t *testing.T) {
 	s, owner := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 1; c.BatchRecords = 1 }, nil)
-	r, err := s.Admit(context.Background(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(context.Background(), r))
+	recordMCP(t, s, trafficPrepared(1))
 	require.NoError(t, s.Close())
 	reopened, err := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
 	require.NoError(t, err)
@@ -196,14 +181,11 @@ func TestTrafficRestartReleasesUnterminatedPins(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, h.Records, 1)
 	assert.Nil(t, h.Records[0].CompletedAt)
-	fresh, err := reopened.Admit(context.Background(), trafficPrepared(2))
-	require.NoError(t, err)
-	reopened.Release(fresh)
+	recordMCP(t, reopened, trafficPrepared(2))
 	h, err = reopened.History(context.Background(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, h.Records, 1)
 	assert.Equal(t, int64(2), h.HighWater)
-	assert.False(t, reopened.Confirm(context.Background(), r))
 }
 
 func TestTrafficBatchCollisionPrecedesEviction(t *testing.T) {
@@ -222,33 +204,22 @@ func TestTrafficBatchCollisionPrecedesEviction(t *testing.T) {
 			close(release)
 		}
 	})
-	results := make(chan trafficResult, 3)
-	submit := func(id int) {
-		go func() { r, e := s.Admit(context.Background(), trafficPrepared(id)); results <- trafficResult{r, e} }()
-	}
-	submit(1)
+	require.NotNil(t, s.ObserveMCP(trafficPrepared(1)))
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("writer not entered")
 	}
-	submit(2)
-	submit(2)
+	require.NotNil(t, s.ObserveMCP(trafficPrepared(2)))
+	collision := trafficPrepared(2)
+	collision.admission.MCP.RedactedArguments = []byte(`{"different":true}`)
+	require.NotNil(t, s.ObserveMCP(collision))
 	require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.queued == 3 }, time.Second, time.Millisecond)
 	close(release)
-	success, collisions := 0, 0
-	for range 3 {
-		got := <-results
-		if got.err == nil {
-			success++
-			s.Release(got.receipt)
-		} else {
-			require.ErrorIs(t, got.err, ErrIdentityUnavailable)
-			collisions++
-		}
-	}
-	assert.Equal(t, 1, success)
-	assert.Equal(t, 2, collisions)
+	waitTraffic(t, s)
+	s.mu.Lock()
+	assert.EqualValues(t, 2, s.quotaRefusals)
+	s.mu.Unlock()
 	h, err := s.History(context.Background(), 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, h.Records, 1)

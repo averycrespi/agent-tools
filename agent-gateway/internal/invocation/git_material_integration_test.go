@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,7 +31,8 @@ func TestIntegrationGitAdmissionSelectedMaterialFence(t *testing.T) {
 			ctx, cancel := context.WithTimeout(audit.WithSystem(t.Context()), 5*time.Second)
 			defer cancel()
 			coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
-			provider, err := keyring.NewProviderWithBackend(invocationTestInstallationID, &httpMemoryKeyring{values: map[string]string{}})
+			backend := &httpMemoryKeyring{values: map[string]string{}}
+			provider, err := keyring.NewProviderWithBackend(invocationTestInstallationID, backend)
 			require.NoError(t, err)
 			materials, err := gitcredentials.NewService(audits.store, keyring.NewCoordinator(provider, audits.store, audits.clock, rand.Reader), authority, audits.clock, rand.Reader, invocationTestInstallationID)
 			require.NoError(t, err)
@@ -49,23 +51,35 @@ func TestIntegrationGitAdmissionSelectedMaterialFence(t *testing.T) {
 			require.NoError(t, err)
 			request, err := gitwire.New(ctx, target, repo, profile.Revision, http.Header{}, io.NopCloser(strings.NewReader("")))
 			require.NoError(t, err)
+			if mode == "rotate" {
+				lease, err := authority.Authenticate(ctx, credential.Bearer)
+				require.NoError(t, err)
+				defer lease.Release()
+				evaluation, err := authority.EvaluateGitAdmission(ctx, lease, "", "", request, publicHTTPFacts())
+				require.NoError(t, err)
+				require.NotNil(t, evaluation.Candidate)
+				material, err := materials.Acquire(ctx, evaluation.Execution.Material.Credential)
+				require.NoError(t, err)
+				defer material.Clear()
+				_, err = materials.Rotate(ctx, created.ID, created.Revision, []byte("rotated-private-canary"))
+				require.NoError(t, err)
+				require.Error(t, authority.ConfirmGit(ctx, evaluation.Candidate, "", request, materials))
+				return
+			}
 			entered, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
-			var once sync.Once
-			traffic, _ := trafficFixture(t, nil, func(point string) error {
-				if point == "acknowledgment" {
-					once.Do(func() {
-						close(entered)
-						select {
-						case <-release:
-						case <-ctx.Done():
-						}
-					})
+			var blocked atomic.Bool
+			backend.getBarrier = func() {
+				if blocked.CompareAndSwap(false, true) {
+					close(entered)
+					select {
+					case <-release:
+					case <-ctx.Done():
+					}
 				}
-				return nil
-			})
-			audits.traffic = traffic
+			}
+			traffic := audits.traffic
 			lease, err := authority.Authenticate(ctx, credential.Bearer)
 			require.NoError(t, err)
 			defer lease.Release()
@@ -81,11 +95,7 @@ func TestIntegrationGitAdmissionSelectedMaterialFence(t *testing.T) {
 			select {
 			case <-entered:
 			case <-ctx.Done():
-				t.Fatal("missing acknowledged admission")
-			}
-			if mode == "rotate" {
-				_, err = materials.Rotate(ctx, created.ID, created.Revision, []byte("rotated-private-canary"))
-				require.NoError(t, err)
+				t.Fatal("material acquisition did not enter")
 			}
 			if mode == "edit" {
 				definition.Name = "Changed"
@@ -102,17 +112,23 @@ func TestIntegrationGitAdmissionSelectedMaterialFence(t *testing.T) {
 				require.Equal(t, "Bearer git-private-canary", headers.Get("Authorization"))
 				completion := gitTrafficCompletion()
 				completion.Outcome = "nonmutation"
+				result.Settle()
 				require.NoError(t, coordinator.CompleteGit(t.Context(), result, completion))
 			} else {
 				require.Error(t, err)
 				require.False(t, result.DispatchAuthorized)
 				require.Nil(t, result.Material)
 			}
+			waitTraffic(t, traffic)
 			history, err := traffic.GitHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
 			require.Len(t, history.Records, 1)
-			require.NotNil(t, history.Records[0].Admission.Material)
-			require.Equal(t, "1", history.Records[0].Admission.Material.Generation)
+			if mode == "allow" {
+				require.NotNil(t, history.Records[0].Admission.Material)
+				require.Equal(t, "1", history.Records[0].Admission.Material.Generation)
+			} else {
+				require.False(t, history.Records[0].Admission.Allowed)
+			}
 		})
 	}
 }

@@ -282,7 +282,7 @@ func validFieldSubset(f Facts) bool {
 	case f.Event <= AuthorityReject:
 		return f.Mutation != 0 && f.InvocationID == "" && f.Stage == NoStage && f.Writer == Foreign && f.Limit == 32
 	case f.Event <= StorageReject:
-		return f.Mutation != 0 && f.InvocationID == "" && f.Stage == NoStage && f.Limit == 31 && f.Waiting <= 31 && (f.Writer == Foreign || f.Call != 0)
+		return f.Mutation != 0 && f.InvocationID == "" && f.Stage == NoStage && f.Limit == 1 && f.Waiting == 0 && (f.Writer == Foreign || f.Call != 0)
 	default:
 		return f.Mutation != 0 && f.InvocationID == "" && f.Owned == 0 && f.Waiting == 0 && f.Limit == 0 && (f.Writer == Foreign || f.Call != 0)
 	}

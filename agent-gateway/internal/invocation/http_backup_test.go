@@ -16,23 +16,16 @@ func TestHTTPTrafficPairedRestorePreservesBothDomains(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, control.Close()) }()
 	require.NoError(t, control.SelectTraffic(t.Context(), "", invocationID(90)))
-	mcp, err := traffic.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	traffic.Release(mcp)
-	http, err := traffic.AdmitHTTP(t.Context(), httpTrafficAdmission(2))
-	require.NoError(t, err)
-	require.True(t, traffic.Confirm(t.Context(), http))
+	recordMCP(t, traffic, trafficPrepared(1))
+	http := recordHTTP(t, traffic, httpTrafficAdmission(2))
 	completion := httpTrafficCompletion()
 	completion.ResponseSource = "upstream"
 	completion.Termination = &contract.HTTPTermination{Stage: "complete", Condition: "clean"}
-	require.NoError(t, traffic.CompleteHTTP(t.Context(), http, completion))
-	unknown, err := traffic.AdmitHTTP(t.Context(), httpTrafficAdmission(3))
-	require.NoError(t, err)
-	require.True(t, traffic.Confirm(t.Context(), unknown))
+	recordHTTPCompletion(t, traffic, http, completion)
+	recordHTTP(t, traffic, httpTrafficAdmission(3))
 	root := t.TempDir()
 	source := filepath.Join(root, "traffic.db")
-	// Admission acknowledgment precedes writer-gate release. Synchronize the
-	// fixture, and prove that an occupied writer still refuses a snapshot.
+	// Prove that an occupied writer still refuses a snapshot.
 	traffic.writerGate.Lock()
 	busy := traffic.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), source)
 	traffic.writerGate.Unlock()
@@ -57,6 +50,4 @@ func TestHTTPTrafficPairedRestorePreservesBothDomains(t *testing.T) {
 	require.NotNil(t, hh.Records[0].Completion)
 	assert.Equal(t, completion, *hh.Records[0].Completion)
 	assert.Nil(t, hh.Records[1].Completion)
-	assert.False(t, restored.Confirm(t.Context(), unknown))
-	assert.Empty(t, restored.pins)
 }

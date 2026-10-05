@@ -1,7 +1,6 @@
 package authorization
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -17,236 +16,135 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAdmissionVerifiersAndKnownOutcomeDetachment(t *testing.T) {
-	repository, store := newRepository(t, nil)
-
-	t.Run("revision re-evaluation and later policy", func(t *testing.T) {
-		principal, credential := createAdmissionCredential(t, repository)
-		lease := mustAuthenticateLease(t, repository, credential.Bearer)
-		result, token, err := verifyResolvedMutation(repository, store, lease, ResolvedVerification{
-			Arguments:                     mustAdmissionArguments(t, `{}`),
-			ObservedAuthorizationRevision: "0", Target: accesstarget.Tool(contract.SyntheticServerID, "tool"),
-		}, nil)
-		require.NoError(t, err)
-		assert.Equal(t, contract.DecisionAllow, result.Decision)
-		assert.Equal(t, "1", result.AuthorizationRevision)
-		require.NotNil(t, token)
-		assert.Equal(t, leaseAdmitted, leasePhase(lease.phase.Load()))
-
-		pending := mustAuthenticateLease(t, repository, credential.Bearer)
-		deny := mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"),
-			PrincipalID: principal.ID, Effect: contract.GrantDeny, Target: accesstarget.MCP{ServerID: contract.SyntheticServerID, UpstreamName: stringPointer("tool")},
-		})
-		assertLeaseOpen(t, lease)
-		assertLeaseOpen(t, pending)
-		result, token, err = verifyResolvedMutation(repository, store, pending, ResolvedVerification{
-			Arguments:                     mustAdmissionArguments(t, `{}`),
-			ObservedAuthorizationRevision: "1", Target: accesstarget.Tool(contract.SyntheticServerID, "tool"),
-		}, nil)
-		require.NoError(t, err)
-		assert.Equal(t, contract.DecisionDeny, result.Decision)
-		assert.Equal(t, deny.ID, *result.GrantID)
-		assert.Nil(t, token)
-		lease.Release()
-		pending.Release()
-	})
-
-	t.Run("single expiry timestamp and binding-only evidence", func(t *testing.T) {
-		principal, credential := createAdmissionCredential(t, repository)
-		expiresAt := testNow.Add(time.Second)
-		mustCreateEvaluationGrant(t, repository, CreateGrantRequest{Description: stringPointer("Test grant"),
-			PrincipalID: principal.ID, Effect: contract.GrantAllow, ExpiresAt: &expiresAt, Target: accesstarget.MCP{ServerID: id(51)},
-		})
-		expired := mustAuthenticateLease(t, repository, credential.Bearer)
-		repository.clock.(*fixedClock).now = expiresAt
-		result, token, err := verifyResolvedMutation(repository, store, expired, ResolvedVerification{
-			Arguments: mustAdmissionArguments(t, `{}`), Target: accesstarget.Tool(id(51), "tool"),
-		}, nil)
-		require.NoError(t, err)
-		assert.Equal(t, contract.DecisionBlock, result.Decision)
-		assert.Equal(t, timestamp(expiresAt), result.EvaluatedAt)
-		assert.Nil(t, token)
-		expired.Release()
-
-		admitted := mustAuthenticateLease(t, repository, credential.Bearer)
-		repository.clock.(*fixedClock).now = expiresAt.Add(-time.Nanosecond)
-		result, token, err = verifyResolvedMutation(repository, store, admitted, ResolvedVerification{
-			Arguments: mustAdmissionArguments(t, `{}`), Target: accesstarget.Tool(id(51), "tool"),
-		}, nil)
-		require.NoError(t, err)
-		assert.Equal(t, contract.DecisionAllow, result.Decision)
-		assert.Equal(t, timestamp(expiresAt.Add(-time.Nanosecond)), result.EvaluatedAt)
-		require.NotNil(t, token)
-		repository.clock.(*fixedClock).now = expiresAt
-		assert.Equal(t, leaseAdmitted, leasePhase(admitted.phase.Load()))
-		assertLeaseOpen(t, admitted)
-
-		repository.clock.(*fixedClock).now = testNow
-		revision, err := repository.AuthorizationRevision(context.Background())
-		require.NoError(t, err)
-		bindingLease := mustAuthenticateLease(t, repository, credential.Bearer)
-		var evidence BindingVerification
-		err = repository.WithAdmission(context.Background(), bindingLease, func(admission *Admission) error {
-			return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-				var verifyErr error
-				evidence, verifyErr = admission.VerifyBindingOnlyTx(context.Background(), transaction)
-				return verifyErr
-			})
-		})
-		require.NoError(t, err)
-		assert.Equal(t, BindingVerification{AuthorizationRevision: revision, EvaluatedAt: timestamp(testNow)}, evidence)
-		admitted.Release()
-		bindingLease.Release()
-		repository.clock.(*fixedClock).now = testNow
-	})
-
-	t.Run("caller transaction and rollback", func(t *testing.T) {
-		_, credential := createAdmissionCredential(t, repository)
-		lease := mustAuthenticateLease(t, repository, credential.Bearer)
-		err := repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
-			return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-				assert.ErrorIs(t, store.Mutate(context.Background(), func(*sql.Tx) error { return nil }), storage.ErrMutationBusy)
-				_, token, _, verifyErr := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
-				require.NoError(t, verifyErr)
-				require.NotNil(t, token)
-				_, mutationErr := repository.CreatePrincipal(context.Background(), CreatePrincipalRequest{DisplayName: "Nested", Visibility: contract.VisibilityRequestable})
-				assert.ErrorIs(t, mutationErr, ErrResourceLimit)
+func TestAdmissionRequestLocalConfirmationFences(t *testing.T) {
+	for _, change := range []string{"unchanged", "original cancellation", "fresh cancellation", "revoke", "replace", "principal", "revision", "drain", "control latch", "release"} {
+		t.Run(change, func(t *testing.T) {
+			armed := false
+			r, store := newRepository(t, func(point storage.FaultPoint) error {
+				if armed && point == storage.FaultAfterCommit {
+					return errors.New("uncertain control commit")
+				}
 				return nil
 			})
+			principal, credential := createAdmissionCredential(t, r)
+			lease := mustAuthenticateLease(t, r, credential.Bearer)
+			defer lease.Release()
+			original, cancelOriginal := context.WithCancel(t.Context())
+			defer cancelOriginal()
+			evaluation, err := r.EvaluateAdmission(original, lease, "", ptrVerification(defaultResolvedVerification()))
+			require.NoError(t, err)
+			require.NotNil(t, evaluation.Candidate)
+			require.Equal(t, leasePending, leasePhase(lease.phase.Load()))
+			fresh, cancelFresh := context.WithCancel(t.Context())
+			defer cancelFresh()
+			switch change {
+			case "original cancellation":
+				cancelOriginal()
+			case "fresh cancellation":
+				cancelFresh()
+			case "revoke":
+				_, err = r.RevokeCredential(t.Context(), principal.ID, credential.Principal.Revision)
+			case "replace":
+				_, err = r.IssueCredential(t.Context(), principal.ID, credential.Principal.Revision)
+			case "principal":
+				name := "changed"
+				_, err = r.PatchPrincipal(t.Context(), principal.ID, PatchPrincipalRequest{ExpectedRevision: credential.Principal.Revision, DisplayName: &name})
+			case "revision":
+				_, err = r.CreatePrincipal(t.Context(), CreatePrincipalRequest{DisplayName: "other", Visibility: contract.VisibilityAll})
+			case "drain":
+				r.BeginDrain()
+			case "release":
+				lease.Release()
+			case "control latch":
+				armed = true
+				require.Error(t, store.Mutate(t.Context(), func(*sql.Tx) error { return nil }))
+				require.True(t, store.Latched())
+			}
+			require.NoError(t, err)
+			subject, err := r.ConfirmEvaluation(fresh, evaluation.Candidate, "")
+			if change == "unchanged" {
+				require.NoError(t, err)
+				require.True(t, r.OwnsAdmittedSubject(subject))
+				require.Equal(t, leaseAdmitted, leasePhase(lease.phase.Load()))
+				// Revocation after admission never cancels or reauthorizes this execution.
+				_, err = r.RevokeCredential(t.Context(), principal.ID, credential.Principal.Revision)
+				require.NoError(t, err)
+				assertLeaseOpen(t, lease)
+			} else {
+				require.Error(t, err)
+				require.False(t, r.OwnsAdmittedSubject(subject))
+				require.NotEqual(t, leaseAdmitted, leasePhase(lease.phase.Load()))
+			}
+			_, err = r.ConfirmEvaluation(t.Context(), evaluation.Candidate, "")
+			require.Error(t, err, "every confirmation consumes the candidate")
 		})
-		require.NoError(t, err)
-		assert.Equal(t, leasePending, leasePhase(lease.phase.Load()))
-		lease.Release()
-
-		rollbackLease := mustAuthenticateLease(t, repository, credential.Bearer)
-		rollback := errors.New("rollback")
-		_, token, err := verifyResolvedMutation(repository, store, rollbackLease, defaultResolvedVerification(), func(*sql.Tx) error { return rollback })
-		assert.ErrorIs(t, err, rollback)
-		require.NotNil(t, token)
-		assert.ErrorIs(t, token.CommitSucceeded(), ErrAdmissionUnavailable)
-		assert.Equal(t, leasePending, leasePhase(rollbackLease.phase.Load()))
-		rollbackLease.Release()
-	})
-
-	t.Run("binding loss and credential invalidation", func(t *testing.T) {
-		principal, credential := createAdmissionCredential(t, repository)
-		admitted := mustAuthenticateLease(t, repository, credential.Bearer)
-		pending := mustAuthenticateLease(t, repository, credential.Bearer)
-		resolvedLost := mustAuthenticateLease(t, repository, credential.Bearer)
-		bindingLost := mustAuthenticateLease(t, repository, credential.Bearer)
-		_, token, err := verifyResolvedMutation(repository, store, admitted, defaultResolvedVerification(), nil)
-		require.NoError(t, err)
-		require.NotNil(t, token)
-
-		other, err := New(store, &fixedClock{now: testNow}, bytes.NewReader(bytes.Repeat([]byte{0xEE}, 2048)))
-		require.NoError(t, err)
-		replacement, err := other.IssueCredential(context.Background(), principal.ID, credential.Principal.Revision)
-		require.NoError(t, err)
-		err = verifyLostResolvedBinding(t, repository, store, resolvedLost)
-		assert.ErrorIs(t, err, ErrAuthenticationRequired)
-		err = verifyLostBindingOnly(t, repository, store, bindingLost)
-		assert.ErrorIs(t, err, ErrAuthenticationRequired)
-
-		_, err = repository.RevokeCredential(context.Background(), principal.ID, replacement.Principal.Revision)
-		require.NoError(t, err)
-		assertLeaseOpen(t, admitted)
-		assertLeaseClosed(t, pending)
-		assertLeaseClosed(t, resolvedLost)
-		assertLeaseClosed(t, bindingLost)
-		assert.Equal(t, leaseAdmitted, leasePhase(admitted.phase.Load()))
-		admitted.Release()
-	})
+	}
 }
 
-func TestAdmissionUncertaintyAndUnavailableStorageNeverDetach(t *testing.T) {
-	armed := false
-	repository, store := newRepository(t, func(point storage.FaultPoint) error {
-		if armed && point == storage.FaultAfterCommit {
-			return errors.New("commit acknowledgement lost")
-		}
-		return nil
-	})
-	_, credential := createAdmissionCredential(t, repository)
-	uncertainLease := mustAuthenticateLease(t, repository, credential.Bearer)
-	latchedLease := mustAuthenticateLease(t, repository, credential.Bearer)
-	armed = true
-	_, token, err := verifyResolvedMutation(repository, store, uncertainLease, defaultResolvedVerification(), nil)
-	assert.ErrorIs(t, err, storage.ErrStorageLatched)
-	require.NotNil(t, token)
-	assert.ErrorIs(t, token.CommitSucceeded(), ErrAdmissionUnavailable)
-	assert.Equal(t, leasePending, leasePhase(uncertainLease.phase.Load()))
+func TestAdmissionCapturedExpiryAndAuthorityClock(t *testing.T) {
+	r, _ := newRepository(t, nil)
+	principal, credential := createAdmissionCredential(t, r)
+	expiry := testNow.Add(time.Second)
+	mustCreateEvaluationGrant(t, r, CreateGrantRequest{PrincipalID: principal.ID, Effect: contract.GrantAllow, ExpiresAt: &expiry, Target: accesstarget.MCP{ServerID: id(51)}})
+	request := ResolvedVerification{Target: accesstarget.Tool(id(51), "tool"), Arguments: mustAdmissionArguments(t, `{}`)}
+	lease := mustAuthenticateLease(t, r, credential.Bearer)
+	defer lease.Release()
+	evaluation, err := r.EvaluateAdmission(t.Context(), lease, "", &request)
+	require.NoError(t, err)
+	require.Equal(t, contract.DecisionAllow, evaluation.Result.Decision)
+	r.clock.(*fixedClock).now = expiry
+	_, err = r.ConfirmEvaluation(t.Context(), evaluation.Candidate, "")
+	require.NoError(t, err, "confirmation keeps captured evaluation time")
+	next := mustAuthenticateLease(t, r, credential.Bearer)
+	defer next.Release()
+	expired, err := r.EvaluateAdmission(t.Context(), next, "", &request)
+	require.NoError(t, err)
+	require.Equal(t, contract.DecisionBlock, expired.Result.Decision)
+	require.Nil(t, expired.Candidate)
+	r.clock.(*fixedClock).now = time.Time{}
+	invalid, err := r.EvaluateAdmission(t.Context(), next, "", &request)
+	require.Error(t, err)
+	require.Nil(t, invalid.Candidate)
+	_, err = r.EvaluateAdmission(t.Context(), next, "", nil)
+	require.Error(t, err, "binding-only evaluation also needs valid authority time")
+}
 
-	err = repository.WithAdmission(context.Background(), latchedLease, func(admission *Admission) error {
-		_, _, _, verifyErr := admission.VerifyResolvedTx(context.Background(), nil, defaultResolvedVerification())
-		return verifyErr
-	})
-	assert.ErrorIs(t, err, ErrStorageUnavailable)
-	assert.Equal(t, leasePending, leasePhase(latchedLease.phase.Load()))
-	uncertainLease.Release()
-	latchedLease.Release()
+func TestAdmissionGateScopedVerificationIsOneUse(t *testing.T) {
+	r, store := newRepository(t, nil)
+	_, credential := createAdmissionCredential(t, r)
+	lease := mustAuthenticateLease(t, r, credential.Bearer)
+	defer lease.Release()
+	var retained *Admission
+	require.NoError(t, r.WithAdmission(t.Context(), lease, func(a *Admission) error {
+		retained = a
+		return store.View(t.Context(), func(tx *sql.Tx) error {
+			_, phase, err := a.VerifyResolvedTx(t.Context(), tx, defaultResolvedVerification())
+			require.NoError(t, err)
+			require.Equal(t, ResolvedEvaluated, phase)
+			_, _, err = a.VerifyResolvedTx(t.Context(), tx, defaultResolvedVerification())
+			require.ErrorIs(t, err, ErrAdmissionUnavailable)
+			return nil
+		})
+	}))
+	require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
+		_, _, err := retained.VerifyResolvedTx(t.Context(), tx, defaultResolvedVerification())
+		require.ErrorIs(t, err, ErrAdmissionUnavailable)
+		return nil
+	}))
+	require.Equal(t, leasePending, leasePhase(lease.phase.Load()), "evaluation alone never admits")
 }
 
 func TestAdmissionAddsNoInvocationPersistenceOrCapabilityUse(t *testing.T) {
-	source, err := os.ReadFile("admission.go")
-	require.NoError(t, err)
-	for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO invocation", "internal/catalog", "internal/downstream", "AcquireRoute", "AcquireCapability", "Dispatch", "Execute"} {
-		assert.NotContains(t, string(source), forbidden)
+	for _, path := range []string{"admission.go", "confirmation.go"} {
+		source, err := os.ReadFile(path)
+		require.NoError(t, err)
+		for _, forbidden := range []string{"CREATE TABLE", "INSERT INTO invocation", "internal/catalog", "internal/downstream", "AcquireCapability", "TrafficReceipt", "CommitSucceeded"} {
+			assert.NotContains(t, string(source), forbidden)
+		}
 	}
-	assert.Equal(t, 22, storage.CurrentSchema)
 }
 
-func verifyLostResolvedBinding(t *testing.T, repository *Repository, store *storage.Store, lease *Lease) error {
-	t.Helper()
-	return repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
-		return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			_, _, _, err := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
-			return err
-		})
-	})
-}
-
-func verifyLostBindingOnly(t *testing.T, repository *Repository, store *storage.Store, lease *Lease) error {
-	t.Helper()
-	return repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
-		return store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			_, err := admission.VerifyBindingOnlyTx(context.Background(), transaction)
-			return err
-		})
-	})
-}
-
-func verifyResolvedMutation(
-	repository *Repository,
-	store *storage.Store,
-	lease *Lease,
-	request ResolvedVerification,
-	afterVerify func(*sql.Tx) error,
-) (contract.AuthorizationResult, *PendingDetachment, error) {
-	var result contract.AuthorizationResult
-	var token *PendingDetachment
-	err := repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
-		mutationErr := store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			var verifyErr error
-			result, token, _, verifyErr = admission.VerifyResolvedTx(context.Background(), transaction, request)
-			if verifyErr != nil {
-				return verifyErr
-			}
-			if afterVerify != nil {
-				return afterVerify(transaction)
-			}
-			return nil
-		})
-		if mutationErr != nil {
-			return mutationErr
-		}
-		if token != nil {
-			return token.CommitSucceeded()
-		}
-		return nil
-	})
-	return result, token, err
-}
-
+func ptrVerification(value ResolvedVerification) *ResolvedVerification { return &value }
 func createAdmissionCredential(t *testing.T, repository *Repository) (contract.Principal, contract.AgentCredentialCreation) {
 	t.Helper()
 	principal := mustCreatePrincipal(t, repository)
@@ -254,13 +152,9 @@ func createAdmissionCredential(t *testing.T, repository *Repository) (contract.P
 	require.NoError(t, err)
 	return principal, credential
 }
-
 func defaultResolvedVerification() ResolvedVerification {
-	return ResolvedVerification{
-		Target: accesstarget.Tool(contract.SyntheticServerID, "tool"), Arguments: strictjson.Value{Type: strictjson.ValueObject},
-	}
+	return ResolvedVerification{Target: accesstarget.Tool(contract.SyntheticServerID, "tool"), Arguments: strictjson.Value{Type: strictjson.ValueObject}}
 }
-
 func mustAdmissionArguments(t *testing.T, value string) strictjson.Value {
 	t.Helper()
 	parsed, err := strictjson.ParseValue([]byte(value), strictjson.Options{MaxBytes: mustLimit("mcp_body_bytes"), MaxDepth: int(mustLimit("json_depth"))})

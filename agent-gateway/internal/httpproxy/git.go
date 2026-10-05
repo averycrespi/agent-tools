@@ -39,11 +39,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 		reject(w, http.StatusBadRequest)
 		return
 	}
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err != nil {
-		reject(w, http.StatusServiceUnavailable)
-		return
-	}
+	identity, _ := e.options.Evidence.PrepareIdentity()
 	result, err := e.options.Admissions.AdmitGit(r.Context(), lease, identity, request, address.Facts(), e.options.GitMaterials)
 	if err != nil || !result.DispatchAuthorized {
 		if err != nil {
@@ -54,7 +50,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 			}
 			return
 		}
-		if result.Evidence.Denial == "credential_unavailable" {
+		if result.Execution.CredentialUnavailable {
 			reject(w, http.StatusServiceUnavailable)
 			return
 		}
@@ -98,7 +94,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	if request.Operation() == "push" {
 		header.Set("Accept-Encoding", "identity")
 	}
-	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Evidence.PrivateGrant != nil, e.roots)
+	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Execution.PrivateNetwork, e.roots)
 	if err != nil {
 		e.observeFailure(w, diagnostics.ProxyExchange, err)
 		reject(w, upstreamStatus(err))
@@ -137,8 +133,8 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	}
 }
 func (e *Engine) rejectGit(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, reason string, statuses ...int) {
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err != nil || e.options.Admissions.RejectGit(r.Context(), lease, identity, reason) != nil {
+	identity, _ := e.options.Evidence.PrepareIdentity()
+	if e.options.Admissions.RejectGit(r.Context(), lease, identity, reason) != nil {
 		reject(w, http.StatusServiceUnavailable)
 		return
 	}
@@ -156,6 +152,7 @@ func (e *Engine) rejectGit(w http.ResponseWriter, r *http.Request, lease *author
 }
 
 func (e *Engine) completeGit(result invocation.GitAdmissionResult, identity invocation.PreparedAdmission, completion contract.GitTrafficCompletion) {
+	result.Settle()
 	now := e.options.Now().UTC()
 	start, err := time.Parse(time.RFC3339Nano, identity.AdmittedAt)
 	if err != nil {

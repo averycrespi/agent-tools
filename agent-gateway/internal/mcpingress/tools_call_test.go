@@ -240,12 +240,28 @@ func TestCallRejectionReasonsHaveExactDualEraWireMessages(t *testing.T) {
 	}
 }
 
+func TestToolsCallCodecPreservesOutcomesWithoutHistoryIdentity(t *testing.T) {
+	for _, response := range []ToolsCallResponse{
+		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny},
+		{ErrorCode: contract.ToolUnavailable},
+		{ErrorCode: contract.DownstreamFailure},
+		{ErrorCode: contract.OutcomeUnknown},
+	} {
+		encoded, err := encodeToolsCallResponse(t.Context(), json.RawMessage(`7`), response)
+		require.NoError(t, err)
+		require.Contains(t, string(encoded), `"code":"`+string(response.ErrorCode)+`"`)
+		require.NotContains(t, string(encoded), `invocationId`)
+		if response.ErrorCode == contract.OutcomeUnknown {
+			require.Contains(t, string(encoded), `"outcomeUnknown":true`)
+		}
+	}
+}
+
 func TestToolsCallCodecFailsClosedOnInvalidRejectionEvidence(t *testing.T) {
 	id := "01J60000000000000000000001"
 	for _, response := range []ToolsCallResponse{
 		{ErrorCode: contract.CallRejected, InvocationID: id},
 		{ErrorCode: contract.CallRejected, RejectionReason: "private-reason", InvocationID: id},
-		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny},
 		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny, InvocationID: "private-id"},
 		{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionDeny, BlockedSelfService: true, InvocationID: id},
 		{ErrorCode: contract.AuditUnavailable, RejectionReason: contract.RejectionDeny},

@@ -171,6 +171,18 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			}
 			require.EqualValues(t, 32, calls.Load())
 			require.EqualValues(t, 4, peak.Load())
+			require.Eventually(t, func() bool {
+				history, err := built.traffic.History(ctx, 0, 64)
+				if err != nil || len(history.Records) != 32 {
+					return false
+				}
+				for _, record := range history.Records {
+					if record.TerminalClass == nil {
+						return false
+					}
+				}
+				return true
+			}, 3*time.Second, 10*time.Millisecond)
 			history, err := built.traffic.History(ctx, 0, 64)
 			require.NoError(t, err)
 			require.Len(t, history.Records, 32)
@@ -266,7 +278,8 @@ func TestCompositionDrainWakesInvocationStorageWaitBeforeForeignCleanup(t *testi
 	built.authorization.BeginDrain()
 	built.traffic.BeginDrain()
 	response := built.callTools.Call(t.Context(), nil, mcpingress.ToolsCallRequest{Params: contentionCallParams(), WireValid: true})
-	assert.Equal(t, contract.AuditUnavailable, response.ErrorCode)
+	assert.Equal(t, contract.CallRejected, response.ErrorCode)
+	assert.Equal(t, contract.RejectionAuthorizationUnavailable, response.RejectionReason)
 	assert.Empty(t, response.InvocationID)
 	<-built.Drain(t.Context())
 	require.NoError(t, options.Store.Mutate(t.Context(), func(*sql.Tx) error { return nil }), "control cleanup remains independently available")

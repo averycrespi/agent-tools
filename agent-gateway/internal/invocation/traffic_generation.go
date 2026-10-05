@@ -137,9 +137,9 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 	if err != nil {
 		return nil, err
 	}
-	s := &TrafficStore{db: db, path: path, config: config, pins: make(map[*TrafficReceipt]*trafficPin),
-		admissions: make(chan *trafficRequest, config.QueueRecords), terminals: make(chan *trafficRequest, config.QueueRecords),
-		stop: make(chan struct{}), done: make(chan struct{}), readSlots: make(chan struct{}, config.Readers), fault: fault}
+	s := &TrafficStore{db: db, path: path, config: config,
+		observations: make(chan *trafficRequest, config.QueueRecords),
+		stop:         make(chan struct{}), done: make(chan struct{}), readSlots: make(chan struct{}, config.Readers), fault: fault}
 	if err = s.validateTraffic(ctx, installation, generation); err == nil {
 		err = s.upgradeTraffic(ctx)
 	}

@@ -64,6 +64,7 @@ func TestSafeFailureDiagnosticsPersistWithoutPayloads(t *testing.T) {
 			require.Equal(t, contract.DownstreamFailure, response.ErrorCode)
 			require.Equal(t, "tool", response.Diagnostics.GatewayObserved.Source)
 			require.Equal(t, index <= 1, response.Diagnostics.ServerReported != nil)
+			waitTraffic(t, audits.traffic)
 			item, err := audits.Get(t.Context(), response.InvocationID)
 			require.NoError(t, err)
 			require.Equal(t, response.Diagnostics, item.Diagnostics)

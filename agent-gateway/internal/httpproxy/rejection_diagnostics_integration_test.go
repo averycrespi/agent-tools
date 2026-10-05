@@ -64,15 +64,15 @@ func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
 			response := httptest.NewRecorder()
 			f.engine.handle(response, r, inside)
 			status := http.StatusBadGateway
-			if mode == "traffic-unavailable" {
-				status = http.StatusServiceUnavailable
-			}
-			if mode == "policy-denial" {
+			if mode == "policy-denial" || mode == "traffic-unavailable" {
 				status = http.StatusForbidden
 			}
 			require.Equal(t, status, response.Code)
 			require.Equal(t, http.StatusText(status)+"\n", response.Body.String())
 			require.True(t, observer.Finish(nil))
+			if mode == "policy-denial" {
+				f.waitHTTPHistory(t, 1)
+			}
 			history, err := f.traffic.HTTPHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
 			if mode == "policy-denial" {
@@ -81,6 +81,10 @@ func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
 				return
 			}
 			require.Empty(t, history.Records, "the diagnostic must cover rejection before a traffic row exists")
+			if mode == "traffic-unavailable" {
+				require.Empty(t, output.String(), "missing capture does not turn policy denial into infrastructure failure")
+				return
+			}
 			var record map[string]any
 			require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 			require.Equal(t, "http_proxy_rejected", record["event"])
@@ -88,11 +92,7 @@ func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
 			require.Equal(t, response.Header().Get("Gateway-Request-ID"), record["proxy_id"])
 			require.Len(t, record["proxy_id"], 32)
 			require.Equal(t, "unavailable", record["cause"])
-			stage := "resolution"
-			if mode == "traffic-unavailable" {
-				stage = "traffic_admission"
-			}
-			require.Equal(t, stage, record["stage"])
+			require.Equal(t, "resolution", record["stage"])
 			for _, secret := range []string{"canary", f.credential.Bearer, f.credential.Principal.ID} {
 				require.NotContains(t, output.String(), secret)
 			}

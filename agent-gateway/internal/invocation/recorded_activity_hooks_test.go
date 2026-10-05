@@ -16,23 +16,18 @@ func TestRecordedActivityGitDoesNotFabricateMCPOrHTTPCounts(t *testing.T) {
 	s, _ := trafficFixture(t, nil, nil)
 	ring, clock := recordedFixture()
 	s.recorded = ring
-	git, err := s.AdmitGit(t.Context(), gitTrafficAdmission(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), git))
+	git := recordGit(t, s, gitTrafficAdmission(1))
 	denied := gitTrafficAdmission(2)
 	denied.Allowed = false
-	refusal, err := s.AdmitGit(t.Context(), denied)
-	require.NoError(t, err)
-	require.False(t, s.Confirm(t.Context(), refusal))
-	s.Release(refusal)
+	recordGit(t, s, denied)
 	clock.advance(time.Minute)
 	result := s.RecordedActivity()
 	require.Equal(t, "process_start", result.EpochReason)
 	require.NotNil(t, result.Buckets[14].Counts)
 	assert.Equal(t, contract.RecordedProtocols{}, *result.Buckets[14].Counts)
 
-	require.NoError(t, s.CompleteGit(t.Context(), git, gitTrafficCompletion()))
-	require.Error(t, s.CompleteGit(t.Context(), git, gitTrafficCompletion()))
+	recordGitCompletion(t, s, git, gitTrafficCompletion())
+	recordGitCompletion(t, s, git, gitTrafficCompletion())
 	clock.advance(time.Minute)
 	result = s.RecordedActivity()
 	require.Equal(t, "process_start", result.EpochReason)
@@ -45,14 +40,10 @@ func TestRecordedActivityGitDoesNotFabricateMCPOrHTTPCounts(t *testing.T) {
 	assert.Equal(t, "outcome_unknown", history.Records[0].Completion.Outcome)
 	assert.Nil(t, history.Records[1].Completion)
 
-	mcp, err := s.Admit(t.Context(), trafficPrepared(3))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), mcp))
-	require.NoError(t, s.Complete(t.Context(), mcp, trafficCompletion()))
-	http, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(4))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), http))
-	require.NoError(t, s.CompleteHTTP(t.Context(), http, httpTrafficCompletion()))
+	mcp := recordMCP(t, s, trafficPrepared(3))
+	recordMCPCompletion(t, s, mcp, trafficCompletion())
+	http := recordHTTP(t, s, httpTrafficAdmission(4))
+	recordHTTPCompletion(t, s, http, httpTrafficCompletion())
 	clock.advance(time.Minute)
 	counts := s.RecordedActivity().Buckets[14].Counts
 	require.NotNil(t, counts)
@@ -66,27 +57,20 @@ func TestRecordedActivityHTTPSettlementAndSelection(t *testing.T) {
 	s, _ := trafficFixture(t, nil, nil)
 	ring, clock := recordedFixture()
 	s.recorded = ring
-	request, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), request))
+	request := recordHTTP(t, s, httpTrafficAdmission(1))
 	intercepted := httpTrafficAdmission(2)
 	intercepted.Target = &contract.HTTPTrafficTarget{Host: "example.com", Port: 443}
 	intercepted.Decision.Transport = contract.HTTPTransportIntercept
 	intercepted.Decision.Reason = contract.HTTPReasonIntercept
 	intercepted.Decision.Allowed = false
-	selection, err := s.AdmitHTTP(t.Context(), intercepted)
-	require.NoError(t, err)
-	assert.False(t, s.Confirm(t.Context(), selection))
-	s.Release(selection)
-	invalid, err := s.AdmitHTTP(t.Context(), invalidHTTPAdmission(3))
-	require.NoError(t, err)
-	s.Release(invalid)
+	recordHTTP(t, s, intercepted)
+	recordHTTP(t, s, invalidHTTPAdmission(3))
 	clock.advance(time.Minute)
 	completion := httpTrafficCompletion()
 	completion.Outcome = "outcome_unknown"
 	// A recorded 200 does not turn an uncertain transfer into success.
-	require.NoError(t, s.CompleteHTTP(t.Context(), request, completion))
-	require.Error(t, s.CompleteHTTP(t.Context(), request, completion))
+	recordHTTPCompletion(t, s, request, completion)
+	recordHTTPCompletion(t, s, request, completion)
 	clock.advance(time.Minute)
 	result := s.RecordedActivity()
 	assert.Equal(t, uint64(1), result.Buckets[13].Counts.HTTPRequest.Admissions.Allow)
@@ -111,63 +95,44 @@ func TestRecordedActivityExpiredTerminalIsNotAcknowledged(t *testing.T) {
 	defer unblock()
 	ring, clock := recordedFixture()
 	s.recorded = ring
-	receipts := make([]*TrafficReceipt, 2)
-	for i := range receipts {
-		var err error
-		receipts[i], err = s.Admit(t.Context(), trafficPrepared(i+1))
-		require.NoError(t, err)
-		require.True(t, s.Confirm(t.Context(), receipts[i]))
-	}
+	observations := []*TrafficObservation{recordMCP(t, s, trafficPrepared(1)), recordMCP(t, s, trafficPrepared(2))}
 	armed.Store(true)
-	first, expired := make(chan error, 1), make(chan error, 1)
-	go func() { first <- s.Complete(t.Context(), receipts[0], trafficCompletion()) }()
+	require.NoError(t, s.ObserveMCPCompletion(observations[0], trafficCompletion(), nil))
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("terminal writer did not start")
 	}
-	go func() { expired <- s.Complete(t.Context(), receipts[1], trafficCompletion()) }()
+	require.NoError(t, s.ObserveMCPCompletion(observations[1], trafficCompletion(), nil))
 	select {
-	case queued := <-s.terminals:
+	case queued := <-s.observations:
 		// The owned writer barrier makes this request exclusively ours. Exercise
 		// expiry at eligibility without relying on scheduler delay or larger bounds.
 		queued.expires = time.Now().Add(-time.Second)
-		s.terminals <- queued
-		require.Same(t, receipts[1], queued.receipt)
+		s.observations <- queued
+		require.Equal(t, observations[1].prepared.InvocationID, queued.observation.prepared.InvocationID)
 	case <-time.After(5 * time.Second):
 		t.Fatal("second terminal did not queue")
 	}
 	unblock()
-	select {
-	case err := <-first:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("first terminal did not settle")
-	}
-	select {
-	case err := <-expired:
-		require.ErrorIs(t, err, ErrTrafficDeadline)
-	case <-time.After(5 * time.Second):
-		t.Fatal("expired terminal did not settle")
-	}
+	waitTraffic(t, s)
 	require.NoError(t, t.Context().Err())
 	status := s.Status(t.Context())
 	assert.True(t, status.Ready)
 	assert.False(t, status.Faulted)
 	s.mu.Lock()
-	pins, queued := len(s.pins), s.terminalQueued
+	queued := s.queued
 	s.mu.Unlock()
-	assert.Zero(t, pins)
 	assert.Zero(t, queued)
 	history, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history.Records, 2)
 	for _, record := range history.Records {
-		if record.InvocationID == receipts[0].evidence.InvocationID {
+		if record.InvocationID == observations[0].prepared.InvocationID {
 			require.NotNil(t, record.TerminalClass)
 			assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 		} else {
-			assert.Equal(t, receipts[1].evidence.InvocationID, record.InvocationID)
+			assert.Equal(t, observations[1].prepared.InvocationID, record.InvocationID)
 			assert.Nil(t, record.TerminalClass)
 		}
 	}
@@ -187,11 +152,11 @@ func TestRecordedActivityUncertainTerminalIsNotAcknowledged(t *testing.T) {
 	})
 	ring, clock := recordedFixture()
 	s.recorded = ring
-	receipt, err := s.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), receipt))
+	observation := recordMCP(t, s, trafficPrepared(1))
 	fail.Store(true)
-	require.ErrorIs(t, s.Complete(t.Context(), receipt, trafficCompletion()), ErrTrafficFault)
+	require.NoError(t, s.ObserveMCPCompletion(observation, trafficCompletion(), nil))
+	waitTraffic(t, s)
+	require.False(t, s.Healthy())
 	history, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.NotNil(t, history.Records[0].TerminalClass, "readable SQL is not an acknowledgment")

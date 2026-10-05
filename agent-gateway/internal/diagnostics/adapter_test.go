@@ -240,7 +240,7 @@ func validEventExample(event Event) Facts {
 		f.Owned = 1
 		f.Limit = 32
 		if event >= StorageWait {
-			f.Limit = 31
+			f.Limit = 1
 		}
 		if event == AuthorityReject || event == StorageReject {
 			f.Cause = Capacity

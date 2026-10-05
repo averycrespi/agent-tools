@@ -35,6 +35,27 @@ func TestDrainPipelineFenceCountsWithoutQueueingAndJoinsAfterDeadline(t *testing
 	assert.NoError(t, fence.Drain(ctx))
 }
 
+func TestPipelineCapacityIndependentOfHistory(t *testing.T) {
+	fence := NewPipelineFence()
+	releases := make([]func(), 0, 1024)
+	for range 1024 {
+		release, ok := fence.TryEnter()
+		require.True(t, ok)
+		releases = append(releases, release)
+	}
+	_, ok := fence.TryEnter()
+	require.False(t, ok)
+	releases[0]()
+	replacement, ok := fence.TryEnter()
+	require.True(t, ok)
+	replacement()
+	for _, release := range releases {
+		release()
+		release()
+	}
+	require.NoError(t, fence.Drain(t.Context()))
+}
+
 func TestPipelineFenceHonorsCanceledDrainContext(t *testing.T) {
 	fence := NewPipelineFence()
 	release, ok := fence.TryEnter()

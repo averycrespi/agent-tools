@@ -10,7 +10,7 @@ import (
 
 func (s *TrafficStore) Status(ctx context.Context) contract.TrafficStatus {
 	s.mu.Lock()
-	status := contract.TrafficStatus{Ready: !s.closed && !s.faulted && !s.draining, Faulted: s.faulted, Pressure: s.queued >= s.config.QueueRecords || len(s.pins)+s.pendingPins >= s.config.ActiveRecords, BudgetBytes: s.config.BudgetBytes, QuotaRefusals: s.quotaRefusals, RollingHistory: true, UnknownCompletionPossible: true}
+	status := contract.TrafficStatus{Ready: !s.closed && !s.faulted && !s.draining, Faulted: s.faulted, Pressure: s.queued >= s.config.QueueRecords || s.queuedBytes >= s.config.QueueBytes, BudgetBytes: s.config.BudgetBytes, QuotaRefusals: s.quotaRefusals, RollingHistory: true, UnknownCompletionPossible: true}
 	s.mu.Unlock()
 	if info, err := os.Stat(s.path); err == nil {
 		status.DatabaseBytes = info.Size()

@@ -3,7 +3,6 @@ package invocation
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -12,14 +11,12 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func trafficFixture(t *testing.T, configure func(*TrafficConfig), fault func(string) error) (*TrafficStore, *gatewaypaths.Ownership) {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "installation")
-	owner, err := gatewaypaths.Acquire(root)
+	owner, err := gatewaypaths.Acquire(filepath.Join(t.TempDir(), "installation"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, owner.Close()) })
 	config := DefaultTrafficConfig()
@@ -27,246 +24,181 @@ func trafficFixture(t *testing.T, configure func(*TrafficConfig), fault func(str
 	if configure != nil {
 		configure(&config)
 	}
-	s, err := openTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), config, true, fault)
+	s, err := openTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), config, true, fault)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, s.Close()) })
 	return s, owner
 }
-
 func trafficPrepared(id int) PreparedAdmission {
 	return PreparedAdmission{Identity: activity.Identity{InvocationID: invocationID(id), AdmittedAt: canonicalInvocationTime(invocationTestTime)}, admission: testEvaluatedAdmission()}
 }
-
 func trafficCompletion() activity.Completion {
 	return activity.Completion{CompletedAt: canonicalInvocationTime(invocationTestTime.Add(time.Second)), Class: contract.TerminalSucceeded}
 }
 
-func TestTrafficAcknowledgmentReceiptAndCompletion(t *testing.T) {
+// Settlement is a test-only persistence barrier, never runtime admission authority.
+func waitTraffic(t *testing.T, s *TrafficStore) {
+	t.Helper()
+	require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.queued == 0 }, 5*time.Second, time.Millisecond)
+	s.writerGate.Lock()
+	defer s.writerGate.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	require.Zero(t, s.queued)
+}
+func recordMCP(t *testing.T, s *TrafficStore, p PreparedAdmission) *TrafficObservation {
+	t.Helper()
+	o := s.ObserveMCP(p)
+	require.NotNil(t, o)
+	waitTraffic(t, s)
+	require.True(t, s.Healthy())
+	return o
+}
+func recordHTTP(t *testing.T, s *TrafficStore, a contract.HTTPTrafficAdmission) *TrafficObservation {
+	t.Helper()
+	o := s.ObserveHTTP(a)
+	require.NotNil(t, o)
+	waitTraffic(t, s)
+	require.True(t, s.Healthy())
+	return o
+}
+func recordGit(t *testing.T, s *TrafficStore, a contract.GitTrafficAdmission) *TrafficObservation {
+	t.Helper()
+	o := s.ObserveGit(a)
+	require.NotNil(t, o)
+	waitTraffic(t, s)
+	require.True(t, s.Healthy())
+	return o
+}
+func recordMCPCompletion(t *testing.T, s *TrafficStore, o *TrafficObservation, c activity.Completion) {
+	t.Helper()
+	require.NoError(t, s.ObserveMCPCompletion(o, c, nil))
+	waitTraffic(t, s)
+}
+func recordHTTPCompletion(t *testing.T, s *TrafficStore, o *TrafficObservation, c contract.HTTPTrafficCompletion) {
+	t.Helper()
+	require.NoError(t, s.ObserveHTTPCompletion(o, c))
+	waitTraffic(t, s)
+}
+func recordGitCompletion(t *testing.T, s *TrafficStore, o *TrafficObservation, c contract.GitTrafficCompletion) {
+	t.Helper()
+	require.NoError(t, s.ObserveGitCompletion(o, c))
+	waitTraffic(t, s)
+}
+
+func TestTrafficSnapshotsAreImmutableAndLateStartsCannotRegress(t *testing.T) {
 	s, _ := trafficFixture(t, nil, nil)
 	ring, clock := recordedFixture()
 	s.recorded = ring
-	prepared := trafficPrepared(1)
-	receipt, err := s.Admit(context.Background(), prepared)
-	require.NoError(t, err)
-	require.NotNil(t, receipt)
-	prepared.admission.MCP.RedactedArguments[0] = 'x'
-	history, err := s.History(context.Background(), 0, 10)
+	p := trafficPrepared(1)
+	o := recordMCP(t, s, p)
+	p.admission.MCP.RedactedArguments[0] = 'x'
+	recordMCPCompletion(t, s, o, trafficCompletion())
+	// Duplicate completion and late start are observations, not dispatch permissions.
+	recordMCPCompletion(t, s, o, trafficCompletion())
+	s.observeInitial(o)
+	waitTraffic(t, s)
+	history, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history.Records, 1)
-	assert.True(t, validStoredInvocation(history.Records[0]))
-	require.True(t, s.Confirm(context.Background(), receipt))
-	assert.False(t, s.Confirm(context.Background(), receipt))
-	require.NoError(t, s.Complete(context.Background(), receipt, trafficCompletion()))
-	assert.ErrorIs(t, s.Complete(context.Background(), receipt, trafficCompletion()), ErrInvalidInput)
-	history, err = s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	require.NotNil(t, history.Records[0].TerminalClass)
-	assert.Equal(t, contract.TerminalSucceeded, *history.Records[0].TerminalClass)
-	assert.Empty(t, s.pins)
-	_, err = s.Admit(context.Background(), trafficPrepared(1))
-	assert.ErrorIs(t, err, ErrIdentityUnavailable)
-	assert.True(t, s.Healthy())
+	require.True(t, validStoredInvocation(history.Records[0]))
+	require.Equal(t, contract.TerminalSucceeded, *history.Records[0].TerminalClass)
 	clock.advance(time.Minute)
 	counts := s.RecordedActivity().Buckets[14].Counts.MCP
-	assert.Equal(t, uint64(1), counts.Admissions.Allow)
-	assert.Equal(t, uint64(1), counts.Completions.Succeeded)
+	require.EqualValues(t, 1, counts.Admissions.Allow)
+	require.EqualValues(t, 1, counts.Completions.Succeeded)
 }
 
-func TestTrafficFaultsNeverDispatchOrReplay(t *testing.T) {
+func TestTrafficTerminalInsertsWhenInitialWasDropped(t *testing.T) {
+	for _, protocol := range []string{"mcp", "http", "git"} {
+		t.Run(protocol, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			s, _ := trafficFixture(t, func(c *TrafficConfig) { c.QueueRecords = 1; c.BatchRecords = 1 }, func(point string) error {
+				if point == "before_begin" {
+					once.Do(func() { close(entered); <-release })
+				}
+				return nil
+			})
+			require.NotNil(t, s.ObserveMCP(trafficPrepared(9)))
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("writer did not enter")
+			}
+			var o *TrafficObservation
+			switch protocol {
+			case "mcp":
+				o = s.ObserveMCP(trafficPrepared(1))
+			case "http":
+				o = s.ObserveHTTP(httpTrafficAdmission(1))
+			case "git":
+				o = s.ObserveGit(gitTrafficAdmission(1))
+			}
+			require.NotNil(t, o, "lost start still provides sanitized terminal snapshot")
+			unblock()
+			waitTraffic(t, s)
+			switch protocol {
+			case "mcp":
+				recordMCPCompletion(t, s, o, trafficCompletion())
+				h, err := s.History(t.Context(), 0, 10)
+				require.NoError(t, err)
+				require.Len(t, h.Records, 2)
+				require.NotNil(t, h.Records[1].TerminalClass)
+			case "http":
+				recordHTTPCompletion(t, s, o, httpTrafficCompletion())
+				h, err := s.HTTPHistory(t.Context(), 0, 10)
+				require.NoError(t, err)
+				require.Len(t, h.Records, 1)
+				require.NotNil(t, h.Records[0].Completion)
+			case "git":
+				recordGitCompletion(t, s, o, gitTrafficCompletion())
+				h, err := s.GitHistory(t.Context(), 0, 10)
+				require.NoError(t, err)
+				require.Len(t, h.Records, 1)
+				require.NotNil(t, h.Records[0].Completion)
+			}
+			s.observeInitial(o)
+			waitTraffic(t, s)
+			require.True(t, s.Healthy())
+		})
+	}
+}
+
+func TestTrafficUncertaintyFaultsOnlyRecorderAndNeverReplays(t *testing.T) {
 	for _, point := range []string{"before_begin", "statement", "commit", "rollback", "acknowledgment"} {
 		t.Run(point, func(t *testing.T) {
 			s, owner := trafficFixture(t, nil, func(at string) error {
 				if at == point || point == "rollback" && at == "statement" {
-					return errors.New("injected I/O failure")
+					return errors.New("I/O uncertainty")
 				}
 				return nil
 			})
-			ring, clock := recordedFixture()
-			s.recorded = ring
-			receipt, err := s.Admit(context.Background(), trafficPrepared(1))
-			require.ErrorIs(t, err, ErrTrafficFault)
-			require.Nil(t, receipt)
-			dispatches := 0
-			if s.Confirm(context.Background(), receipt) {
-				dispatches++
-			}
-			assert.Zero(t, dispatches)
-			assert.False(t, s.Healthy())
-			_, err = s.Admit(context.Background(), trafficPrepared(2))
-			assert.ErrorIs(t, err, ErrTrafficFault)
-			history, err := s.History(context.Background(), 0, 10)
+			o := s.ObserveMCP(trafficPrepared(1))
+			require.NotNil(t, o)
+			waitTraffic(t, s)
+			require.False(t, s.Healthy())
+			require.ErrorIs(t, s.ObserveMCPCompletion(o, trafficCompletion(), nil), ErrTrafficFault)
+			require.NotNil(t, s.ObserveMCP(trafficPrepared(2)))
+			h, err := s.History(t.Context(), 0, 10)
 			require.NoError(t, err)
 			expected := 0
 			if point == "acknowledgment" {
 				expected = 1
 			}
-			assert.Len(t, history.Records, expected)
-			clock.advance(time.Minute)
-			assert.Equal(t, contract.RecordedProtocols{}, *s.RecordedActivity().Buckets[14].Counts)
+			require.Len(t, h.Records, expected)
 			require.NoError(t, s.Close())
 			reopened, err := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, reopened.Close()) }()
-			assert.True(t, reopened.Healthy())
-			assert.NotEqual(t, s.RecordedActivity().Epoch, reopened.RecordedActivity().Epoch)
-			assert.Equal(t, "unavailable", reopened.RecordedActivity().Coverage)
-			assert.False(t, reopened.Confirm(context.Background(), receipt))
-			history, err = reopened.History(context.Background(), 0, 10)
+			h, err = reopened.History(t.Context(), 0, 10)
 			require.NoError(t, err)
-			assert.Len(t, history.Records, expected)
-			for _, row := range history.Records {
-				assert.Nil(t, row.CompletedAt)
+			require.Len(t, h.Records, expected)
+			for _, row := range h.Records {
+				require.Nil(t, row.TerminalClass)
 			}
-			if point == "acknowledgment" {
-				receipt, err = reopened.Admit(context.Background(), trafficPrepared(1))
-				assert.ErrorIs(t, err, ErrIdentityUnavailable)
-				assert.Nil(t, receipt)
-			}
-			assert.Zero(t, dispatches)
 		})
 	}
-}
-
-func TestTrafficAtomicBatchAndCancellationSettlement(t *testing.T) {
-	entered, release := make(chan struct{}), make(chan struct{})
-	var once sync.Once
-	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.Dwell = 10 * time.Millisecond }, func(point string) error {
-		if point == "acknowledgment" {
-			once.Do(func() { close(entered); <-release })
-		}
-		return nil
-	})
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
-	ring, clock := recordedFixture()
-	s.recorded = ring
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan trafficResult, 1)
-	go func() { r, e := s.Admit(ctx, trafficPrepared(1)); result <- trafficResult{r, e} }()
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("writer did not reach acknowledgment")
-	}
-	cancel()
-	select {
-	case <-result:
-		t.Fatal("cancellation abandoned commit settlement")
-	default:
-	}
-	close(release)
-	got := <-result
-	assert.ErrorIs(t, got.err, ErrTrafficDeadline)
-	assert.Nil(t, got.receipt)
-	history, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	require.Len(t, history.Records, 1)
-	assert.Nil(t, history.Records[0].CompletedAt)
-	assert.Empty(t, s.pins)
-	clock.advance(time.Minute)
-	assert.Equal(t, contract.RecordedProtocols{}, *s.RecordedActivity().Buckets[14].Counts)
-}
-
-func TestTrafficRetentionPinsHolesAndRestartRelease(t *testing.T) {
-	s, owner := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 3; c.BatchRecords = 1 }, nil)
-	first, err := s.Admit(context.Background(), trafficPrepared(1))
-	require.NoError(t, err)
-	for _, id := range []int{2, 3, 4} {
-		r, e := s.Admit(context.Background(), trafficPrepared(id))
-		require.NoError(t, e)
-		s.Release(r)
-	}
-	history, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	require.Len(t, history.Records, 3)
-	assert.Equal(t, []int64{1, 3, 4}, []int64{history.Records[0].Sequence, history.Records[1].Sequence, history.Records[2].Sequence})
-	assert.Equal(t, int64(1), history.Pruning)
-	// Collision must not prune even when the history is at capacity.
-	_, err = s.Admit(context.Background(), trafficPrepared(1))
-	assert.ErrorIs(t, err, ErrIdentityUnavailable)
-	same, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	assert.Equal(t, history, same)
-	require.True(t, s.Confirm(context.Background(), first))
-	require.NoError(t, s.Complete(context.Background(), first, trafficCompletion()))
-	require.NoError(t, s.Close())
-	reopened, err := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, reopened.Close()) }()
-	assert.Empty(t, reopened.pins)
-	r, err := reopened.Admit(context.Background(), trafficPrepared(5))
-	require.NoError(t, err)
-	reopened.Release(r)
-	history, err = reopened.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	assert.Equal(t, int64(5), history.HighWater)
-	assert.Equal(t, int64(2), history.Pruning)
-	assert.Equal(t, int64(3), history.Records[0].Sequence)
-}
-
-func TestTrafficCompleteRefusalPreservesKnownLiveResult(t *testing.T) {
-	s, _ := trafficFixture(t, nil, nil)
-	r, err := s.Admit(context.Background(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(context.Background(), r))
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	live := contract.TerminalSucceeded
-	assert.ErrorIs(t, s.Complete(ctx, r, trafficCompletion()), ErrTrafficDeadline)
-	assert.Equal(t, contract.TerminalSucceeded, live)
-	assert.True(t, s.Healthy())
-	assert.Empty(t, s.pins)
-	h, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	assert.Nil(t, h.Records[0].CompletedAt)
-}
-
-func TestTrafficRestartRejectsInvalidGeneration(t *testing.T) {
-	tests := []struct{ name, sql string }{
-		{"semantic chronology", `PRAGMA ignore_check_constraints=ON; DROP TRIGGER invocations_terminal_once; UPDATE invocations SET evaluated_at='1970-01-01T00:00:00.000000000Z'`},
-		{"accounting", `UPDATE traffic_meta SET bytes=bytes+1`},
-		{"high water", `UPDATE traffic_meta SET high_water=high_water+1`},
-		{"foreign binding", `UPDATE traffic_meta SET installation='01ARZ3NDEKTSV4RRFFQ69G5FAX'`},
-		{"application", `PRAGMA application_id=0`},
-		{"schema", `PRAGMA user_version=4`},
-		{"unexpected object", `CREATE TABLE surprise(value TEXT)`},
-		{"missing charge", `DELETE FROM traffic_sizes`},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			s, owner := trafficFixture(t, nil, nil)
-			r, err := s.Admit(context.Background(), trafficPrepared(1))
-			require.NoError(t, err)
-			s.Release(r)
-			_, err = s.db.ExecContext(context.Background(), test.sql)
-			require.NoError(t, err)
-			require.NoError(t, s.Close())
-			reopened, err := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
-			assert.Error(t, err)
-			assert.Nil(t, reopened)
-		})
-	}
-	t.Run("missing", func(t *testing.T) {
-		s, owner := trafficFixture(t, nil, nil)
-		require.NoError(t, s.Close())
-		require.NoError(t, os.Remove(s.path))
-		r, e := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
-		assert.Error(t, e)
-		assert.Nil(t, r)
-		_, e = os.Stat(s.path)
-		assert.ErrorIs(t, e, os.ErrNotExist)
-	})
-	t.Run("corruption", func(t *testing.T) {
-		s, owner := trafficFixture(t, nil, nil)
-		require.NoError(t, s.Close())
-		require.NoError(t, os.WriteFile(s.path, []byte("not SQLite"), 0600))
-		r, e := OpenTraffic(context.Background(), owner, invocationTestInstallationID, invocationID(90), s.config)
-		assert.Error(t, e)
-		assert.Nil(t, r)
-	})
 }

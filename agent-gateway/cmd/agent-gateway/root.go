@@ -357,7 +357,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			status.Traffic = &trafficStatus
 			status.Endpoints = controlEndpointsStatus(authority, ready.Load(), runtimeStarted.Load(), store.Latched(), draining.Load(), status.Protocols.AgentAuth, trafficStatus)
 			proxyStatus := runtime.HTTPProxyStatus()
-			proxyStatus.Ready = proxyStatus.Ready && trafficStatus.Ready
+			proxyStatus.Ready = proxyStatus.Ready && !store.Latched() && !draining.Load()
 			status.HTTPProxy = &proxyStatus
 			status.Backup = backupManager.Status()
 			status.Limits.BackupWork = backupManager.WorkStatus()
@@ -596,7 +596,7 @@ func baseSystemStatus(
 }
 
 // These are admission capabilities, not proof of client reachability or tool health.
-func controlEndpointsStatus(authority string, serving, started, latched, draining bool, auth contract.AgentAuthMode, traffic contract.TrafficStatus) *contract.ControlEndpointsStatus {
+func controlEndpointsStatus(authority string, serving, started, latched, draining bool, auth contract.AgentAuthMode, _ contract.TrafficStatus) *contract.ControlEndpointsStatus {
 	status := &contract.ControlEndpointsStatus{Authority: authority, API: contract.EndpointStarting, MCP: contract.EndpointStarting}
 	if draining {
 		status.API, status.MCP = contract.EndpointDraining, contract.EndpointDraining
@@ -615,7 +615,7 @@ func controlEndpointsStatus(authority string, serving, started, latched, drainin
 	switch {
 	case auth == contract.AgentAuthDenyAll:
 		status.MCP = contract.EndpointDisabled
-	case latched || !traffic.Ready || traffic.Faulted:
+	case latched:
 		status.MCP = contract.EndpointUnavailable
 	default:
 		status.MCP = contract.EndpointReady

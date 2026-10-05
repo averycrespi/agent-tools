@@ -27,7 +27,7 @@ func gitRequest(t *testing.T, repo contract.GitRepository, profile contract.GitR
 	return request
 }
 func TestGitExactRequestCandidateAndPolicyConfirmation(t *testing.T) {
-	for _, change := range []string{"unchanged", "substitution", "repository", "profile", "revocation", "cancel"} {
+	for _, change := range []string{"unchanged", "substitution", "repository", "profile", "revocation", "cancel", "original cancellation", "drain"} {
 		t.Run(change, func(t *testing.T) {
 			r, _ := newRepository(t, nil)
 			principal, credential := createAdmissionCredential(t, r)
@@ -42,7 +42,9 @@ func TestGitExactRequestCandidateAndPolicyConfirmation(t *testing.T) {
 			lease := mustAuthenticateLease(t, r, credential.Bearer)
 			defer lease.Release()
 			original := gitRequest(t, repo, profile, "refs/heads/team/a")
-			evaluation, err := r.EvaluateGitAdmission(t.Context(), lease, id(88), formatAuthorizationTime(testNow), original, httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}})
+			originalContext, originalCancel := context.WithCancel(t.Context())
+			defer originalCancel()
+			evaluation, err := r.EvaluateGitAdmission(originalContext, lease, id(88), formatAuthorizationTime(testNow), original, httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}})
 			require.NoError(t, err)
 			require.NotNil(t, evaluation.Candidate)
 			request := original
@@ -66,17 +68,19 @@ func TestGitExactRequestCandidateAndPolicyConfirmation(t *testing.T) {
 				require.NoError(t, r.DeleteGitGrant(t.Context(), grant.ID, grant.Revision))
 			case "cancel":
 				cancel()
+			case "original cancellation":
+				originalCancel()
+			case "drain":
+				r.BeginDrain()
 			}
-			confirmations := 0
-			receipt := func(_ string, detach func() bool) bool { confirmations++; return detach() }
-			err = r.ConfirmGit(ctx, evaluation.Candidate, id(88), request, nil, receipt)
+			err = r.ConfirmGit(ctx, evaluation.Candidate, id(88), request, nil)
 			if change == "unchanged" {
 				require.NoError(t, err)
-				require.Equal(t, 1, confirmations)
-				require.Error(t, r.ConfirmGit(ctx, evaluation.Candidate, id(88), original, nil, receipt))
+				require.Equal(t, leaseAdmitted, leasePhase(lease.phase.Load()))
+				require.Error(t, r.ConfirmGit(ctx, evaluation.Candidate, id(88), original, nil))
 			} else {
 				require.Error(t, err)
-				require.Zero(t, confirmations)
+				require.NotEqual(t, leaseAdmitted, leasePhase(lease.phase.Load()))
 			}
 		})
 	}
@@ -98,10 +102,9 @@ func TestGitActivationBetweenClassificationAndHTTPEvaluation(t *testing.T) {
 	evaluation, err := r.EvaluateHTTPAdmission(t.Context(), lease, id(88), formatAuthorizationTime(testNow), HTTPAccessInput{PrincipalID: principal.ID, URL: target.URL().String(), Method: "POST"}, httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}})
 	require.ErrorIs(t, err, ErrAuthorizationUnavailable)
 	require.Nil(t, evaluation.Candidate)
-	dispatches := 0
-	err = r.ConfirmHTTP(t.Context(), evaluation.Candidate, id(88), nil, func(_ string, detach func() bool) bool { dispatches++; return detach() })
+	err = r.ConfirmHTTP(t.Context(), evaluation.Candidate, id(88), nil)
 	require.Error(t, err)
-	require.Zero(t, dispatches)
+	require.NotEqual(t, leaseAdmitted, leasePhase(lease.phase.Load()))
 }
 
 func TestGitActivationAdmissionRace(t *testing.T) {
@@ -131,7 +134,7 @@ func TestGitActivationAdmissionRace(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			confirmation = r.ConfirmHTTP(t.Context(), evaluation.Candidate, identity, nil, func(_ string, detach func() bool) bool { return detach() })
+			confirmation = r.ConfirmHTTP(t.Context(), evaluation.Candidate, identity, nil)
 		}()
 		close(start)
 		wg.Wait()
@@ -154,7 +157,7 @@ func TestGitActivationFencesActualOpaqueOwner(t *testing.T) {
 	evaluation, err := r.EvaluateHTTPAdmission(t.Context(), lease, id(88), formatAuthorizationTime(testNow), input, facts)
 	require.NoError(t, err)
 	require.NotNil(t, evaluation.Candidate)
-	require.NoError(t, r.ConfirmHTTP(t.Context(), evaluation.Candidate, id(88), nil, func(_ string, detach func() bool) bool { return detach() }))
+	require.NoError(t, r.ConfirmHTTP(t.Context(), evaluation.Candidate, id(88), nil))
 	profile, err := r.GetGitRoutingProfile(t.Context())
 	require.NoError(t, err)
 	_, err = r.PutGitRoutingProfile(t.Context(), profile.Revision, []string{"https://example.com"})

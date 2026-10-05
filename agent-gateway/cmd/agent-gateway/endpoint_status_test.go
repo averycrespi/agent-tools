@@ -20,8 +20,8 @@ func TestControlEndpointsStatus(t *testing.T) {
 		{"ready", true, true, false, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{Ready: true}, contract.EndpointReady, contract.EndpointReady},
 		{"latched", true, true, true, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{Ready: true}, contract.EndpointReadOnly, contract.EndpointUnavailable},
 		{"draining", true, true, true, true, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{Ready: true}, contract.EndpointDraining, contract.EndpointDraining},
-		{"traffic fault", true, true, false, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{Faulted: true}, contract.EndpointReady, contract.EndpointUnavailable},
-		{"traffic read unavailable", true, true, false, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{}, contract.EndpointReady, contract.EndpointUnavailable},
+		{"traffic fault", true, true, false, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{Faulted: true}, contract.EndpointReady, contract.EndpointReady},
+		{"traffic read unavailable", true, true, false, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{}, contract.EndpointReady, contract.EndpointReady},
 		{"pressure is not outage", true, true, false, false, contract.AgentAuthPrincipalCredentials, contract.TrafficStatus{Ready: true, Pressure: true}, contract.EndpointReady, contract.EndpointReady},
 		{"deny all", true, true, false, false, contract.AgentAuthDenyAll, contract.TrafficStatus{Ready: true}, contract.EndpointReady, contract.EndpointDisabled},
 	} {

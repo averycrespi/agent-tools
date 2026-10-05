@@ -153,8 +153,8 @@ func TestClassifyAdmissionIsLeastDisclosing(t *testing.T) {
 			assert.Equal(t, test.wantReason, reason)
 			assert.Equal(t, test.mayRun, mayRun)
 			code, reason, mayRun = ClassifyAdmission(false, test.class, test.decision)
-			assert.Equal(t, contract.AuditUnavailable, code)
-			assert.Empty(t, reason)
+			assert.Equal(t, contract.CallRejected, code)
+			assert.Equal(t, contract.RejectionAuthorizationUnavailable, reason)
 			assert.False(t, mayRun)
 		})
 	}

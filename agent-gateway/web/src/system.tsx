@@ -556,16 +556,16 @@ function StatusPanel({
                   >
                     <p>
                       {status.traffic.faulted
-                        ? "New MCP dispatch and HTTP forwarding are blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
-                        : "Traffic capacity is pressured or temporarily unavailable. Missing completion remains unknown; never automatically replay calls."}
+                        ? "Traffic history is unavailable. Authorized MCP, HTTP and Git execution can continue; missing records do not prove nonexecution."
+                        : "Traffic observations may be dropped. Missing completion remains unknown; never automatically replay calls."}
                     </p>
                   </StateNotice>
                 )}
               {status.httpProxy?.enabled && !status.httpProxy.ready && (
                 <StateNotice state="warning" title="HTTP proxy is unavailable">
                   <p>
-                    Check the loaded CA, shared traffic storage and lifecycle
-                    state. Client trust must be configured separately.
+                    Check authority, the loaded CA and lifecycle state. Client
+                    trust must be configured separately.
                   </p>
                 </StateNotice>
               )}
@@ -638,7 +638,8 @@ function StatusPanel({
                   )}
                   {status.endpoints?.mcp === "unavailable" && (
                     <span>
-                      New dispatch is blocked by control or traffic storage.
+                      New dispatch is blocked by control authority or lifecycle
+                      state.
                     </span>
                   )}
                   {status.endpoints?.mcp === "disabled" && (
