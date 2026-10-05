@@ -3,9 +3,12 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
+	"time"
 
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	sqliteDriver "github.com/ncruces/go-sqlite3/driver"
@@ -39,6 +42,46 @@ func (store *Store) BackupTo(ctx context.Context, destination string) error {
 		return fmt.Errorf("validate backup database: %w", err)
 	}
 	return nil
+}
+
+// BackupControlTo snapshots only control storage, then lets the history owner
+// omit embedded legacy evidence from the private copy. Compaction ensures freed
+// history pages are not published. No traffic connection or writer is acquired.
+func (store *Store) BackupControlTo(ctx context.Context, destination string, omit func(context.Context, *sql.Tx) error) (resultErr error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if omit == nil {
+		return ErrInvalidDatabase
+	}
+	snapshot, err := PinSnapshot(ctx, store.database)
+	if err != nil {
+		return err
+	}
+	if err := errors.Join(snapshot.CopyTo(ctx, destination), snapshot.Close()); err != nil {
+		return err
+	}
+	layout := gatewaypaths.Layout{Root: filepath.Dir(destination), Database: destination, MutationMarker: destination + ".mutation"}
+	copy, err := openConfigured(ctx, layout, testOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, copy.Close()) }()
+	if err := copy.configureSizeLimit(ctx); err != nil {
+		return err
+	}
+	if err := copy.verify(ctx); err != nil {
+		return err
+	}
+	if err := copy.Mutate(ctx, func(tx *sql.Tx) error { return omit(ctx, tx) }); err != nil {
+		return err
+	}
+	if err := copy.CompactReplacement(ctx); err != nil {
+		return err
+	}
+	if err := copy.verify(ctx); err != nil {
+		return err
+	}
+	return copy.Checkpoint(ctx)
 }
 
 // ViewBackup lends one immutable read-only transaction to a domain validator.

@@ -50,7 +50,6 @@ const (
 type Clock interface{ Now() time.Time }
 
 type Options struct {
-	Traffic *invocation.TrafficStore
 	Store   *storage.Store
 	Layout  gatewaypaths.Layout
 	Clock   Clock
@@ -59,15 +58,16 @@ type Options struct {
 }
 
 type Manager struct {
-	traffic *invocation.TrafficStore
-	store   *storage.Store
-	layout  gatewaypaths.Layout
-	clock   Clock
-	entropy io.Reader
-	fault   func(FaultPoint) error
-	work    chan struct{}
-	mu      sync.RWMutex
-	last    *string
+	store        *storage.Store
+	layout       gatewaypaths.Layout
+	clock        Clock
+	entropy      io.Reader
+	fault        func(FaultPoint) error
+	reserve      func(string, int64) (func(), error)
+	work         chan struct{}
+	mu           sync.RWMutex
+	last         *string
+	inventoryErr error
 }
 
 type artifactMetadata struct {
@@ -86,13 +86,15 @@ func New(options Options) (*Manager, error) {
 	if options.Store == nil || options.Clock == nil || options.Entropy == nil || options.Layout.Backups == "" {
 		return nil, errors.New("backup manager dependencies are incomplete")
 	}
+	manager := &Manager{store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
 	if err := ensureDirectory(options.Layout.Backups); err != nil {
-		return nil, err
+		manager.inventoryErr = err
+		return manager, nil
 	}
-	manager := &Manager{traffic: options.Traffic, store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
 	items, _, err := manager.load(context.Background())
 	if err != nil {
-		return nil, err
+		manager.inventoryErr = err
+		return manager, nil
 	}
 	if len(items) > 0 {
 		latest := items[len(items)-1].CreatedAt
@@ -119,7 +121,8 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 			if metadata[index].InputHash != digestText("{}") {
 				return contract.Backup{}, false, ErrInvalidIdempotency
 			}
-			return metadata[index].Backup, true, nil
+			verified, err := manager.Get(ctx, metadata[index].ID)
+			return verified, err == nil, err
 		}
 	}
 	maximum, _ := contract.FixedLimitByName("backup_records")
@@ -133,11 +136,9 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		return contract.Backup{}, false, ErrResourceLimit
 	}
 	stageLimit, _ := contract.FixedLimitByName("database_bytes")
-	headroom := stageLimit.Maximum
-	if manager.traffic != nil {
-		headroom += manager.traffic.BudgetBytes()
-	}
-	releaseSpace, err := gatewaypaths.ReserveHeadroom(manager.layout.Backups, 2*headroom)
+	// Control copy, compaction and WAL use the control limit, not traffic.
+	headroom := 2 * stageLimit.Maximum
+	releaseSpace, err := reserveHeadroom(manager.layout.Backups, 2*headroom, manager.reserve)
 	if err != nil {
 		return contract.Backup{}, false, errors.Join(ErrResourceLimit, err)
 	}
@@ -178,11 +179,7 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		return contract.Backup{}, false, err
 	}
 	databasePath := filepath.Join(staging, databaseFile)
-	if manager.traffic != nil {
-		if err := manager.traffic.BackupPair(ctx, manager.store, databasePath, filepath.Join(staging, "traffic.db")); err != nil {
-			return contract.Backup{}, false, err
-		}
-	} else if err := manager.store.BackupTo(ctx, databasePath); err != nil {
+	if err := manager.store.BackupControlTo(ctx, databasePath, invocation.OmitLegacyTrafficTx); err != nil {
 		return contract.Backup{}, false, err
 	}
 	identity, err := storage.VerifyBackup(ctx, databasePath)
@@ -212,22 +209,7 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		Backup:        contract.Backup{ID: id, CreatedAt: createdAt, InstallationID: identity.InstallationID, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), SourceRevision: fmt.Sprintf("%d", identity.Revision), SizeBytes: info.Size(), SHA256: digest},
 		AuthorityHash: authorityHash, KeyHash: keyHash, InputHash: digestText("{}"),
 	}
-	if manager.traffic != nil {
-		trafficPath := filepath.Join(staging, "traffic.db")
-		artifact.Format, artifact.TrafficGeneration, artifact.TrafficBudgetBytes = 2, identity.TrafficGeneration, manager.traffic.BudgetBytes()
-		if err := invocation.VerifyTrafficFile(ctx, trafficPath, identity.InstallationID, artifact.TrafficGeneration, trafficConfig(artifact.TrafficBudgetBytes)); err != nil {
-			return contract.Backup{}, false, err
-		}
-		trafficInfo, err := os.Stat(trafficPath)
-		if err != nil {
-			return contract.Backup{}, false, err
-		}
-		artifact.TrafficSizeBytes = trafficInfo.Size()
-		artifact.TrafficSHA256, err = digestFile(trafficPath)
-		if err != nil {
-			return contract.Backup{}, false, err
-		}
-	}
+	artifact.Format, artifact.History = 3, "omitted"
 	if err := manager.fail(FaultMetadata); err != nil {
 		return contract.Backup{}, false, err
 	}
@@ -264,7 +246,7 @@ func (manager *Manager) Get(ctx context.Context, id string) (contract.Backup, er
 		return contract.Backup{}, ErrNotFound
 	}
 	metadata, err := manager.readArtifact(ctx, filepath.Join(manager.layout.Backups, id), id)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrInvalidArtifact) {
 		return contract.Backup{}, ErrNotFound
 	}
 	if err != nil {
@@ -307,6 +289,9 @@ func (manager *Manager) Status() contract.BackupStatus {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 	state := contract.BackupIdle
+	if manager.inventoryErr != nil {
+		state = contract.BackupUnavailable
+	}
 	if len(manager.work) == 1 {
 		state = contract.BackupCreating
 	}
@@ -314,25 +299,47 @@ func (manager *Manager) Status() contract.BackupStatus {
 }
 
 func (manager *Manager) load(ctx context.Context) ([]contract.Backup, []artifactMetadata, error) {
-	entries, err := os.ReadDir(manager.layout.Backups)
+	directory, err := openAccountingDirectory(manager.layout.Backups)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read backups: %w", err)
+		return nil, nil, err
 	}
-	items := make([]contract.Backup, 0, len(entries))
-	metadata := make([]artifactMetadata, 0, len(entries))
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
+	defer func() { _ = directory.Close() }()
+	items := make([]contract.Backup, 0)
+	metadata := make([]artifactMetadata, 0)
+	maximum, _ := contract.FixedLimitByName("backup_records")
+	seen := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
 		}
-		if !entry.IsDir() || !backupIDPattern.MatchString(entry.Name()) {
-			return nil, nil, ErrInvalidArtifact
-		}
-		artifact, readErr := manager.readArtifact(ctx, filepath.Join(manager.layout.Backups, entry.Name()), entry.Name())
-		if readErr != nil {
+		entries, readErr := directory.ReadDir(64)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return nil, nil, readErr
 		}
-		items = append(items, artifact.Backup)
-		metadata = append(metadata, artifact)
+		for _, entry := range entries {
+			seen++
+			if seen > 4096 {
+				return nil, nil, ErrInvalidArtifact
+			}
+			if strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			if int64(len(items)) >= maximum.Maximum || !entry.IsDir() || !backupIDPattern.MatchString(entry.Name()) {
+				return nil, nil, ErrInvalidArtifact
+			}
+			artifact, err := readAccountingMetadata(directory, entry.Name())
+			if err != nil {
+				return nil, nil, err
+			}
+			if _, err := time.Parse(time.RFC3339Nano, artifact.CreatedAt); err != nil {
+				return nil, nil, ErrInvalidArtifact
+			}
+			items = append(items, artifact.Backup)
+			metadata = append(metadata, artifact)
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
 	}
 	sort.Slice(items, func(left, right int) bool { return items[left].ID < items[right].ID })
 	sort.Slice(metadata, func(left, right int) bool { return metadata[left].ID < metadata[right].ID })
@@ -340,6 +347,12 @@ func (manager *Manager) load(ctx context.Context) ([]contract.Backup, []artifact
 }
 
 func (manager *Manager) readArtifact(ctx context.Context, directory, id string) (artifactMetadata, error) {
+	return manager.readArtifactScope(ctx, directory, id, false)
+}
+
+func (manager *Manager) readArtifactScope(ctx context.Context, directory, id string, securityOnly bool) (artifactMetadata, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	if err := validateDirectory(directory); err != nil {
 		return artifactMetadata{}, err
 	}
@@ -354,15 +367,11 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 	if _, err := time.Parse(time.RFC3339Nano, metadata.CreatedAt); err != nil {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
-	if err := requireClosedArtifact(directory); err != nil {
+	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format == 3); err != nil {
 		return artifactMetadata{}, err
 	}
 	databasePath := filepath.Join(directory, databaseFile)
-	identity, err := storage.VerifyBackup(ctx, databasePath)
-	if err != nil || identity.InstallationID != metadata.InstallationID || fmt.Sprintf("%d", identity.SchemaVersion) != metadata.SchemaVersion || fmt.Sprintf("%d", identity.Revision) != metadata.SourceRevision {
-		return artifactMetadata{}, ErrInvalidArtifact
-	}
-	if err := gitcredentials.VerifyBackup(ctx, databasePath, identity.SchemaVersion); err != nil {
+	if err := gatewaypaths.ValidateOwnerOnlyFile(databasePath); err != nil {
 		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 	}
 	info, err := os.Stat(databasePath)
@@ -373,7 +382,17 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 	if err != nil || digest != metadata.SHA256 {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
-	if metadata.Format == 2 {
+	identity, err := storage.VerifyBackup(ctx, databasePath)
+	if err != nil || identity.InstallationID != metadata.InstallationID || fmt.Sprintf("%d", identity.SchemaVersion) != metadata.SchemaVersion || fmt.Sprintf("%d", identity.Revision) != metadata.SourceRevision {
+		return artifactMetadata{}, ErrInvalidArtifact
+	}
+	if err := gitcredentials.VerifyBackup(ctx, databasePath, identity.SchemaVersion); err != nil {
+		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+	}
+	if metadata.Format == 2 && identity.TrafficGeneration != metadata.TrafficGeneration {
+		return artifactMetadata{}, ErrInvalidArtifact
+	}
+	if metadata.Format == 2 && !securityOnly {
 		trafficPath := filepath.Join(directory, "traffic.db")
 		if identity.TrafficGeneration != metadata.TrafficGeneration || metadata.TrafficGeneration == "" {
 			return artifactMetadata{}, ErrInvalidArtifact
@@ -389,18 +408,30 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 		if err != nil || digest != metadata.TrafficSHA256 {
 			return artifactMetadata{}, ErrInvalidArtifact
 		}
-	} else if metadata.Format != 0 || identity.TrafficGeneration != "" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
+	} else if metadata.Format == 0 && identity.TrafficGeneration != "" {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
-	if metadata.Format == 0 {
+	if metadata.Format == 3 {
+		if err := invocation.VerifyOmittedLegacyTraffic(ctx, databasePath); err != nil {
+			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+		}
+	}
+	if metadata.Format == 0 && !securityOnly {
 		if err := invocation.VerifyLegacyEvidence(ctx, databasePath, identity.SchemaVersion); err != nil {
 			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 		}
 	}
-	if err := requireClosedArtifact(directory); err != nil {
+	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format == 3); err != nil {
 		return artifactMetadata{}, err
 	}
 	return metadata, nil
+}
+
+func reserveHeadroom(root string, bytes int64, reserve func(string, int64) (func(), error)) (func(), error) {
+	if reserve == nil {
+		reserve = gatewaypaths.ReserveHeadroom
+	}
+	return reserve(root, bytes)
 }
 
 func trafficConfig(budget int64) invocation.TrafficConfig {

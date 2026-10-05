@@ -53,7 +53,7 @@ func TestHTTPDefaultsGrantsPreviewAndExpiry(t *testing.T) {
 	allow, block := contract.HTTPDefaultAllow, contract.HTTPDefaultBlock
 	def, err = r.PatchPrincipal(ctx, principal.ID, PatchPrincipalRequest{ExpectedRevision: def.Revision, HTTPDefault: &allow})
 	require.NoError(t, err)
-	_, err = r.ConfirmEvaluation(ctx, evaluation.Candidate, id(88), func(_ contract.AuthorizationResult, detach func() bool) bool { return detach() })
+	_, err = r.ConfirmEvaluation(ctx, evaluation.Candidate, id(88))
 	require.ErrorIs(t, err, ErrAuthenticationRequired)
 	select {
 	case <-pending.Done():

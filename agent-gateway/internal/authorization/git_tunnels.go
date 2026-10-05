@@ -1,9 +1,9 @@
 package authorization
 
 // ReleaseOpaque settles an already-confirmed tunnel owner after stream and
-// completion cleanup. Caller timeout alone never retires an actual owner.
+// network cleanup. Caller timeout alone never retires an actual owner.
 func (r *Repository) ReleaseOpaque(candidate *HTTPEvaluationCandidate) {
-	if candidate == nil || candidate.repository != r || candidate.opaqueOrigin == "" || !candidate.opaqueReleased.CompareAndSwap(false, true) {
+	if candidate == nil || candidate.repository != r || candidate.opaqueOrigin == "" || !candidate.opaqueRegistered.Load() || !candidate.opaqueReleased.CompareAndSwap(false, true) {
 		return
 	}
 	r.authority.mu.Lock()

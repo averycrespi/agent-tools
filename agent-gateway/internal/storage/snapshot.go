@@ -78,7 +78,7 @@ func (store *Store) WithSnapshotFence(ctx context.Context, pin func(*sql.DB) err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := store.acquireMutation(ctx, nil, false); err != nil {
+	if err := store.acquireMutation(ctx); err != nil {
 		return err
 	}
 	defer store.releaseMutation()

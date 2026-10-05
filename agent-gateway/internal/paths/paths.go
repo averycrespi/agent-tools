@@ -143,6 +143,13 @@ func AcquireExisting(root string) (*Ownership, error) {
 	return ownership, nil
 }
 
+// AcquireStoppedControl takes existing exclusive ownership without traversing
+// unrelated retained artifacts. The operation must validate its actual control,
+// marker and selected artifact targets before mutation; no run marker is written.
+func AcquireStoppedControl(root string) (*Ownership, error) {
+	return acquireExistingOwnership(root, false)
+}
+
 func AcquireForMaintenance(root string) (*Ownership, error) {
 	return Acquire(root)
 }

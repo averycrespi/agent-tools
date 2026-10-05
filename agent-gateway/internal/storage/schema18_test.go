@@ -1,11 +1,46 @@
 package storage
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTrafficSelectionRequiresAtomicAdministrativeAudit(t *testing.T) {
+	owner := newOwnership(t)
+	store, err := Initialize(t.Context(), owner, testInstallationID)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `CREATE TRIGGER refuse_selector_audit BEFORE INSERT ON control_audit_events WHEN NEW.category='storage' BEGIN SELECT RAISE(ABORT,'audit refused'); END`)
+		return err
+	}))
+	generation := "01ARZ3NDEKTSV4RRFFQ69G5FA0"
+	require.Error(t, store.SelectTraffic(t.Context(), "", generation))
+	selected, err := store.SelectedTraffic(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, selected)
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `DROP TRIGGER refuse_selector_audit`)
+		return err
+	}))
+	require.NoError(t, store.SelectTraffic(t.Context(), "", generation))
+	selected, err = store.SelectedTraffic(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, generation, selected)
+	reader, err := audit.NewRepository(store)
+	require.NoError(t, err)
+	page, err := reader.List(t.Context(), audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "storage", Action: "migrate"}})
+	require.NoError(t, err)
+	require.NotEmpty(t, page.Items)
+	require.Equal(t, "succeeded", page.Items[0].Outcome)
+	require.Equal(t, "pending", page.Items[1].Outcome)
+	require.Equal(t, page.Items[0].CorrelationID, page.Items[1].CorrelationID)
+}
 
 func TestTrafficSelectionFollowsFailureDiagnosticsLineage(t *testing.T) {
 	owner := newOwnership(t)

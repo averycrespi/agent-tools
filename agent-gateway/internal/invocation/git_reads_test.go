@@ -16,22 +16,16 @@ func TestGitTrafficReadsBindHistoryAndPreserveReports(t *testing.T) {
 	for n := 1; n <= 3; n++ {
 		a := gitTrafficAdmission(n)
 		a.Policy = &contract.GitTrafficPolicy{RepositoryName: "Original configured name", RepositoryURL: "https://example.com:443/team/repo", Grants: []contract.GitRevisionRef{{ID: invocationID(80), Revision: "7"}}, GrantCount: 1, Updates: 1}
-		receipt, e := traffic.AdmitGit(t.Context(), a)
-		require.NoError(t, e)
+		observation := recordGit(t, traffic, a)
 		a.Policy.RepositoryName = "Changed caller metadata"
 		a.Policy.Grants[0].Revision = "9"
 		if n == 3 {
-			require.True(t, traffic.Confirm(t.Context(), receipt))
 			c := gitTrafficCompletion()
 			c.ReportedResult = "reported_partial"
-			require.NoError(t, traffic.CompleteGit(t.Context(), receipt, c))
-		} else {
-			traffic.Release(receipt)
+			recordGitCompletion(t, traffic, observation, c)
 		}
 	}
-	http, err := traffic.AdmitHTTP(t.Context(), httpTrafficAdmission(4))
-	require.NoError(t, err)
-	traffic.Release(http)
+	recordHTTP(t, traffic, httpTrafficAdmission(4))
 	page, err := reader.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 1)

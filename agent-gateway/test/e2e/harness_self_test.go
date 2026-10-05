@@ -365,6 +365,7 @@ func TestGatewayHarnessObservesGovernedCallsWithoutRetainingPayloads(t *testing.
 	catalogBarrier.Release()
 	harness.WaitOperation(catalog.ServerID, refresh.ID, contract.OperationSucceeded)
 
+	harness.WaitForAuditObservations(2, 0, 1)
 	result := harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()
 	require.Len(t, observations, 2)
@@ -405,6 +406,7 @@ func TestGatewayHarnessStdioCallFixtureRecordsOnlySafeFacts(t *testing.T) {
 		return countFixtureEvents(events, "request", "tools/call") == 1
 	})
 	pid := fixtureEvents(events, "start", "")[0].PID
+	harness.WaitForAuditObservations(1, 0)
 	harness.Stop(syscall.SIGTERM)
 	waitForProcessExit(t, pid)
 	observations := harness.AuditObservations()

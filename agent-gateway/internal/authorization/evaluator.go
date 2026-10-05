@@ -11,6 +11,10 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
+func validEvaluationTime(value time.Time) bool {
+	return value.Year() >= 1 && value.Year() <= 9999 && value.UnixMilli() >= 0 && value.UnixMilli() <= 1<<48-1
+}
+
 func (repository *Repository) Evaluate(ctx context.Context, request EvaluationRequest) (contract.AuthorizationResult, error) {
 	if !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.Target.ServerID) || !validUpstreamName(request.Target.ToolName()) {
 		return contract.AuthorizationResult{}, ErrInvalidInput
@@ -42,6 +46,9 @@ func evaluateTx(
 	evaluatedAt time.Time,
 	readOnlyHint bool,
 ) (contract.AuthorizationResult, error) {
+	if !validEvaluationTime(evaluatedAt) {
+		return contract.AuthorizationResult{}, ErrAuthorizationUnavailable
+	}
 	revision, err := authorizationRevisionTx(ctx, transaction)
 	if err != nil {
 		return contract.AuthorizationResult{}, err

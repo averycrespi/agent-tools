@@ -7,234 +7,164 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrafficBatchAtomicityCollisionAndRollback(t *testing.T) {
+func TestTrafficMixedBatchAtomicity(t *testing.T) {
 	for _, fail := range []bool{false, true} {
-		t.Run(map[bool]string{false: "commit", true: "rollback"}[fail], func(t *testing.T) {
+		t.Run(strconv.FormatBool(fail), func(t *testing.T) {
 			entered, release := make(chan struct{}), make(chan struct{})
-			var mu sync.Mutex
-			commits := 0
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			var begins atomic.Int32
 			s, _ := trafficFixture(t, func(c *TrafficConfig) { c.Dwell = 10 * time.Millisecond; c.QueueRecords = 8; c.BatchRecords = 4 }, func(point string) error {
-				if point == "before_begin" {
-					mu.Lock()
-					commits++
-					n := commits
-					mu.Unlock()
-					if n == 1 {
-						close(entered)
-						<-release
-					}
+				if point == "before_begin" && begins.Add(1) == 1 {
+					close(entered)
+					<-release
 				}
-				if point == "statement" && fail {
-					mu.Lock()
-					n := commits
-					mu.Unlock()
-					if n == 2 {
-						return errors.New("batch statement failed")
-					}
+				if point == "statement" && fail && begins.Load() == 2 {
+					return errors.New("batch failure")
 				}
 				return nil
 			})
-			t.Cleanup(func() {
-				select {
-				case <-release:
-				default:
-					close(release)
-				}
-			})
-			results := make(chan trafficResult, 5)
-			submit := func(id int) {
-				go func() { r, e := s.Admit(context.Background(), trafficPrepared(id)); results <- trafficResult{r, e} }()
-			}
-			submit(1)
+			require.NotNil(t, s.ObserveMCP(trafficPrepared(1)))
 			select {
 			case <-entered:
 			case <-time.After(5 * time.Second):
-				t.Fatal("writer not entered")
+				t.Fatal("writer did not enter")
 			}
-			for _, id := range []int{2, 3, 4, 5} {
-				submit(id)
-			}
-			require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.queued == 5 }, time.Second, time.Millisecond)
-			close(release)
-			successes := 0
-			for range 5 {
-				select {
-				case r := <-results:
-					if r.err == nil {
-						successes++
-						s.Release(r.receipt)
-					} else {
-						assert.ErrorIs(t, r.err, ErrTrafficFault)
-					}
-				case <-time.After(5 * time.Second):
-					t.Fatal("unsettled batch")
-				}
-			}
-			if fail {
-				assert.Equal(t, 1, successes)
-			} else {
-				assert.Equal(t, 5, successes)
-			}
-			mu.Lock()
-			assert.Equal(t, 2, commits)
-			mu.Unlock()
-			history, err := s.History(context.Background(), 0, 10)
+			require.NotNil(t, s.ObserveMCP(trafficPrepared(2)))
+			require.NotNil(t, s.ObserveHTTP(httpTrafficAdmission(3)))
+			require.NotNil(t, s.ObserveGit(gitTrafficAdmission(4)))
+			require.NotNil(t, s.ObserveMCP(trafficPrepared(5)))
+			unblock()
+			waitTraffic(t, s)
+			m, err := s.History(t.Context(), 0, 10)
 			require.NoError(t, err)
-			assert.Len(t, history.Records, successes)
+			h, err := s.HTTPHistory(t.Context(), 0, 10)
+			require.NoError(t, err)
+			g, err := s.GitHistory(t.Context(), 0, 10)
+			require.NoError(t, err)
+			require.EqualValues(t, 2, begins.Load())
+			if fail {
+				require.Len(t, m.Records, 1)
+				require.Empty(t, h.Records)
+				require.Empty(t, g.Records)
+				require.False(t, s.Healthy())
+			} else {
+				require.Len(t, m.Records, 3)
+				require.Len(t, h.Records, 1)
+				require.Len(t, g.Records, 1)
+			}
 		})
 	}
 }
 
-func TestTrafficRefusalRollbackUncertaintyFencesReceipts(t *testing.T) {
-	for _, refusal := range []string{"collision", "capacity"} {
-		t.Run(refusal, func(t *testing.T) {
+func TestTrafficSingleQueueBoundsInitialAndTerminal(t *testing.T) {
+	for _, bound := range []string{"count", "bytes"} {
+		t.Run(bound, func(t *testing.T) {
+			entered, release := make(chan struct{}), make(chan struct{})
+			unblock := sync.OnceFunc(func() { close(release) })
+			defer unblock()
+			var once sync.Once
 			s, _ := trafficFixture(t, func(c *TrafficConfig) {
-				c.RetainedRecords = 1
 				c.BatchRecords = 1
-			}, nil)
-			receipt, err := s.Admit(context.Background(), trafficPrepared(1))
-			require.NoError(t, err)
-			s.fault = func(point string) error {
-				if point == "rollback" {
-					return errors.New("rollback settlement uncertain")
+				c.QueueLifetime = time.Second
+				if bound == "count" {
+					c.QueueRecords = 1
+				} else {
+					c.QueueRecords = 8
+					c.QueueBytes = 16384
+					c.BatchBytes = 16384
+				}
+			}, func(point string) error {
+				if point == "before_begin" {
+					once.Do(func() { close(entered); <-release })
 				}
 				return nil
+			})
+			p := trafficPrepared(1)
+			if bound == "bytes" {
+				p.admission.MCP.RedactedArguments = []byte(`{"value":"` + strings.Repeat("x", 7000) + `"}`)
 			}
-			id := 1
-			if refusal == "capacity" {
-				id = 2
+			o := s.ObserveMCP(p)
+			require.NotNil(t, o)
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("writer did not enter")
 			}
-			rejected, err := s.Admit(context.Background(), trafficPrepared(id))
-			require.ErrorIs(t, err, ErrTrafficFault)
-			assert.Nil(t, rejected)
-			assert.False(t, s.Healthy())
-			assert.False(t, s.Confirm(context.Background(), receipt))
-			s.Release(receipt)
-			rejected, err = s.Admit(context.Background(), trafficPrepared(3))
-			assert.ErrorIs(t, err, ErrTrafficFault)
-			assert.Nil(t, rejected)
+			require.ErrorIs(t, s.ObserveMCPCompletion(o, trafficCompletion(), nil), ErrTrafficCapacity)
+			require.NotNil(t, s.ObserveMCP(p), "queue refusal loses capture, not the snapshot")
+			s.mu.Lock()
+			require.Equal(t, 1, s.queued)
+			require.LessOrEqual(t, s.queuedBytes, s.config.QueueBytes)
+			require.EqualValues(t, 2, s.quotaRefusals)
+			s.mu.Unlock()
+			health := s.Status(t.Context())
+			require.EqualValues(t, 1, health.Delivery.Accepted)
+			require.EqualValues(t, 2, health.Delivery.Discarded)
+			require.Equal(t, 1, health.Delivery.QueueRecords)
+			require.Positive(t, health.Delivery.QueueBytes)
+			unblock()
+			waitTraffic(t, s)
+			history, err := s.History(t.Context(), 0, 10)
+			require.NoError(t, err)
+			require.Len(t, history.Records, 1)
+			require.Nil(t, history.Records[0].TerminalClass)
+			require.True(t, s.Healthy())
 		})
 	}
 }
 
-func TestTrafficQueueBoundsAndProtectedCompletion(t *testing.T) {
-	entered, release := make(chan struct{}), make(chan struct{})
-	var once sync.Once
-	var block bool
-	var mu sync.Mutex
-	s, _ := trafficFixture(t, func(c *TrafficConfig) {
-		c.QueueRecords = 2
-		c.BatchRecords = 1
-		c.ActiveRecords = 8
-		c.QueueLifetime = time.Second
-	}, func(point string) error {
-		mu.Lock()
-		active := block
-		mu.Unlock()
-		if active && point == "before_begin" {
-			once.Do(func() { close(entered); <-release })
-		}
-		return nil
-	})
-	r, err := s.Admit(context.Background(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(context.Background(), r))
-	mu.Lock()
-	block = true
-	mu.Unlock()
-	t.Cleanup(func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	})
-	results := make(chan trafficResult, 2)
-	go func() { r, e := s.Admit(context.Background(), trafficPrepared(2)); results <- trafficResult{r, e} }()
-	select {
-	case <-entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("writer not entered")
+func TestTrafficCollisionPrecedesPruningAndUncertainRollbackFaults(t *testing.T) {
+	for _, uncertain := range []bool{false, true} {
+		t.Run(strconv.FormatBool(uncertain), func(t *testing.T) {
+			s, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 1; c.BatchRecords = 1 }, nil)
+			recordMCP(t, s, trafficPrepared(1))
+			if uncertain {
+				s.fault = func(point string) error {
+					if point == "rollback" {
+						return errors.New("uncertain rollback")
+					}
+					return nil
+				}
+			}
+			collision := trafficPrepared(1)
+			collision.admission.MCP.RedactedArguments = []byte(`{"different":true}`)
+			require.NotNil(t, s.ObserveMCP(collision))
+			waitTraffic(t, s)
+			require.Equal(t, !uncertain, s.Healthy())
+			h, err := s.History(t.Context(), 0, 10)
+			require.NoError(t, err)
+			require.Len(t, h.Records, 1)
+			require.Zero(t, h.Pruning)
+			require.Equal(t, `{"value":1e0}`, *h.Records[0].RedactedArguments)
+		})
 	}
-	go func() { r, e := s.Admit(context.Background(), trafficPrepared(3)); results <- trafficResult{r, e} }()
-	require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.queued == 2 }, time.Second, time.Millisecond)
-	noReceipt, err := s.Admit(context.Background(), trafficPrepared(4))
-	assert.ErrorIs(t, err, ErrTrafficCapacity)
-	assert.Nil(t, noReceipt)
-	completed := make(chan error, 1)
-	go func() { completed <- s.Complete(context.Background(), r, trafficCompletion()) }()
-	require.Eventually(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return s.terminalQueued == 1 }, time.Second, time.Millisecond)
-	close(release)
-	require.NoError(t, <-completed)
-	for range 2 {
-		got := <-results
-		require.NoError(t, got.err)
-		s.Release(got.receipt)
-	}
-	h, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	require.Len(t, h.Records, 3)
-	require.NotNil(t, h.Records[0].CompletedAt)
-	s.mu.Lock()
-	assert.Zero(t, s.queued)
-	assert.Zero(t, s.queuedBytes)
-	assert.Zero(t, s.terminalQueued)
-	assert.Empty(t, s.pins)
-	s.mu.Unlock()
 }
 
-func TestTrafficCancellationAfterReceiptCannotConfirm(t *testing.T) {
-	s, _ := trafficFixture(t, nil, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	r, err := s.Admit(ctx, trafficPrepared(1))
-	require.NoError(t, err)
-	cancel()
-	assert.False(t, s.Confirm(context.Background(), r))
-	s.Release(r)
-	assert.False(t, s.Confirm(context.Background(), &TrafficReceipt{}))
-}
-
-func TestTrafficPinnedCapacityAndTerminalFault(t *testing.T) {
+func TestTrafficPrunedInitialCanBeReplacedByTerminalSnapshot(t *testing.T) {
 	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 1; c.BatchRecords = 1 }, nil)
-	r, err := s.Admit(context.Background(), trafficPrepared(1))
+	original := recordMCP(t, s, trafficPrepared(1))
+	recordMCP(t, s, trafficPrepared(2))
+	recordMCPCompletion(t, s, original, trafficCompletion())
+	h, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
-	_, err = s.Admit(context.Background(), trafficPrepared(2))
-	assert.ErrorIs(t, err, ErrTrafficCapacity)
-	assert.True(t, s.Healthy())
-	require.True(t, s.Confirm(context.Background(), r))
-	s.Release(r) // A live invocation cannot be prematurely unpinned.
-	_, err = s.Admit(context.Background(), trafficPrepared(2))
-	assert.ErrorIs(t, err, ErrTrafficCapacity)
-	s.fault = func(point string) error {
-		if point == "statement" {
-			return errors.New("terminal I/O failure")
-		}
-		return nil
-	}
-	assert.ErrorIs(t, s.Complete(context.Background(), r, trafficCompletion()), ErrTrafficFault)
-	assert.False(t, s.Healthy())
-	assert.Empty(t, s.pins)
-	h, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	assert.Nil(t, h.Records[0].CompletedAt)
+	require.Len(t, h.Records, 1)
+	require.Equal(t, invocationID(1), h.Records[0].InvocationID)
+	require.NotNil(t, h.Records[0].TerminalClass)
+	require.EqualValues(t, 2, h.Pruning)
 }
 
 func TestTrafficPhysicalBudgetWALReaderPressure(t *testing.T) {
 	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.BudgetBytes = 1 << 20; c.BatchRecords = 1; c.RetainedRecords = 8 }, nil)
-	r, err := s.Admit(context.Background(), trafficPrepared(1))
-	require.NoError(t, err)
-	s.Release(r)
-	// This independently held SQLite reader deliberately outlives the public
-	// reader API. It proves checkpoint refusal, not permission to exceed budget.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	recordMCP(t, s, trafficPrepared(1))
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	tx, err := s.readerDB.BeginTx(ctx, nil)
 	require.NoError(t, err)
@@ -243,55 +173,52 @@ func TestTrafficPhysicalBudgetWALReaderPressure(t *testing.T) {
 	require.NoError(t, tx.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count))
 	refused := false
 	for id := 2; id < 100; id++ {
-		r, e := s.Admit(context.Background(), trafficPrepared(id))
+		require.NotNil(t, s.ObserveMCP(trafficPrepared(id)))
+		waitTraffic(t, s)
 		var combined int64
 		for _, suffix := range []string{"", "-wal"} {
-			info, statErr := os.Stat(s.path + suffix)
-			require.NoError(t, statErr)
+			info, err := os.Stat(s.path + suffix)
+			require.NoError(t, err)
 			combined += info.Size()
 		}
-		assert.LessOrEqual(t, combined, s.config.BudgetBytes)
-		if e != nil {
-			require.ErrorIs(t, e, ErrTrafficCapacity)
-			refused = true
+		require.LessOrEqual(t, combined, s.config.BudgetBytes)
+		s.mu.Lock()
+		refused = s.quotaRefusals > 0
+		s.mu.Unlock()
+		if refused {
 			break
 		}
-		s.Release(r)
 	}
-	assert.True(t, refused)
-	assert.True(t, s.Healthy())
+	require.True(t, refused)
+	require.True(t, s.Healthy())
 	require.NoError(t, tx.Rollback())
-	r, err = s.Admit(context.Background(), trafficPrepared(101))
+	recordMCP(t, s, trafficPrepared(101))
+	h, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
-	s.Release(r)
-	h, err := s.History(context.Background(), 0, 10)
-	require.NoError(t, err)
-	assert.Len(t, h.Records, 8)
-	assert.Positive(t, h.Pruning)
+	require.Len(t, h.Records, 8)
+	require.Positive(t, h.Pruning)
 	for range s.config.Readers {
 		s.readSlots <- struct{}{}
 	}
-	_, err = s.History(context.Background(), 0, 10)
-	assert.ErrorIs(t, err, ErrTrafficCapacity)
+	_, err = s.History(t.Context(), 0, 10)
+	require.ErrorIs(t, err, ErrTrafficCapacity)
 	for range s.config.Readers {
 		<-s.readSlots
 	}
 }
 
-func TestTrafficSQLiteFullFaultsWithoutReceipt(t *testing.T) {
+func TestTrafficSQLiteFullFaultsOnlyOptionalHistory(t *testing.T) {
 	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.BatchRecords = 1 }, nil)
-	var pages int64
-	require.NoError(t, s.db.QueryRowContext(context.Background(), `PRAGMA page_count`).Scan(&pages))
-	var maximum int64
-	require.NoError(t, s.db.QueryRowContext(context.Background(), `PRAGMA max_page_count=`+strconv.FormatInt(pages, 10)).Scan(&maximum))
+	var pages, maximum int64
+	require.NoError(t, s.db.QueryRowContext(t.Context(), `PRAGMA page_count`).Scan(&pages))
+	require.NoError(t, s.db.QueryRowContext(t.Context(), `PRAGMA max_page_count=`+strconv.FormatInt(pages, 10)).Scan(&maximum))
 	require.Equal(t, pages, maximum)
-	prepared := trafficPrepared(1)
-	prepared.admission.MCP.RedactedArguments = []byte(`{"value":"` + strings.Repeat("x", 8100) + `"}`)
-	r, err := s.Admit(context.Background(), prepared)
-	require.ErrorIs(t, err, ErrTrafficFault)
-	assert.Nil(t, r)
-	assert.False(t, s.Healthy())
-	h, err := s.History(context.Background(), 0, 10)
+	p := trafficPrepared(1)
+	p.admission.MCP.RedactedArguments = []byte(`{"value":"` + strings.Repeat("x", 8100) + `"}`)
+	require.NotNil(t, s.ObserveMCP(p))
+	waitTraffic(t, s)
+	require.False(t, s.Healthy())
+	h, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
-	assert.Empty(t, h.Records)
+	require.Empty(t, h.Records)
 }

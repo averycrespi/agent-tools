@@ -18,16 +18,34 @@ import (
 // HTTPEvaluationCandidate seals one coherent evaluation without retaining an
 // authority lock, submitted URL or executable callback across persistence.
 type HTTPEvaluationCandidate struct {
-	repository             *Repository
-	lease                  *Lease
-	id, revision, evidence string
-	material               *contract.HTTPTrafficMaterial
-	used                   atomic.Bool
-	opaqueOrigin           string
-	opaqueReleased         atomic.Bool
+	repository       *Repository
+	lease            *Lease
+	id, revision     string
+	request          context.Context
+	material         *HTTPMaterial
+	used             atomic.Bool
+	opaqueOrigin     string
+	opaqueRegistered atomic.Bool
+	opaqueReleased   atomic.Bool
+}
+
+// HTTPExecution contains the selected executable facts, not a capture DTO.
+type HTTPExecution struct {
+	EvaluatedAt    time.Time
+	Allowed        bool
+	Transport      contract.HTTPTransport
+	Reason         contract.HTTPDecisionReason
+	PrivateNetwork bool
+	Material       *HTTPMaterial
+}
+
+type HTTPMaterial struct {
+	Credential contract.HTTPRevisionRef
+	Generation string
 }
 
 type HTTPEvaluation struct {
+	Execution HTTPExecution
 	Evidence  contract.HTTPTrafficAdmission
 	Candidate *HTTPEvaluationCandidate
 }
@@ -49,18 +67,9 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 	if metadata.Rejection != nil && (!metadata.Rejection.Valid() || in.URL != "" || in.Method != "" || in.Connect != nil) {
 		return out, ErrInvalidInput
 	}
-	if metadata.Connect != nil {
-		c := metadata.Connect
-		d, err := httppolicy.NewDestination(c.Host, c.Port)
-		if !validOpaqueID(c.ID) || c.ID == id || err != nil || d.Host() != c.Host || in.Connect != nil {
-			return out, ErrInvalidInput
-		}
-	}
-	if !validOpaqueID(id) || lease == nil || in.PrincipalID != lease.binding.PrincipalID {
-		return out, ErrInvalidInput
-	}
-	admitted, err := time.Parse(time.RFC3339Nano, admittedAt)
-	if err != nil || formatAuthorizationTime(admitted) != admittedAt {
+	// CONNECT correlation is capture-only. The recorder validates its identity
+	// and coordinates; malformed/colliding metadata must not alter live authority.
+	if lease == nil || in.PrincipalID != lease.binding.PrincipalID {
 		return out, ErrInvalidInput
 	}
 	target, parseErr := parseHTTPTarget(in)
@@ -71,7 +80,7 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 				return err
 			}
 			now, err := time.Parse(time.RFC3339Nano, binding.EvaluatedAt)
-			if err != nil || now.Before(admitted) {
+			if err != nil {
 				return ErrInvalidInput
 			}
 			principalRevision, err := httpRevision(lease.binding.PrincipalRevision)
@@ -171,17 +180,15 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 				evidence.Material = &contract.HTTPTrafficMaterial{Credential: *decision.Credential, Generation: generation}
 			}
 			out.Evidence = evidence
+			out.Execution = HTTPExecution{EvaluatedAt: now, Allowed: decision.Allowed, Transport: decision.Transport, Reason: decision.Reason, PrivateNetwork: decision.PrivateGrant != nil}
+			var material *HTTPMaterial
+			if evidence.Material != nil {
+				material = &HTTPMaterial{Credential: evidence.Material.Credential, Generation: evidence.Material.Generation}
+				copy := *material
+				out.Execution.Material = &copy
+			}
 			if decision.Allowed {
-				encoded, err := json.Marshal(evidence)
-				if err != nil || len(encoded) > contract.HTTPTrafficAdmissionBytes {
-					return ErrAuthorizationUnavailable
-				}
-				var material *contract.HTTPTrafficMaterial
-				if evidence.Material != nil {
-					copy := *evidence.Material
-					material = &copy
-				}
-				out.Candidate = &HTTPEvaluationCandidate{repository: r, lease: lease, id: id, revision: binding.AuthorizationRevision, evidence: string(encoded), material: material}
+				out.Candidate = &HTTPEvaluationCandidate{repository: r, lease: lease, id: id, revision: binding.AuthorizationRevision, request: ctx, material: material}
 				if target.connect && decision.Transport == contract.HTTPTransportTunnel {
 					out.Candidate.opaqueOrigin = "https://" + target.destination.Authority()
 				}
@@ -195,11 +202,10 @@ func (r *Repository) EvaluateHTTPAdmission(ctx context.Context, lease *Lease, id
 	return out, nil
 }
 
-// ConfirmHTTP consumes the sealed candidate even on refusal. The evidence owner
-// performs only an immutable comparison and single receipt disposition under
-// the final short drain/control/material/traffic health fences.
-func (r *Repository) ConfirmHTTP(ctx context.Context, candidate *HTTPEvaluationCandidate, id string, materials *httpcredentials.Service, receipt func(string, func() bool) bool) error {
-	if candidate == nil || candidate.repository != r || candidate.id != id || receipt == nil || !candidate.used.CompareAndSwap(false, true) {
+// ConfirmHTTP consumes the sealed candidate under the drain/control/material
+// fences. Original request cancellation cannot be replaced by a fresh context.
+func (r *Repository) ConfirmHTTP(ctx context.Context, candidate *HTTPEvaluationCandidate, id string, materials *httpcredentials.Service) error {
+	if candidate == nil || candidate.repository != r || candidate.id != id || !candidate.used.CompareAndSwap(false, true) {
 		return ErrAdmissionUnavailable
 	}
 	release, err := r.authority.acquire(ctx)
@@ -227,20 +233,19 @@ func (r *Repository) ConfirmHTTP(ctx context.Context, candidate *HTTPEvaluationC
 		registry := r.authority
 		registry.mu.Lock()
 		defer registry.mu.Unlock()
-		if registry.draining.Load() || ctx.Err() != nil {
+		if registry.draining.Load() || ctx.Err() != nil || candidate.request.Err() != nil {
 			return ErrAdmissionUnavailable
 		}
 		confirmed := r.store.ConfirmHealthy(func() bool {
-			return receipt(candidate.evidence, func() bool {
-				if ctx.Err() != nil || !candidate.lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
-					return false
-				}
-				delete(registry.leases, candidate.lease)
-				if candidate.opaqueOrigin != "" {
-					registry.opaqueGitOrigins[candidate.opaqueOrigin]++
-				}
-				return true
-			})
+			if ctx.Err() != nil || candidate.request.Err() != nil || !candidate.lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
+				return false
+			}
+			delete(registry.leases, candidate.lease)
+			if candidate.opaqueOrigin != "" {
+				registry.opaqueGitOrigins[candidate.opaqueOrigin]++
+				candidate.opaqueRegistered.Store(true)
+			}
+			return true
 		})
 		if !confirmed {
 			return ErrAdmissionUnavailable
@@ -248,6 +253,9 @@ func (r *Repository) ConfirmHTTP(ctx context.Context, candidate *HTTPEvaluationC
 		return nil
 	}
 	if candidate.material != nil {
+		if materials == nil {
+			return ErrAdmissionUnavailable
+		}
 		return materials.ConfirmMaterial(ctx, candidate.material.Credential, candidate.material.Generation, detach)
 	}
 	return detach()

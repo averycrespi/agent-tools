@@ -22,6 +22,9 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 	retryLimit, _ := contract.FixedLimitByName("idempotency_records")
 	records.Limit, idempotency.Limit = recordLimit.Maximum, retryLimit.Maximum
 	defer func() {
+		manager.mu.Lock()
+		manager.inventoryErr = resultErr
+		manager.mu.Unlock()
 		if resultErr != nil {
 			records, idempotency = contract.LimitStatus{}, contract.LimitStatus{}
 			resultErr = errors.Join(ErrInvalidArtifact, resultErr)
@@ -33,6 +36,7 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 	}
 	defer func() { _ = directory.Close() }()
 	now := manager.clock.Now()
+	seen := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return records, idempotency, err
@@ -42,6 +46,10 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 			return records, idempotency, readErr
 		}
 		for _, entry := range entries {
+			seen++
+			if seen > 4096 {
+				return records, idempotency, ErrInvalidArtifact
+			}
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
@@ -88,6 +96,10 @@ func readAccountingMetadata(directory *os.File, id string) (artifactMetadata, er
 	if err := strictjson.DecodeReader(file, &metadata, strictjson.Options{MaxBytes: 8192, MaxDepth: 2, RejectUnknownMembers: true}); err != nil {
 		return artifactMetadata{}, err
 	}
+	controlLimit, _ := contract.FixedLimitByName("database_bytes")
+	if metadata.SizeBytes > controlLimit.Maximum {
+		return artifactMetadata{}, ErrInvalidArtifact
+	}
 	if metadata.ID != id || !backupIDPattern.MatchString(metadata.InstallationID) || !accountingDigest(metadata.SHA256) || !accountingDigest(metadata.AuthorityHash) || !accountingDigest(metadata.KeyHash) || !accountingDigest(metadata.InputHash) || metadata.SizeBytes <= 0 {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
@@ -99,12 +111,16 @@ func readAccountingMetadata(directory *os.File, id string) (artifactMetadata, er
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
 	switch metadata.Format {
+	case 3:
+		if metadata.History != "omitted" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
+			return artifactMetadata{}, ErrInvalidArtifact
+		}
 	case 0:
-		if metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
+		if metadata.History != "" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
 			return artifactMetadata{}, ErrInvalidArtifact
 		}
 	case 2:
-		if !backupIDPattern.MatchString(metadata.TrafficGeneration) || !accountingDigest(metadata.TrafficSHA256) || metadata.TrafficSizeBytes <= 0 || metadata.TrafficBudgetBytes <= 0 {
+		if metadata.History != "" || !backupIDPattern.MatchString(metadata.TrafficGeneration) || !accountingDigest(metadata.TrafficSHA256) || metadata.TrafficSizeBytes <= 0 || metadata.TrafficSizeBytes > metadata.TrafficBudgetBytes || metadata.TrafficBudgetBytes < 1<<20 || metadata.TrafficBudgetBytes > 16<<30 {
 			return artifactMetadata{}, ErrInvalidArtifact
 		}
 	default:

@@ -443,6 +443,10 @@ func TestIntegrationNativeGitDeniedCommandsNeverDispatch(t *testing.T) {
 			require.NoError(t, response.Body.Close())
 			require.NoError(t, conn.Close())
 			require.Equal(t, before, len(n.facts()), "denial must make zero upstream exchanges")
+			require.Eventually(t, func() bool {
+				history, err := n.proxy.traffic.GitHistory(t.Context(), 0, 256)
+				return err == nil && len(history.Records) == len(prior.Records)+1
+			}, 3*time.Second, 10*time.Millisecond)
 			history, historyErr := n.proxy.traffic.GitHistory(t.Context(), 0, 256)
 			require.NoError(t, historyErr)
 			require.Len(t, history.Records, len(prior.Records)+1, "one Git admission per classified rejection")

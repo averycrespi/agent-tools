@@ -222,7 +222,8 @@ func TestCLIExecutableNames(t *testing.T) {
 		assertMaintenancePlan(t, restored.Stderr, "restore-backup")
 		var result map[string]any
 		require.NoError(t, json.Unmarshal(restored.Stdout, &result))
-		assert.Len(t, result, 5)
+		assert.Len(t, result, 6)
+		assert.Equal(t, "omitted-not-verified", result["history"])
 		assert.Equal(t, "restore-backup", result["operation"])
 		assert.Equal(t, artifact.InstallationID, result["installation_id"])
 		assert.Equal(t, artifact.ID, result["backup_id"])

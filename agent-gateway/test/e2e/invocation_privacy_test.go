@@ -58,6 +58,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	catalog.Fixture.SetCallOutcome(fixtureCallDiagnostic)
 	toolError := harness.ModernCall(issued.Bearer, json.RawMessage(`"tool-error"`), "invocation-read.allowed", json.RawMessage(`{"note":"safe"}`))
 	failureID := assertCallError(t, toolError, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
+	harness.WaitForAuditObservations(4, 2, 3)
 	failureItemResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+failureID, nil)
 	var failureItem contract.Invocation
 	decodeSnapshot(t, failureItemResponse, http.StatusOK, &failureItem)
@@ -79,6 +80,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	}()
 	awaitFixtureSignal(t, barrier.entered, "committed invocation did not reach the fixture barrier")
 	callsBeforeMissingRead := catalog.CallCount()
+	harness.WaitForAuditObservations(5, 2, 3)
 	missingResponse, missingPage := listInvocations(t, harness, url.Values{"limit": {"100"}})
 	assert.Equal(t, callsBeforeMissingRead, catalog.CallCount(), "invocation reads must not replay downstream work")
 	require.Len(t, missingPage.Items, 5)
@@ -113,7 +115,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	local := harness.ModernSelfServiceCall(issued.Bearer, json.RawMessage(`"local"`), "get_identity", map[string]any{})
 	require.Equal(t, http.StatusOK, local.StatusCode, string(local.Body))
 	callsBeforeReads := catalog.CallCount()
-	rowsBeforeReads := harness.LiveAuditObservations()
+	rowsBeforeReads := harness.WaitForAuditObservations(6, 2, 3, 4, 5)
 	require.Len(t, rowsBeforeReads, 6)
 
 	events := harness.OpenEvents()
@@ -245,6 +247,16 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	seedInvocationHistory(t, harness.root, 65536)
 
 	harness.Start()
+	// Security readiness precedes the optional full-history validator. This
+	// retention fixture explicitly needs history, not a second serving gate.
+	waitHistory := func() {
+		require.Eventually(t, func() bool {
+			response := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
+			var status contract.SystemStatus
+			return response.StatusCode == http.StatusOK && json.Unmarshal(response.Body, &status) == nil && status.Traffic != nil && status.Traffic.Ready
+		}, 30*time.Second, 10*time.Millisecond)
+	}
+	waitHistory()
 	// Existing schema-9 rows remain readable through the new namespace after restart.
 	_, historicalPage := listInvocations(t, harness, url.Values{"limit": {"1"}})
 	require.Len(t, historicalPage.Items, 1)
@@ -263,10 +275,24 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	assert.True(t, bytes.Contains(response.Body, []byte(fixturePrivateSuccessText)), "private success was not returned to its caller")
 	clear(response.Body)
 
+	// This fixture backs up retained evidence, not merely a completed live call.
+	require.Eventually(t, func() bool {
+		_, page := listInvocations(t, harness, url.Values{"limit": {"1"}})
+		return len(page.Items) == 1 && page.Items[0].ID != seededInvocationID(65535) && page.Items[0].Outcome.Basis == contract.InvocationBasisTerminal
+	}, 3*time.Second, 10*time.Millisecond)
+
+	// A visible terminal can precede writer unlock. Reap the writer before the
+	// one-shot backup; the restarted fixture issues no new traffic.
+	beforeBackup := harness.Stop(syscall.SIGTERM)
+	harness.Start()
+	waitHistory()
+	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 	events := harness.OpenEvents()
 	require.Equal(t, http.StatusOK, events.StatusCode)
 	eventReader := newBoundedEventReader(events.Body)
-	evidence := [][]byte{eventReader.frame(t)}
+	evidence := [][]byte{beforeBackup.Stdout, beforeBackup.Stderr, eventReader.frame(t)}
 	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-retention"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
@@ -305,6 +331,15 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 	assertCallError(t, response, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
 	evidence := [][]byte{append([]byte(nil), response.Body...)}
 	clear(response.Body)
+	harness.WaitForAuditObservations(1, 0)
+	// Persisted evidence is not writer settlement. Process exit establishes it
+	// without retrying the backup or coupling the live call to persistence.
+	beforeBackup := harness.Stop(syscall.SIGTERM)
+	evidence = append(evidence, beforeBackup.Stdout, beforeBackup.Stderr)
+	harness.Start()
+	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-privacy"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)

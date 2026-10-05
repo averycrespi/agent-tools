@@ -40,6 +40,7 @@ func TestTrafficServicePersistsSafeFailureDiagnostics(t *testing.T) {
 			require.Equal(t, 1, calls)
 			require.Equal(t, contract.DownstreamFailure, response.ErrorCode)
 			require.NotNil(t, response.Diagnostics)
+			waitTraffic(t, traffic)
 			item, err := audits.Get(t.Context(), response.InvocationID)
 			require.NoError(t, err)
 			require.Equal(t, response.Diagnostics, item.Diagnostics)
@@ -50,7 +51,6 @@ func TestTrafficServicePersistsSafeFailureDiagnostics(t *testing.T) {
 			require.NoError(t, err)
 			require.NotContains(t, string(raw), canary)
 			require.Contains(t, string(raw), "[REDACTED]")
-			require.Empty(t, traffic.pins)
 		})
 	}
 }
@@ -61,13 +61,12 @@ func TestTrafficDiagnosticsPairedBackupRestore(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, control.Close()) }()
 	require.NoError(t, control.SelectTraffic(t.Context(), "", invocationID(90)))
-	receipt, err := traffic.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, traffic.Confirm(t.Context(), receipt))
+	observation := recordMCP(t, traffic, trafficPrepared(1))
 	completion := trafficCompletion()
 	completion.Class = contract.TerminalDownstreamFailure
 	diagnostic := &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: "protocol", Reason: "rpc_error"}}
-	require.NoError(t, traffic.complete(t.Context(), receipt, completion, diagnostic))
+	require.NoError(t, traffic.ObserveMCPCompletion(observation, completion, diagnostic))
+	waitTraffic(t, traffic)
 	root := t.TempDir()
 	backup := filepath.Join(root, "traffic.db")
 	require.NoError(t, traffic.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), backup))
@@ -81,17 +80,13 @@ func TestTrafficDiagnosticsPairedBackupRestore(t *testing.T) {
 	require.Len(t, history.Records, 1)
 	require.Equal(t, diagnostic, history.Records[0].Diagnostics)
 	require.Equal(t, invocationID(1), history.Records[0].InvocationID)
-	require.Empty(t, restored.pins)
 }
 
 func TestTrafficInvalidDiagnosticsSettleWithoutTerminal(t *testing.T) {
 	traffic, _ := trafficFixture(t, nil, nil)
-	receipt, err := traffic.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	require.True(t, traffic.Confirm(t.Context(), receipt))
+	observation := recordMCP(t, traffic, trafficPrepared(1))
 	diagnostic := &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: "tool", Reason: "reported_error"}}
-	require.ErrorIs(t, traffic.complete(t.Context(), receipt, trafficCompletion(), diagnostic), ErrInvalidInput)
-	require.Empty(t, traffic.pins)
+	require.ErrorIs(t, traffic.ObserveMCPCompletion(observation, trafficCompletion(), diagnostic), ErrInvalidInput)
 	history, err := traffic.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Nil(t, history.Records[0].TerminalClass)

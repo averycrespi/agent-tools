@@ -606,6 +606,29 @@ export async function runAccessibilityKeyboardResponsive(
     fail(`reduced-motion timing remained active: ${motion}`);
   scriptedAssertions += 6;
 
+  await systemLink.click();
+  await page.getByTestId("system-status-panel").waitFor();
+  const observations = page.getByText("Process observations", { exact: true });
+  await observations.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByText(/Git upstream reports \(not Gateway-confirmed mutations\)/),
+  ).toBeVisible();
+  for (const width of [1280, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(
+      page.getByText("Diagnostic delivery", { exact: true }),
+    ).toBeVisible();
+    if (
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      )
+    )
+      fail("observation health overflowed the viewport");
+    await scan(`system-observations-${width}`);
+    scriptedAssertions += 2;
+  }
+
   await assertSecretAbsent(
     page,
     context,

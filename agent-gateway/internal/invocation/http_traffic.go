@@ -4,33 +4,35 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
-func (s *TrafficStore) AdmitHTTP(ctx context.Context, admission contract.HTTPTrafficAdmission) (*TrafficReceipt, error) {
+func (s *TrafficStore) ObserveHTTP(admission contract.HTTPTrafficAdmission) *TrafficObservation {
 	encoded, err := encodeHTTPAdmission(admission)
 	if err != nil {
-		return nil, err
+		s.drop()
+		return nil
 	}
-	return s.enqueueAdmission(&trafficRequest{ctx: ctx, prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: admission.ID, AdmittedAt: admission.AdmittedAt}}, httpAdmission: encoded, recorded: httpRecordedAdmission(admission), httpAllowed: admission.Decision != nil && admission.Decision.Allowed, bytes: httpTrafficChargeBase + int64(len(encoded)), expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)})
+	observation := &TrafficObservation{prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: admission.ID, AdmittedAt: admission.AdmittedAt}}, httpAdmission: encoded, recorded: httpRecordedAdmission(admission), bytes: httpTrafficChargeBase + int64(len(encoded))}
+	s.observeInitial(observation)
+	return observation
 }
 
-func (s *TrafficStore) CompleteHTTP(ctx context.Context, receipt *TrafficReceipt, completion contract.HTTPTrafficCompletion) error {
+func (s *TrafficStore) ObserveHTTPCompletion(observation *TrafficObservation, completion contract.HTTPTrafficCompletion) error {
 	var admission contract.HTTPTrafficAdmission
-	valid := receipt != nil && receipt.httpAdmission != "" && receipt.gitAdmission == ""
-	if valid {
-		valid = strictjson.Decode([]byte(receipt.httpAdmission), &admission, strictjson.Options{MaxBytes: contract.HTTPTrafficAdmissionBytes, MaxDepth: 12, RejectUnknownMembers: true}) == nil
+	if observation == nil || observation.httpAdmission == "" || observation.gitAdmission != "" || strictjson.Decode([]byte(observation.httpAdmission), &admission, strictjson.Options{MaxBytes: contract.HTTPTrafficAdmissionBytes, MaxDepth: 12, RejectUnknownMembers: true}) != nil {
+		s.drop()
+		return ErrInvalidInput
 	}
 	encoded, err := encodeHTTPCompletion(admission, completion)
-	protocol := recordedHTTPUnclassified
-	if valid {
-		protocol = receipt.recordedProtocol
+	if err != nil {
+		s.drop()
+		return err
 	}
-	return s.enqueueCompletion(&trafficRequest{ctx: ctx, receipt: receipt, httpCompletion: encoded, recorded: recordedTerminal(protocol, completion.Outcome), bytes: maxTrafficCompletionBytes, expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}, valid && err == nil)
+	return s.enqueueObservation(&trafficRequest{observation: *observation, httpCompletion: encoded, recorded: recordedTerminal(observation.recorded.protocol, completion.Outcome), bytes: observation.bytes + maxTrafficCompletionBytes})
 }
 
 func (r *trafficRequest) terminal() bool {

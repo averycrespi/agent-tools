@@ -54,9 +54,9 @@ func (outcome CallOutcome) SafeString() string {
 	return string(outcome.ErrorCode) + "/" + string(outcome.TerminalClass)
 }
 
-func ClassifyAdmission(committed bool, class contract.InvocationAdmissionClass, decision *contract.AuthorizationDecision) (contract.AgentCallErrorCode, contract.CallRejectionReason, bool) {
-	if !committed {
-		return contract.AuditUnavailable, "", false
+func ClassifyAdmission(evaluated bool, class contract.InvocationAdmissionClass, decision *contract.AuthorizationDecision) (contract.AgentCallErrorCode, contract.CallRejectionReason, bool) {
+	if !evaluated {
+		return contract.CallRejected, contract.RejectionAuthorizationUnavailable, false
 	}
 	switch class {
 	case contract.AdmissionInvalidParams:

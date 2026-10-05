@@ -87,6 +87,7 @@ type ControlAPIDependencies struct {
 }
 
 type Composition struct {
+	observations         *diagnostics.Observations
 	traffic              *invocation.TrafficStore
 	diagnosticReferences *diagnosticReferences
 	httpDiagnostics      diagnostics.HTTPProxyObserver
@@ -178,7 +179,7 @@ func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy neti
 		}
 		return all
 	}
-	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Diagnostics: built.httpDiagnostics, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Diagnostics: built.httpDiagnostics, Observations: built.observations, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
 	if err == nil {
 		built.httpProxyAuthority = proxy.String()
 	}
@@ -195,6 +196,10 @@ func (built *Composition) HTTPProxyStatus() contract.HTTPProxyStatus {
 	status.Authority = built.httpProxyAuthority
 	status.Ready = status.Ready && status.CAReady && built.ready() && built.accepting.Load()
 	return status
+}
+
+func (built *Composition) Observations() contract.ExecutionObservations {
+	return built.observations.Status()
 }
 
 func (built *Composition) Servers() *servers.Repository { return built.servers }
@@ -452,13 +457,13 @@ func (adapter *invocationCallAdapter) Call(
 	request mcpingress.ToolsCallRequest,
 ) mcpingress.ToolsCallResponse {
 	if adapter == nil || adapter.service == nil || adapter.pipelines == nil {
-		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
+		return mcpingress.ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionAuthorizationUnavailable}
 	}
 	ctx = adapter.service.DiagnosticCall(ctx)
 	release, ok := adapter.pipelines.TryEnter()
 	if !ok {
 		adapter.service.DiagnosticStopped(ctx)
-		return mcpingress.ToolsCallResponse{ErrorCode: contract.AuditUnavailable}
+		return mcpingress.ToolsCallResponse{ErrorCode: contract.CallRejected, RejectionReason: contract.RejectionAuthorizationUnavailable}
 	}
 	defer release()
 	response := adapter.service.Call(ctx, lease, invocation.CallRequest{Params: request.Params, WireValid: request.WireValid})
@@ -491,6 +496,7 @@ type constructorHooks struct {
 	newCoordinator   runtimes.CoordinatorFactory
 	scheduler        runtimes.Scheduler
 	startHooks       startHooks
+	openTraffic      func(context.Context, *gatewaypaths.Ownership, string, string, invocation.TrafficConfig) (*invocation.TrafficStore, error)
 }
 
 var mandatoryConstructorStages = []string{
@@ -521,7 +527,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil
 	}
 	references := &diagnosticReferences{process: options.DiagnosticProcessID}
-	built := &Composition{httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
+	built := &Composition{observations: diagnostics.NewObservations(), httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -630,13 +636,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, err
 	}
-	if generation == "" {
-		return nil, storage.ErrTrafficUnselected
-	}
-	built.traffic, err = invocation.OpenTraffic(context.Background(), options.Ownership, options.InstallationID, generation, trafficConfiguration(options.TrafficBudget))
-	if err != nil {
-		return nil, fmt.Errorf("open selected traffic generation: %w", err)
-	}
+	built.traffic = invocation.NewOptionalTraffic(trafficConfiguration(options.TrafficBudget))
 	built.invocationRepository, err = invocation.NewTrafficRepository(built.traffic, options.Clock, options.Entropy, options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)
@@ -648,9 +648,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation reads: %w", err)
 	}
-	// OpenTraffic already validated every row, accounting and generation under
-	// its startup deadline. Repeating the legacy scan through an online reader
-	// would incorrectly subject populated startup to the one-second read limit.
+	// Optional history validates independently; security construction never waits
+	// for an optional file or uses the legacy history scan.
 	if err := check("invocation_pipeline"); err != nil {
 		return nil, err
 	}
@@ -662,6 +661,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, fmt.Errorf("construct invocation_service: %w", err)
 	}
 	built.invocationService.SetDiagnostics(options.Diagnostics)
+	built.invocationService.SetObservations(built.observations)
 	if err := check("invocation_adapter"); err != nil {
 		return nil, err
 	}
@@ -871,6 +871,17 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	}
 	built.flows.SetDiagnostics(options.Diagnostics, references.reference)
 	built.refresh.SetDiagnostics(options.Diagnostics, references.reference)
+	if generation != "" {
+		opener := hooks.openTraffic
+		if opener == nil {
+			opener = openOptionalTraffic
+		}
+		built.traffic.StartOpening(func() (*invocation.TrafficStore, error) {
+			return opener(context.Background(), options.Ownership, options.InstallationID, generation, trafficConfiguration(options.TrafficBudget))
+		})
+	} else {
+		built.traffic.StartOpening(nil)
+	}
 	cleanup = false
 	return built, nil
 }

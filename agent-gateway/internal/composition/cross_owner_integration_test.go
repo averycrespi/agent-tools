@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
@@ -23,6 +24,49 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestIntegrationSelfServiceMutationsSurviveDroppedHistory(t *testing.T) {
+	options, cleanup := newCompositionOptions(t)
+	defer cleanup()
+	built, err := New(options)
+	require.NoError(t, err)
+	defer built.shutdownConstructed()
+	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
+	principal := integrationPrincipal(t, built, "request owner")
+	credential, err := built.authorization.IssueCredential(t.Context(), principal.Principal.ID, principal.Principal.Revision)
+	require.NoError(t, err)
+	server := createCompositionServer(t, built.servers, "request-target", false, "/bin/true")
+	built.traffic.BeginDrain()
+	call := func(name, arguments string) mcpingress.ToolsCallResponse {
+		lease, err := built.authorization.Authenticate(t.Context(), credential.Bearer)
+		require.NoError(t, err)
+		defer lease.Release()
+		params, err := strictjson.ParseValue([]byte(`{"name":"mcp_gateway.`+name+`","arguments":`+arguments+`}`), strictjson.Options{MaxBytes: 8192, MaxDepth: 32})
+		require.NoError(t, err)
+		return built.callTools.Call(t.Context(), lease, mcpingress.ToolsCallRequest{Params: params, WireValid: true})
+	}
+	response := call("create_grant_request", `{"policy":{"scope":"server","target":"`+server.Namespace+`","constraint":null,"duration_seconds":null,"future_tools_acknowledged":true}}`)
+	require.NotNil(t, response.Result)
+	var created contract.CreateGrantRequestResult
+	require.NoError(t, json.Unmarshal(response.Result.StructuredContent, &created))
+	require.Equal(t, contract.RequestCreated, created.Outcome)
+	require.NotNil(t, created.Request)
+	stored, found, err := built.requests.GetOwned(t.Context(), principal.Principal.ID, created.Request.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, contract.RequestPending, stored.State)
+	response = call("cancel_grant_request", `{"id":"`+created.Request.ID+`"}`)
+	require.NotNil(t, response.Result)
+	stored, found, err = built.requests.GetOwned(t.Context(), principal.Principal.ID, created.Request.ID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, contract.RequestCancelled, stored.State)
+	require.Equal(t, "2", stored.Revision)
+	history, err := built.traffic.History(t.Context(), 0, 10)
+	require.NoError(t, err)
+	require.Empty(t, history.Records)
+	require.False(t, options.Store.Latched())
+}
 
 func TestCreateVsTargetAndPolicyIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -178,6 +222,7 @@ func TestCredentialAdmissionOrderingIntegration(t *testing.T) {
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
+	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 	principal := integrationPrincipal(t, built, "admission owner")
 	credential, err := built.authorization.IssueCredential(context.Background(), principal.Principal.ID, principal.Principal.Revision)
 	require.NoError(t, err)
@@ -190,9 +235,7 @@ func TestCredentialAdmissionOrderingIntegration(t *testing.T) {
 	executions := 0
 	target, err := invocation.NewLocalTarget(synthetic, func(ctx context.Context, subject authorization.AdmittedSubject, _ strictjson.Value) invocation.LocalCallResult {
 		executions++
-		count, countErr := built.invocationRepository.Count(ctx)
-		require.NoError(t, countErr)
-		assert.Equal(t, int64(1), count, "audit admission must commit before local mutation")
+		require.True(t, built.authorization.OwnsAdmittedSubject(subject), "request-local confirmation authorizes the handler, not history")
 		_, revokeErr := built.authorization.RevokeCredential(ctx, subject.PrincipalID(), subject.PrincipalRevision())
 		require.NoError(t, revokeErr, "detached admission must release the authority gate before the handler")
 		return invocation.LocalSuccess(json.RawMessage(`{"content":[],"structuredContent":{"ok":true}}`))
@@ -209,6 +252,10 @@ func TestCredentialAdmissionOrderingIntegration(t *testing.T) {
 	_, err = built.authorization.Authenticate(context.Background(), credential.Bearer)
 	assert.Error(t, err)
 
+	require.Eventually(t, func() bool {
+		history, err := built.traffic.History(t.Context(), 0, 10)
+		return err == nil && len(history.Records) == 1 && history.Records[0].TerminalClass != nil
+	}, 3*time.Second, 10*time.Millisecond)
 	history, err := built.traffic.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history.Records, 1)

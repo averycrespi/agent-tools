@@ -209,6 +209,22 @@ func (a *recordedActivity) snapshot() contract.RecordedActivitySummary {
 
 // RecordedActivity reads only bounded process-local acknowledgment counters.
 func (s *TrafficStore) RecordedActivity() contract.RecordedActivitySummary {
+	if s.optional != nil {
+		s.mu.Lock()
+		target := s.optional.target
+		s.mu.Unlock()
+		if target != nil {
+			return target.RecordedActivity()
+		}
+		result := s.recorded.snapshot()
+		result.Coverage = "unavailable"
+		for i := range result.Buckets {
+			result.Buckets[i].Coverage = "unavailable"
+			result.Buckets[i].Counts = nil
+			result.Buckets[i].ObservedStart = nil
+		}
+		return result
+	}
 	return s.recorded.snapshot()
 }
 

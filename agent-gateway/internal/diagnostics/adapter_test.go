@@ -195,7 +195,7 @@ func TestDiagnosticExecutableEventManifest(t *testing.T) {
 	for index, event := range inventory {
 		require.Equal(t, event.Name, eventNames[index+1])
 		var output bytes.Buffer
-		adapter := &Adapter{sink: &output, abort: make(chan struct{}), process: "fixture"}
+		adapter := &Adapter{sink: &output, abort: make(chan struct{}), process: "fixture", now: time.Now, writeNow: time.Now}
 		facts := validEventExample(Event(index + 1))
 		if facts.Event != Loss {
 			require.True(t, validFacts(facts), event.Name)
@@ -222,6 +222,8 @@ func validEventExample(event Event) Facts {
 		return upstreamExample(event)
 	case event == HTTPProxyRejected:
 		f.Cause, f.Stage = Unavailable, ProxyResolution
+	case event == HTTPProxyFailure:
+		f.Cause, f.Stage = Unavailable, ProxyHandshake
 	case event == Startup || event == Readiness || event == Drain || event == Loss || event == ReconciliationDisplaced:
 	case event == Shutdown:
 		f.Cause = Success
@@ -238,7 +240,7 @@ func validEventExample(event Event) Facts {
 		f.Owned = 1
 		f.Limit = 32
 		if event >= StorageWait {
-			f.Limit = 31
+			f.Limit = 1
 		}
 		if event == AuthorityReject || event == StorageReject {
 			f.Cause = Capacity

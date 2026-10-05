@@ -54,9 +54,7 @@ func TestIntegrationGitPairedRestorePreservesConfigurationNotRetiredMaterial(t *
 	require.NoError(t, err)
 	defer func() { require.NoError(t, traffic.Close()) }()
 	require.NoError(t, control.SelectTraffic(ctx, "", generation))
-	manager.traffic = traffic
-	artifact, _, err := manager.Create(ctx, "authority", "git-paired-restore")
-	require.NoError(t, err)
+	artifact := legacyArtifact(t, manager, traffic)
 	_, err = manager.Get(ctx, artifact.ID)
 	require.NoError(t, err)
 	for _, name := range []string{databaseFile, metadataFile, "traffic.db"} {

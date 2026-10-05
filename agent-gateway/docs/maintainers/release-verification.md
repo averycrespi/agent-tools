@@ -112,6 +112,8 @@ Repository CI runs Gateway lint independently of its unit, integration, harness/
 
 Linux and macOS CI partition the existing integration owner into `test-integration-1` and `test-integration-2` on separate runners. Six measured heavy packages occupy the first shard; all remaining and newly discovered packages occupy the second. Packages are indivisible fixture owners. The planner still derives exact source/build-aware selectors, and independent tests verify complete union, no overlap, and race/count-one instrumentation on Linux amd64/arm64 and Darwin arm64. Each shard has its own role/OS cache writer; do not run these partitions concurrently on one host. Local `test-integration` and release acceptance remain unsharded. The required macOS matrix also executes `test-harness`. This runs service utility supervision (including Darwin's non-reaping exit observer), retained tombstone recognition and owner-only filesystem fixtures, runtime process groups, deterministic Keychain probe mappings, and direct harness process-identity/cleanup tests. The existing macOS demo owner remains separate. Launchctl/ps lifecycle responses are injected fixtures, not native service qualification. Native LaunchAgent installation/adoption/GUI-domain lifecycle and real `/usr/bin/security`/Keychain credential access remain unqualified and require separately authorized disposable resources. The Darwin URL-opener branch in the real-binary E2E owner is not executed by this matrix; E2E remains Linux-only. No native consent flag is enabled by ordinary CI.
 
+Gateway's Linux integration and macOS platform owners enable `AGENT_GATEWAY_TEST_JSON=1` so their job logs retain named Go run/pass/skip events without repeating tests. In particular, real IPv6 connection fixtures require positive named pass evidence on an IPv6-enabled runner: a package-level pass or an unavailable-loopback skip is not IPv6 qualification. Local environments may lack IPv6 loopback; the fixture skips only address-unavailable or address-family-unsupported listener setup, never a failed exchange after successful setup.
+
 Pull requests may run individual leaves in separate jobs, but the final acceptance profile remains the authority for exact multiplicity and report composition. Do not wrap leaf jobs in an aggregate that causes the same package or browser workflow to execute twice.
 
 Root `test` runs Gateway alone, then a bounded two-tool ordinary-test phase for the remaining modules (`LOCAL_TEST_JOBS=1` selects serial comparison). Gateway's close-and-rebind harness ports must not overlap other modules' listeners. Root linters and integration/E2E aggregates remain serial; `check-other-tools` finishes serial lint before its bounded test phase. Failures stop new workers while active workers drain their own cleanup. The non-Gateway integration selectors use checked package ownership and `TestIntegration*` names instead of reselecting ordinary tests.
@@ -218,6 +220,46 @@ The store's receipts, pins and full restart validation are correctness evidence,
 not throughput, native filesystem, or power-loss qualification. Preserve the
 complete lifecycle/read/paired-backup boundary, schema-17 diagnostic evidence and
 schema-18 traffic selection; never introduce dual writes or partial readers.
+
+### Cross-protocol failure-isolation qualification
+
+Keep fault comparisons beside the existing behavior owners, not in a second
+acceptance matrix or report format:
+
+- `httpproxy.TestIntegrationProxyOutcomesIndependentOfHistory` compares live HTTP,
+  opaque CONNECT, intercepted H1/H2 and Git bytes, upstream counts, response
+  provenance and settled work with healthy, absent, faulted, pinned-WAL-full and
+  stalled-opening history. The full case pins a disposable SQLite reader and
+  generates bounded WAL pressure; it is not physical disk exhaustion. Opaque
+  CONNECT preserves upstream bytes, including headers it cannot interpret.
+- `invocation.TestExecutionHealthAndRevocationWithBothSinksBlocked` parks the actual
+  history writer and diagnostic sink together. It checks bounded occupancy,
+  discarded starts/terminals, independent execution counts, revocation, authority
+  release and secret-free retained artifacts after both owners join.
+- The existing Git unfinished-upload and H2 response-cancellation owners include
+  lost-history cases. Cleanup and subsequent credential rotation are asserted
+  without waiting for a row; a successful HTTP exchange is not Git ref verification.
+- `composition.TestSecurityFaultsRemainClosedWhileHistoryOpeningStalls` combines
+  unavailable optional history with mandatory audit, intent-marker and postcommit
+  uncertainty. `TestSecurityBackupCompletesBeforeHistoryOpenerSettles` verifies
+  security-only backup without transferring the opener's installation ownership.
+- `TestGatewayBinaryHistoryLossReplacementAndRestart` uses the owned real-binary
+  E2E harness for modern/legacy MCP calls, pinned replacement and graceful
+  stop/restart with healthy, absent and damaged history. It observes actual upstream
+  calls rather than reconstructing execution from rows, and preserves damaged files.
+
+These cases complement the existing admission-confirmation, opaque-origin,
+request/body identity, bounded overload, history close-barrier, security-only restore
+and forced-process-stop owners. Run the cumulative integration and E2E owners on the
+final unchanged revision, plus applicable unit, harness, material, demo, security,
+formatting and verification checks. Independent review covers the incremental diff;
+exact-head target-applicable CI and named real IPv6 pass evidence remain required.
+
+Barrier injection and owned process-stop evidence are distinct: a returned fault is
+not a crash, and neither proves power-loss durability, native keyring/launchd
+behavior, live Git interoperability, shared-filesystem isolation or target capacity.
+This scoped qualification does not constitute full release acceptance or authorize
+installed-resource mutations.
 
 ## Developer source and tooling cutover
 

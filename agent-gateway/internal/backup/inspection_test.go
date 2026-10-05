@@ -16,8 +16,7 @@ func TestRestoreInspectionAndExecutionRejectArtifactSidecars(t *testing.T) {
 		for _, suffix := range []string{"-wal", "-journal"} {
 			t.Run(file+suffix, func(t *testing.T) {
 				manager, store, owner := newBackupManager(t, nil)
-				artifact, _, err := manager.Create(t.Context(), "authority", "sidecar-test")
-				require.NoError(t, err)
+				artifact := legacyArtifact(t, manager, nil)
 				expected, err := InspectRestore(t.Context(), owner, artifact.ID)
 				require.NoError(t, err)
 				path := filepath.Join(owner.Layout().Backups, artifact.ID, file+suffix)

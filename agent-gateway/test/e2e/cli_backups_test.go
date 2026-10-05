@@ -32,6 +32,18 @@ func TestCLIBackups(t *testing.T) {
 	require.NoError(t, json.Unmarshal(created.Stdout, &backup))
 	assert.NotEmpty(t, backup.ID)
 	assert.Positive(t, backup.SizeBytes)
+	assert.Equal(t, "omitted", backup.History)
+
+	exported := runOnlineCLI(t, harness, bearerPath, true, "history", "export", "--limit", "2", "--json")
+	results = append(results, exported)
+	var history contract.HistoryExport
+	require.NoError(t, json.Unmarshal(exported.Stdout, &history))
+	assert.Equal(t, 1, history.Format)
+	assert.NotEmpty(t, history.Generation)
+	assert.False(t, history.CompleteTrafficAudit)
+	assert.Equal(t, contract.HistoryExportAbsence, history.Absence)
+	assert.LessOrEqual(t, len(history.Records), 2)
+	assert.NotContains(t, string(exported.Stdout), backup.SHA256)
 
 	replayed := runOnlineCLI(t, harness, bearerPath, true, "backup", "create", "--idempotency-key", "backup-once", "--output", "json")
 	results = append(results, replayed)

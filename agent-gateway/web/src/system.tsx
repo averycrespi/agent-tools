@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useUnsavedChanges } from "./navigation";
+import { readHistoryExport, type HistoryExport } from "./history-export";
 import { parseFragment } from "./location";
+import { measurementText } from "./observation-health";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
   MutationController,
@@ -53,6 +55,7 @@ type AdminCredential = {
 };
 type CreatedAdminCredential = AdminCredential & { bearer: string };
 type Backup = {
+  history: "omitted" | "legacy";
   id: string;
   createdAt: string;
   installationID: string;
@@ -134,7 +137,12 @@ function decodeCreatedCredential(value: unknown): CreatedAdminCredential {
 }
 
 function decodeBackup(value: unknown): Backup {
+  const historyKeys =
+    value !== null && typeof value === "object" && "history" in value
+      ? ["history"]
+      : [];
   const item = record(value, [
+    ...historyKeys,
     "id",
     "created_at",
     "installation_id",
@@ -148,6 +156,7 @@ function decodeBackup(value: unknown): Backup {
   if (
     !gatewayID.test(id) ||
     !/^[0-9a-f]{64}$/.test(sha256) ||
+    (historyKeys.length > 0 && item.history !== "omitted") ||
     typeof item.size_bytes !== "number" ||
     !Number.isSafeInteger(item.size_bytes) ||
     item.size_bytes < 0
@@ -160,6 +169,7 @@ function decodeBackup(value: unknown): Backup {
     schemaVersion: text(item.schema_version),
     sourceRevision: text(item.source_revision),
     sizeBytes: item.size_bytes,
+    history: item.history === "omitted" ? "omitted" : "legacy",
     sha256,
   };
 }
@@ -291,12 +301,29 @@ export class SystemController {
   private value: StatusView | undefined;
   private credentials: AdminCredential[] | undefined;
   private backups: Backup[] | undefined;
+  private history: HistoryExport | undefined;
+  private readonly historyListeners = new Set<
+    (value: HistoryExport | undefined) => void
+  >();
+  private readonly views: ViewCoordinator;
 
   constructor(
     session: SessionClient,
     views: ViewCoordinator,
     setStorageLatched: (latched: boolean) => void,
   ) {
+    this.views = views;
+    views.registerPanel({
+      id: "history-export",
+      matches: (viewKey) => tab(viewKey) === "backups",
+      invalidations: [],
+      shouldRefresh: (reason) => reason === "panel",
+      read: (context) => readHistoryExport(context.csrfToken, context.signal),
+      publish: (value) => {
+        this.history = value;
+        for (const listener of this.historyListeners) listener(value);
+      },
+    });
     views.registerPanel({
       id: "mutation-latch",
       matches: () => true,
@@ -354,6 +381,8 @@ export class SystemController {
       this.value = undefined;
       this.credentials = undefined;
       this.backups = undefined;
+      this.history = undefined;
+      for (const listener of this.historyListeners) listener(undefined);
       setStorageLatched(false);
       this.emit();
       this.emitCredentials();
@@ -379,6 +408,18 @@ export class SystemController {
     this.credentialListeners.add(listener);
     listener(this.credentials);
     return () => this.credentialListeners.delete(listener);
+  }
+
+  exportHistory(): void {
+    void this.views.refreshPanel("history-export");
+  }
+
+  subscribeHistory(
+    listener: (value: HistoryExport | undefined) => void,
+  ): () => void {
+    this.historyListeners.add(listener);
+    listener(this.history);
+    return () => this.historyListeners.delete(listener);
   }
 
   backupSnapshot(): Backup[] | undefined {
@@ -463,10 +504,6 @@ function StatusPanel({
     (!status.endpoints ||
       (status.endpoints.api === "ready" && status.endpoints.mcp === "ready")) &&
     (!status.httpProxy?.enabled || status.httpProxy.ready) &&
-    (!status.traffic ||
-      (status.traffic.ready &&
-        !status.traffic.faulted &&
-        !status.traffic.pressure)) &&
     saturatedLimits.length === 0;
   return (
     <section
@@ -479,7 +516,7 @@ function StatusPanel({
         <h2 id="system-status-title">Gateway status</h2>
         {status !== undefined && panelStatus === "current" && (
           <StatusLabel state={healthy ? "current" : "warning"}>
-            {healthy ? "Healthy" : "Degraded"}
+            {healthy ? "Serving" : "Serving needs attention"}
           </StatusLabel>
         )}
       </div>
@@ -504,7 +541,11 @@ function StatusPanel({
         <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
         <div class="operator-status-stack">
-          {!healthy && (
+          {(!healthy ||
+            (status.traffic &&
+              (!status.traffic.ready ||
+                status.traffic.faulted ||
+                status.traffic.pressure))) && (
             <section
               class="operator-status-section"
               aria-labelledby="system-issues-title"
@@ -550,22 +591,19 @@ function StatusPanel({
                 (!status.traffic.ready ||
                   status.traffic.faulted ||
                   status.traffic.pressure) && (
-                  <StateNotice
-                    state="warning"
-                    title="Shared traffic persistence needs attention"
-                  >
+                  <StateNotice state="warning" title="Optional traffic history">
                     <p>
-                      {status.traffic.faulted
-                        ? "New MCP dispatch and HTTP forwarding are blocked. Healthy control storage remains available for inspection and revocation; restart requires full traffic validation."
-                        : "Traffic capacity is pressured or temporarily unavailable. Missing completion remains unknown; never automatically replay calls."}
+                      {status.traffic.state === "opening"
+                        ? "History is opening. Security-ready serving does not wait for it."
+                        : "Authorized MCP, HTTP and Git execution can continue without history. Missing records do not prove nonexecution; never automatically replay calls."}
                     </p>
                   </StateNotice>
                 )}
               {status.httpProxy?.enabled && !status.httpProxy.ready && (
                 <StateNotice state="warning" title="HTTP proxy is unavailable">
                   <p>
-                    Check the loaded CA, shared traffic storage and lifecycle
-                    state. Client trust must be configured separately.
+                    Check authority, the loaded CA and lifecycle state. Client
+                    trust must be configured separately.
                   </p>
                 </StateNotice>
               )}
@@ -638,7 +676,8 @@ function StatusPanel({
                   )}
                   {status.endpoints?.mcp === "unavailable" && (
                     <span>
-                      New dispatch is blocked by control or traffic storage.
+                      New dispatch is blocked by control authority or lifecycle
+                      state.
                     </span>
                   )}
                   {status.endpoints?.mcp === "disabled" && (
@@ -700,48 +739,129 @@ function StatusPanel({
               </div>
               {status.traffic && (
                 <div>
-                  <dt>Shared traffic storage</dt>
+                  <dt>Optional history</dt>
                   <dd>
                     <FactStatus
-                      value={
-                        status.traffic.faulted
-                          ? "faulted"
-                          : status.traffic.ready
-                            ? "ready"
-                            : "unavailable"
-                      }
+                      value={status.traffic.state}
                       current={panelStatus === "current"}
                     />
                     <span>
                       {status.traffic.pressure
                         ? "Capacity pressure"
-                        : "Within capacity"}
+                        : status.traffic.health?.database_measurement.state ===
+                              "available" &&
+                            status.traffic.health?.wal_measurement.state !==
+                              "unavailable" &&
+                            status.traffic.health?.free_space_measurement
+                              .state === "available"
+                          ? "No measured pressure"
+                          : "Capacity unavailable"}
                     </span>
                     <span>
-                      {formatStorageBytes(
-                        status.traffic.databaseBytes + status.traffic.walBytes,
-                      )}{" "}
-                      / {formatStorageBytes(status.traffic.budgetBytes)} ·{" "}
-                      {resourceUtilization(
-                        status.traffic.databaseBytes + status.traffic.walBytes,
-                        status.traffic.budgetBytes,
-                      )}{" "}
-                      used
-                    </span>
-                    <span class="muted">
-                      {(
-                        status.traffic.databaseBytes + status.traffic.walBytes
-                      ).toLocaleString()}{" "}
-                      / {status.traffic.budgetBytes.toLocaleString()} bytes
-                      (database + WAL)
+                      Database:{" "}
+                      {measurementText(
+                        status.traffic.health?.database_measurement,
+                      )}
                     </span>
                     <span>
-                      {status.traffic.quotaRefusals} quota refusals ·{" "}
-                      {status.traffic.prunedRecords} pruned records
+                      WAL:{" "}
+                      {measurementText(status.traffic.health?.wal_measurement)}
                     </span>
+                    <span>
+                      Free space:{" "}
+                      {measurementText(
+                        status.traffic.health?.free_space_measurement,
+                      )}
+                    </span>
+                    <span>
+                      Budget: {formatStorageBytes(status.traffic.budgetBytes)}
+                    </span>
+                    <span>
+                      Pruned records:{" "}
+                      {status.traffic.health?.accounting_available
+                        ? status.traffic.prunedRecords.toLocaleString()
+                        : "Unavailable"}
+                    </span>
+                    {status.traffic.health && (
+                      <>
+                        {status.traffic.health.pressure_reason !== "none" && (
+                          <span>
+                            Pressure reason:{" "}
+                            {sentenceCase(
+                              status.traffic.health.pressure_reason,
+                            )}
+                          </span>
+                        )}
+                        <span>
+                          {status.traffic.health.delivery.accepted} accepted ·{" "}
+                          {status.traffic.health.delivery.acknowledged}{" "}
+                          acknowledged ·{" "}
+                          {status.traffic.health.delivery.discarded} discarded
+                          submissions
+                        </span>
+                        <span>
+                          Queue: {status.traffic.health.delivery.queue_records}/
+                          {status.traffic.health.delivery.queue_record_limit}{" "}
+                          records · {status.traffic.health.delivery.queue_bytes}
+                          /{status.traffic.health.delivery.queue_byte_limit}{" "}
+                          bytes ·{" "}
+                          {status.traffic.health.delivery.completion_records}{" "}
+                          completions
+                        </span>
+                      </>
+                    )}
+                    <a href="#/http/grants/test-access">
+                      Preview HTTP policy without execution
+                    </a>
                   </dd>
                 </div>
               )}
+              <div>
+                <dt>Diagnostic delivery</dt>
+                <dd>
+                  <FactStatus
+                    value={status.diagnostics?.state}
+                    current={panelStatus === "current"}
+                  />
+                  {status.diagnostics && (
+                    <>
+                      <span>
+                        {status.diagnostics.accepted} accepted ·{" "}
+                        {status.diagnostics.written} written ·{" "}
+                        {status.diagnostics.dropped} dropped ·{" "}
+                        {status.diagnostics.invalid} invalid
+                      </span>
+                      <span>
+                        Queue: {status.diagnostics.queue_records}/
+                        {status.diagnostics.queue_limit} records ·{" "}
+                        {status.diagnostics.queue_bytes} reserved bytes
+                        {status.diagnostics.writing
+                          ? " · Write outstanding"
+                          : ""}
+                      </span>
+                      <span>
+                        {status.diagnostics.write_failures} write failures ·
+                        Last successful write:{" "}
+                        {status.diagnostics.last_successful_write ? (
+                          <UserTime
+                            value={status.diagnostics.last_successful_write}
+                          />
+                        ) : (
+                          "Not observed"
+                        )}
+                      </span>
+                      {["failed", "pressure", "unavailable"].includes(
+                        status.diagnostics.state,
+                      ) && (
+                        <span>
+                          Inspect the configured stderr destination; do not
+                          replay requests.
+                        </span>
+                      )}
+                    </>
+                  )}
+                </dd>
+              </div>
               <div>
                 <dt>Credential storage</dt>
                 <dd>
@@ -799,6 +919,39 @@ function StatusPanel({
                 </dd>
               </div>
             </dl>
+            {status.observations && (
+              <details>
+                <summary>Process observations</summary>
+                <p>
+                  Since {status.observations.started_at}. Observed owner
+                  boundaries only; missing terminals and crash loss remain
+                  unknown. HTTP requests include the Git subset; CONNECT is
+                  separate.
+                </p>
+                <dl class="technical-details-grid">
+                  {status.observations.protocols.map((p) => (
+                    <div key={p.protocol}>
+                      <dt>{p.protocol.toUpperCase()}</dt>
+                      <dd>
+                        {p.requests} requests · {p.executions} execution
+                        pipelines · {p.results[0]} succeeded · {p.results[1]}{" "}
+                        prestart failures · {p.results[2]} failed ·{" "}
+                        {p.results[3]} unknown · {p.results[4]} nonmutating
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <p>
+                  Git upstream reports (not Gateway-confirmed mutations):{" "}
+                  {status.observations.protocols[3]?.git_reports.join(" / ")}{" "}
+                  success / failure / partial.
+                </p>
+                <p>
+                  Epoch {status.observations.epoch || "Unavailable"}
+                  {status.observations.overflow ? " · Counters saturated" : ""}
+                </p>
+              </details>
+            )}
           </section>
         </div>
       ) : (
@@ -903,12 +1056,14 @@ function ResourceLimits({
 
 function Backups({
   backups,
+  controller: systemController,
   view,
   mutations,
   onRefresh,
   createMode,
 }: {
   backups: Backup[] | undefined;
+  controller: SystemController;
   view: ViewSnapshot;
   mutations: MutationCoordinator;
   onRefresh: () => void;
@@ -920,6 +1075,13 @@ function Backups({
   const [mutation, setMutation] = useState<MutationSnapshot>(() =>
     controller.snapshot(),
   );
+  const [history, setHistory] = useState<HistoryExport>();
+  const [exportRequested, setExportRequested] = useState(false);
+  useEffect(
+    () => systemController.subscribeHistory(setHistory),
+    [systemController],
+  );
+  const historyPanel = view.panels["history-export"];
   const [deleting, setDeleting] = useState<Backup>();
   const [notice, setNotice] = useState<string>();
   const createButton = useRef<HTMLButtonElement>(null);
@@ -1008,8 +1170,10 @@ function Backups({
           </div>
         </div>
         <p>
-          A backup is an immutable owner-only recovery artifact. Restore remains
-          a stopped-process operation documented in the operator guide.
+          Security backups are immutable owner-only artifacts containing
+          configuration, authority and administrative audit. Traffic history is
+          omitted. Restore invalidates credentials and disables history capture;
+          it remains a stopped-process operation.
         </p>
         {mutation.availability === "storage_latched" && (
           <StateNotice state="error" title="Storage mutation is closed" />
@@ -1053,7 +1217,7 @@ function Backups({
           id="backup-create-confirm"
           open={mutation.state === "confirming"}
           title="Review backup"
-          consequence="Create one immutable owner-only backup artifact. Restore remains a separate stopped-process operation."
+          consequence="Create one security-only recovery artifact. Optional traffic history is omitted. Restore remains a separate stopped-process operation."
           confirmLabel="Create backup"
           returnFocus={createButton}
           onCancel={() => controller.abandon()}
@@ -1086,6 +1250,55 @@ function Backups({
           Create backup
         </a>
       </div>
+      <details class="detail-group" data-testid="history-export">
+        <summary>Export optional traffic history</summary>
+        <p>
+          One bounded MCP, HTTP and Git snapshot, separate from security
+          backups. Missing records never prove nonexecution.
+        </p>
+        <button
+          type="button"
+          disabled={historyPanel?.refreshing === true}
+          onClick={() => {
+            setExportRequested(true);
+            systemController.exportHistory();
+          }}
+        >
+          Read export
+        </button>
+        {exportRequested && historyPanel?.refreshing === true && (
+          <StateNotice state="loading" title="Reading history export" />
+        )}
+        {exportRequested && historyPanel?.status === "error" && (
+          <StateNotice state="error" title="History export unavailable">
+            Security backup and restore do not require history.
+          </StateNotice>
+        )}
+        {exportRequested &&
+          history !== undefined &&
+          historyPanel?.status === "current" && (
+            <>
+              <p>
+                {history.records} of {history.retained} retained records in
+                generation <code>{history.generation}</code>.{" "}
+                {history.truncated
+                  ? `Truncated; the next export can start after sequence ${history.nextSequence}.`
+                  : "No further retained records in this snapshot."}
+              </p>
+              <pre
+                class="inert-json"
+                tabIndex={0}
+                aria-label="History export JSON"
+              >
+                {history.json}
+              </pre>
+            </>
+          )}
+        <p>
+          For file output: <code>agent-gateway history export --json</code>.
+          Each export reads a new snapshot, not a complete traffic audit.
+        </p>
+      </details>
       {mutation.availability === "storage_latched" && (
         <StateNotice state="error" title="Storage mutation is closed">
           <p>
@@ -1144,7 +1357,14 @@ function Backups({
               label: "Backup",
               role: "identity",
               render: (backup) => (
-                <TableIdentity primary="Gateway backup" secondary={backup.id} />
+                <TableIdentity
+                  primary={
+                    backup.history === "omitted"
+                      ? "Security backup · history omitted"
+                      : "Legacy backup"
+                  }
+                  secondary={backup.id}
+                />
               ),
             },
             {
@@ -1730,6 +1950,7 @@ export function System({
       ) : current === "backups" ? (
         <Backups
           backups={backups}
+          controller={controller}
           view={view}
           mutations={mutations}
           onRefresh={onRefresh}

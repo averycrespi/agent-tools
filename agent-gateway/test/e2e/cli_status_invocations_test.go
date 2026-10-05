@@ -55,6 +55,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 		callDone <- harness.ModernCall(issued.Bearer, json.RawMessage(`"cli-held"`), "cli-invocations.allowed", json.RawMessage(`{"note":"`+captureCanary+`"}`))
 	}()
 	awaitFixtureSignal(t, barrier.entered, "CLI fixture call did not reach the downstream barrier")
+	harness.WaitForAuditObservations(1)
 
 	listJSON := runOnlineCLI(t, harness, bearerPath, true,
 		"mcp", "invocation", "list", "--output", "json", "--limit", "1", "--requested-name", "cli-invocations.allowed",
@@ -94,6 +95,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 
 	local := harness.ModernSelfServiceCall(issued.Bearer, json.RawMessage(`"local"`), "get_identity", map[string]any{})
 	require.Equal(t, http.StatusOK, local.StatusCode, string(local.Body))
+	harness.WaitForAuditObservations(2)
 	localTable := runOnlineCLI(t, harness, bearerPath, true,
 		"mcp", "invocation", "list", "--limit", "1", "--server-id", contract.SyntheticServerID,
 	)

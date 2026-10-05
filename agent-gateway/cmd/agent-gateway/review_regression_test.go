@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -70,8 +71,8 @@ func (writer *planChangeWriter) Write(value []byte) (int, error) {
 	return n, err
 }
 
-func TestRestoreRevalidatesCurrentTrafficAfterDisplayingPlan(t *testing.T) {
-	for _, state := range []string{"valid", "corrupt", "missing"} {
+func TestSecurityRestoreIgnoresUntouchedTrafficAfterDisplayingPlan(t *testing.T) {
+	for _, state := range []string{"valid", "corrupt", "missing", "selector"} {
 		t.Run(state, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "gateway")
 			command := newTestRootCmd(t)
@@ -89,7 +90,7 @@ func TestRestoreRevalidatesCurrentTrafficAfterDisplayingPlan(t *testing.T) {
 			require.NoError(t, err)
 			traffic, err := invocation.OpenTraffic(t.Context(), owner, identity.InstallationID, identity.TrafficGeneration, invocation.DefaultTrafficConfig())
 			require.NoError(t, err)
-			manager, err := backup.New(backup.Options{Traffic: traffic, Store: store, Layout: owner.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
+			manager, err := backup.New(backup.Options{Store: store, Layout: owner.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
 			require.NoError(t, err)
 			artifact, _, err := manager.Create(t.Context(), "authority", "restore-plan")
 			require.NoError(t, err)
@@ -112,11 +113,20 @@ func TestRestoreRevalidatesCurrentTrafficAfterDisplayingPlan(t *testing.T) {
 			command.SetErr(new(bytes.Buffer))
 			command.SetArgs(append(append([]string{}, args...), "--dry-run"))
 			require.NoError(t, command.ExecuteContext(t.Context()))
-			if state != "valid" {
-				require.Contains(t, stdout.String(), "Current traffic integrity is not verified")
-			}
+			require.Contains(t, stdout.String(), "omitted-not-verified")
+			require.NotContains(t, stdout.String(), "Current traffic integrity is not verified")
 			require.Equal(t, before, treeBytes(t, root))
 			stderr := &planChangeWriter{change: func() {
+				if state == "selector" {
+					db, err := sql.Open("sqlite3", "file:"+filepath.Join(root, gatewaypaths.DatabaseName)+"?mode=rw")
+					require.NoError(t, err)
+					_, err = db.ExecContext(t.Context(), `UPDATE traffic_selection SET generation=NULL WHERE singleton=1`)
+					require.NoError(t, err)
+					_, err = db.ExecContext(t.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
+					require.NoError(t, err)
+					require.NoError(t, db.Close())
+					return
+				}
 				require.NoError(t, os.WriteFile(path, []byte("material change after plan"), 0o600))
 			}}
 			stdout.Reset()
@@ -124,13 +134,24 @@ func TestRestoreRevalidatesCurrentTrafficAfterDisplayingPlan(t *testing.T) {
 			command.SetOut(stdout)
 			command.SetErr(stderr)
 			command.SetArgs(append(args, "--confirm"))
-			require.Error(t, command.ExecuteContext(t.Context()))
-			require.Contains(t, stderr.String(), "plan_changed")
-			require.Empty(t, stdout.String())
-			before[path] = "material change after plan"
-			require.Equal(t, before, treeBytes(t, root))
+			if state == "selector" {
+				require.Error(t, command.ExecuteContext(t.Context()))
+				require.Contains(t, stderr.String(), "plan_changed")
+				require.Empty(t, stdout.String())
+				_, err = os.Stat(secret)
+				require.ErrorIs(t, err, os.ErrNotExist)
+				return
+			}
+			require.NoError(t, command.ExecuteContext(t.Context()))
+			require.Contains(t, stdout.String(), `"history":"omitted-not-verified"`)
+			retained, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, "material change after plan", string(retained))
 			_, err = os.Stat(secret)
-			require.ErrorIs(t, err, os.ErrNotExist)
+			require.NoError(t, err)
+			installed, err := storage.VerifyBackup(t.Context(), filepath.Join(root, gatewaypaths.DatabaseName))
+			require.NoError(t, err)
+			require.Empty(t, installed.TrafficGeneration)
 		})
 	}
 }

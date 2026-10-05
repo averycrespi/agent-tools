@@ -56,6 +56,33 @@ and [manual proxy/client trust setup](http-proxy.md).
 
 `GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. `doctor` replaces the old top-level `status` (no alias). It reports independent checks as verified, failed, presence-only, absent, stopped or not checked; an unreachable listener is not proof of a stopped process. It shows one line per condition, with additional indented diagnostics only when needed. The absolute data directory and selection source appear once; paths inside it are relative, while external paths remain absolute. Installed service and log paths appear separately when safely available. `doctor --verbose` adds explanations for every check without running extra checks; `--json` retains structured details regardless of verbosity. File presence proves neither authority nor signing usability. `doctor --verify-storage` opts into expensive stopped, closed-generation inspection without recovery. `doctor --online` adds authenticated public-API status using `--admin-bearer-file` or the selected default. Protected keyring material is not probed. A partial checklist never claims whole-installation readiness.
 
+### Serving without optional evidence
+
+`doctor --online` and browser **System → Status** show serving, optional history,
+and diagnostic delivery separately. A history-only failure does not mean MCP/HTTP/Git
+forwarding stopped. Read the history state and pressure reason first: checkpoint
+readers, budget reservation and low disk space have different causes. Unavailable
+measurements are not zero usage; an absent WAL is separately identified. Inspect
+disk capacity and the selected history artifacts without deleting them or performing
+live recovery. Existing HTTP policy preview (`http test-access` or **HTTP → Grants →
+Test access**) checks policy without dispatching a request.
+
+Diagnostic **Writing** means a Write is outstanding, not a proven timeout. Inspect
+the configured stderr destination and last successful write when pressure/failure
+is reported; a timer cannot cancel every native writer. Cumulative dropped/invalid
+counts survive failed log summaries. Log timestamps mark observation before queueing,
+not the time delayed output arrived. Never restart or replay execution merely to
+repair missing evidence.
+
+Process observations count live owner boundaries independently of both sinks.
+Execution pipelines are not proof of downstream effects; HTTP requests include the
+separate Git subset, while CONNECT is separate. A reported Git success is upstream
+content, not a Gateway-confirmed successful push. History delivery counts submissions;
+Recorded activity still counts committed record changes. Do not compare these as
+success rates or infer active work by subtraction. Restart resets process epochs and
+counters; crash loss and missing terminals remain unknown. Live occupancy comes from
+Resource limits and the HTTP work/stream/tunnel owners.
+
 ## Administrator authentication
 
 Online administrator authentication never prompts. It resolves exactly one bearer source:
@@ -418,12 +445,16 @@ jq -R --arg p 'PROCESS_FROM_LOG' --argjson u 7 \
   'fromjson? | select(.schema_version == 1 and .process_id == $p and .upstream_ref == $u)' gateway-diagnostics.jsonl
 ```
 
-Use `process_id` plus `call_id` to correlate a live attempt; `invocation_id` appears only after audit acknowledgment. Storage/authority mutation counters are owner-local. `storage_wait` followed by `storage_acquire` is ordinary contention. Rejection causes distinguish `capacity`, `expired`, `cancelled`, `stopped`, and `latched`; durability failures carry a closed `stage`. `writer_kind` distinguishes invocation admission, terminal annotation and coarse foreign work. Occupancy is a sample, and elapsed milliseconds are not a guarantee of throughput or an active transaction deadline.
+Use `process_id` plus `call_id` to correlate a live attempt; optional `invocation_id` is capture correlation, not proof of a retained row. Terminal-annotation success means enqueue acceptance, not persistence. Storage/authority mutation counters are owner-local. Control storage has one nonqueueing writer; authority retains bounded gate waiting. Rejection causes distinguish capacity, cancellation, stop and latch; durability failures carry a closed `stage`. Occupancy is a sample, and elapsed milliseconds are not a throughput guarantee or active transaction deadline.
 
-For HTTP proxy `Forbidden` responses, look for default-level `http_proxy_rejected` warnings. `stage` distinguishes routing, destination resolution, authorization evaluation, credential material, traffic admission, and final confirmation failures. A `traffic_admission` / `expired` warning identifies a typed admission deadline refusal; timing alone does not. `resolution` / `unavailable` identifies failed destination resolution/validation without exposing DNS errors. Other unavailable causes require further inspection, not credential rotation or automatic retries. These failures can precede any traffic row, so an empty Traffic view does not rule them out. Ordinary policy denials stay in Traffic without this warning. `duration_ms` is total elapsed request handling time, not stage duration. Warnings contain no request identity; matching nearby timestamps is only a correlation hypothesis when requests overlap. A preceding upstream 200 with a cancelled transfer can be a separate request whose client consumed its terminal stream event before HTTP EOF.
+For HTTP proxy failures, first distinguish Gateway-generated errors from upstream application responses. Gateway errors carry `Proxy-Status: AgentGateway; error=...`: 400 means invalid request, 407 requires proxy authentication, 403 means policy/address refusal, 429/503 can mean bounded capacity, 503 otherwise means unavailable authority/material, 502 means upstream connection/TLS/protocol failure, and 504 means upstream timeout. Upstream statuses and bodies are preserved without Gateway error provenance. Do not infer permission to retry, especially after response interruption or uncertain effects.
+
+An approved HTTP/Git/opaque CONNECT destination can use another address from its already validated DNS answer set if TCP establishment fails. All candidates share one finite dial budget; no new DNS query or policy permission is acquired. This is not another application operation. Only one connected candidate receives TLS/application bytes, and TLS validation or any post-handoff failure never triggers fallback. When all TCP candidates fail, a typed timeout among them produces 504; otherwise connection failure produces 502. These responses and diagnostic `exchange` facts do not establish whether a later application handoff executed an effect. Inspect the authoritative upstream before deciding on a caller-owned retry; neither multiple TCP attempts nor missing history changes that rule.
+
+Look for default-level `http_proxy_rejected` (pre-dispatch infrastructure) or `http_proxy_failure` (capacity/transport/panic) warnings. Match a received `Gateway-Request-ID` or CONNECT `Gateway-Connection-ID` to diagnostic `proxy_id` when available; these random values confer no authority and do not prove a traffic row exists. Old warnings and parser-level failures may have no correlation. `stage` distinguishes the observed operation; `expired` requires typed timeout/deadline evidence, while `duration_ms` is elapsed handling time, not stage duration. An empty Traffic view or missing diagnostic does not rule out execution: the bounded diagnostic sink is deliberately lossy. After headers or CONNECT establishment, a failure can appear as EOF/reset rather than another HTTP error. A preceding upstream 200 can still have an incomplete transfer even if a client consumed an application-level terminal stream event.
 
 ```bash
-jq -R 'fromjson? | select(.event == "http_proxy_rejected")' gateway-diagnostics.jsonl
+jq -R 'fromjson? | select(.event == "http_proxy_rejected" or .event == "http_proxy_failure")' gateway-diagnostics.jsonl
 ```
 
 At `info`, `reconciliation_displaced` explains that OAuth/lifecycle replacement displaced an operation; successful verified settlement appears as Superseded in operation detail/history, never Succeeded on behalf of its replacement. At the default `warn` level, `reconciliation_settlement_failure` reports `capacity`, `unavailable`, or `stopped` without resource IDs or raw errors. Read authenticated operation/audit details to identify the affected work. Unconfirmed cleanup or failed settlement remains fail-closed; repeated reauthorization does not repair it. Existing orphan rows are not repaired online: follow [stopped-process recovery](backup-and-recovery.md), and obtain separate authorization before stopping or restarting a live service. Do not infer replay safety from an absent log or a healthy replacement.

@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
@@ -62,6 +64,7 @@ func TestServiceClassifiesAndAuditsEveryRecognizableBranch(t *testing.T) {
 			assert.Nil(t, response.Result)
 			assert.Equal(t, test.wantResolutions, resolutions)
 			assert.Zero(t, acquisitions)
+			waitTraffic(t, audits.traffic)
 			record, found, readErr := audits.Read(context.Background(), response.InvocationID)
 			require.NoError(t, readErr)
 			require.True(t, found)
@@ -182,18 +185,19 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 		})
 		require.NoError(t, err)
 		armed = true
+		require.Error(t, audits.store.Mutate(t.Context(), func(*sql.Tx) error { return nil }))
 
 		response := service.Call(context.Background(), lease, validCallParams())
 
-		assert.Equal(t, contract.AuditUnavailable, response.ErrorCode)
-		assert.Empty(t, response.RejectionReason)
+		assert.Equal(t, contract.CallRejected, response.ErrorCode)
+		assert.Equal(t, contract.RejectionAuthorizationUnavailable, response.RejectionReason)
 		assert.Empty(t, response.InvocationID)
 		assert.Zero(t, acquisitions)
 		assert.True(t, audits.store.Latched())
 	})
 }
 
-func TestServiceRejectionReasonsUseAcknowledgedEvidenceWithoutDispatch(t *testing.T) {
+func TestServiceRejectionReasonsUseAuthorityWithoutDispatch(t *testing.T) {
 	for _, scenario := range []string{"block", "authorization failure", "binding failure", "storage failure", "known audit failure", "uncertain audit failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			armed := false
@@ -234,6 +238,9 @@ func TestServiceRejectionReasonsUseAcknowledgedEvidenceWithoutDispatch(t *testin
 			})
 			require.NoError(t, err)
 			armed = true
+			if scenario == "known audit failure" || scenario == "uncertain audit failure" {
+				require.Error(t, audits.store.Mutate(t.Context(), func(*sql.Tx) error { return nil }))
+			}
 			response := service.Call(t.Context(), lease, validCallParams())
 			assert.Equal(t, 1, resolutions)
 			assert.Equal(t, 1, validations)
@@ -255,9 +262,9 @@ func TestServiceRejectionReasonsUseAcknowledgedEvidenceWithoutDispatch(t *testin
 					assert.Nil(t, record.AuthorizationDecision)
 				}
 			default:
-				assert.Equal(t, contract.AuditUnavailable, response.ErrorCode)
+				assert.Equal(t, contract.CallRejected, response.ErrorCode)
 				assert.Empty(t, response.InvocationID)
-				assert.Empty(t, response.RejectionReason)
+				assert.Equal(t, contract.RejectionAuthorizationUnavailable, response.RejectionReason)
 			}
 		})
 	}
@@ -287,7 +294,7 @@ func TestServiceWireInvalidParamsPreserveSafeFieldsWithoutResolution(t *testing.
 	assert.Equal(t, `{"token":"[REDACTED]"}`, *record.RedactedArguments)
 }
 
-func TestServiceIdentityFailuresNeverInsertOrDispatch(t *testing.T) {
+func TestServiceCaptureIdentityFailuresNeverGateDispatch(t *testing.T) {
 	tests := []struct {
 		name   string
 		poison func(*Repository)
@@ -313,9 +320,10 @@ func TestServiceIdentityFailuresNeverInsertOrDispatch(t *testing.T) {
 
 			response := service.Call(context.Background(), lease, validCallParams())
 
-			assert.Equal(t, contract.AuditUnavailable, response.ErrorCode)
+			assert.Equal(t, contract.ToolUnavailable, response.ErrorCode)
 			assert.Empty(t, response.InvocationID)
-			assert.Zero(t, acquisitions)
+			assert.Equal(t, 1, acquisitions)
+			waitTraffic(t, audits.traffic)
 			count, countErr := audits.Count(context.Background())
 			require.NoError(t, countErr)
 			assert.Zero(t, count)
@@ -346,9 +354,10 @@ func TestServiceIdentityFailuresNeverInsertOrDispatch(t *testing.T) {
 
 		second := service.Call(context.Background(), secondLease, validCallParams())
 
-		assert.Equal(t, contract.AuditUnavailable, second.ErrorCode)
+		assert.NotNil(t, second.Result)
 		assert.Empty(t, second.InvocationID)
-		assert.Equal(t, 1, executions)
+		assert.Equal(t, 2, executions)
+		waitTraffic(t, audits.traffic)
 		count, countErr := audits.Count(context.Background())
 		require.NoError(t, countErr)
 		assert.Equal(t, int64(1), count)
@@ -444,14 +453,14 @@ func TestServiceSanitizesEveryDispatchOutcomeAndAnnotatesOnce(t *testing.T) {
 }
 
 func TestServiceTerminalFailureNeverChangesLiveResultOrRetries(t *testing.T) {
-	armed := false
-	fault := func(point storage.FaultPoint) error {
-		if armed && point == storage.FaultAfterCommit {
-			return errors.New("terminal commit acknowledgement lost")
+	var armed atomic.Bool
+	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	audits.traffic.fault = func(point string) error {
+		if armed.Load() && point == "acknowledgment" {
+			return errors.New("terminal commit acknowledgment lost")
 		}
 		return nil
 	}
-	_, audits, authority, _, credential := newAdmissionCoordinator(t, fault)
 	lease, err := authority.Authenticate(context.Background(), credential.Bearer)
 	require.NoError(t, err)
 	defer lease.Release()
@@ -460,7 +469,8 @@ func TestServiceTerminalFailureNeverChangesLiveResultOrRetries(t *testing.T) {
 		return serviceCallTarget(nil, func(context.Context) (executionLease, error) {
 			return &serviceExecutionLease{execute: func(json.RawMessage) downstream.CallResult {
 				executions++
-				armed = true
+				waitTraffic(t, audits.traffic)
+				armed.Store(true)
 				return downstream.CallResult{Response: downstream.Response{Result: json.RawMessage(`{"content":[]}`)}}
 			}}, nil
 		}), true
@@ -473,7 +483,22 @@ func TestServiceTerminalFailureNeverChangesLiveResultOrRetries(t *testing.T) {
 	assert.Empty(t, response.ErrorCode)
 	assert.Empty(t, response.InvocationID)
 	assert.Equal(t, 1, executions)
-	assert.True(t, audits.store.Latched())
+	waitTraffic(t, audits.traffic)
+	assert.False(t, audits.traffic.Healthy())
+	assert.False(t, audits.store.Latched())
+	observed := service.observations.Status().Protocols[diagnostics.MCP]
+	require.EqualValues(t, 1, observed.Requests)
+	require.EqualValues(t, 1, observed.Executions)
+	require.EqualValues(t, 1, observed.Results[diagnostics.Succeeded])
+	// A subsequent call still contributes exactly once after capture has faulted.
+	secondLease, err := authority.Authenticate(context.Background(), credential.Bearer)
+	require.NoError(t, err)
+	defer secondLease.Release()
+	response = service.Call(context.Background(), secondLease, validCallParams())
+	require.NotNil(t, response.Result)
+	observed = service.observations.Status().Protocols[diagnostics.MCP]
+	require.EqualValues(t, 2, observed.Requests)
+	require.EqualValues(t, 2, observed.Results[diagnostics.Succeeded])
 }
 
 type serviceExecutionLease struct {
@@ -517,8 +542,11 @@ func callParams(raw string) strictjson.Value {
 
 func onlyInvocationRecord(t *testing.T, repository *Repository) contract.InvocationAuditRecord {
 	t.Helper()
+	if repository.traffic != nil {
+		waitTraffic(t, repository.traffic)
+	}
 	var invocationID string
-	require.NoError(t, repository.store.View(context.Background(), func(transaction *sql.Tx) error {
+	require.NoError(t, repository.view(context.Background(), func(transaction *sql.Tx) error {
 		return transaction.QueryRowContext(context.Background(), `SELECT id FROM invocations`).Scan(&invocationID)
 	}))
 	record, found, err := repository.Read(context.Background(), invocationID)

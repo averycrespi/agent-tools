@@ -76,6 +76,55 @@ func TestMaintenanceDryRunAndUnconfirmedExecutionDoNotWrite(t *testing.T) {
 	}
 }
 
+func TestSecurityMaintenanceLeavesOptionalHistoryUntouched(t *testing.T) {
+	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials"} {
+		t.Run(operation, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "gateway")
+			initialize := newTestRootCmd(t)
+			initialize.SetOut(new(bytes.Buffer))
+			initialize.SetErr(new(bytes.Buffer))
+			initialize.SetArgs([]string{"init", "--data-dir", root, "--confirm"})
+			require.NoError(t, initialize.ExecuteContext(t.Context()))
+			files, err := filepath.Glob(filepath.Join(root, "traffic-*.db"))
+			require.NoError(t, err)
+			require.Len(t, files, 1)
+			damaged, wal := []byte("damaged optional history"), []byte("uninspected optional WAL")
+			require.NoError(t, os.WriteFile(files[0], damaged, 0o600))
+			require.NoError(t, os.WriteFile(files[0]+"-wal", wal, 0o600))
+			for _, mode := range []string{"--dry-run", "--confirm"} {
+				before := treeBytes(t, root)
+				command := newTestRootCmd(t)
+				output := new(bytes.Buffer)
+				command.SetOut(output)
+				command.SetErr(new(bytes.Buffer))
+				args := []string{"maintenance", operation, "--data-dir", root, mode, "--json"}
+				secret := filepath.Join(t.TempDir(), "replacement")
+				if operation == "reset-admin-credentials" {
+					args = append(args, "--secret-output", secret)
+				}
+				command.SetArgs(args)
+				require.NoError(t, command.ExecuteContext(t.Context()))
+				if mode == "--dry-run" {
+					require.Equal(t, before, treeBytes(t, root))
+				} else {
+					require.Contains(t, output.String(), `"ok":true`)
+					if operation == "reset-admin-credentials" {
+						data, err := os.ReadFile(secret)
+						require.NoError(t, err)
+						require.NotEmpty(t, data)
+					}
+				}
+				actual, err := os.ReadFile(files[0])
+				require.NoError(t, err)
+				require.Equal(t, damaged, actual)
+				actual, err = os.ReadFile(files[0] + "-wal")
+				require.NoError(t, err)
+				require.Equal(t, wal, actual)
+			}
+		})
+	}
+}
+
 func TestMigrationDryRunRequiresIdentityAndPreservesGeneration(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	owner, err := gatewaypaths.Acquire(root)

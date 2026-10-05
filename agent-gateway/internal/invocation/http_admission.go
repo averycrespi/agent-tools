@@ -3,6 +3,7 @@ package invocation
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -13,20 +14,37 @@ import (
 )
 
 type HTTPAdmissionResult struct {
-	Evidence           contract.HTTPTrafficAdmission
-	Committed          bool
+	Execution          authorization.HTTPExecution
+	Evaluated          bool
 	DispatchAuthorized bool
 	Material           *httpcredentials.Material
-	// Closed diagnostic facts preserve the failing boundary without exposing errors.
-	FailureStage diagnostics.Stage
-	FailureCause diagnostics.Cause
-	receipt      *TrafficReceipt
-	candidate    *authorization.HTTPEvaluationCandidate
+	FailureStage       diagnostics.Stage
+	FailureCause       diagnostics.Cause
+	observation        *TrafficObservation
+	owner              *httpExecutionOwner
+}
+type httpExecutionOwner struct {
+	once      sync.Once
+	authority *authorization.Repository
+	candidate *authorization.HTTPEvaluationCandidate
+	material  *httpcredentials.Material
 }
 
-// AdmitHTTP uses the existing authenticator, authority gate and selected traffic
-// writer. It supplies no listener or forwarding implementation. Only a confirmed
-// result authorizes one immediate dispatch; a readable row never substitutes.
+// Settle releases execution-owned resources only after actual network cleanup.
+// It must be called even when no terminal observation can be captured.
+func (result HTTPAdmissionResult) Settle() {
+	if result.owner == nil {
+		return
+	}
+	result.owner.once.Do(func() {
+		if result.owner.material != nil {
+			result.owner.material.Clear()
+		}
+		result.owner.authority.ReleaseOpaque(result.owner.candidate)
+	})
+}
+
+// AdmitHTTP confirms one request-local evaluation independently of optional history.
 func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, input authorization.HTTPAccessInput, facts httppolicy.AddressFacts, materials *httpcredentials.Service, contexts ...authorization.HTTPAdmissionContext) (result HTTPAdmissionResult, err error) {
 	stage := diagnostics.ProxyEvaluation
 	var failure error
@@ -38,29 +56,22 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 			result.FailureStage, result.FailureCause = stage, httpAdmissionCause(failure)
 		}
 	}()
-	if c == nil || c.audits.traffic == nil || !validAdmissionIdentity(identity) {
+	if c == nil {
 		return result, ErrInvalidInput
 	}
-	traffic := c.audits.traffic
-	if !traffic.admissionGate.TryRLock() {
-		stage = diagnostics.ProxyTraffic
-		return result, ErrTrafficCapacity
-	}
-	defer traffic.admissionGate.RUnlock()
-	defer c.audits.publishTrafficStatus()
 	evaluation, err := c.authority.EvaluateHTTPAdmission(ctx, lease, identity.InvocationID, identity.AdmittedAt, input, facts, contexts...)
 	if err != nil {
 		failure = err
 		return result, authorization.ErrAdmissionUnavailable
 	}
-	result.Evidence = evaluation.Evidence
+	result.Execution, result.Evaluated = evaluation.Execution, true
 	var materialErr error
-	if evaluation.Evidence.Material != nil {
+	if evaluation.Execution.Material != nil {
 		if materials == nil {
 			materialErr = httpcredentials.ErrUnavailable
 		} else {
-			result.Material, materialErr = materials.Acquire(ctx, evaluation.Evidence.Material.Credential)
-			if materialErr == nil && result.Material.Generation() != evaluation.Evidence.Material.Generation {
+			result.Material, materialErr = materials.Acquire(ctx, evaluation.Execution.Material.Credential)
+			if materialErr == nil && result.Material.Generation() != evaluation.Execution.Material.Generation {
 				materialErr = httpcredentials.ErrUnavailable
 			}
 		}
@@ -71,14 +82,10 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 			result.Material = nil
 		}
 	}()
-	stage = diagnostics.ProxyTraffic
-	receipt, err := traffic.AdmitHTTP(ctx, evaluation.Evidence)
-	if err != nil {
-		return result, err
+	if c.audits.traffic != nil {
+		result.observation = c.audits.traffic.ObserveHTTP(evaluation.Evidence)
 	}
-	result.Committed = true
 	if evaluation.Candidate == nil || materialErr != nil {
-		traffic.Release(receipt)
 		if materialErr != nil {
 			stage, failure = diagnostics.ProxyMaterial, materialErr
 			return result, authorization.ErrAdmissionUnavailable
@@ -86,17 +93,12 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 		return result, nil
 	}
 	stage = diagnostics.ProxyConfirmation
-	err = c.authority.ConfirmHTTP(ctx, evaluation.Candidate, identity.InvocationID, materials, func(expected string, detach func() bool) bool {
-		return receipt.httpAdmission == expected && traffic.confirmCandidate(ctx, receipt, identity.InvocationID, detach)
-	})
-	if err != nil {
+	if err = c.authority.ConfirmHTTP(ctx, evaluation.Candidate, identity.InvocationID, materials); err != nil {
 		failure = err
-		traffic.Release(receipt)
 		return result, authorization.ErrAdmissionUnavailable
 	}
 	result.DispatchAuthorized = true
-	result.receipt = receipt
-	result.candidate = evaluation.Candidate
+	result.owner = &httpExecutionOwner{authority: c.authority, candidate: evaluation.Candidate, material: result.Material}
 	return result, nil
 }
 
@@ -104,11 +106,11 @@ func httpAdmissionCause(err error) diagnostics.Cause {
 	switch {
 	case errors.Is(err, context.Canceled):
 		return diagnostics.Cancelled
-	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, ErrTrafficDeadline), errors.Is(err, storage.ErrMutationWaitExpired):
+	case errors.Is(err, context.DeadlineExceeded):
 		return diagnostics.Expired
-	case errors.Is(err, ErrTrafficCapacity), errors.Is(err, authorization.ErrResourceLimit), errors.Is(err, storage.ErrMutationWaitFull):
+	case errors.Is(err, authorization.ErrResourceLimit):
 		return diagnostics.Capacity
-	case errors.Is(err, authorization.ErrShuttingDown), errors.Is(err, storage.ErrMutationWaitStopped):
+	case errors.Is(err, authorization.ErrShuttingDown):
 		return diagnostics.Stopped
 	case errors.Is(err, storage.ErrStorageLatched):
 		return diagnostics.Latched
@@ -117,16 +119,10 @@ func httpAdmissionCause(err error) diagnostics.Cause {
 	}
 }
 
-// CompleteHTTP makes the sole synchronous best-effort attempt; its error is
-// evidence availability only and must not replace an already known live result.
-func (c *AdmissionCoordinator) CompleteHTTP(ctx context.Context, result HTTPAdmissionResult, completion contract.HTTPTrafficCompletion) error {
-	if c == nil || c.audits.traffic == nil || !result.DispatchAuthorized {
+// CompleteHTTP offers sanitized terminal facts without waiting for persistence.
+func (c *AdmissionCoordinator) CompleteHTTP(_ context.Context, result HTTPAdmissionResult, completion contract.HTTPTrafficCompletion) error {
+	if c == nil || !result.DispatchAuthorized {
 		return ErrInvalidInput
 	}
-	if result.Material != nil {
-		defer result.Material.Clear()
-	}
-	defer c.audits.publishTrafficStatus()
-	defer c.authority.ReleaseOpaque(result.candidate)
-	return c.audits.traffic.CompleteHTTP(ctx, result.receipt, completion)
+	return c.audits.traffic.ObserveHTTPCompletion(result.observation, completion)
 }

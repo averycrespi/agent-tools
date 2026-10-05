@@ -10,20 +10,22 @@ import (
 )
 
 // BackupPair pins two coherent read transactions while both actual writers and
-// cross-store admissions are fenced. Copying occurs after the short fence is
+// snapshot acquisition are fenced. Copying occurs after the short fence is
 // released, on the exact pinned connections. Live admitted executions continue.
 func (s *TrafficStore) BackupPair(ctx context.Context, control *storage.Store, controlPath, trafficPath string) (result error) {
-	started := time.Now()
-	if !s.admissionGate.TryLock() {
-		return ErrTrafficCapacity
+	if s.optional != nil {
+		target := s.optionalTarget()
+		if target == nil {
+			return ErrTrafficFault
+		}
+		return target.BackupPair(ctx, control, controlPath, trafficPath)
 	}
+	started := time.Now()
 	if !s.writerGate.TryLock() {
-		s.admissionGate.Unlock()
 		return ErrTrafficCapacity
 	}
 	if !s.readGate.TryRLock() {
 		s.writerGate.Unlock()
-		s.admissionGate.Unlock()
 		return ErrTrafficCapacity
 	}
 	defer s.readGate.RUnlock()
@@ -56,7 +58,6 @@ func (s *TrafficStore) BackupPair(ctx context.Context, control *storage.Store, c
 		return err
 	})
 	s.writerGate.Unlock()
-	s.admissionGate.Unlock()
 	// Wall-clock overrun is a failed backup even if every SQL call returned nil.
 	if err != nil || pauseCtx.Err() != nil || time.Since(started) > time.Second {
 		return errors.Join(err, ErrTrafficDeadline)

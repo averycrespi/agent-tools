@@ -19,7 +19,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	commands := DocumentationCommandManifest()
 	security := DocumentationSecurityManifest()
 	require.Len(t, guides, 13)
-	require.Len(t, commands, 18)
+	require.Len(t, commands, 19)
 	require.Len(t, security, 8)
 
 	guidePaths := make(map[string]struct{}, len(guides))

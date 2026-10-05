@@ -18,7 +18,7 @@ The public names `visibility` and `default_grant` and the `Principal`, `Principa
 
 Control SQLite is the sole principal, credential and policy authority. The
 [admission protocol](invocation-and-ingress.md#admission-and-execution) owns
-evaluation, receipt persistence, confirmation and outcome handling. No authority
+request-local evaluation, confirmation and outcome handling, independently of optional history. No authority
 gate or control transaction spans traffic persistence; failed confirmation never
 reevaluates or retries. Current display-name snapshots are recognition data,
 not authority.
@@ -224,7 +224,7 @@ The sole authorization repository owns up to 4,096 retained HTTP grants, includi
 
 Grant writes validate whole-scope credential containment on the same SQL writer used by credential edits/deletion. The authorization-owned ReferenceInspector includes every retained reference, even expired grants. Referenced credentials reject deletion, recipe changes and scope edits that no longer contain every grant. The credential owner supplies safe metadata/availability facts on caller-owned snapshots, never nested views, DNS or secret resolution. Startup and staged backup validation check complete defaults, canonical policy, principal existence, capacity and credential references. Restore retains policy while invalidating material authority; unavailable material is valid retained configuration, not permission to fall back uninjected.
 
-Preview and the ingress-facing authenticated-lease seam load the same coherent policy snapshot and call the same pure selector. Preview is never admission authority. The HTTP traffic admission coordinator separately seals one evaluation, persists its immutable evidence outside authority, then confirms its acknowledged receipt and exact credential material generation before detaching the lease. The invocation chapter owns this protocol. No production HTTP listener is introduced. Pure policy eligibility is followed by complete address checks for ingress evaluation. Preview classifies literal addresses without lookup and explicitly leaves network/TLS/material unverified. No submitted target/path/query is retained in audit, diagnostics or events; persisted grant selectors are administrator configuration, not observed traffic.
+Preview and the ingress-facing authenticated-lease seam load the same coherent policy snapshot and call the same pure selector. Preview is never admission authority. The HTTP admission coordinator seals one request-local evaluation, acquires material outside authority, then confirms unchanged authority and exact credential material generation before detaching the lease. Optional immutable capture never gates this process. The invocation chapter owns this protocol. No production HTTP listener is introduced. Pure policy eligibility is followed by complete address checks for ingress evaluation. Preview classifies literal addresses without lookup and explicitly leaves network/TLS/material unverified. No submitted target/path/query is retained in audit, diagnostics or events; persisted grant selectors are administrator configuration, not observed traffic.
 
 ## Persisted Git authority
 
@@ -276,7 +276,7 @@ Exact repository, alias, profile, principal and authorization revisions are usab
 by immutable request binding; policy-only evaluation is neither authentication
 nor admission authority, material proof or network qualification. Receive-pack
 discovery and exact flush-only probes require read plus at least one active
-push-capable grant and have separate nonmutation receipts. Each actual push
+push-capable grant and have separate optional nonmutation observations. Each actual push
 independently checks every requested create/update/delete before dispatch.
 
 The singleton routing profile stores an independently revisioned bounded set of
@@ -294,10 +294,10 @@ ref authority and never HTTP credential selection.
 
 Git evaluation seals the private request owner and exact parsed prefix, repository,
 alias, profile, principal, agent credential and shared policy revisions. The
-selected Git credential generation is acquired separately. Only acknowledged
-durable admission followed by unchanged-authority/material confirmation permits
+selected Git credential generation is acquired separately. Only the sealed candidate
+and unchanged-authority/material confirmation permit
 one dispatch of that same request owner. Equal retained summaries cannot
-substitute another prefix. Cancellation, revocation, edits, drain and storage
+substitute another prefix. Cancellation, revocation, edits, drain and control-storage
 health failure before confirmation refuse without reevaluation. Authority and
 storage ownership never span client body reads, secret provider I/O or network
 work. Ref names, OIDs and request binding remain memory-only.
@@ -384,7 +384,7 @@ The request repository is the sole online schema-10 DML owner; schema 10 stores 
 
 ### Agent projections and cursors
 
-An acknowledged ALLOW detachment also mints one sealed admitted subject containing only principal/credential IDs and revisions plus the evaluated authorization revision. Authorization-owned self projection reads accept no principal selector: they reverify that subject against the current credential while coherently projecting only safe identity fields and insertion-watermarked ordinary ALLOW/DENY grants, preserving exact constraints and derived active/expired state while resolving synthetic, extant, or deleted immutable target namespaces through a servers-owned supplied-transaction inspector.
+A confirmed request-local ALLOW detachment also mints one sealed admitted subject containing only principal/credential IDs and revisions plus the evaluated authorization revision. Authorization-owned self projection reads accept no principal selector: they reverify that subject against the current credential while coherently projecting only safe identity fields and insertion-watermarked ordinary ALLOW/DENY grants, preserving exact constraints and derived active/expired state while resolving synthetic, extant, or deleted immutable target namespaces through a servers-owned supplied-transaction inspector.
 
 Agent request get/list reads derive only the admitted subject's stable principal ID and select no internal target, dedupe, or evidence columns; missing and foreign IDs are the same result, pages pin the owner's insertion watermark, and later inserts cannot enter. Self-service owns one process-local HMAC cursor codec whose fixed canonical frames bind method, subject IDs and revisions, exact state filter, process generation, watermark, and position: malformed syntax is rejected before handler work, unauthenticatable frames are invalid, and authenticated cross-boundary frames are stale.
 

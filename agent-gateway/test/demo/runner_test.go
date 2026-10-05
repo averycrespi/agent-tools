@@ -351,7 +351,9 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Equal(t, before, rows(c.get("mcp/invocations"), "items"), "background activity")
 		require.Equal(t, history, rows(c.get("http/traffic"), "items"), "background HTTP activity")
 		require.True(t, contentIs(c.call(explorer, "demo_workshop.add", object{"a": 40, "b": 2}), "42"))
-		require.Len(t, rows(c.get("mcp/invocations"), "items"), len(before)+1)
+		require.Eventually(t, func() bool {
+			return len(rows(c.get("mcp/invocations"), "items")) == len(before)+1
+		}, 3*time.Second, 10*time.Millisecond)
 		require.Equal(t, "call_rejected", text(c.call(reader, "demo_workshop.add", object{"a": 1, "b": 2}), "error", "data", "code"))
 		require.Equal(t, "downstream_failure", text(c.call(explorer, "demo_workshop.controlled_error", object{}), "error", "data", "code"))
 		require.True(t, contentIs(c.call(reader, "demo_library.lookup", object{"document": "welcome"}), documents["welcome"]))

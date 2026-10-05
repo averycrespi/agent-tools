@@ -123,24 +123,9 @@ func (store *Store) MutateAgentCredentialCandidate(
 	return store.mutate(ctx, &recovery, mutate)
 }
 
-// MutateInvocation is the bounded-wait exception for invocation admission and
-// synchronous terminal annotation only. stop fences acquisition, not settlement.
-func (store *Store) MutateInvocation(ctx context.Context, stop <-chan struct{}, mutate func(*sql.Tx) error) error {
-	ctx = store.mutationContext(ctx)
-	if err := store.observedAcquire(ctx, stop, true); err != nil {
-		return err
-	}
-	defer store.observedRelease(ctx, store.diagnosticStart())
-	if err := store.invocationWaitError(ctx, stop); err != nil {
-		store.mutationEvent(ctx, diagnostics.StorageReject, mutationCause(err), diagnostics.NoStage, 0)
-		return err
-	}
-	return store.mutateOwned(ctx, nil, mutate)
-}
-
 func (store *Store) mutate(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) error {
 	ctx = store.mutationContext(ctx)
-	if err := store.observedAcquire(ctx, nil, false); err != nil {
+	if err := store.observedAcquire(ctx); err != nil {
 		return err
 	}
 	defer store.observedRelease(ctx, store.diagnosticStart())

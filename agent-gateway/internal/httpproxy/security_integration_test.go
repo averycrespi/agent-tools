@@ -58,8 +58,12 @@ func TestIntegrationProxyAdmissionFailureAndPrincipalIsolation(t *testing.T) {
 	require.EqualValues(t, 1, calls.Load())
 	require.NoError(t, f.traffic.Close())
 	response = f.request(t, client, "GET", upstream.URL+"/", nil)
-	require.GreaterOrEqual(t, response.StatusCode, 400)
-	require.EqualValues(t, 1, calls.Load())
+	require.Equal(t, 200, response.StatusCode)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+	require.Equal(t, "ok", string(body))
+	require.EqualValues(t, 2, calls.Load(), "closed optional history cannot revoke valid authority")
 }
 
 func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) {
@@ -101,7 +105,11 @@ func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) 
 				require.NoError(t, err)
 				response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "GET"})
 				require.NoError(t, err)
-				require.Equal(t, 403, response.StatusCode)
+				expected := http.StatusForbidden
+				if mode == "key-loss" {
+					expected = http.StatusServiceUnavailable
+				}
+				require.Equal(t, expected, response.StatusCode)
 				require.NoError(t, response.Body.Close())
 				require.NoError(t, conn.Close())
 				require.Zero(t, connections.Load())

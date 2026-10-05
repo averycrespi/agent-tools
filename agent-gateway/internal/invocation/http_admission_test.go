@@ -1,7 +1,6 @@
 package invocation
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/netip"
@@ -13,16 +12,12 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
-	coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
-	traffic, _ := trafficFixture(t, nil, nil)
-	audits.traffic = traffic
+	c, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	policy := json.RawMessage(`{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"example.com","port":443},"methods":{"values":["GET"]},"path":{"kind":"segment_prefix","value":"/approved"}}}`)
 	grant, err := authority.PutHTTPGrant(t.Context(), "", "", authorization.HTTPGrantInput{PrincipalID: principal.ID, Policy: policy})
 	require.NoError(t, err)
@@ -31,9 +26,10 @@ func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
 	defer lease.Release()
 	identity, err := audits.PrepareIdentity()
 	require.NoError(t, err)
-	result, err := coordinator.AdmitHTTP(t.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/approved/observed-private-canary?token=query-private-canary", Method: "GET"}, httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}}, nil)
+	result, err := c.AdmitHTTP(t.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/approved/observed-private-canary?token=query-private-canary", Method: "GET"}, publicHTTPFacts(), nil)
 	require.NoError(t, err)
 	require.True(t, result.DispatchAuthorized)
+	defer result.Settle()
 	current, err := authority.GetPrincipal(t.Context(), principal.ID)
 	require.NoError(t, err)
 	allow := contract.HTTPDefaultAllow
@@ -42,6 +38,7 @@ func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
 	updated, err := authority.PutHTTPGrant(t.Context(), grant.ID, grant.Revision, authorization.HTTPGrantInput{PrincipalID: principal.ID, Policy: json.RawMessage(strings.ReplaceAll(string(policy), "/approved", "/changed"))})
 	require.NoError(t, err)
 	require.NoError(t, authority.DeleteHTTPGrant(t.Context(), updated.ID, updated.Revision))
+	waitTraffic(t, audits.traffic)
 	reader, err := NewReadService(audits, authority)
 	require.NoError(t, err)
 	item, err := reader.GetHTTP(t.Context(), identity.InvocationID)
@@ -49,136 +46,117 @@ func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
 	require.Len(t, item.Admission.Grants, 1)
 	require.Equal(t, contract.HTTPDefaultBlock, item.Admission.Default)
 	require.EqualValues(t, 1, item.Admission.Decision.DefaultRevision)
-	assert.Equal(t, grant.ID, item.Admission.Grants[0].Reference.ID)
-	assert.EqualValues(t, 1, item.Admission.Grants[0].Reference.Revision)
-	assert.Equal(t, "/approved", item.Admission.Grants[0].Policy.Request.Path.Value)
-	assert.Nil(t, item.Completion)
+	require.Equal(t, grant.ID, item.Admission.Grants[0].Reference.ID)
+	require.EqualValues(t, 1, item.Admission.Grants[0].Reference.Revision)
+	require.Equal(t, "/approved", item.Admission.Grants[0].Policy.Request.Path.Value)
+	require.Nil(t, item.Completion)
 	encoded, err := json.Marshal(item)
 	require.NoError(t, err)
 	for _, canary := range []string{"observed-private-canary", "query-private-canary", credential.Bearer} {
-		assert.NotContains(t, string(encoded), canary)
-		for _, path := range []string{traffic.path, traffic.path + "-wal"} {
-			raw, readErr := os.ReadFile(path)
-			if os.IsNotExist(readErr) {
+		require.NotContains(t, string(encoded), canary)
+		for _, path := range []string{audits.traffic.path, audits.traffic.path + "-wal"} {
+			raw, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
 				continue
 			}
-			require.NoError(t, readErr)
-			assert.NotContains(t, string(raw), canary)
+			require.NoError(t, err)
+			require.NotContains(t, string(raw), canary)
 		}
 	}
 }
 
-func TestHTTPReceiptAdmissionConfirmationRaces(t *testing.T) {
-	for _, mode := range []string{"allow", "revoke", "policy", "cancel", "drain", "lost acknowledgment", "malformed", "deny"} {
+func publicHTTPFacts() httppolicy.AddressFacts {
+	return httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}}
+}
+
+func TestHTTPOptionalRecordingNeverGrantsOrBlocksExecution(t *testing.T) {
+	for _, mode := range []string{"stalled", "full", "unavailable", "uncertain", "invalid capture", "deny", "malformed"} {
 		t.Run(mode, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-			defer cancel()
-			coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
-			current, err := authority.GetPrincipal(ctx, principal.ID)
-			require.NoError(t, err)
+			c, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 			if mode != "deny" {
 				allow := contract.HTTPDefaultAllow
-				current, err = authority.PatchPrincipal(ctx, principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: current.Revision, HTTPDefault: &allow})
+				_, err := authority.PatchPrincipal(t.Context(), principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: credential.Principal.Revision, HTTPDefault: &allow})
 				require.NoError(t, err)
 			}
 			entered, release := make(chan struct{}), make(chan struct{})
-			var once sync.Once
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
-			traffic, _ := trafficFixture(t, nil, func(point string) error {
-				if point == "before_begin" {
-					once.Do(func() {
-						close(entered)
-						select {
-						case <-release:
-						case <-ctx.Done():
-						}
-					})
+			var once sync.Once
+			traffic, _ := trafficFixture(t, func(config *TrafficConfig) {
+				if mode == "full" {
+					config.QueueRecords = 1
+					config.BatchRecords = 1
 				}
-				if point == "acknowledgment" && mode == "lost acknowledgment" {
-					return errors.New("uncertain acknowledgment")
+			}, func(point string) error {
+				if point == "before_begin" {
+					once.Do(func() { close(entered); <-release })
+				}
+				if point == "acknowledgment" && mode == "uncertain" {
+					return errors.New("uncertain history")
 				}
 				return nil
 			})
 			audits.traffic = traffic
-			lease, err := authority.Authenticate(ctx, credential.Bearer)
+			if mode == "unavailable" || mode == "deny" {
+				traffic.BeginDrain()
+			}
+			if mode == "full" {
+				require.NotNil(t, traffic.ObserveMCP(trafficPrepared(77)))
+				<-entered
+			}
+			lease, err := authority.Authenticate(t.Context(), credential.Bearer)
 			require.NoError(t, err)
 			defer lease.Release()
 			identity, err := audits.PrepareIdentity()
 			require.NoError(t, err)
-			input := authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/%70rivate-canary//%2f?token=query-canary&token=+%00", Method: "GET"}
+			if mode == "invalid capture" {
+				identity = PreparedAdmission{}
+			}
+			input := authorization.HTTPAccessInput{PrincipalID: principal.ID, URL: "https://example.com/private-canary?token=query-canary", Method: "GET"}
 			if mode == "malformed" {
 				input.URL = "https://example.com/%5csecret-canary"
 			}
-			facts := httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}}
-			resultCh := make(chan HTTPAdmissionResult, 1)
-			errCh := make(chan error, 1)
-			go func() {
-				result, err := coordinator.AdmitHTTP(ctx, lease, identity, input, facts, nil)
-				resultCh <- result
-				errCh <- err
-			}()
-			select {
-			case <-entered:
-			case <-ctx.Done():
-				t.Fatal("traffic writer did not enter")
+			type outcome struct {
+				result HTTPAdmissionResult
+				err    error
 			}
-			// These operations must settle while persistence is held: no authority is
-			// retained across the writer barrier.
-			switch mode {
-			case "revoke":
-				_, err = authority.RevokeCredential(ctx, principal.ID, current.Revision)
-				require.NoError(t, err)
-			case "policy":
-				block := contract.HTTPDefaultBlock
-				_, err = authority.PatchPrincipal(ctx, principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: current.Revision, HTTPDefault: &block})
-				require.NoError(t, err)
-			case "cancel":
-				cancel()
-			case "drain":
-				traffic.BeginDrain()
+			done := make(chan outcome, 1)
+			go func() {
+				r, e := c.AdmitHTTP(t.Context(), lease, identity, input, publicHTTPFacts(), nil)
+				done <- outcome{r, e}
+			}()
+			var got outcome
+			select {
+			case got = <-done:
+			case <-time.After(time.Second):
+				t.Fatal("HTTP admission waited for history")
+			}
+			require.NoError(t, got.err)
+			allowed := mode != "deny" && mode != "malformed"
+			require.Equal(t, allowed, got.result.DispatchAuthorized)
+			if allowed {
+				got.result.Settle()
+				got.result.Settle()
+				terminal := make(chan error, 1)
+				go func() { terminal <- c.CompleteHTTP(t.Context(), got.result, httpTrafficCompletion()) }()
+				select {
+				case <-terminal:
+				case <-time.After(time.Second):
+					t.Fatal("HTTP completion waited for history")
+				}
 			}
 			unblock()
-			result, err := <-resultCh, <-errCh
-			dispatched := 0
-			if result.DispatchAuthorized {
-				dispatched++
-				require.NoError(t, coordinator.CompleteHTTP(t.Context(), result, httpTrafficCompletion()))
+			waitTraffic(t, traffic)
+			if mode == "uncertain" {
+				require.False(t, traffic.Healthy())
 			}
-			if mode == "allow" {
-				require.NoError(t, err)
-				assert.Equal(t, 1, dispatched)
-			} else {
-				assert.Zero(t, dispatched)
-			}
-			if mode == "malformed" || mode == "deny" {
-				require.NoError(t, err)
-				require.True(t, result.Committed)
-			}
-			if mode == "lost acknowledgment" {
-				require.False(t, result.Committed)
-				require.Error(t, err)
-				require.Equal(t, diagnostics.ProxyTraffic, result.FailureStage)
-				require.Equal(t, diagnostics.Unavailable, result.FailureCause)
-			}
-			if mode == "policy" || mode == "revoke" {
-				require.Equal(t, diagnostics.ProxyConfirmation, result.FailureStage)
-				require.Equal(t, diagnostics.Unavailable, result.FailureCause)
-			}
-			if err == nil {
-				require.Equal(t, diagnostics.NoStage, result.FailureStage)
-				require.Equal(t, diagnostics.None, result.FailureCause)
-			}
-			history, readErr := traffic.HTTPHistory(t.Context(), 0, 10)
-			require.NoError(t, readErr)
-			if result.Committed {
-				require.Len(t, history.Records, 1)
-			}
+			history, err := traffic.HTTPHistory(t.Context(), 0, 10)
+			require.NoError(t, err)
 			for _, record := range history.Records {
-				raw, encodeErr := encodeHTTPAdmission(record.Admission)
-				require.NoError(t, encodeErr)
+				raw, err := encodeHTTPAdmission(record.Admission)
+				require.NoError(t, err)
 				for _, canary := range []string{"private-canary", "query-canary", "secret-canary"} {
-					assert.False(t, strings.Contains(raw, canary))
+					require.NotContains(t, raw, canary)
 				}
 			}
 		})

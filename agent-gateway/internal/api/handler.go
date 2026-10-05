@@ -105,6 +105,7 @@ type Options struct {
 	Principals       PrincipalService
 	GrantRequests    GrantRequestService
 	Invocations      InvocationReader
+	HistoryExport    HistoryExporter
 	GitTraffic       GitTrafficReader
 	HTTPTraffic      HTTPTrafficReader
 	RecordedActivity func() contract.RecordedActivitySummary
@@ -142,6 +143,7 @@ type Handler struct {
 	collections             AuthorizationCollectionService
 	grantRequests           GrantRequestService
 	invocations             InvocationReader
+	history                 HistoryExporter
 	gitTraffic              GitTrafficReader
 	httpTraffic             HTTPTrafficReader
 	recordedActivity        func() contract.RecordedActivitySummary
@@ -207,7 +209,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -414,6 +416,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
+	case path == "/api/v2/history/export" && handler.history != nil:
+		handler.historyExport(writer, request)
 	case path == "/api/v2/mcp/invocations" && handler.invocations != nil:
 		handler.invocationsCollection(writer, request)
 	case strings.HasPrefix(path, "/api/v2/mcp/invocations/") && handler.invocations != nil:

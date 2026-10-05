@@ -43,7 +43,7 @@ func TestIntegrationRejectionDiagnosticsPersistAndRead(t *testing.T) {
 		{"target", "authority_mismatch", func(r *http.Request) { r.Host = "other.example.com" }},
 		{"target", "invalid_connect_target", func(r *http.Request) { r.Method = "CONNECT"; r.RequestURI = "host-secret/path-secret" }},
 	}
-	for _, tt := range tests {
+	for index, tt := range tests {
 		t.Run(tt.reason, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "http://example.com/path-secret?query-secret", strings.NewReader("body-secret"))
 			req.ContentLength = 0
@@ -53,6 +53,7 @@ func TestIntegrationRejectionDiagnosticsPersistAndRead(t *testing.T) {
 			response := httptest.NewRecorder()
 			f.engine.handle(response, req, nil)
 			require.Equal(t, 400, response.Code)
+			f.waitHTTPHistory(t, index+1)
 			page, err := reader.ListHTTP(t.Context(), contract.HTTPTrafficQuery{Limit: 1})
 			require.NoError(t, err)
 			require.Len(t, page.Items, 1)
@@ -107,7 +108,7 @@ func TestIntegrationInnerRequestFormDiagnostics(t *testing.T) {
 	f := fixture(t)
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("rejected request reached upstream") }))
 	defer upstream.Close()
-	for _, tt := range []struct{ line, header, reason string }{
+	for index, tt := range []struct{ line, header, reason string }{
 		{"CONNECT example.com:443", "", "nested_connect"},
 		{"GET https://example.com/path-secret", "", "origin_form_required"},
 		{"GET /path-secret", "Proxy-Authorization: inner-secret\r\n", "inner_proxy_authorization"},
@@ -120,8 +121,7 @@ func TestIntegrationInnerRequestFormDiagnostics(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, 400, response.StatusCode)
 			require.NoError(t, response.Body.Close())
-			history, err := f.traffic.HTTPHistory(t.Context(), 0, 100)
-			require.NoError(t, err)
+			history := f.waitHTTPHistory(t, 2*(index+1))
 			inner := history.Records[len(history.Records)-1].Admission
 			parent := history.Records[len(history.Records)-2].Admission
 			require.Equal(t, tt.reason, inner.Rejection.Reason)
@@ -157,8 +157,7 @@ func TestIntegrationConcurrentH2RejectionsUseActualConnect(t *testing.T) {
 	reasons := []string{"forbidden_path", "inner_proxy_authorization", "invalid_headers"}
 	for index, client := range clients {
 		connection := client.intercept(t, upstream.URL, "h2")
-		history, err := f.traffic.HTTPHistory(t.Context(), 0, 100)
-		require.NoError(t, err)
+		history := f.waitHTTPHistory(t, index+1)
 		parent := history.Records[len(history.Records)-1].Admission
 		expectedParents[parent.ID] = expected{parent.ID, client.credential.Principal.ID, reasons[index]}
 		transport := &http2.Transport{}
@@ -221,8 +220,7 @@ func TestIntegrationConcurrentH2RejectionsUseActualConnect(t *testing.T) {
 	for err := range failures {
 		require.NoError(t, err)
 	}
-	history, err := f.traffic.HTTPHistory(t.Context(), 0, 100)
-	require.NoError(t, err)
+	history := f.waitHTTPHistory(t, 21)
 	require.Len(t, history.Records, 21)
 	counts := make(map[string]int)
 	for _, record := range history.Records {

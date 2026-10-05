@@ -16,7 +16,8 @@ func TestCommandDescriptionsFollowConventions(t *testing.T) {
 		"backup": "Manage backups", "completion": "Generate shell completion scripts", "doctor": "Check setup and diagnose problems",
 		"git": "Manage Git configuration and access", "help": "Show command help", "http": "Manage HTTP access", "init": "Initialize or complete local setup",
 		"maintenance": "Inspect and recover stopped installations", "mcp": "Manage MCP servers, tools, and access",
-		"serve": "Run Gateway in the foreground", "service": "Manage the macOS background service",
+		"history": "View optional traffic history",
+		"serve":   "Run Gateway in the foreground", "service": "Manage the macOS background service",
 	}
 	for _, command := range root.Commands() {
 		require.Equal(t, rootDescriptions[command.Name()], command.Short, command.CommandPath())

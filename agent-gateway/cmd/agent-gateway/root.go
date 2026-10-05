@@ -277,7 +277,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
 	})
 	defer unsubscribeEvents()
-	backupManager, err := backup.New(backup.Options{Traffic: runtime.Traffic(), Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
+	backupManager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
 	if err != nil {
 		return false, err
 	}
@@ -304,6 +304,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Servers:       serverRepository,
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
+		HistoryExport: controlAPI.Invocations,
 		Invocations:   controlAPI.Invocations,
 		HTTPTraffic:   controlAPI.HTTPTraffic,
 		GitTraffic:    controlAPI.GitTraffic,
@@ -353,11 +354,14 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 				mcpWork, mcpStreams, legacySessions,
 			)
 			trafficStatus := runtime.Traffic().Status(context.Background())
-			trafficStatus.Ready = trafficStatus.Ready && !store.Latched() && !draining.Load()
 			status.Traffic = &trafficStatus
+			diagnosticStatus := dependencies.diagnostics.Status()
+			status.Diagnostics = &diagnosticStatus
+			observations := runtime.Observations()
+			status.Observations = &observations
 			status.Endpoints = controlEndpointsStatus(authority, ready.Load(), runtimeStarted.Load(), store.Latched(), draining.Load(), status.Protocols.AgentAuth, trafficStatus)
 			proxyStatus := runtime.HTTPProxyStatus()
-			proxyStatus.Ready = proxyStatus.Ready && trafficStatus.Ready
+			proxyStatus.Ready = proxyStatus.Ready && !store.Latched() && !draining.Load()
 			status.HTTPProxy = &proxyStatus
 			status.Backup = backupManager.Status()
 			status.Limits.BackupWork = backupManager.WorkStatus()
@@ -596,7 +600,7 @@ func baseSystemStatus(
 }
 
 // These are admission capabilities, not proof of client reachability or tool health.
-func controlEndpointsStatus(authority string, serving, started, latched, draining bool, auth contract.AgentAuthMode, traffic contract.TrafficStatus) *contract.ControlEndpointsStatus {
+func controlEndpointsStatus(authority string, serving, started, latched, draining bool, auth contract.AgentAuthMode, _ contract.TrafficStatus) *contract.ControlEndpointsStatus {
 	status := &contract.ControlEndpointsStatus{Authority: authority, API: contract.EndpointStarting, MCP: contract.EndpointStarting}
 	if draining {
 		status.API, status.MCP = contract.EndpointDraining, contract.EndpointDraining
@@ -615,7 +619,7 @@ func controlEndpointsStatus(authority string, serving, started, latched, drainin
 	switch {
 	case auth == contract.AgentAuthDenyAll:
 		status.MCP = contract.EndpointDisabled
-	case latched || !traffic.Ready || traffic.Faulted:
+	case latched:
 		status.MCP = contract.EndpointUnavailable
 	default:
 		status.MCP = contract.EndpointReady
@@ -798,6 +802,7 @@ type recoveryResult struct {
 	InstallationID string `json:"installation_id"`
 	Revision       string `json:"revision"`
 	BackupID       string `json:"backup_id,omitempty"`
+	History        string `json:"history,omitempty"`
 }
 
 func offlineUsageProblem(title, usage string) *controlclient.Problem {

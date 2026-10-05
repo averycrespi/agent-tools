@@ -1,7 +1,6 @@
 package invocation
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -19,7 +18,7 @@ func gitTrafficAdmission(id int) contract.GitTrafficAdmission {
 func gitTrafficCompletion() contract.GitTrafficCompletion {
 	return contract.GitTrafficCompletion{CompletedAt: trafficCompletion().CompletedAt, Outcome: "outcome_unknown", Status: 200, TransferComplete: true}
 }
-func TestGitTrafficAcknowledgmentFaultsNeverDispatch(t *testing.T) {
+func TestGitTrafficUncertaintyNeverReplays(t *testing.T) {
 	for _, point := range []string{"before_begin", "statement", "commit", "rollback", "acknowledgment"} {
 		t.Run(point, func(t *testing.T) {
 			s, owner := trafficFixture(t, nil, func(at string) error {
@@ -28,10 +27,8 @@ func TestGitTrafficAcknowledgmentFaultsNeverDispatch(t *testing.T) {
 				}
 				return nil
 			})
-			receipt, err := s.AdmitGit(t.Context(), gitTrafficAdmission(1))
-			require.ErrorIs(t, err, ErrTrafficFault)
-			require.Nil(t, receipt)
-			require.False(t, s.Confirm(t.Context(), receipt))
+			require.NotNil(t, s.ObserveGit(gitTrafficAdmission(1)))
+			waitTraffic(t, s)
 			require.False(t, s.Healthy())
 			history, err := s.GitHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
@@ -44,7 +41,6 @@ func TestGitTrafficAcknowledgmentFaultsNeverDispatch(t *testing.T) {
 			reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), s.config)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, reopened.Close()) }()
-			require.False(t, reopened.Confirm(t.Context(), receipt))
 			history, err = reopened.GitHistory(t.Context(), 0, 10)
 			require.NoError(t, err)
 			require.Len(t, history.Records, expected)
@@ -54,41 +50,27 @@ func TestGitTrafficAcknowledgmentFaultsNeverDispatch(t *testing.T) {
 		})
 	}
 }
-func TestGitTrafficSharedRetentionAndOriginalCancellation(t *testing.T) {
+func TestGitTrafficSharedRetention(t *testing.T) {
 	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 2; c.BatchRecords = 1 }, nil)
-	first, err := s.AdmitGit(t.Context(), gitTrafficAdmission(1))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), first))
-	second, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(2))
-	require.NoError(t, err)
-	s.Release(second)
-	third, err := s.Admit(t.Context(), trafficPrepared(3))
-	require.NoError(t, err)
-	s.Release(third)
+	first := recordGit(t, s, gitTrafficAdmission(1))
+	recordHTTP(t, s, httpTrafficAdmission(2))
+	recordMCP(t, s, trafficPrepared(3))
+	recordGitCompletion(t, s, first, gitTrafficCompletion())
 	hh, err := s.HTTPHistory(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Empty(t, hh.Records)
-	require.NoError(t, s.CompleteGit(t.Context(), first, gitTrafficCompletion()))
 	h, err := s.GitHistory(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, h.Records, 1)
-	require.Equal(t, int64(3), h.HighWater)
-	require.Equal(t, int64(1), h.Pruning)
+	require.EqualValues(t, 4, h.HighWater)
+	require.EqualValues(t, 2, h.Pruning)
 	require.Equal(t, "outcome_unknown", h.Records[0].Completion.Outcome)
-	ctx, cancel := context.WithCancel(t.Context())
-	receipt, err := s.AdmitGit(ctx, gitTrafficAdmission(4))
-	require.NoError(t, err)
-	cancel()
-	require.False(t, s.Confirm(context.Background(), receipt))
-	s.Release(receipt)
 }
 func TestGitTrafficLateRowValidation(t *testing.T) {
 	for _, mode := range []string{"revision", "unknown", "duplicate", "charge", "success", "collision"} {
 		t.Run(mode, func(t *testing.T) {
 			s, owner := trafficFixture(t, nil, nil)
-			first, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(1))
-			require.NoError(t, err)
-			s.Release(first)
+			recordHTTP(t, s, httpTrafficAdmission(1))
 			a := gitTrafficAdmission(2)
 			if mode == "collision" {
 				a.ID = invocationID(1)
@@ -129,19 +111,11 @@ func TestGitTrafficPairedRestorePreservesAllDomains(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, control.Close()) }()
 	require.NoError(t, control.SelectTraffic(t.Context(), "", invocationID(90)))
-	m, err := s.Admit(t.Context(), trafficPrepared(1))
-	require.NoError(t, err)
-	s.Release(m)
-	h, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(2))
-	require.NoError(t, err)
-	s.Release(h)
-	g, err := s.AdmitGit(t.Context(), gitTrafficAdmission(3))
-	require.NoError(t, err)
-	require.True(t, s.Confirm(t.Context(), g))
-	require.NoError(t, s.CompleteGit(t.Context(), g, gitTrafficCompletion()))
-	missing, err := s.AdmitGit(t.Context(), gitTrafficAdmission(4))
-	require.NoError(t, err)
-	s.Release(missing)
+	recordMCP(t, s, trafficPrepared(1))
+	recordHTTP(t, s, httpTrafficAdmission(2))
+	g := recordGit(t, s, gitTrafficAdmission(3))
+	recordGitCompletion(t, s, g, gitTrafficCompletion())
+	recordGit(t, s, gitTrafficAdmission(4))
 	root := t.TempDir()
 	source := filepath.Join(root, "traffic.db")
 	s.writerGate.Lock()
@@ -161,7 +135,6 @@ func TestGitTrafficPairedRestorePreservesAllDomains(t *testing.T) {
 	require.Equal(t, gitTrafficCompletion(), *history.Records[0].Completion)
 	require.Nil(t, history.Records[1].Completion)
 	require.Equal(t, int64(4), history.HighWater)
-	require.Empty(t, restored.pins)
 	mh, err := restored.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, mh.Records, 1)
@@ -171,10 +144,8 @@ func TestGitTrafficPairedRestorePreservesAllDomains(t *testing.T) {
 }
 func TestGitTrafficSchemaTwoUpgrade(t *testing.T) {
 	s, owner := trafficFixture(t, nil, nil)
-	receipt, err := s.AdmitHTTP(t.Context(), httpTrafficAdmission(1))
-	require.NoError(t, err)
-	s.Release(receipt)
-	_, err = s.db.ExecContext(t.Context(), `DROP TABLE git_traffic; PRAGMA user_version=2`)
+	recordHTTP(t, s, httpTrafficAdmission(1))
+	_, err := s.db.ExecContext(t.Context(), `DROP TABLE git_traffic; PRAGMA user_version=2`)
 	require.NoError(t, err)
 	require.NoError(t, s.Close())
 	require.NoError(t, VerifyTrafficFile(t.Context(), s.path, invocationTestInstallationID, invocationID(90), s.config))

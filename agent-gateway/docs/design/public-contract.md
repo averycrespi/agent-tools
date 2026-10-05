@@ -23,7 +23,7 @@ HTTP grant/default resources below persist this dialect without adding System li
 
 ### Diagnostic event contract
 
-`DiagnosticEvents`, `DiagnosticLevels`, and the `DiagnosticQueueRecords`, `DiagnosticRecordBytes`, and `DiagnosticFlushDeadline` constants own the version-one serve diagnostic inventory and bounds. Each JSON diagnostic has `schema_version`, UTC `time`, `level`, fixed `event`, and a generated `process_id`; only its event-specific typed subset may accompany these. Each definition separates required and optional fields and lists exact causes, durability stages, and conditional requirements. Execution start/result and terminal annotation require both call and acknowledged invocation IDs; successful admission requires an invocation ID, whereas unavailable/stopped pre-ack admission forbids it. Authority/storage observations require mutation IDs and the exact owner limit; non-foreign storage writers additionally require call correlation. Wait events have no cause or duration, and durability/latch events require a closed nonempty stage. Invalid and unknown data is omitted by dropping the record, never generic serialization or regex-only redaction. The [administrative control-plane chapter](administrative-control-plane.md#serve-diagnostics) owns delivery and lifecycle. These lossy stderr observations do not add HTTP/MCP fields, change public problem representations, or extend durable audit schemas.
+`DiagnosticEvents`, `DiagnosticLevels`, and the `DiagnosticQueueRecords`, `DiagnosticRecordBytes`, and `DiagnosticFlushDeadline` constants own the version-one serve diagnostic inventory and bounds. Each JSON diagnostic has `schema_version`, UTC `time`, `level`, fixed `event`, and a generated `process_id`; only its event-specific typed subset may accompany these. Each definition separates required and optional fields and lists exact causes, durability stages, and conditional requirements. Execution start/result and terminal annotation require both call and optional-history correlation IDs when emitted; successful admission requires an invocation ID, whereas unavailable/stopped admission forbids it. Events requiring missing capture identity are dropped, never execution. Admission success means request-local authorization, and terminal annotation success means enqueue acceptance, not persisted history. Authority/storage observations require mutation IDs and the exact owner limit; non-foreign storage writers additionally require call correlation. Wait events have no cause or duration, and durability/latch events require a closed nonempty stage. Invalid and unknown data is omitted by dropping the record, never generic serialization or regex-only redaction. The [administrative control-plane chapter](administrative-control-plane.md#serve-diagnostics) owns delivery and lifecycle. These lossy stderr observations do not add HTTP/MCP fields, change public problem representations, or extend durable audit schemas.
 
 ## Route ownership
 
@@ -83,6 +83,26 @@ MCP invocation reads have moved from `/api/v2/invocations` and its item resource
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned separately snapshotted principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
 
+## Optional history export
+
+`GET` on `/api/v2/history/export` uses administrator bearer/session authority, bodyless
+`no-store` reads (`HistoryExportQuery` → `HistoryExport`). Singleton query members
+are canonical nonnegative int64 `after_sequence` (default 0) and `limit` (default/max
+256, minimum 1). Unknown, empty, duplicate or noncanonical members refuse.
+
+Format 1 export returns installation/generation, UTC capture time, decimal-string
+high-water/pruning and after/next sequence, retained count, `truncated`, protocol-tagged
+records, `complete_traffic_audit:false`, and explicit absence semantics. The response
+contains at most 256 aggregate records and 900 KiB from one transaction. A subsequent
+request is a new snapshot, not a frozen continuation. Missing observations never prove
+nonexecution; missing completion remains unknown. `history_unavailable` (503) means
+optional history cannot be read; `history_busy` (503) means reader capacity or deadline
+refusal. Neither is a control-security failure. See [storage and recovery](storage-and-recovery.md#independent-history-export).
+
+New backup representations additionally carry `history:"omitted"` for distinct format-3
+security artifacts. Legacy representations omit it; full artifact reads retain their
+original verification requirements. Inventory remains metadata-only.
+
 ## Recorded activity summary
 
 `GET /api/v2/recorded-activity` is an authenticated, bodyless, queryless, read-only `no-store` resource (`None` → `RecordedActivitySummary`). It observes bounded process-local acknowledged traffic-write counts; it neither scans retained history nor calls downstream services. A missing observer returns unavailable, never successful empty counts. Session, Origin, work-admission and shutdown rules remain with the existing administration boundary.
@@ -91,7 +111,7 @@ The closed representation carries `epoch`, `collection_start`, `as_of`, `window_
 
 `counts` has exactly `mcp`, `http_request`, `connect`, and `http_unclassified`. Dedicated Git admissions and completions are outside this summary, not MCP or ordinary HTTP events. Each contains `admissions` with fixed counters `allow`, `deny`, `block`, `invalid_params`, `unknown_tool`, `invalid_arguments`, `authorization_unavailable`, `invalid_request`, `interception_selected`; and independent `completions` with `succeeded`, `prestart_failure`, `downstream_failure`, `upstream_failure`, `outcome_unknown`. Individual counters are nonnegative safe JSON integers, at most 2^53−1. Inapplicable fixed dimensions remain zero only within observed coverage. Invalid HTTP evidence lacking a canonical target remains unclassified, not guessed as request or CONNECT. A CONNECT interception is an admission selection, not a completion; inner requests have their own evidence.
 
-Counters advance once at the existing writer's final acknowledged settlement, after its admission cancellation fence. Admissions and terminal writes are separate event-time populations. Failed or uncertain persistence contributes nothing even if SQL is readable. Known failure completions include prestart/downstream/upstream failure, not policy refusals, explicit unknowns, or inferred missing completions. HTTP status 200 does not establish success. Subtracting completions from admissions is not in-flight work, and zero failures does not establish success, health, downstream reachability, effective access or safe replay. No identity, destination, path, arguments, bodies, status-code dimension, arbitrary labels, durable history, latency or administrative-mutation metrics enter this representation. See [aggregation ownership](invocation-and-ingress.md#process-local-recorded-activity).
+Counters advance at the writer's successful commit settlement for new initial facts and first terminal updates. Self-contained terminal insertion can contribute both; duplicate/late observations do not recount unchanged facts. Admissions and terminal writes are separate event-time populations. Failed or uncertain persistence contributes nothing even if SQL is readable. Known failure completions include prestart/downstream/upstream failure, not policy refusals, explicit unknowns, or inferred missing completions. HTTP status 200 does not establish success. Subtracting completions from admissions is not in-flight work, and zero failures does not establish success, health, downstream reachability, effective access or safe replay. No identity, destination, path, arguments, bodies, status-code dimension, arbitrary labels, durable history, latency or administrative-mutation metrics enter this representation. See [aggregation ownership](invocation-and-ingress.md#process-local-recorded-activity).
 
 ## HTTP traffic history
 
@@ -313,6 +333,46 @@ authority. Control readiness and latch remain independent; a traffic-only fault
 does not globally disable healthy administrative mutations. History item/list
 representations, routes, IDs, filters and one-shot CLI behavior remain unchanged.
 
+### Independent observation additions
+
+`SystemStatus` adds optional `diagnostics` and `observations` objects, present in
+current production. Bundled clients strictly validate their closed fields; absence
+in an older producer is unavailable, not an observed zero. This is an additive
+status cutover, not a change to history items, queries or recorded-activity buckets.
+
+`diagnostics` contains `state` (ready/writing/pressure/failed/unavailable), `epoch`,
+`accepted`, `written`, `dropped`, `invalid`, `write_failures`, `queue_records`,
+`queue_bytes`, `queue_limit`, `writing`, nullable `last_successful_write`, and
+`overflow`. Queue bytes are conservative fixed 4 KiB reservations per ordinary
+queued record, excluding the one bounded in-flight record and reserved terminal.
+Accepted/written count ordinary records only; last successful write includes loss
+summaries and terminal output. A pending native Write is not known failed or cancelled.
+
+`traffic` additionally contains `delivery`, `database_measurement`,
+`wal_measurement`, `free_space_measurement`, `pressure_reason`, and
+`accounting_available`. Each measurement is exactly `{state,bytes}`: available has
+a nonnegative integer, unavailable has null, and only WAL may be absent with null.
+Legacy numeric byte/pruning members remain for compatibility, but cannot be used
+when their associated measurement/accounting is unavailable. Delivery fields are
+`accepted`, `acknowledged`, `discarded`, `queue_records`, `queue_bytes`,
+`completion_records`, `queue_record_limit`, `queue_byte_limit`. Counts describe
+submissions, not rows; discarded includes both prequeue refusal and accepted losses.
+Pressure reasons are none, queue_capacity, checkpoint_reader, checkpoint_unavailable,
+budget_reservation, measurement_unavailable, low_space and history_unavailable.
+No missing measurement grants execution or storage authority.
+
+`observations` contains `epoch`, `started_at`, `coverage` (owner_boundaries or
+unavailable), `overflow`, and four fixed `protocols` entries ordered mcp/http/connect/git.
+Each entry has `protocol`, `requests`, `executions`, five `results` counters ordered
+succeeded/prestart_failure/failed/unknown/nonmutation, three `git_reports` counters
+ordered upstream-reported success/failure/partial, and a 3-by-6 `latency` array.
+Stages and disjoint millisecond bounds, coverage and population distinctions are
+normative in [execution observations](invocation-and-ingress.md#process-local-execution-observations).
+Every cumulative counter saturates at 2^53-1; process restart discards observations.
+History delivery shares the process observation epoch; historical generation is
+not an execution epoch. Snapshot fields are observations, not an atomic barrier
+across independent owners, and no cross-field subtraction establishes active work.
+
 ## Optional HTTP proxy status
 
 `http_proxy` is optional for older status producers and present in production.
@@ -321,7 +381,8 @@ Its closed fields are `enabled`, `ready`, `ca_ready`, `connections`, `work`,
 objects use `{in_use,limit,saturated}`; counters are nonnegative. Disabled HTTP
 reports false readiness and zero occupancy. `ca_ready` attests loaded process-local
 signing capability and certificate validity, not native persistence or client trust.
-Readiness also requires healthy traffic/control and open lifecycle admission.
+Readiness also requires healthy control authority and open lifecycle admission;
+optional history and diagnostic delivery cannot close serving readiness.
 No secret, request destination, path or principal identity appears in this status.
 
 ## Control-plane audit reads
@@ -392,6 +453,8 @@ Problems normally have exactly `status`, `code`, and `title`. The `invalid_serve
 |    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                             |
 |    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                        |
 |    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                             |
+|    503 | `history_unavailable`                   | Optional history is unavailable; security operations remain independent.                    |
+|    503 | `history_busy`                          | Optional history export capacity or deadline was exceeded.                                  |
 
 ## Fixed numeric limits
 
@@ -415,7 +478,6 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `http_admin`                                  |         16 |
 | `http_health`                                 |          8 |
 | `authority_work`                              |         32 |
-| `invocation_mutation_waiters`                 |         31 |
 | `mcp_work`                                    |         32 |
 | `mcp_streams`                                 |         32 |
 | `admin_sessions`                              |        128 |
@@ -525,15 +587,15 @@ Credential, backup, server/catalog, and principal/grant collection pages default
 
 ### Deadlines and defaults
 
-Fixed service deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, authority gate wait one second (within 32 outstanding authority operations, shortened by caller cancellation/deadline), legacy control-store invocation acquisition wait 250 ms (one active storage owner and up to 31 FIFO invocation waiters, shortened by caller cancellation/deadline or invocation drain), SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. Server coordination adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
+Fixed service deadlines are: header read five seconds, API handler 30 seconds, SQLite busy two seconds, authority gate wait one second (within 32 outstanding authority operations, shortened by caller cancellation/deadline), SSE keepalive and blocked write 15 seconds, legacy idle 30 minutes, legacy absolute eight hours, graceful shutdown 10 seconds, and idempotency retention 24 hours. Server coordination adds a five-minute OAuth flow lifetime; connect/OAuth/initialization deadlines of 10/15/30 seconds; catalog page/traversal deadlines of 15/60 seconds; a maximum downstream call deadline of 60 seconds; stdio graceful/forced stop windows of 3/2 seconds; a five-minute catalog poll interval with at most 30 seconds jitter; and reconciliation retry delays of 1, 2, 4, 8, 16, 32, then 60 seconds.
 
-The invocation-storage deadline bounds acquisition only, before intent/SQL, not active mutation settlement. Full waiting capacity rejects immediately; foreign ordinary and recovery-bearing writers remain nonqueueing even during reserved FIFO handoff. This control-storage FIFO is a legacy migration/test seam, not production traffic admission. Production MCP admission releases the authority gate and control read before waiting for traffic persistence, then reacquires authority to confirm the unchanged binding and policy after acknowledgment; see [admission and execution](invocation-and-ingress.md#admission-and-execution). The internal capacity, expiry, cancellation/drain, and latch distinctions do not add public MCP errors: unacknowledged admission remains `audit_unavailable` without an invocation ID, and best-effort terminal failure cannot replace the live result. No fairness guarantee applies to nonqueueing foreign writers.
+Control storage has one actual nonqueueing mutation owner; the legacy invocation FIFO and waiter limit are retired. Request-local MCP/HTTP/Git admission does not wait for history persistence; see [admission and execution](invocation-and-ingress.md#admission-and-execution). Authority failures remain fail closed, while optional capture loss never changes a valid execution or live result. MCP error invocation IDs are optional correlation, not acknowledgment. `call_rejected` / `authorization_unavailable` reports unavailable authority; the legacy `audit_unavailable` codec fallback is not a runtime history gate. No fairness guarantee applies to nonqueueing writers.
 
 ## Resource representations and mechanics
 
 `AdminCredential` is exactly `{id,fingerprint,created_at,expires_at,non_expiring,status,revision}`; its creation form adds one-time `bearer`. Credential status is the closed set `active`, `revoked`, or `expired`. `Backup` is exactly `{id,created_at,installation_id,schema_version,source_revision,size_bytes,sha256}`. Collection envelopes and defaults are declared in the normalized collection contract below; filter presence never changes them.
 
-`SystemStatus` has required members `{process,sqlite,keyring,limits,backup,protocols}` and optional `traffic`, `http_proxy` and `endpoints` members. Traffic and proxy use the closed shapes defined above. `endpoints` is exactly `{authority,api,mcp}`: the shared numeric-loopback control authority and backend-owned admission states. API is `starting`, `ready`, `read_only` (control storage latched), or `draining`; MCP is `starting`, `ready`, `disabled` (deny-all agent authentication), `unavailable` (control or traffic storage blocks dispatch), or `draining`. API readiness follows the serving lifecycle independently of traffic storage; MCP additionally requires completed runtime start, principal authentication capability and ready traffic storage. Capacity pressure alone is not endpoint outage. These states do not qualify client reachability, any particular credential or downstream server/tool. Older responses may omit endpoints; clients show Not reported rather than infer readiness. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`.
+`SystemStatus` has required members `{process,sqlite,keyring,limits,backup,protocols}` and optional `traffic`, `http_proxy` and `endpoints` members. Traffic and proxy use the closed shapes defined above. `endpoints` is exactly `{authority,api,mcp}`: the shared numeric-loopback control authority and backend-owned admission states. API is `starting`, `ready`, `read_only` (control storage latched), or `draining`; MCP is `starting`, `ready`, `disabled` (deny-all agent authentication), `unavailable` (control authority blocks dispatch), or `draining`. API readiness follows the serving lifecycle independently of traffic storage; MCP additionally requires completed runtime start, principal authentication capability and healthy control authority. Isolated traffic-history unavailability does not make either endpoint unavailable. Capacity pressure alone is not endpoint outage. These states do not qualify client reachability, any particular credential or downstream server/tool. Older responses may omit endpoints; clients show Not reported rather than infer readiness. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`.
 
 The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `server_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, `grants`, `grant_requests`, and `grant_request_evidence_bytes`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports `principal_credentials` from the same composed dependency bundle that supplies its authenticator and discovery service.
 

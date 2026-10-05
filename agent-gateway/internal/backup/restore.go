@@ -36,13 +36,15 @@ const (
 )
 
 type RestoreOptions struct {
-	Root     string
-	BackupID string
-	Sink     admin.SecretSink
-	Clock    admin.Clock
-	Entropy  io.Reader
-	Before   storage.StoppedApproval
-	fault    func(restoreFaultPoint) error
+	Root         string
+	BackupID     string
+	SecurityOnly bool
+	Sink         admin.SecretSink
+	Clock        admin.Clock
+	Entropy      io.Reader
+	Before       storage.StoppedApproval
+	fault        func(restoreFaultPoint) error
+	reserve      func(string, int64) (func(), error)
 }
 
 // Restore validates and rekeys one complete backup generation while holding stopped-process ownership.
@@ -57,11 +59,18 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if options.Sink == nil || options.Clock == nil || options.Entropy == nil || !backupIDPattern.MatchString(options.BackupID) {
 		return storage.Identity{}, ErrInvalidArtifact
 	}
-	ownership, err := gatewaypaths.AcquireStoppedExisting(options.Root)
+	ownership, err := gatewaypaths.AcquireStoppedControl(options.Root)
 	if err != nil {
 		return storage.Identity{}, fmt.Errorf("acquire stopped-process ownership: %w", err)
 	}
 	defer func() { _ = ownership.Close() }()
+	if _, err := os.Lstat(ownership.Layout().Database + "-shm"); err == nil {
+		if err := gatewaypaths.ValidateSQLiteSidecar(ownership.Layout().Database + "-shm"); err != nil {
+			return storage.Identity{}, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return storage.Identity{}, err
+	}
 	if options.Before != nil {
 		if err := options.Before(ctx, ownership); err != nil {
 			return storage.Identity{}, err
@@ -69,7 +78,7 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	}
 	layout := ownership.Layout()
 	manager := &Manager{layout: layout}
-	artifact, err := manager.readArtifact(ctx, filepath.Join(layout.Backups, options.BackupID), options.BackupID)
+	artifact, err := manager.readArtifactScope(ctx, filepath.Join(layout.Backups, options.BackupID), options.BackupID, options.SecurityOnly)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return storage.Identity{}, ErrNotFound
@@ -79,6 +88,9 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		}
 		return storage.Identity{}, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
 	}
+	if _, err := storage.InspectMaintenance(ctx, ownership, nil); err != nil {
+		return storage.Identity{}, err
+	}
 	current, err := storage.InspectBaseIdentity(ctx, layout.Database)
 	if err != nil {
 		return storage.Identity{}, fmt.Errorf("inspect current installation: %w", err)
@@ -87,12 +99,15 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		return storage.Identity{}, ErrInvalidArtifact
 	}
 
+	securityOnly := options.SecurityOnly || artifact.Format == 3
 	budget := artifact.TrafficBudgetBytes
-	if artifact.Format != 2 {
+	if securityOnly {
+		budget = 0
+	} else if artifact.Format != 2 {
 		budget = invocation.DefaultTrafficConfig().BudgetBytes
 	}
 	controlLimit, _ := contract.FixedLimitByName("database_bytes")
-	releaseSpace, err := gatewaypaths.ReserveHeadroom(layout.Root, budget+2*controlLimit.Maximum)
+	releaseSpace, err := reserveHeadroom(layout.Root, budget+4*controlLimit.Maximum, options.reserve)
 	if err != nil {
 		return storage.Identity{}, errors.Join(ErrResourceLimit, err)
 	}
@@ -101,7 +116,7 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := verifyNoRestoreStaging(layout); err != nil {
 		return storage.Identity{}, err
 	}
-	if err := requireClosedArtifact(filepath.Join(layout.Backups, options.BackupID)); err != nil {
+	if err := requireClosedArtifactScope(filepath.Join(layout.Backups, options.BackupID), securityOnly); err != nil {
 		return storage.Identity{}, err
 	}
 	effect = "staged"
@@ -186,18 +201,37 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if identity.InstallationID != current.InstallationID {
 		return storage.Identity{}, ErrInvalidArtifact
 	}
-	generation, err := admin.NewID(options.Clock.Now(), options.Entropy)
-	if err != nil {
-		return storage.Identity{}, err
+	generation := ""
+	if !securityOnly {
+		generation, err = admin.NewID(options.Clock.Now(), options.Entropy)
+		if err != nil {
+			return storage.Identity{}, err
+		}
 	}
-	if artifact.Format == 2 {
+	switch {
+	case securityOnly:
+		selected, err := replacement.SelectedTraffic(ctx)
+		if err != nil {
+			return storage.Identity{}, err
+		}
+		if err := invocation.ClearLegacyTraffic(ctx, replacement); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := replacement.DisableTraffic(ctx, selected); err != nil {
+			return storage.Identity{}, err
+		}
+		identity.TrafficGeneration = ""
+		if err := replacement.CompactReplacement(ctx); err != nil {
+			return storage.Identity{}, err
+		}
+	case artifact.Format == 2:
 		if err := invocation.RestoreTraffic(ctx, ownership, filepath.Join(layout.Backups, options.BackupID, "traffic.db"), identity.InstallationID, artifact.TrafficGeneration, generation, trafficConfig(artifact.TrafficBudgetBytes)); err != nil {
 			return storage.Identity{}, err
 		}
 		if err := replacement.SelectTraffic(ctx, artifact.TrafficGeneration, generation); err != nil {
 			return storage.Identity{}, err
 		}
-	} else {
+	default:
 		if err := invocation.MigrateTraffic(ctx, ownership, replacement, generation, invocation.DefaultTrafficConfig()); err != nil {
 			return storage.Identity{}, err
 		}

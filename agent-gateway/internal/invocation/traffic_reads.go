@@ -19,6 +19,13 @@ type TrafficHistory struct {
 }
 
 func (s *TrafficStore) History(ctx context.Context, after int64, limit int) (result TrafficHistory, err error) {
+	if s.optional != nil {
+		target := s.optionalTarget()
+		if target == nil {
+			return result, ErrTrafficFault
+		}
+		return target.History(ctx, after, limit)
+	}
 	defer func() {
 		if err != nil && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrTrafficCapacity) &&
 			!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {

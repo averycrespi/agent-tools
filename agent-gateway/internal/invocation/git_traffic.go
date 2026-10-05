@@ -4,28 +4,34 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
-func (s *TrafficStore) AdmitGit(ctx context.Context, a contract.GitTrafficAdmission) (*TrafficReceipt, error) {
+func (s *TrafficStore) ObserveGit(a contract.GitTrafficAdmission) *TrafficObservation {
 	encoded, err := encodeGitAdmission(a)
 	if err != nil {
-		return nil, err
+		s.drop()
+		return nil
 	}
-	return s.enqueueAdmission(&trafficRequest{ctx: ctx, prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: a.ID, AdmittedAt: a.AdmittedAt}}, gitAdmission: encoded, gitAllowed: a.Allowed, bytes: gitTrafficChargeBase + int64(len(encoded)), expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)})
+	observation := &TrafficObservation{prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: a.ID, AdmittedAt: a.AdmittedAt}}, gitAdmission: encoded, bytes: gitTrafficChargeBase + int64(len(encoded))}
+	s.observeInitial(observation)
+	return observation
 }
-func (s *TrafficStore) CompleteGit(ctx context.Context, receipt *TrafficReceipt, c contract.GitTrafficCompletion) error {
+func (s *TrafficStore) ObserveGitCompletion(observation *TrafficObservation, c contract.GitTrafficCompletion) error {
 	var a contract.GitTrafficAdmission
-	valid := receipt != nil && receipt.gitAdmission != "" && receipt.httpAdmission == ""
-	if valid {
-		valid = strictjson.Decode([]byte(receipt.gitAdmission), &a, strictjson.Options{MaxBytes: contract.GitTrafficAdmissionBytes, MaxDepth: 4, RejectUnknownMembers: true}) == nil
+	if observation == nil || observation.gitAdmission == "" || observation.httpAdmission != "" || strictjson.Decode([]byte(observation.gitAdmission), &a, strictjson.Options{MaxBytes: contract.GitTrafficAdmissionBytes, MaxDepth: 4, RejectUnknownMembers: true}) != nil {
+		s.drop()
+		return ErrInvalidInput
 	}
 	encoded, err := encodeGitCompletion(a, c)
-	return s.enqueueCompletion(&trafficRequest{ctx: ctx, receipt: receipt, gitCompletion: encoded, bytes: maxTrafficCompletionBytes, expires: time.Now().Add(s.config.QueueLifetime), result: make(chan trafficResult, 1)}, valid && err == nil)
+	if err != nil {
+		s.drop()
+		return err
+	}
+	return s.enqueueObservation(&trafficRequest{observation: *observation, gitCompletion: encoded, bytes: observation.bytes + maxTrafficCompletionBytes})
 }
 
 // GitHistory is an internal bounded evidence seam for validation, not a public

@@ -9,6 +9,13 @@ import (
 // view materializes one bounded response. No transaction, rows or reader lease
 // escapes to clients; checkpoint/close fences readers through the same gate.
 func (s *TrafficStore) view(ctx context.Context, read func(*sql.Tx) error) error {
+	if s.optional != nil {
+		target := s.optionalTarget()
+		if target == nil {
+			return ErrTrafficFault
+		}
+		return target.view(ctx, read)
+	}
 	select {
 	case s.readSlots <- struct{}{}:
 		defer func() { <-s.readSlots }()

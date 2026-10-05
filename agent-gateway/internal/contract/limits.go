@@ -9,7 +9,6 @@ const (
 	CatalogPageMaximum         = 50
 	OperationPageMaximum       = 50
 	IdempotencyKeyMinimumBytes = 1
-	InvocationMutationWaiters  = 31
 )
 
 const (
@@ -22,7 +21,6 @@ const (
 	APIHandlerDeadline               = 30 * time.Second
 	SQLiteBusyDeadline               = 2 * time.Second
 	AuthorityWaitDeadline            = time.Second
-	InvocationMutationWaitDeadline   = 250 * time.Millisecond
 	SSEKeepaliveInterval             = 15 * time.Second
 	SSEBlockedWriteDeadline          = 15 * time.Second
 	AuthorizationCursorLifetime      = 5 * time.Minute
@@ -175,7 +173,6 @@ var fixedLimits = []FixedLimit{
 	{Name: "upstream_header_value_bytes", Maximum: UpstreamHeaderValueBytes},
 	{Name: "upstream_header_bytes", Maximum: UpstreamHeaderBytes},
 	{Name: "authority_work", Maximum: 32},
-	{Name: "invocation_mutation_waiters", Maximum: InvocationMutationWaiters},
 }
 
 func FixedLimits() []FixedLimit {

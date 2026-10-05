@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:760132bc85fe16ca53e061f1c7a8fa2794dec7e7f9563906d3336d0a6edaf659", digest)
+	assert.Equal(t, "sha256:f48581a14a3216755d69573b5c43bcf15ef85699012c1133fa8857b10cc12505", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -118,7 +118,7 @@ func TestCLIContract(t *testing.T) {
 		}{
 			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "secret-output"}},
 			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
-			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
+			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "security-only", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
 			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "clear-http-proxy-listen", "data-dir", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
 		}

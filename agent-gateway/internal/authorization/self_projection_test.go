@@ -140,27 +140,18 @@ func TestSelfProjectionTargetFailureReturnsNoPartialPage(t *testing.T) {
 	assert.Empty(t, page.Items)
 }
 
-func TestSelfProjectionSubjectExistsOnlyAfterAcknowledgedAllow(t *testing.T) {
-	repository, store := newRepository(t, nil)
+func TestSelfProjectionSubjectExistsOnlyAfterConfirmedAllow(t *testing.T) {
+	repository, _ := newRepository(t, nil)
 	_, credential := createAdmissionCredential(t, repository)
-	lease, err := repository.Authenticate(context.Background(), credential.Bearer)
+	lease, err := repository.Authenticate(t.Context(), credential.Bearer)
 	require.NoError(t, err)
-	var token *PendingDetachment
-	require.NoError(t, repository.WithAdmission(context.Background(), lease, func(admission *Admission) error {
-		require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
-			result, pending, phase, verifyErr := admission.VerifyResolvedTx(context.Background(), transaction, defaultResolvedVerification())
-			require.NoError(t, verifyErr)
-			assert.Equal(t, contract.DecisionAllow, result.Decision)
-			assert.Equal(t, ResolvedEvaluated, phase)
-			token = pending
-			_, subjectErr := token.Subject()
-			assert.ErrorIs(t, subjectErr, ErrAdmissionUnavailable)
-			return nil
-		}))
-		require.NoError(t, token.CommitSucceeded())
-		_, subjectErr := token.Subject()
-		return subjectErr
-	}))
+	defer lease.Release()
+	evaluation, err := repository.EvaluateAdmission(t.Context(), lease, "", ptrVerification(defaultResolvedVerification()))
+	require.NoError(t, err)
+	assert.Equal(t, leasePending, leasePhase(lease.phase.Load()))
+	subject, err := repository.ConfirmEvaluation(t.Context(), evaluation.Candidate, "")
+	require.NoError(t, err)
+	assert.True(t, repository.OwnsAdmittedSubject(subject))
 }
 
 func TestAdmittedSubjectContainsOnlySafeAdmissionIdentity(t *testing.T) {
@@ -193,10 +184,11 @@ func admitSelfProjectionSubject(t *testing.T, repository *Repository, bearer str
 	t.Helper()
 	lease, err := repository.Authenticate(context.Background(), bearer)
 	require.NoError(t, err)
-	_, token, err := verifyResolvedMutation(repository, repository.store, lease, defaultResolvedVerification(), nil)
+	t.Cleanup(lease.Release)
+	evaluation, err := repository.EvaluateAdmission(t.Context(), lease, "", ptrVerification(defaultResolvedVerification()))
 	require.NoError(t, err)
-	require.NotNil(t, token)
-	subject, err := token.Subject()
+	require.NotNil(t, evaluation.Candidate)
+	subject, err := repository.ConfirmEvaluation(t.Context(), evaluation.Candidate, "")
 	require.NoError(t, err)
 	return subject
 }

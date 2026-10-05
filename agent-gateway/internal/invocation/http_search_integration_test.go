@@ -34,9 +34,7 @@ func TestHTTPTrafficAuthoritativeSearchIntegration(t *testing.T) {
 		if n <= 2 {
 			admission.Connect = &contract.HTTPConnectContext{ID: invocationID(90), Host: "api.github.com", Port: 443}
 		}
-		receipt, admitErr := traffic.AdmitHTTP(t.Context(), admission)
-		require.NoError(t, admitErr)
-		traffic.Release(receipt)
+		recordHTTP(t, traffic, admission)
 	}
 	page, err := reader.ListHTTP(t.Context(), contract.HTTPTrafficQuery{Limit: 50})
 	require.NoError(t, err)

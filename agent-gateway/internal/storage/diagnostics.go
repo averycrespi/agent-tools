@@ -37,7 +37,7 @@ func (store *Store) mutationEvent(ctx context.Context, event diagnostics.Event, 
 			facts.Owned = 1
 		}
 		facts.Waiting = waiting
-		facts.Limit = 31
+		facts.Limit = 1
 	}
 	store.diagnostics.Storage(facts)
 }
@@ -45,12 +45,8 @@ func mutationCause(err error) diagnostics.Cause {
 	switch {
 	case err == nil:
 		return diagnostics.Success
-	case errors.Is(err, ErrMutationBusy), errors.Is(err, ErrMutationWaitFull):
+	case errors.Is(err, ErrMutationBusy):
 		return diagnostics.Capacity
-	case errors.Is(err, ErrMutationWaitExpired):
-		return diagnostics.Expired
-	case errors.Is(err, ErrMutationWaitStopped):
-		return diagnostics.Stopped
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return diagnostics.Cancelled
 	case errors.Is(err, ErrStorageLatched):
@@ -59,12 +55,12 @@ func mutationCause(err error) diagnostics.Cause {
 		return diagnostics.Unavailable
 	}
 }
-func (store *Store) observedAcquire(ctx context.Context, stop <-chan struct{}, wait bool) error {
+func (store *Store) observedAcquire(ctx context.Context) error {
 	if store.diagnostics == nil || !store.diagnostics.DebugEnabled() {
-		return store.acquireMutation(ctx, stop, wait)
+		return store.acquireMutation(ctx)
 	}
 	started := time.Now()
-	err := store.acquireMutation(ctx, stop, wait)
+	err := store.acquireMutation(ctx)
 	event := diagnostics.StorageAcquire
 	if err != nil {
 		event = diagnostics.StorageReject

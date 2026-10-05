@@ -24,13 +24,9 @@ func TestTrafficHTTPTerminationHistoricalAndRestart(t *testing.T) {
 	legacy := httpTrafficCompletion()
 	expected := []*contract.HTTPTrafficCompletion{nil, &legacy, &incomplete, &clean}
 	for i, c := range expected {
-		receipt, e := s.AdmitHTTP(t.Context(), httpTrafficAdmission(i+1))
-		require.NoError(t, e)
-		if c == nil {
-			s.Release(receipt)
-		} else {
-			require.True(t, s.Confirm(t.Context(), receipt))
-			require.NoError(t, s.CompleteHTTP(t.Context(), receipt, *c))
+		observation := recordHTTP(t, s, httpTrafficAdmission(i+1))
+		if c != nil {
+			recordHTTPCompletion(t, s, observation, *c)
 		}
 	}
 	page, err := reader.ListHTTP(t.Context(), contract.HTTPTrafficQuery{Limit: 10})

@@ -2,12 +2,14 @@ package httpproxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitwire"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
@@ -15,6 +17,9 @@ import (
 )
 
 func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, target httppolicy.Request, address *remote.ProxyAddress, repository contract.GitRepository, profile contract.GitRoutingProfile) {
+	started := time.Now()
+	e.options.Observations.Request(diagnostics.Git)
+	defer func() { e.options.Observations.Latency(diagnostics.Git, diagnostics.RequestStage, time.Since(started)) }()
 	controller := http.NewResponseController(w)
 	if r.ProtoMajor == 1 {
 		if err := controller.EnableFullDuplex(); err != nil {
@@ -37,24 +42,39 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 		reject(w, http.StatusBadRequest)
 		return
 	}
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err != nil {
-		reject(w, http.StatusServiceUnavailable)
-		return
-	}
+	identity, _ := e.options.Evidence.PrepareIdentity()
 	result, err := e.options.Admissions.AdmitGit(r.Context(), lease, identity, request, address.Facts(), e.options.GitMaterials)
 	if err != nil || !result.DispatchAuthorized {
+		if err != nil {
+			if errors.Is(err, invocation.ErrTrafficCapacity) {
+				rejectCapacity(w, http.StatusServiceUnavailable)
+			} else {
+				reject(w, http.StatusServiceUnavailable)
+			}
+			return
+		}
+		if result.Execution.CredentialUnavailable {
+			reject(w, http.StatusServiceUnavailable)
+			return
+		}
 		reject(w, http.StatusForbidden)
 		return
 	}
+	e.options.Observations.Latency(diagnostics.Git, diagnostics.AdmissionStage, time.Since(started))
+	e.options.Observations.Execution(diagnostics.Git)
+	executionStarted := time.Now()
 	completion := contract.GitTrafficCompletion{Outcome: "prestart_failure"}
-	defer func() { e.completeGit(result, identity, completion) }()
+	defer func() {
+		e.observeCompletion(diagnostics.Git, completion.Outcome, executionStarted)
+		e.options.Observations.GitReport(completion.ReportedResult)
+		e.completeGit(result, identity, completion)
+	}()
 	header := r.Header.Clone()
 	if result.Material != nil {
 		header, err = result.Material.Apply(repository.URL, header)
 		if err != nil {
 			completion.Failure = "credential_unavailable"
-			reject(w, http.StatusBadGateway)
+			reject(w, http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -84,9 +104,10 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	if request.Operation() == "push" {
 		header.Set("Accept-Encoding", "identity")
 	}
-	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Evidence.PrivateGrant != nil, e.roots)
+	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Execution.PrivateNetwork, e.roots)
 	if err != nil {
-		reject(w, http.StatusBadGateway)
+		e.observeFailure(w, diagnostics.ProxyExchange, err)
+		reject(w, upstreamStatus(err))
 		return
 	}
 	defer func() { _ = response.Body.Close() }()
@@ -98,6 +119,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	completion.Status = response.StatusCode
 	writer := &streamWriter{writer: w, controller: controller}
 	if err := writer.Flush(); err != nil {
+		e.observeTransfer(w, "downstream_flush", err)
 		panic(http.ErrAbortHandler)
 	}
 	var reader io.Reader = response.Body
@@ -110,6 +132,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	n, err := io.CopyBuffer(writer, reader, make([]byte, contract.HTTPProxyBufferBytes))
 	completion.BytesReceived = n
 	if err != nil {
+		e.observeTransfer(w, "upstream_read", err)
 		panic(http.ErrAbortHandler)
 	}
 	completion.TransferComplete = true
@@ -119,16 +142,27 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 		}
 	}
 }
-func (e *Engine) rejectGit(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, reason string) {
-	identity, err := e.options.Evidence.PrepareIdentity()
-	if err != nil || e.options.Admissions.RejectGit(r.Context(), lease, identity, reason) != nil {
+func (e *Engine) rejectGit(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, reason string, statuses ...int) {
+	identity, _ := e.options.Evidence.PrepareIdentity()
+	if e.options.Admissions.RejectGit(r.Context(), lease, identity, reason) != nil {
 		reject(w, http.StatusServiceUnavailable)
 		return
 	}
-	reject(w, http.StatusForbidden)
+	status := http.StatusBadRequest
+	if reason == "destination_unavailable" {
+		status = http.StatusBadGateway
+	}
+	if reason == "repository_unavailable" {
+		status = http.StatusForbidden
+	}
+	if len(statuses) != 0 {
+		status = statuses[0]
+	}
+	reject(w, status)
 }
 
 func (e *Engine) completeGit(result invocation.GitAdmissionResult, identity invocation.PreparedAdmission, completion contract.GitTrafficCompletion) {
+	result.Settle()
 	now := e.options.Now().UTC()
 	start, err := time.Parse(time.RFC3339Nano, identity.AdmittedAt)
 	if err != nil {

@@ -20,12 +20,13 @@ content enters storage or public projections. Configured matched selectors are
 historical policy, not observed request paths. An opaque tunnel exposes no inner
 HTTP requests.
 
-The gate and control read end before material acquisition and traffic persistence.
-Acknowledged allow receipts are confirmed once against the exact active binding,
+The gate and control read end before material acquisition. Sealed request-local
+candidates are confirmed once against the exact active binding,
 shared policy revision and selected material generation. HTTP credential edits,
 rotation, fence activation and deletion share a nonqueueing material guard held
 only for metadata revalidation and final detachment, never keyring I/O. Registry
-drain, control health, original cancellation and traffic health fence detachment.
+drain, control health and original request cancellation fence detachment; optional
+history health does not.
 Failed admission or confirmation never dispatches, reevaluates, retries or falls
 back to uninjected access. Unparseable authenticated requests retain binding,
 identity/time and `invalid_request`, with no inner target or policy. New engine
@@ -42,14 +43,14 @@ most 128 bytes. No partly parsed destination or unvalidated method is retained.
 
 Inner requests carry optional `connect` context: the actual enclosing CONNECT
 admission ID and its canonical host/port, captured in that connection's handler
-closure after acknowledged interception. Every H1 request and concurrent H2 stream
+closure after confirmed interception, when a capture identity is available. Every H1 request and concurrent H2 stream
 reauthenticates and verifies the original principal/credential binding before
 recording this context. It is inherited connection evidence, not validated inner
 target evidence, authority, or a timestamp-based join. It remains meaningful if
 retention later removes the parent row. Opaque tunnels expose no inner records;
 older rows have no reconstructed correlation or rejection details. Unauthenticated or
 unverifiable authority produces no durable HTTP row. Denials and interception
-settle the receipt without upstream dispatch; interception is not permission for
+complete without upstream dispatch; interception is not permission for
 an inner request. The public summary projects `interception_selected` from the
 recorded interception decision, including historical rows whose stored outcome is
 `not_dispatched`. This selection proves neither CONNECT acceptance, TLS establishment,
@@ -57,26 +58,26 @@ upstream dispatch, request completion nor connection closure; no new lifecycle
 evidence is recorded. `Allowed=false` describes upstream-dispatch permission,
 not general CONNECT failure. A denied CONNECT retains `block` / `not_dispatched`;
 an allowed opaque tunnel retains `allow` and its recorded completion or unknown
-outcome. An acknowledged allow that loses confirmation remains unknown,
+outcome. A recorded allow that loses confirmation remains unknown,
 not evidence of execution or a fabricated denial.
 
-HTTP shares the admission/completion queues, fairness, atomic batches, fault
-boundary, active pins and budget with MCP. One synchronous best-effort completion
-attempt records only completion time, closed outcome, optional 100–599 request
+HTTP shares one bounded nonblocking observation queue, atomic batches, optional
+history fault boundary and budget with MCP and Git. Execution owns material clearing,
+stream settlement and one-use opaque-origin release independently of capture.
+One optional self-contained completion observation records completion time,
+closed outcome, optional 100–599 request
 status, nonnegative byte counts and elapsed milliseconds. New request completions
 also distinguish `response_source` (`gateway` or `upstream`); `status` remains an
 upstream status and `gateway_status` is a separate Gateway-generated 400–599
 response. This records response selection, not confirmed delivery. A selected
 upstream status can survive an interrupted body with an unknown outcome. Rejection
 admission identifies Gateway validation, not an upstream response or proof of
-response delivery. It does not record the final live status: persistence uncertainty
-can require a different Gateway error. Missing source on historical or incomplete evidence
+response delivery. Optional persistence failure cannot change the live status. Missing source on historical or incomplete evidence
 remains unavailable; it is never inferred from outcome alone. Outcomes are `succeeded`,
 `prestart_failure`, `upstream_failure`, or `outcome_unknown`. Missing terminal
-remains unknown for an allow and never overrides a known live result. Both kinds
-of queued completion reserve 640 bytes, including the full 512-byte payload;
-existing immutable per-member MCP diagnostics and no-added-dwell batching remain.
-No background terminal retry or replay is introduced.
+remains unknown for an allow and never overrides a known live result. Completion
+queue charges include the complete sanitized initial snapshot and bounded terminal
+payload. No background terminal retry or replay is introduced.
 
 New request completions optionally retain `termination`, a closed object of at
 most 128 bytes within the unchanged 512-byte completion bound. `stage` names the
@@ -108,7 +109,7 @@ without replay or a success claim.
 ## HTTP proxy engine
 
 `internal/httpproxy` consumes the sole composition-owned authenticator, authority,
-receipt coordinator, HTTP material service, CA signer, remote factory and lifecycle.
+admission coordinator, HTTP material service, CA signer, remote factory and lifecycle.
 It accepts a dedicated composition-selected listener. Bare `serve` defaults to
 `127.0.0.1:8212`; `serve --http-proxy-listen` overrides the address and
 `--clear-http-proxy-listen` explicitly disables it without loading CA signing
@@ -133,7 +134,7 @@ No alternate credential slot is introduced.
 Absolute-form plain HTTP uses request policy. CONNECT authenticates its original
 bearer and selects either explicitly granted opaque TCP or local TLS interception.
 Each intercepted H1 request/H2 stream freshly authenticates that bearer, pins its
-original principal/credential identity and performs durable admission/confirmation.
+original principal/credential identity and performs request-local admission/confirmation.
 Origin requests neither supply nor receive proxy credentials. Later revocation
 rejects new admissions without canceling admitted work. Interception itself grants
 no upstream permission. Invalid authenticated coordinates retain only invalid-request
@@ -153,17 +154,39 @@ Intercepted upgrades/WebSockets and trailers reject; explicit tunnels are opaque
 and never run inner request policy or credential injection. No HTTP/3 or TLS-error
 fallback exists.
 
-The remote owner resolves a bounded complete address set once, evaluates every
-answer, pins it, and dials only its first validated address after confirmed evidence.
-It rechecks unconditional exclusions and current composition-owned listener
-reservations at dial. Callback endpoints are reserved before binding. Private
-permission belongs only to the selected request/tunnel grant. Each request uses a
-fresh HTTP/1 upstream transport with a single-use dial, explicit H1-only protocol,
-no keepalive, proxy, compression, redirect client or body replay. Thus H2 client
-streams cannot coalesce upstream connections or transfer another principal/path's
-permission. Selected HTTPS credential material replaces its single header only
-after admission; missing material never falls back. An authorized upstream can
-itself disclose any secret it receives; the proxy cannot prevent that disclosure.
+The remote owner resolves and pins at most 64 addresses once for complete-set
+policy validation, and dials only after confirmed authority. A forbidden answer rejects the whole set;
+it is never filtered into a more permissive subset. TCP connection establishment
+tries these numeric IPv4/IPv6 addresses in resolution order, at most once per
+candidate, within one nonrenewable ten-second total dial budget shortened by the
+original request deadline. Each candidate receives at most an equal share of the
+remaining time divided by the remaining candidate count. Fast refusal leaves its
+unused time for later candidates; a stalled first address cannot consume every
+candidate's share. This is bounded sequential connection establishment, not an
+application retry, family race, fresh DNS lookup, reroute or additional authority.
+Before each actual dial, the complete pinned set is rechecked against unconditional
+exclusions, private permission and current composition-owned listener reservations.
+Callback endpoints are reserved before binding. Private permission belongs only
+to the selected request/tunnel grant.
+
+There is one synchronous dial owner and no parallel candidate goroutine. Cancellation
+stops further candidates, and failed, expired or cancellation-losing connections
+close before return or the next candidate. HTTP/Git establish the connection in
+the original request owner before handing it to the HTTP transport, whose detached
+dial context must not prolong candidate work after request cancellation. Dial
+implementations must honor context deadlines; a timer cannot kill an uncooperative
+native call, and ownership is retained until it actually returns.
+
+Only the winning connection is handed off once for TLS/application traffic. TLS
+verifies the original hostname, not the numeric candidate; TLS failure, disconnect,
+request-write failure or response timeout never selects another address. Each
+request uses a fresh HTTP/1 upstream transport with a single-use connection handoff,
+explicit H1-only protocol, no keepalive, proxy, compression, redirect client or body
+replay. Thus H2 client streams cannot coalesce upstream connections or transfer
+another principal/path's permission. Selected HTTPS credential material replaces
+its single header only after admission and travels only on the approved winning
+connection; missing material never falls back. An authorized upstream can itself
+disclose any secret it receives; the proxy cannot prevent that disclosure.
 
 Bounds are executable in `contract/http_engine.go`: 256 accepted connections, 128
 active work owners, 96 per principal, 32 H2 streams per connection, 32 KiB streaming
@@ -204,6 +227,48 @@ preserved. H2 can retain legal 304 representation length, which describes the se
 representation rather than bytes to be sent. This does not promise that every client
 library interprets that metadata correctly.
 
+### Live HTTP failures
+
+Gateway-generated responses distinguish invalid authenticated requests (400),
+proxy authentication (407), policy/address denial (403), authority admission
+capacity and per-principal work capacity (429), global work capacity (503),
+authority admission or credential/CA material unavailability (503),
+upstream DNS/connection/TLS/protocol failure (502), and typed upstream timeout
+(504). The accepted-socket limit closes before HTTP parsing, without attempting
+an HTTP response. Parser-level framing failures remain owned by `net/http` and
+may lack Gateway correlation. These classifications do not change authentication
+ordering, policy, material fencing or one-shot dispatch. If all eligible TCP
+candidates fail, any typed candidate timeout selects 504; otherwise connection
+failure selects 502. Original request cancellation stops establishment rather than
+starting another candidate. These safe categories expose no addresses, secrets or
+raw errors. Connection attempts are not logical dispatches and do not increment
+execution populations or create extra terminal observations. A timeout at the
+exchange boundary still does not prove application nonexecution. History loss
+does not select a live failure response.
+
+Before response start, errors carry bounded status text, no-store, and the RFC 9209
+`Proxy-Status` member `AgentGateway` with a closed `error` token. The executable
+mapping is `contract.HTTPProxyFailureReason`; explicit work capacity uses
+`connection_limit_reached` even with 503. Authentication and policy both use
+`http_request_denied`, distinguished by 407/403. No details, destination, raw error
+or retry instruction is included. A Gateway-generated `Gateway-Request-ID`, when
+available, is 128 independent random bits encoded as 32 lowercase hexadecimal
+characters, unrelated to client headers or audit identity. Successful CONNECT
+instead exposes `Gateway-Connection-ID` for the enclosing connection. Neither ID
+is authority, proof of dispatch, or proof of a stored record. Inner requests have
+independent request IDs; they do not inherit CONNECT authority or correlation.
+
+Client and upstream `Proxy-Status`, `Gateway-Request-ID`, and
+`Gateway-Connection-ID` fields are stripped at the forwarding boundary, including
+Connection-nominated fields. Upstream application statuses and bodies are preserved;
+Gateway never annotates an upstream 403 as its own policy refusal. This deliberately
+omits upstream Proxy-Status claims rather than allowing them to impersonate Gateway.
+After response start or CONNECT establishment, observed failures terminate the
+stream/connection without a second response. Internal panic values are discarded;
+a pre-response panic selects 503, while a started response aborts. Typed lossy
+process diagnostics observe failure stages separately from durable completion.
+No universal client receipt, sink delivery, or durable logging is promised.
+
 ## Git routing and dispatch
 
 On enabled HTTPS profile origins, validated method/URL coordinates classify
@@ -237,12 +302,12 @@ owner; candidates bind its identity as well as durable evidence. Retained summar
 equality cannot substitute a different owner. Nothing invokes host Git or stores
 objects in production. Native Git and backend processes exist only in fixtures.
 
-After acknowledged admission and unchanged authority/material confirmation, the
+After request-local admission and unchanged authority/material confirmation, the
 engine injects only the repository-selected Git credential and makes one exchange.
 There is no redirect, refresh, replay or uncertain-push retry. Each new client
 request needs independent admission. Cancellation, rejection, early responses and
-drain settle upload readers, streams, material and synchronous best-effort completion
-owners; a timeout does not assert settlement. Missing terminal evidence remains
+drain settle upload readers, streams and material before offering an optional
+completion snapshot; a timeout does not assert settlement. Missing terminal evidence remains
 unknown, and even clean HTTP 200 never asserts a successful Git ref mutation.
 A complete transfer requires both the upload and response to finish; an early
 response to an unfinished upload is not a complete transfer.
@@ -295,7 +360,7 @@ The retained outcome vocabulary is closed:
 | `invalid_params`            | The request could not be classified as a valid call.                         |
 | `unknown_tool`              | No current target matched the requested external name.                       |
 | `invalid_arguments`         | The resolved target rejected the unchanged arguments before execution.       |
-| `authorization_unavailable` | Safe authorization or audit admission could not be established.              |
+| `authorization_unavailable` | Safe authorization could not be established.                                 |
 | `deny`                      | Current policy explicitly denied the call.                                   |
 | `block`                     | No applicable allow authorized the call.                                     |
 | `prestart_failure`          | The admitted call failed before transport or local execution handoff.        |
@@ -319,7 +384,7 @@ Version-1 metadata and historical rows with absent diagnostics remain readable. 
 
 ### Live call rejection contract
 
-Both modern and legacy governed `tools/call` errors retain JSON-RPC code `-32000` and the five existing `data.code` values. Only `call_rejected` carries a required closed `data.reason`. The reason comes from the acknowledged admission class or its evaluated decision, never a second policy evaluation. Messages are bounded Gateway-owned text; no grant IDs, matching constraints, argument values, or raw internal/downstream errors are interpolated.
+Both modern and legacy governed `tools/call` errors retain JSON-RPC code `-32000` and the five existing `data.code` values. Only `call_rejected` carries a required closed `data.reason`. The reason comes from the request-local admission class or its evaluated decision, never a second policy evaluation. Messages are bounded Gateway-owned text; no grant IDs, matching constraints, argument values, or raw internal/downstream errors are interpolated.
 
 | `data.reason`               | `error.message`                                                                                                                                                                                                                                             |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -332,9 +397,9 @@ Both modern and legacy governed `tools/call` errors retain JSON-RPC code `-32000
 
 For a blocked resolved local `mcp_gateway` target, the message is instead: “BLOCKED: no matching ALLOW grant authorizes this call. You may ask an administrator to review your access.” Self-service is optional and grant-controlled, not a workaround for DENY. A DENY may expire or be removed by an administrator; its precedence does not imply permanence. Guidance neither submits requests nor replays calls.
 
-Malformed parameters, unknown targets, and invalid arguments remain binding-only admission classes even if policy would deny a valid call. A semantic authorization failure after verified binding uses `authorization_unavailable`; an acknowledged ALLOW that cannot detach (for example, because drain intervened) also uses that reason, never DENY/BLOCK. Rejections execute neither downstream nor local targets.
+Malformed parameters, unknown targets, and invalid arguments remain binding-only admission classes even if policy would deny a valid call. A semantic authorization failure after verified binding uses `authorization_unavailable`; an evaluated ALLOW that cannot detach (for example, because drain intervened) also uses that reason, never DENY/BLOCK. Rejections execute neither downstream nor local targets.
 
-Without an acknowledged admission, the error is `audit_unavailable` with no invocation ID or reason, even if evaluation or an uncertain commit may have occurred. Acknowledged rejection errors retain `data.invocationId`. Successes have no Gateway metadata; other error codes omit `data.reason`. Existing `outcome_unknown` and `data.outcomeUnknown` semantics, downstream error projection, authentication/admission ordering, and audit fail-closed behavior are unchanged. Invalid internal response combinations fail closed to `audit_unavailable` rather than inventing a rejection reason.
+Authority unavailability returns `call_rejected` / `authorization_unavailable`, not a history error. Error responses may include `data.invocationId` when capture identity exists; this is correlation only, not acknowledgment or proof of a retained row. Capture loss omits the ID without changing the outcome, reason or `data.outcomeUnknown`. Successes have no Gateway metadata; other error codes omit `data.reason`. Existing uncertain-handoff semantics and downstream projection remain. The legacy `audit_unavailable` code remains the fail-closed codec fallback for invalid internal response combinations, not a runtime history dependency. Mandatory control-plane audit remains fail closed.
 
 ### Internal evidence boundary
 
@@ -351,63 +416,54 @@ Argument capture uses one fixed recursive key redactor owned by Gateway before c
 Invocation owns all traffic SQL and validates identifiers, revisions, fingerprints,
 names, compact redacted arguments, nullable groups, decisions, grants and chronology.
 Traffic checks collisions before transactional retention and insertion. Its production
-65,536-row ceiling and physical/logical budgets define rolling bounded history,
-not a guaranteed retention window. Pins protect live dispositions and completion;
-oldest eligible rows may be pruned around pinned holes. Generation and cumulative
+1,000,000-row ceiling and physical/logical budgets define rolling bounded history,
+not a guaranteed retention window. No history row pins live execution;
+oldest rows may be pruned while their execution is still active. Generation and cumulative
 pruning changes invalidate cursors rather than silently omitting records. Separate
 bounded control snapshots resolve current principal names; their digest is cursor
 state, never authorization. There is no cross-store SQL or name lookup during a
 traffic write. Acknowledged changes emit coalesced invocation/System invalidations;
-uncertain or failed writes do not invent durable evidence. One synchronous
-receipt-bound completion attempt writes the canonical time/class pair and optional
+uncertain or failed writes do not invent durable evidence. One asynchronous
+self-contained completion observation writes the canonical time/class pair and optional
 validated, bounded failure diagnostics atomically. The queued representation is
 owned encoded data, never raw tool errors or mutable caller metadata. Migration,
 paired backup and restore preserve this same validated diagnostic evidence.
 
-### Receipt-based traffic persistence
+### Optional traffic persistence
 
 The [isolated traffic store](storage-and-recovery.md#isolated-traffic-store)
-reuses `PreparedAdmission`, common activity values, exact MCP details, the existing
-SQL shape, capture limits and complete semantic validators. Production selects it
-for MCP persistence; the legacy repository remains only a migration/test seam.
+retains the existing SQLite shapes, historical readers, capture limits and complete
+semantic validators. Legacy control-store invocation write builders exist only in
+test fixtures; there is no receipt-dependent runtime compatibility path.
 
-The store queues evidence only. Defaults bound admission occupancy, including
-active settlement, to 128 records and 2 MiB charged bytes; each transaction contains
-at most 32 records/512 KiB, with 2 ms dwell, 250 ms queue lifetime and a two-second
-cooperative write lifetime. Configuration validates positive finite limits (at most
-1024 queued records/16 MiB, 10 ms dwell, one-second acquisition and five-second
-write lifetime). A separate completion queue reserves the same record capacity at
-a fixed 640-byte charge per completion (128 bytes plus the bounded 512-byte failure
-diagnostic allowance). One completion transaction precedes each admission batch,
-so neither class can starve the other under sustained arrivals. Completion transactions
-batch only already-queued records under the same record/byte bounds, without added
-dwell. Each member persists its validated, pre-encoded immutable diagnostics with
-its terminal fields. An invalid member rolls back the entire active completion batch; no member is
-split out or replayed. No queued member
-contains an executable callback. No acquisition expiry extends into transaction
-settlement, and accepted callers wait for settlement even after cancellation.
+One writer consumes one bounded nonblocking queue of immutable, pre-sanitized
+observations. Defaults bound total occupancy, including active settlement, to 128
+records and 2 MiB charged bytes. Transactions contain at most 32 records/512 KiB,
+with 2 ms dwell, 250 ms queue lifetime and a two-second cooperative write lifetime.
+Configuration permits at most 1,024 queued records/16 MiB, 10 ms dwell, one-second
+queue lifetime and five-second write lifetime. Queue fullness, expiry, drain,
+closed/faulted recording, invalid capture, or identity/redaction/encoding failure
+drops capture without refusing valid execution. Raw data is never queued for later
+redaction. No observation contains request contexts, callbacks, authority, material
+handles, stream owners or cleanup obligations.
 
-Successful atomic commit creates individual opaque process-local receipts containing
-immutable evidence and the original request cancellation context. Canceled callers
-receive no receipt; later cancellation prevents confirmation even with a fresh
-context. IDs and history reads cannot create receipts. `Confirm` consumes one live
-ALLOW receipt's dispatch disposition, but is only the **evidence half** of admission:
-production reacquires and confirms current authority before execution.
-The store never executes or reauthorizes a call.
+Initial and terminal observations use the same queue. Each terminal contains its
+complete sanitized initial snapshot, charged in full, and can insert useful history
+when the initial observation was lost or pruned. Matching identities preserve
+immutable initial facts; terminal fields are first-write-only. Late initial records
+cannot erase a terminal, and conflicting facts cannot overwrite another record.
+History IDs are correlation, never permission or proof of exactly-once effects.
 
-`Release` settles a no-dispatch disposition. Confirmed calls remain pinned until
-`Complete` settles exactly one synchronous best-effort paired completion attempt,
-including refusal/failure. Completion never accepts or rewrites the live upstream
-result. Capacity/deadline refusals do not fault healthy storage; storage/commit/
-rollback uncertainty does. Missing terminal evidence remains unknown. Pins have a
-separate bounded process-local cardinality (1024 by default, at most 4096); forgotten
-live dispositions fail closed at that capacity rather than expiring a potentially
-executing row. Closing/restarting never reconstructs pins, receipts, completion or
-execution. There is no background completion backlog or retry.
+Callers never wait for persistence, including during response completion or cleanup.
+Capacity refusal does not fault healthy storage; storage/commit/rollback uncertainty
+faults only optional recording. No replacement writer, uncertain-write replay,
+automatic retry or execution reconstruction is permitted. Retention has no live-work
+pins. Execution retains its own finite bounds and releases material/opaque origins
+only after actual settlement, independently of every capture outcome.
 
 ### Process-local recorded activity
 
-The composition-selected `TrafficStore` constructs one memory-only observer before its writer starts. The existing `settleTraffic` boundary records each successful acknowledged MCP/HTTP admission or terminal write exactly once, after final error/cancellation disposition and before delivering its result. No ingress, API-response, invalidation, SQL-readability or higher-level confirmation hook adds a second count. Admission cancellation after commit but before receipt acknowledgment contributes nothing; an acknowledged ALLOW later losing confirmation remains an allow admission without a fabricated terminal. Failed/uncertain terminal persistence does not count, even when the row is readable. Existing receipt consumption supplies hook uniqueness, not exactly-once downstream effects. Dedicated Git writes retain their independent durable evidence and receipt settlement but do not enter this MCP/HTTP-only summary; they must never be classified from a zero-value event as MCP allow.
+The composition-selected `TrafficStore` constructs one memory-only observer before its writer starts. Writer settlement records successful committed MCP/HTTP insertions and first terminal updates, not live attempts or enqueue acceptance. A terminal that reconstructs a lost initial row contributes both committed facts. Duplicate/late observations do not recount unchanged facts. Failed or uncertain persistence contributes nothing even if SQL is readable. No ingress, response or authorization hook adds another count. Dedicated Git writes remain outside this MCP/HTTP-only summary. None of these counts proves exactly-once downstream effects.
 
 Only immutable fixed protocol/outcome enum values accompany queued evidence to the observer. The ring has at most 60 one-minute buckets with fixed dimensions; update and snapshot use one bounded memory-only lock, with no downstream call, SQL, second writer, callback, persistent cache or per-identity deduplication state. `internal/activity` stays value-only. The administration dependency exposes only a snapshot function. [The public summary contract](public-contract.md#recorded-activity-summary) fixes its closed fields and 15 completed-minute window; the current partial minute is deliberately excluded rather than approximating a sub-minute rolling cutoff from whole buckets.
 
@@ -415,35 +471,71 @@ Collection starts when the selected store opens; retained admissions are never r
 
 MCP binding-only refusal classes, evaluated allow/deny/block, and prestart/downstream/explicit-unknown terminals retain their existing distinctions. HTTP request, CONNECT and invalid/unclassified admission evidence stay separate. Interception selection is not general failure or CONNECT/TLS completion; opaque CONNECT is not an inner request. Successful HTTP transfer evidence does not interpret application content or status class. Missing terminals are never inferred as explicit unknown completions or in-flight work, and admissions minus completions is not a valid population. There are no 24-hour/cross-restart trends, latency histograms, administrative-mutation success metrics, ingress-attempt counts or success percentages.
 
+### Process-local execution observations
+
+One composition-owned fixed-size memory collector counts at live owners, independently
+of the diagnostic level, stderr queue and history facade/writer. MCP counts recognizable
+calls entering `Service.Call`, not HTTP envelopes, authentication refusals or list/ping
+messages. HTTP counts entries to the proxy request handler; CONNECT is a separate
+population, and intercepted inner requests enter the HTTP owner independently. Git
+parser entries form a labeled subset of HTTP requests, never an additional HTTP
+execution. Do not sum HTTP and Git request counts. Pre-routing failures cannot invent
+a Git classification. Parser/socket failures before these owners remain outside
+coverage.
+
+Execution counts mean confirmed execution-pipeline entry (including subsequent
+prestart failure), not proof of downstream handoff. MCP local/downstream outcomes
+are counted by their single finish owner. HTTP/Git and opaque CONNECT count at the
+single completion owner after transfer bookkeeping and before optional capture.
+Interception selection does not count as an opaque tunnel execution. Git HTTP 200
+and even complete transfer retain an unknown mutation outcome; separately labeled
+upstream success/failure/partial reports are untrusted facts, never Gateway-observed
+successful pushes. Request completion latency includes cleanup; execution latency
+uses monotonic elapsed time at the corresponding owner. Admission latency covers
+handling through admission, not an independently timed SQL transaction.
+
+Each protocol has fixed admission/execution/request latency vectors with disjoint
+buckets <=1, <=10, <=100, <=1000, <=10000 ms and greater. No dynamic label, identity,
+URL, hostname, argument, ref, raw error, tracing registry or retained callback exists.
+Counters saturate at 2^53-1 and set overflow; they never wrap or reset on read or sink
+failure. A fresh random epoch and collection start identify each process graph. Entropy
+failure leaves the epoch empty (cross-snapshot correlation unavailable), without
+gating counting or falling back to clock/PID identity.
+Wall-clock changes neither reset cumulative counts nor alter monotonic durations.
+Crash losses, unobserved boundaries and missing terminals remain unknown; no completeness,
+rate, denominator, cross-restart continuity or zero-activity claim follows. These
+counters never derive occupancy by subtraction: MCP work/dispatch and HTTP work,
+connections, streams and tunnels still come from their existing actual owners.
+Recorded activity above and all historical query populations remain unchanged.
+
 ### Admission and execution
 
-Admission has three phases. Under a short authority gate and one coherent control
-read snapshot, evaluate the authenticated immutable binding and pinned target once,
-sealing the decision, revision and evaluation time. Release the gate and read
-transaction before submitting immutable evidence to traffic persistence; no control
-writer, marker or authority gate spans traffic commit. After an exact acknowledged
-receipt, reacquire authority and confirm the same active binding and unchanged
-global authorization revision. Under shared drain, control-health and traffic-fault
-fences, consume that receipt once and detach the pending lease atomically. Never
-wait for authority while holding the traffic writer. A sealed evaluation replaces
-the old gate-scoped pending-detachment object across phases.
+Under a short authority gate and one coherent control read snapshot, evaluate the
+authenticated immutable binding and pinned target once, sealing the decision,
+revision, valid authority-clock evaluation time and original request context. Release
+the gate/read before material acquisition or optional capture. Reacquire authority
+to confirm the same active binding and unchanged global authorization revision.
+Under the existing drain and control-health fences, consume the sealed candidate
+once and atomically change its pending lease to admitted using the existing CAS.
+There is no permission registry, history receipt, stored-row lookup or capture
+serialization prerequisite. HTTP/Git executable facts are distinct from capture DTOs.
 
-Revocation, replacement, principal/policy revision, cancellation, control latch,
-traffic fault or drain winning before confirmation blocks dispatch without another
-evaluation, alternate decision, retry or reroute. Grant expiry is evaluated at the
-captured evaluation time, not reinterpreted during confirmation. Acknowledged
-ALLOW losing confirmation returns `authorization_unavailable` with its invocation
-ID and leaves unknown terminal evidence. Binding-only, DENY and BLOCK branches
-return their acknowledged original evidence without dispatch confirmation and
-settle their pins. A readable row alone is never acknowledgment. Completion is one
-synchronous best-effort receipt-based traffic write, never a control mutation or
-authority reacquisition; its failure cannot replace a known live result.
+Revocation, replacement, principal/policy revision, original cancellation, control
+latch or drain winning before confirmation blocks dispatch without reevaluation,
+alternate decision, retry or reroute. A fresh confirmation context cannot resurrect
+the original canceled request. Grant expiry remains evaluated at captured time.
+ALLOW losing confirmation returns `authorization_unavailable`, never DENY/BLOCK;
+any recorded allow remains incomplete rather than fabricating execution. Binding-only,
+DENY and BLOCK branches return their original classification without dispatch.
+History preparation, identity, enqueue or persistence failures affect recording only.
+Completion offers one nonblocking self-contained observation without control mutation
+or authority reacquisition; its loss cannot replace a known live result.
 
 The internal invocation service classifies the strict call params, defaults absent arguments to an empty object, resolves an external name once to a closed downstream/local target, and pins either the downstream validator/capability or one fixed local validator/handler. It pins the published descriptor's normalized `readOnlyHint` alongside that target for read-only ALLOW evaluation, never accepting client-supplied annotations. It validates and redacts the same token-preserving argument tree, performs the admission above, then releases authority and storage admission before one execution. Catalog replacement fences the pinned capability before a later acquisition/dispatch, so old read-only authority cannot authorize a replacement descriptor. Fixed local tools use their compiled hints; admitted-call detachment, no retry, and no reroute remain unchanged.
 
 Downstream targets acquire their capability; local targets receive only the sealed admitted subject and acquire no downstream capacity. Capacity, route, cancellation, transport, and local storage evidence map only through the closed safe outcome boundary.
 
-The service never resolves, evaluates, acquires, or executes a second time; it performs one synchronous best-effort terminal annotation after an ALLOW attempt, ignores annotation failure for the live response, and exposes an invocation ID only for errors backed by an acknowledged row. Successful projections contain no Gateway metadata.
+The service never resolves, evaluates, acquires, or executes a second time. It offers one nonblocking optional terminal observation after an ALLOW attempt; capture refusal or failure cannot replace the live response. An error's optional invocation ID is correlation only, not proof of persistence. Successful projections contain no Gateway metadata.
 
 Gateway supplies at most one automatic attempt, not exactly-once effects: an explicit caller retry after `outcome_unknown` may duplicate an effect, and no restart, cancellation, terminal-write failure, or lifecycle transition causes automatic replay. Local post-commit uncertainty returns `tool_unavailable`, omits terminal annotation/invalidation, and is recovered only through request reads or duplicate-first create retry.
 
@@ -467,7 +559,7 @@ The internal invocation service is the only capability consumer. Production comp
 
 ### Process diagnostics and correlation
 
-Debug observations cover admission results, execution start/result, and terminal-annotation results separately. The service assigns a process-local diagnostic call counter before audit identity preparation (and the composition pipeline fence); it does not consume audit entropy or change dispatch availability. Rejected pre-ack attempts have a call ID but no invocation ID. An actual invocation ID is linked only after the audit mutation acknowledges. Execution evidence never implies a successful terminal annotation; missing annotation still means unknown durable outcome. Diagnostic counters saturate by dropping further records that require the exhausted correlation ID, never by rejecting a call or reusing a counter.
+Debug observations separate request-local admission, execution start/result and terminal enqueue results. Terminal enqueue success is not persistence acknowledgment. The service assigns a process-local call counter before optional capture identity preparation; it does not consume capture entropy or change dispatch availability. An invocation ID, when available, is correlation only and may have no retained row. Diagnostic events requiring unavailable correlation may be dropped. Execution evidence never proves a retained terminal; missing history remains unknown. Diagnostic counters saturate by dropping further records needing that ID, never rejecting a call or reusing a counter.
 
 Authority observations distinguish wait, acquisition, release and rejection, with closed capacity, expiry, cancellation and drain causes. Occupancy samples come from the actual owners; they are point-in-time observations, not summed status placeholders. Authority samples the actual gate channel while its mutex freezes outstanding work, and retires gate ownership and outstanding work together under that mutex, so a departing owner cannot become a phantom waiter. Durations are monotonic elapsed milliseconds, not deadlines for active work. Diagnostic call IDs are unrelated to client JSON-RPC IDs, headers, tool names, arguments or credential fingerprints. Mutation counters are scoped to the storage or authority owner within a process instance. The [serve diagnostic contract](administrative-control-plane.md#serve-diagnostics) owns privacy, loss, and sink lifecycle.
 
@@ -475,7 +567,7 @@ Authority observations distinguish wait, acquisition, release and rejection, wit
 
 The internal agent authenticator accepts only the canonical `mgw_agent_` encoding, derives one agent-domain verifier, and scans every complete active current slot in one bounded coherent transaction with constant-time comparison and no verifier predicate or early match return. Success exposes only principal ID/revision/visibility and credential ID/revision/fingerprint. Admin-domain bearers are a domain mismatch; missing, malformed, unknown, replaced, revoked, disabled, or cleared authority is one non-enumerating authentication failure. Invalid loaded candidate state, capacity overflow, or a latch before, during, or after a match fails unavailable with no partial binding.
 
-One repository-owned exclusive authority gate encloses authentication/lease registration and every principal, credential, grant, authorization-revision, or invocation admission mutation. Its process-wide `authority_work` bound admits 32 outstanding operations: one executing and up to 31 waiting. Excess arrivals reject immediately. Admitted callers wait at most one second for the gate, shortened by their context cancellation or deadline; capacity exhaustion and gate-wait expiry return `resource_limit`, including HTTP 429 during agent authentication rather than HTTP 401. The wait deadline does not bound work after gate acquisition. The fixed order remains authority admission, exclusive gate, storage mutation, transaction checks/write, targeted post-commit invalidation or detachment, then gate and admission release. Authority waiting never holds a storage transaction or mutation slot. Invocation evaluation and confirmation use separate short coherent control reads; traffic persistence waits outside authority. Control mutation admission remains nonqueueing. Gate exclusivity still orders credential reads and lease registration against revocation and targeted invalidation.
+One repository-owned exclusive authority gate encloses authentication/lease registration and every principal, credential, grant, authorization-revision, or invocation admission mutation. Its process-wide `authority_work` bound admits 32 outstanding operations: one executing and up to 31 waiting. Excess arrivals reject immediately. Admitted callers wait at most one second for the gate, shortened by their context cancellation or deadline; capacity exhaustion and gate-wait expiry return `resource_limit`, including HTTP 429 during agent authentication rather than HTTP 401. The wait deadline does not bound work after gate acquisition. The fixed order remains authority admission, exclusive gate, storage mutation, transaction checks/write, targeted post-commit invalidation or detachment, then gate and admission release. Authority waiting never holds a storage transaction or mutation slot. Invocation evaluation and confirmation use separate short coherent control reads; optional traffic persistence never blocks the caller. Control mutation admission remains nonqueueing. Gate exclusivity still orders credential reads and lease registration against revocation and targeted invalidation.
 
 Principal PATCH and credential replace/revoke cancel only that principal's pending leases after an acknowledged commit and conservatively whenever their mutation latches storage. Principal creation cannot have an existing target lease, and grant create/delete never close credential channels: admission evaluates policy once and confirmation requires the exact captured global revision while holding the same gate.
 
@@ -489,7 +581,7 @@ captures one authority-clock UTC time and current revision, and seals the single
 policy result against unchanged token-preserving arguments. The advisory discovery
 revision does not substitute for the captured revision. Confirmation requires
 exact captured-revision equality and the same process-local candidate, pending
-lease and acknowledged traffic evidence. It atomically changes pending to admitted
+lease, without any traffic receipt or stored-history lookup. It atomically changes pending to admitted
 under the registry drain fence and removes credential invalidation; subsequent
 credential/policy changes neither cancel nor reauthorize admitted execution.
 
@@ -519,7 +611,7 @@ The shared injected list service makes both eras advertise exactly `tools:{}`, p
 
 Production composition owns the authority, policy service, process-local cursor key, pager, one startup-validated invocation repository/service, its nonqueueing process-local pipeline fence/counter, and both ingress adapters before listener startup. Root consumes their one validated dependency bundle and reports `principal_credentials`, so no partial call/authenticator/status graph is constructible.
 
-The adapter's nonqueueing pipeline counter encloses the complete synchronous service call through terminal annotation; composition fences it and closes its storage-wait stop signal before authority and route drain, then includes its quiescence in the deadline-bounded result without adding a public status field. This wakes queued invocations and rejects new terminal acquisition without globally fencing producer cleanup. Active storage owners retain ownership through settlement; drain does not replace their transaction context with a wait deadline. A known live result survives a rejected best-effort terminal annotation, leaving missing terminal evidence unknown. Authority still cancels pending leases, including drain between commit and detachment. Quiescence waits outside authority/storage locks, and unresolved cleanup remains unclean. SDK bootstrap and legacy session lifecycle methods remain SDK-owned.
+The adapter's nonqueueing pipeline counter bounds active MCP service calls to 1,024, independently of history. Composition fences it before authority and route drain, then includes actual execution quiescence in the deadline-bounded result without adding a public status field. Capture enqueue is nonblocking; no history pin or persistence acknowledgment owns cleanup. Authority cancels pending leases, including drain between evaluation and detachment. Quiescence waits outside authority/storage locks; timers never prove I/O settlement and unresolved cleanup remains unclean. SDK bootstrap and legacy session lifecycle methods remain SDK-owned.
 
 ### Legacy sessions
 

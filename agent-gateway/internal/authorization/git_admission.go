@@ -3,7 +3,6 @@ package authorization
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"slices"
 	"sync/atomic"
@@ -22,24 +21,34 @@ type GitMaterialConfirmer interface {
 }
 
 type GitEvaluationCandidate struct {
-	repository             *Repository
-	lease                  *Lease
-	request                *gitwire.Request
-	id, revision, evidence string
-	material               *contract.GitTrafficMaterial
-	used                   atomic.Bool
+	repository   *Repository
+	lease        *Lease
+	request      *gitwire.Request
+	id, revision string
+	context      context.Context
+	material     *GitMaterial
+	used         atomic.Bool
 }
+type GitMaterial struct {
+	Credential contract.GitRevisionRef
+	Generation string
+}
+
+type GitExecution struct {
+	Allowed               bool
+	PrivateNetwork        bool
+	CredentialUnavailable bool
+	Material              *GitMaterial
+}
+
 type GitEvaluation struct {
+	Execution GitExecution
 	Evidence  contract.GitTrafficAdmission
 	Candidate *GitEvaluationCandidate
 }
 
 func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id, admittedAt string, request *gitwire.Request, facts httppolicy.AddressFacts) (out GitEvaluation, err error) {
-	if lease == nil || request == nil || !validOpaqueID(id) {
-		return out, ErrInvalidInput
-	}
-	admitted, err := time.Parse(time.RFC3339Nano, admittedAt)
-	if err != nil || formatAuthorizationTime(admitted) != admittedAt {
+	if lease == nil || request == nil {
 		return out, ErrInvalidInput
 	}
 	err = r.WithAdmission(ctx, lease, func(admission *Admission) error {
@@ -49,7 +58,7 @@ func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id,
 				return e
 			}
 			now, e := time.Parse(time.RFC3339Nano, binding.EvaluatedAt)
-			if e != nil || now.Before(admitted) {
+			if e != nil {
 				return ErrInvalidInput
 			}
 			supplied := request.Repository()
@@ -127,17 +136,15 @@ func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id,
 				}
 			}
 			out.Evidence = evidence
+			out.Execution = GitExecution{Allowed: allowed, PrivateNetwork: private != nil, CredentialUnavailable: evidence.Denial == "credential_unavailable"}
+			var material *GitMaterial
+			if evidence.Material != nil {
+				material = &GitMaterial{Credential: evidence.Material.Credential, Generation: evidence.Material.Generation}
+				copy := *material
+				out.Execution.Material = &copy
+			}
 			if allowed {
-				encoded, e := json.Marshal(evidence)
-				if e != nil || len(encoded) > contract.GitTrafficAdmissionBytes {
-					return ErrAuthorizationUnavailable
-				}
-				var material *contract.GitTrafficMaterial
-				if evidence.Material != nil {
-					copy := *evidence.Material
-					material = &copy
-				}
-				out.Candidate = &GitEvaluationCandidate{repository: r, lease: lease, request: request, id: id, revision: binding.AuthorizationRevision, evidence: string(encoded), material: material}
+				out.Candidate = &GitEvaluationCandidate{repository: r, lease: lease, request: request, context: ctx, id: id, revision: binding.AuthorizationRevision, material: material}
 			}
 			return nil
 		})
@@ -162,8 +169,8 @@ func gitMaterialTx(ctx context.Context, tx *sql.Tx, id string) (out contract.Git
 
 // ConfirmGit consumes the exact request-local candidate, not just equal retained
 // summaries. No re-evaluation and no authority/storage ownership over I/O.
-func (r *Repository) ConfirmGit(ctx context.Context, candidate *GitEvaluationCandidate, id string, request *gitwire.Request, materials GitMaterialConfirmer, receipt func(string, func() bool) bool) error {
-	if candidate == nil || candidate.repository != r || candidate.id != id || receipt == nil || !candidate.used.CompareAndSwap(false, true) || candidate.request != request {
+func (r *Repository) ConfirmGit(ctx context.Context, candidate *GitEvaluationCandidate, id string, request *gitwire.Request, materials GitMaterialConfirmer) error {
+	if candidate == nil || candidate.repository != r || candidate.id != id || !candidate.used.CompareAndSwap(false, true) || candidate.request != request {
 		return ErrAdmissionUnavailable
 	}
 	release, err := r.authority.acquire(ctx)
@@ -191,17 +198,15 @@ func (r *Repository) ConfirmGit(ctx context.Context, candidate *GitEvaluationCan
 		registry := r.authority
 		registry.mu.Lock()
 		defer registry.mu.Unlock()
-		if registry.draining.Load() || ctx.Err() != nil {
+		if registry.draining.Load() || ctx.Err() != nil || candidate.context.Err() != nil {
 			return ErrAdmissionUnavailable
 		}
 		confirmed := r.store.ConfirmHealthy(func() bool {
-			return receipt(candidate.evidence, func() bool {
-				if ctx.Err() != nil || !candidate.lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
-					return false
-				}
-				delete(registry.leases, candidate.lease)
-				return true
-			})
+			if ctx.Err() != nil || candidate.context.Err() != nil || !candidate.lease.phase.CompareAndSwap(uint32(leasePending), uint32(leaseAdmitted)) {
+				return false
+			}
+			delete(registry.leases, candidate.lease)
+			return true
 		})
 		if !confirmed {
 			return ErrAdmissionUnavailable

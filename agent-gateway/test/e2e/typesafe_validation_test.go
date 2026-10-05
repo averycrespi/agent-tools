@@ -96,6 +96,7 @@ func TestTypeSafeValidationEvidence(t *testing.T) {
 	require.NotNil(t, details)
 	require.True(t, details.Truncated)
 	require.GreaterOrEqual(t, len(details.Violations), 2)
+	harness.WaitForAuditObservations(1, 0)
 	harness.Restart()
 	item := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+id, nil)
 	require.Equal(t, http.StatusOK, item.StatusCode)

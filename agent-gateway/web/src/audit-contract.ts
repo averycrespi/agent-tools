@@ -176,6 +176,8 @@ const problems = [
   "oauth_callback_unavailable",
   "stale_cursor",
   "audit_history_replaced",
+  "history_unavailable",
+  "history_busy",
   "stale_revision",
   "precondition_required",
   "downstream_unavailable",

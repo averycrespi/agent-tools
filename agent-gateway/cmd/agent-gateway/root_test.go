@@ -415,7 +415,7 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	require.NoError(t, err)
 	traffic, err := invocation.OpenTraffic(ctx, ownership, identity.InstallationID, generation, invocation.DefaultTrafficConfig())
 	require.NoError(t, err)
-	manager, err := backup.New(backup.Options{Traffic: traffic, Store: store, Layout: ownership.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
+	manager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
 	require.NoError(t, err)
 	artifact, _, err := manager.Create(ctx, "authority", "restore-command")
 	require.NoError(t, err)

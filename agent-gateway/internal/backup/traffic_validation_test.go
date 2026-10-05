@@ -19,9 +19,7 @@ func TestPairedBackupRejectsResidualControlInvocations(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, traffic.Close()) }()
 	require.NoError(t, control.SelectTraffic(t.Context(), "", generation))
-	manager.traffic = traffic
-	created, _, err := manager.Create(t.Context(), "authority", "paired-validation")
-	require.NoError(t, err)
+	created := legacyArtifact(t, manager, traffic)
 	_, err = manager.Get(t.Context(), created.ID)
 	require.NoError(t, err)
 	items, err := manager.List(t.Context())
@@ -58,6 +56,7 @@ func TestPairedBackupRejectsResidualControlInvocations(t *testing.T) {
 	require.ErrorIs(t, err, storage.ErrInvalidDatabase)
 	_, err = manager.Get(t.Context(), created.ID)
 	require.ErrorIs(t, err, ErrInvalidArtifact)
-	_, err = manager.List(t.Context())
-	require.ErrorIs(t, err, ErrInvalidArtifact)
+	items, err = manager.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, items, 1, "metadata inventory is not integrity verification")
 }

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTPAdmissionQueueExpiryDiagnostic(t *testing.T) {
+func TestHTTPRecordingExpiryIsNotAdmissionFailure(t *testing.T) {
 	coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
@@ -47,19 +47,20 @@ func TestHTTPAdmissionQueueExpiryDiagnostic(t *testing.T) {
 		defer traffic.mu.Unlock()
 		return traffic.queued == 1
 	}, time.Second, time.Millisecond)
-	// Hold the actual writer past this request's queue deadline, not its context deadline.
-	<-time.After(traffic.config.QueueLifetime + 10*time.Millisecond)
-	unlock()
 	select {
 	case got := <-done:
-		require.ErrorIs(t, got.err, ErrTrafficDeadline)
-		require.Equal(t, diagnostics.ProxyTraffic, got.result.FailureStage)
-		require.Equal(t, diagnostics.Expired, got.result.FailureCause)
-		require.False(t, got.result.DispatchAuthorized)
-		require.False(t, got.result.Committed)
-	case <-ctx.Done():
-		t.Fatal("admission did not settle")
+		require.NoError(t, got.err)
+		require.Equal(t, diagnostics.NoStage, got.result.FailureStage)
+		require.Equal(t, diagnostics.None, got.result.FailureCause)
+		require.True(t, got.result.DispatchAuthorized)
+		got.result.Settle()
+	case <-time.After(time.Second):
+		t.Fatal("admission waited for the history writer")
 	}
+	// The writer's own queue deadline cannot retroactively revoke dispatch.
+	<-time.After(traffic.config.QueueLifetime + 10*time.Millisecond)
+	unlock()
+	waitTraffic(t, traffic)
 	history, err := traffic.HTTPHistory(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Empty(t, history.Records)

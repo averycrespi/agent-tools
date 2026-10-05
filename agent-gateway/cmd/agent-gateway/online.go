@@ -199,6 +199,11 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 			flags.StringVar(options.filters[flag], flag, "", "exact API-supported list filter")
 		}
 	}
+	if strings.Join(spec.Path, " ") == "history export" {
+		flags.Lookup("limit").Usage = "maximum records in this snapshot (1–256; default 256)"
+		flags.Lookup("after-sequence").Usage = "exclude sequence numbers up to this value (default 0); each request is a new snapshot"
+		command.Example = "  agent-gateway history export --limit 256 --json"
+	}
 	command.SetFlagErrorFunc(func(command *cobra.Command, _ error) error {
 		mode := selectedOutputMode(command, options.output, options.jsonOutput)
 		return writeOnlineFailure(command, string(mode), onlineUsageProblem(spec, "A command flag is invalid or incomplete."))
@@ -208,6 +213,10 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
+	case "history export":
+		return spec.Short + ". One bounded MCP/HTTP/Git snapshot; --json includes records and explicit coverage. --after-sequence starts a new snapshot, not a continuation of the previous transaction. Missing records never establish nonexecution."
+	case "backup create":
+		return spec.Short + ". Creates a security-only artifact; optional traffic history is omitted. Export history separately."
 	case "http test-access":
 		return spec.Short + ". Preview policy only, without DNS, dispatch or secret resolution."
 	case "http credential get", "http credential list":
@@ -433,6 +442,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"http", "credential", "update"}, "update ID", "http credential update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "rotate"}, "rotate ID", "http credential rotate ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "delete"}, "delete ID", "http credential delete ID [--etag ETAG]", "etag", "yes"),
+		onlineSpec([]string{"history", "export"}, "export", "history export", "limit", "after-sequence"),
 		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
 		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),
 		onlineSpec([]string{"admin", "credential", "list"}, "list", "admin credential list", "limit", "cursor"),
@@ -504,6 +514,7 @@ var onlineGroupDescriptions = map[string]string{
 	"admin":                 "Manage administrator credentials",
 	"admin credential":      "Manage administrator credentials",
 	"backup":                "Manage backups",
+	"history":               "View optional traffic history",
 	"mcp":                   "Manage MCP servers, tools, and access",
 	"mcp server":            "Manage MCP servers",
 	"mcp server operation":  "Manage server operations",
@@ -537,16 +548,17 @@ var onlineLeafDescriptions = map[string]string{
 	"http credential update ID --file PATH [--etag ETAG]": "Update an HTTP credential",
 	"http credential rotate ID --file PATH [--etag ETAG]": "Rotate an HTTP credential",
 	"http credential delete ID [--etag ETAG]":             "Delete an HTTP credential",
-	"audit list":               "List audit events",
-	"audit get AUDIT_EVENT_ID": "Get an audit event",
-	"admin credential list":    "List administrator credentials",
-	"admin credential get ID":  "Get an administrator credential",
+	"history export":                                      "Export optional traffic history",
+	"audit list":                                          "List audit events",
+	"audit get AUDIT_EVENT_ID":                            "Get an audit event",
+	"admin credential list":                               "List administrator credentials",
+	"admin credential get ID":                             "Get an administrator credential",
 	"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]": "Create an administrator credential",
 	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH":        "Rotate an administrator credential",
 	"admin credential revoke ID":    "Revoke an administrator credential",
 	"backup list":                   "List backups",
 	"backup get BACKUP_ID":          "Get a backup",
-	"backup create":                 "Create a backup",
+	"backup create":                 "Create a security backup",
 	"backup delete BACKUP_ID":       "Delete a backup",
 	"mcp server list":               "List MCP servers",
 	"mcp server get ID":             "Get an MCP server",

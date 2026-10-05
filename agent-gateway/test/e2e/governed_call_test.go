@@ -54,7 +54,7 @@ func TestGatewayBinaryGovernsModernAndLegacyCallsBeforeHTTPDispatch(t *testing.T
 		callDone <- harness.ModernCall(issued.Bearer, json.RawMessage(`"modern-allow"`), "governed-http.allowed", json.RawMessage(`{"value":"modern"}`))
 	}()
 	awaitFixtureSignal(t, barrier.entered, "committed ALLOW did not reach downstream barrier")
-	live := harness.LiveAuditObservations()
+	live := harness.WaitForAuditObservations(6, 0)
 	require.Len(t, live, 6)
 	assert.Equal(t, contract.DecisionAllow, live[5].Decision)
 	assert.Empty(t, live[5].TerminalClass, "terminal annotation preceded downstream completion")
@@ -68,6 +68,7 @@ func TestGatewayBinaryGovernsModernAndLegacyCallsBeforeHTTPDispatch(t *testing.T
 	unauthenticated := harness.ModernCall(issued.Bearer, json.RawMessage(`"after-revoke"`), "governed-http.allowed", json.RawMessage(`{"value":"later"}`))
 	assertProblem(t, unauthenticated, http.StatusUnauthorized, "authentication_required", "Authentication is required.", true)
 	assert.Equal(t, 2, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"), "rejected calls must not dispatch")
+	harness.WaitForAuditObservations(6, 0, 5)
 
 	harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()
@@ -109,6 +110,7 @@ func TestGatewayBinaryRoutesBothInboundErasToLegacyStdioOnce(t *testing.T) {
 	require.NotEmpty(t, starts)
 	activePID := starts[len(starts)-1].PID
 
+	harness.WaitForAuditObservations(2, 0, 1)
 	harness.Stop(syscall.SIGTERM)
 	waitForProcessExit(t, activePID)
 	observations := harness.AuditObservations()

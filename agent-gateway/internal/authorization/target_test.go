@@ -10,7 +10,7 @@ import (
 )
 
 func TestAccessTargetScopeAtGrantAndCallBoundaries(t *testing.T) {
-	repository, store := newRepository(t, nil)
+	repository, _ := newRepository(t, nil)
 	principal, credential := createAdmissionCredential(t, repository)
 	target := accesstarget.Tool(contract.SyntheticServerID, "get_identity")
 	result, err := repository.Evaluate(t.Context(), EvaluationRequest{
@@ -31,11 +31,11 @@ func TestAccessTargetScopeAtGrantAndCallBoundaries(t *testing.T) {
 		})
 		require.ErrorIs(t, err, ErrInvalidInput)
 		lease := mustAuthenticateLease(t, repository, credential.Bearer)
-		_, pending, err := verifyResolvedMutation(repository, store, lease, ResolvedVerification{
+		evaluation, err := repository.EvaluateAdmission(t.Context(), lease, "", &ResolvedVerification{
 			Target: invalid, Arguments: mustAdmissionArguments(t, `{}`),
-		}, nil)
+		})
 		require.ErrorIs(t, err, ErrInvalidInput)
-		require.Nil(t, pending)
+		require.Nil(t, evaluation.Candidate)
 		lease.Release()
 	}
 

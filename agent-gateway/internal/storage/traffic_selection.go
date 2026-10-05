@@ -4,12 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
 var ErrTrafficUnselected = errors.New("traffic generation is not selected; stopped traffic migration is required")
 
 // SelectedTraffic reads only control-owned selection metadata. An empty selection
-// is a legitimate migrated legacy control store, but is never ready to serve.
+// explicitly disables capture without weakening security readiness. Legacy rows
+// remain untouched until an explicitly authorized stopped migration.
 func (store *Store) SelectedTraffic(ctx context.Context) (string, error) {
 	var generation string
 	err := store.View(ctx, func(tx *sql.Tx) error {
@@ -51,6 +56,19 @@ func (store *Store) SelectTraffic(ctx context.Context, expected, generation stri
 	if !installationIDPattern.MatchString(generation) || expected != "" && !installationIDPattern.MatchString(expected) {
 		return ErrInvalidDatabase
 	}
+	return store.selectTraffic(ctx, expected, generation, "migrate")
+}
+
+// DisableTraffic is only for a verified stopped replacement: restoring security
+// never selects unrelated retained history. The selector and audit commit together.
+func (store *Store) DisableTraffic(ctx context.Context, expected string) error {
+	if expected != "" && !installationIDPattern.MatchString(expected) {
+		return ErrInvalidDatabase
+	}
+	return store.selectTraffic(ctx, expected, nil, "migrate")
+}
+
+func (store *Store) selectTraffic(ctx context.Context, expected string, generation any, action string) error {
 	return store.Mutate(ctx, func(tx *sql.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE traffic_selection SET generation=? WHERE singleton=1 AND COALESCE(generation,'')=?`, generation, expected)
 		if err != nil {
@@ -63,6 +81,10 @@ func (store *Store) SelectTraffic(ctx context.Context, expected, generation stri
 		if count != 1 {
 			return ErrInvalidDatabase
 		}
-		return nil
+		var installation string
+		if err := tx.QueryRowContext(ctx, `SELECT installation_id FROM gateway_meta WHERE singleton=1`).Scan(&installation); err != nil {
+			return err
+		}
+		return audit.MutationTx(audit.WithOffline(ctx), tx, time.Now(), "storage", action, contract.AuditTarget{Type: "installation", ID: installation})
 	})
 }
