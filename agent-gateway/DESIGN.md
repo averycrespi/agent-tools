@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Agent Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one durable audit transaction before one immediate attempt on a pinned downstream capability or fixed local handler. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; narrowly bounded process-local authority and invocation-storage acquisition waits do not schedule downstream work.
+Agent Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one request-local authorization and confirmation boundary before one immediate attempt on a pinned downstream capability or fixed local handler. Traffic history is optional; security administration retains mandatory atomic durable audit. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; narrowly bounded process-local authority and invocation-storage acquisition waits do not schedule downstream work.
 
 This document is the normative architecture overview and index. The linked design chapters own detailed product behavior. The [documentation map](docs/README.md) routes readers to operator and maintainer procedures, while maintainer commands, package layout, and editing invariants belong to [`CLAUDE.md`](CLAUDE.md).
 
@@ -59,7 +59,7 @@ Exact authorities, limits, states, and failure vocabularies are owned by the rel
 
 Serve diagnostics use one startup-owned typed `log/slog` adapter, independently of mandatory durable audit writes. Narrow injected observers supply only the closed privacy-safe process/upstream lifecycle, OAuth, invocation, authority and storage inventory; [serve diagnostics](docs/design/administrative-control-plane.md#serve-diagnostics) owns bounded buffering and best-effort stderr shutdown.
 
-Durable desired state remains separate from process-local runtime and active publication. Administrator authority remains separate from agent authority. Authentication remains separate from authorization; discovery remains separate from capability acquisition; audit admission completes before execution; and one-time secret ingress and output remain separate from reusable state.
+Durable desired state remains separate from process-local runtime and active publication. Administrator authority remains separate from agent authority. Authentication remains separate from authorization; discovery remains separate from capability acquisition; request-local confirmation completes before execution; and one-time secret ingress and output remain separate from reusable state.
 
 Dependencies flow from the command composition root into domain packages. Domain packages do not import `cmd`, share authority across credential domains, introduce a cross-module internal library, or bypass the owning storage, keyring, network, process, or protocol boundary. The complete package inventory and dependency conventions live in [`CLAUDE.md`](CLAUDE.md).
 

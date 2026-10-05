@@ -13,24 +13,31 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/stretchr/testify/require"
 )
 
 func TestIntegrationGitUnfinishedUploadSettles(t *testing.T) {
-	for _, mode := range []string{"early_response", "active_drain"} {
+	for _, mode := range []string{"early_response", "active_drain", "active_drain_without_history"} {
 		t.Run(mode, func(t *testing.T) {
 			f := fixture(t)
+			if mode == "active_drain_without_history" {
+				isolateProxyHistory(t, f, "stalled-open")
+			}
+			var calls atomic.Int32
 			line := strings.Repeat("0", 40) + " " + strings.Repeat("1", 40) + " refs/heads/topic"
 			prefix := fmt.Sprintf("%04x%s0000PACK", len(line)+4, line)
 			entered, settled := make(chan struct{}), make(chan struct{})
 			upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(settled)
+				calls.Add(1)
 				if r.Header.Get("Authorization") != "Bearer cleanup-canary" {
 					t.Error("selected Git material missing")
 					w.WriteHeader(403)
@@ -112,6 +119,18 @@ func TestIntegrationGitUnfinishedUploadSettles(t *testing.T) {
 			require.Zero(t, status.Work.InUse)
 			require.Zero(t, status.ActiveStreams)
 			require.Zero(t, status.Connections.InUse)
+			require.EqualValues(t, 1, calls.Load())
+			if mode == "active_drain_without_history" {
+				health := f.traffic.Status(t.Context())
+				require.Equal(t, "opening", health.State)
+				require.Positive(t, health.Delivery.Discarded)
+				observed := f.engine.options.Observations.Status().Protocols[diagnostics.Git]
+				require.EqualValues(t, 1, observed.Executions)
+				require.Zero(t, observed.Results[diagnostics.Succeeded])
+				_, err = f.gitMaterials.Rotate(ctx, material.ID, material.Revision, []byte("after-cleanup-canary"))
+				require.NoError(t, err)
+				return
+			}
 			require.Eventually(t, func() bool {
 				history, err := f.traffic.GitHistory(t.Context(), 0, 10)
 				return err == nil && len(history.Records) == 1 && history.Records[0].Completion != nil

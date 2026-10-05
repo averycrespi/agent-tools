@@ -221,6 +221,46 @@ not throughput, native filesystem, or power-loss qualification. Preserve the
 complete lifecycle/read/paired-backup boundary, schema-17 diagnostic evidence and
 schema-18 traffic selection; never introduce dual writes or partial readers.
 
+### Cross-protocol failure-isolation qualification
+
+Keep fault comparisons beside the existing behavior owners, not in a second
+acceptance matrix or report format:
+
+- `httpproxy.TestIntegrationProxyOutcomesIndependentOfHistory` compares live HTTP,
+  opaque CONNECT, intercepted H1/H2 and Git bytes, upstream counts, response
+  provenance and settled work with healthy, absent, faulted, pinned-WAL-full and
+  stalled-opening history. The full case pins a disposable SQLite reader and
+  generates bounded WAL pressure; it is not physical disk exhaustion. Opaque
+  CONNECT preserves upstream bytes, including headers it cannot interpret.
+- `invocation.TestExecutionHealthAndRevocationWithBothSinksBlocked` parks the actual
+  history writer and diagnostic sink together. It checks bounded occupancy,
+  discarded starts/terminals, independent execution counts, revocation, authority
+  release and secret-free retained artifacts after both owners join.
+- The existing Git unfinished-upload and H2 response-cancellation owners include
+  lost-history cases. Cleanup and subsequent credential rotation are asserted
+  without waiting for a row; a successful HTTP exchange is not Git ref verification.
+- `composition.TestSecurityFaultsRemainClosedWhileHistoryOpeningStalls` combines
+  unavailable optional history with mandatory audit, intent-marker and postcommit
+  uncertainty. `TestSecurityBackupCompletesBeforeHistoryOpenerSettles` verifies
+  security-only backup without transferring the opener's installation ownership.
+- `TestGatewayBinaryHistoryLossReplacementAndRestart` uses the owned real-binary
+  E2E harness for modern/legacy MCP calls, pinned replacement and graceful
+  stop/restart with healthy, absent and damaged history. It observes actual upstream
+  calls rather than reconstructing execution from rows, and preserves damaged files.
+
+These cases complement the existing admission-confirmation, opaque-origin,
+request/body identity, bounded overload, history close-barrier, security-only restore
+and forced-process-stop owners. Run the cumulative integration and E2E owners on the
+final unchanged revision, plus applicable unit, harness, material, demo, security,
+formatting and verification checks. Independent review covers the incremental diff;
+exact-head target-applicable CI and named real IPv6 pass evidence remain required.
+
+Barrier injection and owned process-stop evidence are distinct: a returned fault is
+not a crash, and neither proves power-loss durability, native keyring/launchd
+behavior, live Git interoperability, shared-filesystem isolation or target capacity.
+This scoped qualification does not constitute full release acceptance or authorize
+installed-resource mutations.
+
 ## Developer source and tooling cutover
 
 The source directory, Go module/import prefix, sole command source, CI tool/cache identity, and developer artifact prefix are now `agent-gateway`. There is no old-directory shim or old-module forwarding layer.

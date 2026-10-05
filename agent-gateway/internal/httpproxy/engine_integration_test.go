@@ -81,6 +81,7 @@ type proxyFixture struct {
 	gitMaterials *gitcredentials.Service
 	roots        *x509.CertPool
 	publicCA     []byte
+	trafficPath  string
 	backend      *memoryBackend
 }
 
@@ -95,6 +96,11 @@ func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *p
 }
 
 func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func(net.Listener) net.Listener) *proxyFixture {
+	t.Helper()
+	return fixtureWithTrafficConfig(t, completionNow, wrap, nil)
+}
+
+func fixtureWithTrafficConfig(t *testing.T, completionNow func() time.Time, wrap func(net.Listener) net.Listener, configure func(*invocation.TrafficConfig)) *proxyFixture {
 	t.Helper()
 	ctx := audit.WithSystem(t.Context())
 	const installation = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
@@ -133,6 +139,9 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 	require.True(t, roots.AppendCertsFromPEM(public))
 	config := invocation.DefaultTrafficConfig()
 	config.BudgetBytes = 8 << 20
+	if configure != nil {
+		configure(&config)
+	}
 	traffic, err := invocation.CreateTraffic(ctx, owner, installation, "01ARZ3NDEKTSV4RRFFQ69G5FAW", config)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, traffic.Close()) })
@@ -163,7 +172,7 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 			t.Error("proxy serve failed to join")
 		}
 	})
-	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, backend: backend}
+	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, trafficPath: filepath.Join(owner.Layout().Root, "traffic-01ARZ3NDEKTSV4RRFFQ69G5FAW.db"), backend: backend}
 }
 func (f *proxyFixture) allow(t *testing.T, raw, kind, path, credential string) {
 	t.Helper()

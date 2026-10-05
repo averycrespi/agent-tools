@@ -143,13 +143,24 @@ func (c *terminationDeadlineConn) SetWriteDeadline(deadline time.Time) error {
 }
 
 func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
-	for _, protocol := range []string{"http/1.1", "h2"} {
+	for _, protocol := range []string{"http/1.1", "h2", "h2-without-history"} {
 		for _, drain := range []bool{false, true} {
+			if protocol == "h2-without-history" && !drain {
+				continue
+			}
 			t.Run(fmt.Sprintf("%s/drain=%t", protocol, drain), func(t *testing.T) {
+				withoutHistory := protocol == "h2-without-history"
+				wireProtocol := protocol
+				if withoutHistory {
+					wireProtocol = "h2"
+				}
 				var pendingWrite atomic.Bool
 				f := fixtureWithListener(t, nil, func(l net.Listener) net.Listener {
 					return &terminationDeadlineListener{Listener: l, pending: &pendingWrite}
 				})
+				if withoutHistory {
+					isolateProxyHistory(t, f, "stalled-open")
+				}
 				var calls atomic.Int64
 				releaseUpstream := make(chan struct{})
 				const event = "data: {\"type\":\"response.completed\"}\n\n"
@@ -176,11 +187,11 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 				f.engine.roots = x509.NewCertPool()
 				f.engine.roots.AddCert(upstream.Certificate())
 				f.allow(t, upstream.URL, "allow_requests", "", "")
-				conn := f.intercept(t, upstream.URL, protocol)
+				conn := f.intercept(t, upstream.URL, wireProtocol)
 				require.NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
 				var response *http.Response
 				var err error
-				if protocol == "h2" {
+				if wireProtocol == "h2" {
 					cc, e := (&http2.Transport{}).NewClientConn(conn)
 					require.NoError(t, e)
 					defer func() { _ = cc.Close() }()
@@ -212,7 +223,19 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 					require.NoError(t, conn.Close())
 				}
 				_ = response.Body.Close()
-				assertTermination(t, f, contract.HTTPTermination{Stage: "upstream_read", Condition: "cancelled", Context: "cancelled"}, "outcome_unknown")
+				if withoutHistory {
+					ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+					defer cancel()
+					require.NoError(t, f.engine.Wait(ctx))
+					status := f.engine.Status()
+					require.Zero(t, status.Work.InUse)
+					require.Zero(t, status.ActiveStreams)
+					require.Zero(t, status.Connections.InUse)
+					require.Equal(t, "opening", f.traffic.Status(ctx).State)
+					require.Positive(t, f.traffic.Status(ctx).Delivery.Discarded)
+				} else {
+					assertTermination(t, f, contract.HTTPTermination{Stage: "upstream_read", Condition: "cancelled", Context: "cancelled"}, "outcome_unknown")
+				}
 				require.EqualValues(t, 1, calls.Load())
 			})
 		}

@@ -16,7 +16,19 @@ import (
 )
 
 func TestServiceAdmittedExecutionDoesNotHoldAuthority(t *testing.T) {
+	admittedExecutionAuthority(t, false)
+}
+
+func TestServiceAdmittedExecutionSurvivesLostHistory(t *testing.T) {
+	admittedExecutionAuthority(t, true)
+}
+
+func admittedExecutionAuthority(t *testing.T, loseHistory bool) {
+	t.Helper()
 	_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+	if loseHistory {
+		audits.traffic.BeginDrain()
+	}
 	lease, err := authority.Authenticate(t.Context(), credential.Bearer)
 	require.NoError(t, err)
 	defer lease.Release()
@@ -55,8 +67,12 @@ func TestServiceAdmittedExecutionDoesNotHoldAuthority(t *testing.T) {
 	response := <-done
 	require.NotNil(t, response.Result)
 	require.Equal(t, 1, calls)
-	record := onlyInvocationRecord(t, audits)
-	require.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
+	if loseHistory {
+		require.GreaterOrEqual(t, audits.traffic.Status(t.Context()).Delivery.Discarded, uint64(2))
+	} else {
+		record := onlyInvocationRecord(t, audits)
+		require.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
+	}
 }
 
 func TestServiceControlWriterContentionCannotBlockTerminalObservation(t *testing.T) {

@@ -31,6 +31,21 @@ Use `--admission-class`, `--decision`, and `--outcome` only with values shown by
 
 Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output omits captures but includes safe failure diagnostics when available. A missing item can mean capture was dropped, the ID never existed, or bounded retention evicted it. An unavailable history read is different from a successful read with no matching record; neither proves nonexecution. Live error IDs are optional correlation, not persistence receipts.
 
+## Distinguish optional sink loss from authority failure
+
+MCP, HTTP, CONNECT and Git forwarding do not wait for optional history or stderr.
+An unavailable history file, full observation queue or blocked diagnostic writer
+can lose evidence while an authorized request still completes. Use process-local
+execution observations and delivery counters in system status to distinguish
+observed requests from retained rows; neither counter set verifies remote effects.
+Security authority, credential currentness and mandatory administrative audit still
+fail closed. Do not weaken policy or repeat an uncertain operation to repair history.
+
+This isolation is not protection against a shared filesystem stall, physical disk
+exhaustion or uninterruptible I/O. A shutdown deadline with unconfirmed cleanup does
+not release installation ownership or establish a clean stop. Preserve damaged
+history and recovery artifacts and follow [stopped recovery](backup-and-recovery.md).
+
 ## Filter browser history
 
 Open **MCP → Invocations** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/mcp/invocations` and its detail suffixes with valid filters. Old `#/invocations` and `#/activity/invocations` bookmarks are invalid and have no redirects; see the [coordinated API/CLI/browser cutover](upgrade-compatibility.md#mcp-invocation-namespace-cutover). **Back to invocations** retains the applied query; **Audit Log** remains the separate shared administrative audit history.
