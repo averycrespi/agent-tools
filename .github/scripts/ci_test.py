@@ -347,7 +347,7 @@ class CacheTests(unittest.TestCase):
         self.assertIn("run: make -C agent-gateway test-serve-demo", jobs["gateway-demo"])
         self.assertNotIn("actions/setup-node", jobs["gateway-demo"])
         self.assertNotIn("actions/setup-node", jobs["unit-tests"])
-        self.assertIn('make -C "$TOOL" test-unit', jobs["unit-tests"])
+        self.assertIn('AGENT_GATEWAY_TEST_JSON=1 make -C "$TOOL" test-unit', jobs["unit-tests"])
         self.assertIn('make -C "$TOOL" "test-$SUITE"', jobs["integration-tests"])
         self.assertIn('include: ${{ fromJSON(needs.changes.outputs.integration_matrix) }}', jobs["integration-tests"])
         self.assertIn('SUITE: ${{ matrix.suite }}', jobs["integration-tests"])

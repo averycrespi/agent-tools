@@ -154,17 +154,39 @@ Intercepted upgrades/WebSockets and trailers reject; explicit tunnels are opaque
 and never run inner request policy or credential injection. No HTTP/3 or TLS-error
 fallback exists.
 
-The remote owner resolves a bounded complete address set once, evaluates every
-answer, pins it, and dials only its first validated address after confirmed authority.
-It rechecks unconditional exclusions and current composition-owned listener
-reservations at dial. Callback endpoints are reserved before binding. Private
-permission belongs only to the selected request/tunnel grant. Each request uses a
-fresh HTTP/1 upstream transport with a single-use dial, explicit H1-only protocol,
-no keepalive, proxy, compression, redirect client or body replay. Thus H2 client
-streams cannot coalesce upstream connections or transfer another principal/path's
-permission. Selected HTTPS credential material replaces its single header only
-after admission; missing material never falls back. An authorized upstream can
-itself disclose any secret it receives; the proxy cannot prevent that disclosure.
+The remote owner resolves and pins at most 64 addresses once for complete-set
+policy validation, and dials only after confirmed authority. A forbidden answer rejects the whole set;
+it is never filtered into a more permissive subset. TCP connection establishment
+tries these numeric IPv4/IPv6 addresses in resolution order, at most once per
+candidate, within one nonrenewable ten-second total dial budget shortened by the
+original request deadline. Each candidate receives at most an equal share of the
+remaining time divided by the remaining candidate count. Fast refusal leaves its
+unused time for later candidates; a stalled first address cannot consume every
+candidate's share. This is bounded sequential connection establishment, not an
+application retry, family race, fresh DNS lookup, reroute or additional authority.
+Before each actual dial, the complete pinned set is rechecked against unconditional
+exclusions, private permission and current composition-owned listener reservations.
+Callback endpoints are reserved before binding. Private permission belongs only
+to the selected request/tunnel grant.
+
+There is one synchronous dial owner and no parallel candidate goroutine. Cancellation
+stops further candidates, and failed, expired or cancellation-losing connections
+close before return or the next candidate. HTTP/Git establish the connection in
+the original request owner before handing it to the HTTP transport, whose detached
+dial context must not prolong candidate work after request cancellation. Dial
+implementations must honor context deadlines; a timer cannot kill an uncooperative
+native call, and ownership is retained until it actually returns.
+
+Only the winning connection is handed off once for TLS/application traffic. TLS
+verifies the original hostname, not the numeric candidate; TLS failure, disconnect,
+request-write failure or response timeout never selects another address. Each
+request uses a fresh HTTP/1 upstream transport with a single-use connection handoff,
+explicit H1-only protocol, no keepalive, proxy, compression, redirect client or body
+replay. Thus H2 client streams cannot coalesce upstream connections or transfer
+another principal/path's permission. Selected HTTPS credential material replaces
+its single header only after admission and travels only on the approved winning
+connection; missing material never falls back. An authorized upstream can itself
+disclose any secret it receives; the proxy cannot prevent that disclosure.
 
 Bounds are executable in `contract/http_engine.go`: 256 accepted connections, 128
 active work owners, 96 per principal, 32 H2 streams per connection, 32 KiB streaming
@@ -215,8 +237,14 @@ upstream DNS/connection/TLS/protocol failure (502), and typed upstream timeout
 (504). The accepted-socket limit closes before HTTP parsing, without attempting
 an HTTP response. Parser-level framing failures remain owned by `net/http` and
 may lack Gateway correlation. These classifications do not change authentication
-ordering, policy, material fencing or one-shot dispatch. History loss does not
-select a live failure response.
+ordering, policy, material fencing or one-shot dispatch. If all eligible TCP
+candidates fail, any typed candidate timeout selects 504; otherwise connection
+failure selects 502. Original request cancellation stops establishment rather than
+starting another candidate. These safe categories expose no addresses, secrets or
+raw errors. Connection attempts are not logical dispatches and do not increment
+execution populations or create extra terminal observations. A timeout at the
+exchange boundary still does not prove application nonexecution. History loss
+does not select a live failure response.
 
 Before response start, errors carry bounded status text, no-store, and the RFC 9209
 `Proxy-Status` member `AgentGateway` with a closed `error` token. The executable

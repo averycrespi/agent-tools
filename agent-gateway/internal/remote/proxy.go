@@ -62,33 +62,74 @@ func (p *ProxyAddress) Dial(ctx context.Context, private bool) (net.Conn, error)
 	if p == nil || !p.used.CompareAndSwap(false, true) {
 		return nil, ErrAddressPolicy
 	}
+	return p.dialCandidates(ctx, private)
+}
+
+func (p *ProxyAddress) validateDial(private bool) error {
 	owned := p.listeners()
 	if len(owned) > contract.HTTPAddressFacts {
-		return nil, ErrAddressPolicy
+		return ErrAddressPolicy
 	}
 	for _, listener := range owned {
 		if !listener.IsValid() || listener.Port() == 0 || listener.Addr().Zone() != "" {
-			return nil, ErrAddressPolicy
+			return ErrAddressPolicy
 		}
 	}
 	for _, ip := range p.facts.Addresses {
 		class := httppolicy.ClassifyAddress(ip)
 		if class == httppolicy.AddressForbidden || class == httppolicy.AddressPrivate && !private {
-			return nil, ErrAddressPolicy
+			return ErrAddressPolicy
 		}
 		for _, listener := range owned {
 			if ip.Unmap() == listener.Addr().Unmap() && p.destination.Port() == listener.Port() {
-				return nil, ErrAddressPolicy
+				return ErrAddressPolicy
 			}
 		}
 	}
+	return nil
+}
+
+func (p *ProxyAddress) dialCandidates(ctx context.Context, private bool) (net.Conn, error) {
 	ctx, cancel := context.WithTimeout(ctx, contract.HTTPProxyDialTimeout)
 	defer cancel()
-	conn, err := p.factory.dial(ctx, "tcp", netip.AddrPortFrom(p.facts.Addresses[0], p.destination.Port()).String())
-	if err != nil {
+	deadline, _ := ctx.Deadline()
+	failure := ErrProxyConnection
+	for i, ip := range p.facts.Addresses {
+		if err := p.validateDial(private); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, proxyTransportFailure(err)
+		}
+		// Share the remaining budget rather than letting a stalled first address
+		// consume it all. There is one synchronous dial owner, never a race to
+		// send application bytes. Every subdeadline is bounded by the same total.
+		now := time.Now()
+		attemptDeadline := now.Add(deadline.Sub(now) / time.Duration(len(p.facts.Addresses)-i))
+		attempt, stop := context.WithDeadline(ctx, attemptDeadline)
+		conn, err := p.factory.dial(attempt, "tcp", netip.AddrPortFrom(ip, p.destination.Port()).String())
+		attemptErr := attempt.Err()
+		if attemptErr == nil && !time.Now().Before(attemptDeadline) {
+			attemptErr = context.DeadlineExceeded
+		}
+		stop()
+		if err == nil && attemptErr == nil && conn != nil {
+			return &proxyIdleConn{Conn: conn}, nil
+		}
+		if conn != nil {
+			_ = conn.Close()
+		}
+		if attemptErr != nil {
+			err = attemptErr
+		}
+		if errors.Is(proxyTransportFailure(err), ErrProxyTimeout) {
+			failure = ErrProxyTimeout
+		}
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, proxyTransportFailure(err)
 	}
-	return &proxyIdleConn{Conn: conn}, nil
+	return nil, failure
 }
 
 // ProxyExchange makes one fresh HTTP/1 upstream attempt. No pool, coalescing,
@@ -117,10 +158,26 @@ func (p *ProxyAddress) ProxyExchange(ctx context.Context, target httppolicy.Requ
 	if ValidateProxyHeaders(outgoing) != nil {
 		return nil, ErrResponseLimit
 	}
+	// Establish in the request owner: net/http detaches its dial context from
+	// request cancellation and may return before that dial settles. No candidate
+	// owner may outlive this exchange's connection-establishment phase.
+	conn, err := p.Dial(ctx, private)
+	if err != nil {
+		if body != nil {
+			_ = body.Close()
+		}
+		return nil, err
+	}
+	var handedOff atomic.Bool
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
 	transport := &http.Transport{Protocols: protocols, Proxy: nil, DisableKeepAlives: true, DisableCompression: true, ForceAttemptHTTP2: false, MaxResponseHeaderBytes: contract.HTTPProxyHeaderBytes, TLSHandshakeTimeout: contract.HTTPProxyDialTimeout, ResponseHeaderTimeout: contract.HTTPProxyHeaderTimeout,
-		DialContext:     func(ctx context.Context, _, _ string) (net.Conn, error) { return p.Dial(ctx, private) },
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			if !handedOff.CompareAndSwap(false, true) {
+				return nil, ErrAddressPolicy
+			}
+			return conn, nil
+		},
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, ServerName: p.destination.Host(), RootCAs: roots}, //nolint:gosec // Verification remains enabled, with platform roots in production.
 	}
 	req := &http.Request{Method: target.Method(), URL: target.URL(), Host: target.Destination().Authority(), Header: header.Clone(), Body: body, ContentLength: length, Close: true}
@@ -129,6 +186,7 @@ func (p *ProxyAddress) ProxyExchange(ctx context.Context, target httppolicy.Requ
 	response, err := transport.RoundTrip(req)
 	if err != nil {
 		cancel()
+		_ = conn.Close()
 		transport.CloseIdleConnections()
 		if errors.Is(err, ErrAddressPolicy) {
 			return nil, ErrAddressPolicy
