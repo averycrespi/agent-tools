@@ -2057,7 +2057,7 @@ export async function runGrantReadsCreate(
   );
   const grantFactLabels = await grantDetail.locator("dt").allTextContents();
   if (
-    !grantFactLabels.includes("Grant ID") ||
+    grantFactLabels.includes("Grant ID") ||
     grantFactLabels.includes("ID") ||
     (await grantDetail.getByText("Back to principal grants").count()) !== 0 ||
     (await grantDetail.locator('[data-testid="detail-context"] h1').count()) !==

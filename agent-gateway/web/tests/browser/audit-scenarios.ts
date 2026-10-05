@@ -366,7 +366,7 @@ export async function runAudit(
     .focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("h1")).toBeFocused();
-  await expect(page.locator("h1")).toHaveText("server.reconcile");
+  await expect(page.locator("h1")).toHaveText("Reconcile server");
   await expect(page.getByText("interrupted", { exact: true })).toBeVisible();
   await expect.poll(() => holdTarget !== undefined).toBe(true);
   await expect(
@@ -399,7 +399,11 @@ export async function runAudit(
   await expect(related.getByText(/Newest recorded sequence first/)).toHaveCount(
     0,
   );
-  const technical = page.getByText("Technical details", { exact: true });
+  const technical = page.getByText("Correlation ID", { exact: true });
+  await expect(technical).toBeVisible();
+  await expect(
+    page.getByText("Technical details", { exact: true }),
+  ).toHaveCount(0);
   const technicalBox = await technical.boundingBox();
   const relatedBox = await related
     .getByRole("heading", { name: "Related events", exact: true })
@@ -418,7 +422,7 @@ export async function runAudit(
   await expect(
     related.getByText("Related events unavailable", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator("h1")).toHaveText("server.reconcile");
+  await expect(page.locator("h1")).toHaveText("Reconcile server");
   await expect(related.getByRole("row")).toHaveCount(4);
   await expect(
     related.getByText("3 events loaded (stale)", { exact: true }),
@@ -449,11 +453,11 @@ export async function runAudit(
       );
   }
   mode = "normal";
-  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await page.getByRole("link", { name: "Back to Audit Log" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
   await page.goBack();
-  await expect(page.locator("h1")).toHaveText("server.reconcile");
+  await expect(page.locator("h1")).toHaveText("Reconcile server");
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toBeVisible();
@@ -475,7 +479,7 @@ export async function runAudit(
       0,
     );
     await expect(
-      page.getByRole("heading", { name: "server.reconcile", exact: true }),
+      page.getByRole("heading", { name: "Reconcile server", exact: true }),
     ).toBeVisible();
   }
   mode = "missing";
@@ -489,7 +493,7 @@ export async function runAudit(
     page.getByText("Previous-history detail discarded", { exact: true }),
   ).toBeVisible();
   mode = "normal";
-  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await page.getByRole("link", { name: "Back to Audit Log" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page).toHaveURL(/#\/audit-log\?filter_outcome=unknown$/);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
@@ -890,7 +894,7 @@ export async function runAudit(
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await page.getByRole("link", { name: "Back to Audit Log" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue(
     "unknown",

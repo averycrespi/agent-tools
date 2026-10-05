@@ -545,6 +545,24 @@ p {
   color: var(--text);
 }
 
+input[readonly],
+textarea[readonly] {
+  background: var(--surface-subtle);
+  border-color: var(--line-strong);
+  color: var(--text);
+  cursor: text;
+}
+
+.push-permissions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.push-permissions-row > .form-field {
+  flex: 0 1 auto;
+}
+
 .form-field textarea {
   min-height: 72px;
   resize: vertical;
@@ -1883,6 +1901,13 @@ button.sort-button:not(:disabled):hover {
   padding: 8px 0 18px;
 }
 
+.detail-context > .technical-value {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  user-select: text;
+}
+
 .server-context-heading,
 .detail-context-heading {
   display: flex;
@@ -1895,7 +1920,7 @@ button.sort-button:not(:disabled):hover {
   flex-shrink: 0;
 }
 
-.server-context h2,
+.server-context h1,
 .detail-context h1 {
   font-size: clamp(28px, 3vw, 38px);
   letter-spacing: -0.035em;

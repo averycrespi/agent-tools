@@ -457,17 +457,19 @@ export function ServerAuthFlows({
         <div data-testid="auth-flow-detail">
           <nav class="detail-navigation" aria-label="OAuth flow navigation">
             <a href={`#/mcp/servers/${server.id}?tab=authentication`}>
-              Back to authentication
+              Back to server authentication
             </a>
           </nav>
-          <header class="detail-context-heading">
-            <div>
-              <h2 id="auth-flow-detail-title">OAuth flow {flow.id}</h2>
-              <span class="table-secondary">OAuth authorization</span>
+          <header class="detail-context" data-testid="detail-context">
+            <div class="detail-context-heading">
+              <h1 id="auth-flow-detail-title" tabindex={-1}>
+                Authorize server with OAuth
+              </h1>
+              <StatusLabel state={flowState(flow)}>
+                {words(flow.state)}
+              </StatusLabel>
             </div>
-            <StatusLabel state={flowState(flow)}>
-              {words(flow.state)}
-            </StatusLabel>
+            <p class="technical-value">{flow.id}</p>
           </header>
           <section
             class="detail-section"
@@ -495,13 +497,20 @@ export function ServerAuthFlows({
               <div>
                 <dt>Finished</dt>
                 <dd>
-                  <UserTime value={flow.finishedAt} fallback="In progress" />
+                  <UserTime
+                    value={flow.finishedAt}
+                    fallback={
+                      authFlowIsTerminal(flow) ? "Not recorded" : "In progress"
+                    }
+                  />
                 </dd>
               </div>
-              <div>
-                <dt>Reason</dt>
-                <dd>{flow.reason === null ? "—" : words(flow.reason)}</dd>
-              </div>
+              {flow.reason !== null && (
+                <div>
+                  <dt>Reason</dt>
+                  <dd>{words(flow.reason)}</dd>
+                </div>
+              )}
             </dl>
             {flow.diagnostic !== null && (
               <details>
@@ -515,10 +524,12 @@ export function ServerAuthFlows({
                     <dt>Reason</dt>
                     <dd>{words(flow.diagnostic.reason)}</dd>
                   </div>
-                  <div>
-                    <dt>HTTP status</dt>
-                    <dd>{flow.diagnostic.httpStatus ?? "—"}</dd>
-                  </div>
+                  {flow.diagnostic.httpStatus !== null && (
+                    <div>
+                      <dt>HTTP status</dt>
+                      <dd>{flow.diagnostic.httpStatus}</dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Correlation</dt>
                     <dd>{flow.diagnostic.correlationID}</dd>

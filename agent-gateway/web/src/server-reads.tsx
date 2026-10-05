@@ -1434,23 +1434,38 @@ function ServerNavigation({
   serverID,
   current,
   fresh,
+  compact = false,
 }: {
   server: ServerView | undefined;
   serverID: string;
   current: string;
   fresh: boolean;
+  compact?: boolean;
 }) {
   if (server === undefined) return null;
+  if (compact)
+    return (
+      <>
+        <p class="secondary-text">
+          Server: <a href={`#/mcp/servers/${serverID}`}>{server.displayName}</a>
+        </p>
+        <ServerTabs serverID={serverID} current={current} />
+      </>
+    );
   const presentation = serverPresentation(server);
   return (
     <>
+      <nav class="detail-navigation" aria-label="Server navigation">
+        <a href="#/mcp/servers">Back to MCP Servers</a>
+      </nav>
       <header class="server-context" data-testid="server-context">
         <div class="server-context-heading">
-          <h2 tabindex={-1}>{server.displayName}</h2>
+          <h1 tabindex={-1}>{server.displayName}</h1>
           <StatusLabel state={fresh ? presentation.state : "stale"}>
             {fresh ? presentation.label : `Last known · ${presentation.label}`}
           </StatusLabel>
         </div>
+        <CopyableValue value={server.id} label="server ID" testID="server-id" />
       </header>
       <ServerTabs serverID={serverID} current={current} />
     </>
@@ -2168,6 +2183,7 @@ export function ServerReads({
           serverID={serverID}
           fresh={panel?.status === "current"}
           current="authentication"
+          compact
         />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
@@ -2257,6 +2273,7 @@ export function ServerReads({
           serverID={serverID}
           fresh={panel?.status === "current"}
           current="operations"
+          compact
         />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
@@ -2277,12 +2294,6 @@ export function ServerReads({
   if (descriptorItem !== null)
     return (
       <div class="domain-view" data-testid="descriptor-detail">
-        <ServerNavigation
-          server={snapshot.server}
-          serverID={descriptorItem[1]!}
-          fresh={panel?.status === "current"}
-          current="tools"
-        />
         <ReadPanel panel={panel}>
           {snapshot.descriptor !== undefined &&
             (() => {
@@ -2293,31 +2304,35 @@ export function ServerReads({
                 <>
                   <nav class="detail-navigation" aria-label="Tool navigation">
                     <a href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}>
-                      Back to tools
+                      Back to server tools
                     </a>
-                    <span aria-hidden="true">·</span>
-                    <a href="#/mcp/tools">Back to catalog</a>
+                    <a href="#/mcp/tools">All MCP tools</a>
                   </nav>
-                  <header class="detail-context-heading tool-heading">
-                    <div>
-                      <h2 id="descriptor-detail-title">
-                        MCP Tool: {descriptor.externalName}
-                      </h2>
-                      {typeof document.description === "string" && (
-                        <p>{document.description}</p>
-                      )}
+                  <header class="detail-context" data-testid="detail-context">
+                    <div class="detail-context-heading tool-heading">
+                      <div>
+                        <h1 id="descriptor-detail-title" tabindex={-1}>
+                          MCP Tool: {descriptor.externalName}
+                        </h1>
+                        {typeof document.description === "string" && (
+                          <p>{document.description}</p>
+                        )}
+                      </div>
+                      <StatusLabel
+                        state={
+                          panel?.status !== "current"
+                            ? "stale"
+                            : descriptor.retiredAt === null
+                              ? "current"
+                              : "neutral"
+                        }
+                      >
+                        {descriptor.retiredAt === null
+                          ? "Available"
+                          : "Retired"}
+                      </StatusLabel>
                     </div>
-                    <StatusLabel
-                      state={
-                        panel?.status !== "current"
-                          ? "stale"
-                          : descriptor.retiredAt === null
-                            ? "current"
-                            : "neutral"
-                      }
-                    >
-                      {descriptor.retiredAt === null ? "Available" : "Retired"}
-                    </StatusLabel>
+                    <p class="technical-value">{descriptor.id}</p>
                   </header>
                   {descriptor.retiredAt !== null && (
                     <p>Historical evidence; not callable</p>
@@ -2326,7 +2341,19 @@ export function ServerReads({
                     class="detail-section"
                     aria-labelledby="tool-evidence-title"
                   >
-                    <h3 id="tool-evidence-title">Catalog evidence</h3>
+                    <h2 id="tool-evidence-title">Tool details</h2>
+                    <dl class="tool-metadata">
+                      <div>
+                        <dt>Server</dt>
+                        <dd>
+                          <a href={`#/mcp/servers/${descriptor.serverID}`}>
+                            {snapshot.server?.displayName ??
+                              `Server ${descriptor.serverID}`}
+                          </a>
+                        </dd>
+                      </div>
+                    </dl>
+                    <h3>Catalog evidence</h3>
                     <dl class="tool-metadata">
                       <div>
                         <dt>Catalog revision</dt>
@@ -2630,16 +2657,6 @@ export function ServerReads({
                         Technical details
                       </h3>
                       <dl class="technical-details-grid">
-                        <div class="technical-details-wide">
-                          <dt>Server ID</dt>
-                          <dd>
-                            <CopyableValue
-                              value={server.id}
-                              label="server ID"
-                              testID="server-id"
-                            />
-                          </dd>
-                        </div>
                         <div>
                           <dt>Namespace</dt>
                           <dd>{server.namespace}</dd>

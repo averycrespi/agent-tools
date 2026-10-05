@@ -914,12 +914,8 @@ function InvocationFacts({
           </div>
         )}
       </dl>
-      <h3>Identity and timing</h3>
+      <h3>Timing</h3>
       <dl class="detail-facts">
-        <div>
-          <dt>Invocation ID</dt>
-          <dd class="technical-value">{item.id}</dd>
-        </div>
         <div>
           <dt>Admitted</dt>
           <dd>
@@ -1000,7 +996,7 @@ export function Invocations({
     return (
       <>
         <nav class="detail-navigation" aria-label="Invocation navigation">
-          <a href={listLink}>Back to invocations</a>
+          <a href={listLink}>Back to MCP Invocations</a>
         </nav>
         <InvocationDetail
           snapshot={current}

@@ -59,7 +59,16 @@ const entities = [
       principal_id: agentID,
       repository_id: id,
       description: "Synthetic Git grant",
-      policy: { version: 1, read: true, refs: [] },
+      policy: {
+        version: 1,
+        read: true,
+        refs: [
+          {
+            ref: { kind: "exact", value: "refs/heads/main" },
+            actions: ["update"],
+          },
+        ],
+      },
       expires_at: null,
       state: "active",
     },
@@ -369,6 +378,15 @@ for (const entity of entities) {
         .fill("refs/heads/");
       await page.getByLabel("Create", { exact: true }).click();
       await page.getByLabel("Delete", { exact: true }).click();
+      const toggles = await page
+        .locator(".push-permissions-row .form-field")
+        .evaluateAll((fields) =>
+          fields.map((field) => field.getBoundingClientRect().top),
+        );
+      expect(new Set(toggles).size).toBe(1);
+      await expect(page.getByLabel("Create", { exact: true })).toBeChecked();
+      await expect(page.getByLabel("Update", { exact: true })).toBeChecked();
+      await expect(page.getByLabel("Delete", { exact: true })).toBeChecked();
       await capture(page, "create-push-prefix-actions", true);
     }
     await capture(page, "create-populated", true);
@@ -400,6 +418,35 @@ for (const entity of entities) {
       await expect(page.locator("section.intro")).toHaveAccessibleName(
         detailLabels[entity.path]!,
       );
+    await expect(
+      page.getByTestId("detail-context").locator("h1"),
+    ).toBeFocused();
+    if (entity.path === "git/grants") {
+      await expect(page.getByLabel("Agent", { exact: true })).toHaveAttribute(
+        "readonly",
+        "",
+      );
+      await expect(
+        page.getByLabel("Repository", { exact: true }),
+      ).toHaveAttribute("readonly", "");
+      const toggles = await page
+        .locator(".push-permissions-row .form-field")
+        .evaluateAll((fields) =>
+          fields.map((field) => field.getBoundingClientRect().top),
+        );
+      expect(new Set(toggles).size).toBe(1);
+      await expect(
+        page.getByLabel("Create", { exact: true }),
+      ).not.toBeChecked();
+      await expect(page.getByLabel("Update", { exact: true })).toBeChecked();
+      await expect(
+        page.getByLabel("Delete", { exact: true }),
+      ).not.toBeChecked();
+    }
+    if (entity.path === "git/repositories")
+      await expect(
+        page.getByLabel("Canonical HTTPS destination"),
+      ).toHaveAttribute("readonly", "");
     await capture(page, "detail-edit", true);
     if (entity.path.endsWith("credentials")) {
       await page
@@ -419,10 +466,19 @@ for (const entity of entities) {
         .click();
       await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
     }
-    if (entity.path === "http/grants")
-      await page
-        .getByRole("button", { name: "Edit grant", exact: true })
-        .click();
+    await expect(page.getByTestId("detail-context")).toContainText(id);
+    await expect(
+      page.locator(".detail-section dt").filter({ hasText: /^ID$/ }),
+    ).toHaveCount(0);
+    if (entity.path === "http/grants") {
+      await expect(
+        page.getByRole("heading", { name: "Edit grant", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Agent", { exact: true })).toHaveAttribute(
+        "readonly",
+        "",
+      );
+    }
     await page
       .getByRole("button", {
         name:
@@ -490,10 +546,6 @@ for (const entity of entities) {
       mode = "populated";
     }
     await nav(`/${id}`);
-    if (entity.path === "http/grants")
-      await page
-        .getByRole("button", { name: "Edit grant", exact: true })
-        .click();
     const editField = page.getByLabel(
       entity.path.endsWith("grants") ? "Description (optional)" : "Name",
       { exact: true },
@@ -544,10 +596,6 @@ for (const entity of entities) {
         page.getByRole("button", { name: "Review changes", exact: true }),
       ).toBeEnabled();
     } else await nav(`/${id}`);
-    if (entity.path === "http/grants")
-      await page
-        .getByRole("button", { name: "Edit grant", exact: true })
-        .click();
     await editField.fill("Pending synthetic draft");
     mutationMode = "pending";
     await page

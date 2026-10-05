@@ -330,7 +330,7 @@ export async function assertAuthoritativeHistory(
       page.locator('#primary-navigation a[aria-current="page"]'),
     ).toHaveText("Audit Log");
     await expect(page).toHaveURL(/filter_action=create/);
-    await page.getByRole("link", { name: "Back to audit history" }).click();
+    await page.getByRole("link", { name: "Back to Audit Log" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_action=create/);
 
@@ -444,7 +444,7 @@ export async function assertAuthoritativeHistory(
       selected.items[0].requested_name,
     );
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
-    await page.getByRole("link", { name: "Back to invocations" }).click();
+    await page.getByRole("link", { name: "Back to MCP Invocations" }).click();
     await expect(live).not.toBeChecked();
     await expect(
       page.getByTestId("invocation-row"),
@@ -502,7 +502,7 @@ export async function assertAuthoritativeHistory(
       await expect(principalLink).toBeVisible();
     }
     await capture("detail");
-    await page.getByRole("link", { name: "Back to invocations" }).click();
+    await page.getByRole("link", { name: "Back to MCP Invocations" }).click();
     await expect(page).toHaveURL(copiedList);
     await expect(
       page.getByTestId("invocation-row"),

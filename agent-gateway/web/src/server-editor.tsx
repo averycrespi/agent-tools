@@ -911,7 +911,8 @@ function EditorForm({
           <input
             {...attributes}
             value={draft.namespace}
-            disabled={disabled || namespaceLocked}
+            disabled={disabled}
+            readOnly={namespaceLocked}
             onInput={(event) => update("namespace", event.currentTarget.value)}
           />
         )}
@@ -1876,7 +1877,7 @@ export function ServerEditor({
   return (
     <section class="panel domain-panel" aria-labelledby="server-editor-title">
       <div class="panel-heading">
-        <h2 id="server-editor-title">Configuration</h2>
+        <h2 id="server-editor-title">Edit server</h2>
       </div>
       {form}
     </section>

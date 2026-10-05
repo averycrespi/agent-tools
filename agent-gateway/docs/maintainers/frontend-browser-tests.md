@@ -65,6 +65,31 @@ The Node inventory guard fingerprints the router, rendered TSX owners and styles
 | Backup collection/create/delete                                                                       | `backups`                  | Loading/empty/stale, create/delete confirmation, unknown outcome, deliberate create replay and storage latch                                                                                                                      |
 | Administrator credentials collection/create/revoke/one-time bearer                                    | `admin-credentials`        | Active/revoked/expired, protected last credential, expiry validation, confirmation and one-time sink                                                                                                                              |
 
+### Detail-family coverage
+
+The detail convention sweep covers all 13 routed families and the three server-owned nested records. Assertions belong to the existing owners above; this map does not add a read or mutation owner.
+
+| Family / route suffix                        | Detail and regression scope                                                                                                        |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Agents `agents/{id}`                         | Header ID and focus; access defaults then Metadata; visible Edit agent before credential lifecycle                                 |
+| Audit `audit-log/{id}`                       | Action title, header ID, visible Correlation ID, conditional diagnostics; query-preserving return and independent related evidence |
+| MCP servers `mcp/servers/{id}`               | Shared name/status/ID and destination return across specialized tabs; visible Edit server and readonly namespace                   |
+| MCP grants `mcp/grants/{id}`                 | One header ID, Timing, visible description-only editor and separate replacement/deletion                                           |
+| MCP requests `mcp/access-requests/{id}`      | Header ID, queue return, requested authority and decision sequencing; bulky immutable evidence stays disclosed                     |
+| MCP invocations `mcp/invocations/{id}`       | Recorded tool title/outcome and header ID; Timing, historical authority, diagnostics and argument capture                          |
+| HTTP credentials `http/credentials/{id}`     | Header ID/focus; scope/relationships then Metadata; edit, rotate and delete; reference-locked recipe                               |
+| HTTP grants `http/grants/{id}`               | Header/focus, always-visible editor, readonly agent; dirty discard, conflict, save and uncertain non-replay                        |
+| HTTP traffic `http/traffic/{id}`             | Header/focus and query return; admission, outcome, authority and independent related requests                                      |
+| Git repositories `git/repositories/{id}`     | Single header ID/focus; destination/relationships then Metadata; readonly destination and visible editor                           |
+| Git credentials `git/credentials/{id}`       | Single header ID/focus, named references, Metadata; edit/rotate/delete                                                             |
+| Git grants `git/grants/{id}`                 | Single header ID/focus; readonly named relationships; create/edit push toggles in one wrapping row                                 |
+| Git traffic `git/traffic/{id}`               | Action-first recorded exchange title/ID/focus; transport distinct from admission and upstream report                               |
+| MCP tool `mcp/servers/{id}/descriptors/{id}` | Standalone tool header/descriptor ID/focus without server tabs; Back to server tools, named Server fact, inert schemas             |
+| Operation `mcp/servers/{id}/operations/{id}` | Compact linked parent, action-first heading/focus and secondary ID; lifecycle timing                                               |
+| OAuth `mcp/servers/{id}/auth-flows/{id}`     | Compact linked parent, authorization heading/focus and secondary ID; lifecycle timing, diagnostics and cancellation                |
+
+Singleton Git Routing, policy preview, System embedded records and review/secret dialogs have no invented primary ID. Shared readonly styling also covers policy evidence textareas; temporary disabled controls retain their separate semantics. Collection filters, ordering and pagination are outside this detail sweep.
+
 ### Applicable-state exceptions
 
 - Read-only collections/details have no write-confirmation, mutation conflict, pending write or uncertain-write state. Recorded unknown outcomes in history are separate evidence, not a replayable mutation.

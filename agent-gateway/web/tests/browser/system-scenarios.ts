@@ -2614,7 +2614,7 @@ export async function runInvocations(
       .getByText("Invalid parameters", { exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("link", { name: "Back to invocations", exact: true })
+    .getByRole("link", { name: "Back to MCP Invocations", exact: true })
     .click();
   await expect(invalidOutcome).toHaveValue("invalid_params");
   expect(vocabularyItemReads).toBe(1);
@@ -2792,7 +2792,7 @@ export async function runInvocations(
       await page
         .locator('[data-testid="invocation-detail"] dt')
         .allTextContents()
-    ).filter((label) => label === "Invocation ID").length !== 1 ||
+    ).filter((label) => label === "Invocation ID").length !== 0 ||
     (
       await page
         .locator('[data-testid="invocation-detail"] dt')

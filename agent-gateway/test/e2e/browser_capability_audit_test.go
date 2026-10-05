@@ -18,7 +18,7 @@ import (
 
 func TestBrowserCapabilityAudit(t *testing.T) {
 	rows := contract.ControlPlaneCapabilityManifest()
-	require.Len(t, rows, 45)
+	require.Len(t, rows, 46)
 	ids, scenarios := map[string]struct{}{}, map[string]struct{}{}
 	mechanics := strings.Builder{}
 	for _, row := range rows {
@@ -32,6 +32,7 @@ func TestBrowserCapabilityAudit(t *testing.T) {
 		ids[row.ID], scenarios[row.WebScenario] = struct{}{}, struct{}{}
 		mechanics.WriteString(" " + row.Mechanics)
 	}
+	require.Contains(t, ids, "history-export")
 	for _, marker := range []string{"confirmation", "one-time sink", "idempotency key", "ETag", "cursor/limit", "no replay"} {
 		assert.Contains(t, mechanics.String(), marker)
 	}

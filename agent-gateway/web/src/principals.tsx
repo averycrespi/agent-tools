@@ -1182,6 +1182,7 @@ export function Principals({
               {principal.state === "active" ? "Active" : "Disabled"}
             </StatusLabel>
           </div>
+          <p class="technical-value">{principal.id}</p>
         </header>
         <section class="detail-section" aria-labelledby="principal-title">
           <div class="panel-heading">
@@ -1198,12 +1199,8 @@ export function Principals({
               <dd>{httpDefaultText(principal.httpDefault)}</dd>
             </div>
           </dl>
-          <h3>Identity and revision</h3>
+          <h3>Metadata</h3>
           <dl class="detail-facts">
-            <div>
-              <dt>Agent ID</dt>
-              <dd class="technical-value">{principal.id}</dd>
-            </div>
             <div>
               <dt>Agent revision</dt>
               <dd>{principal.revision}</dd>
@@ -1216,12 +1213,6 @@ export function Principals({
             </div>
           </dl>
         </section>
-        <PrincipalCredentialActions
-          mutations={mutations}
-          sinks={sinks}
-          detail={detail}
-          onRefresh={onRefresh}
-        />
         <PrincipalEditor
           key={principal.id}
           mutations={mutations}
@@ -1229,6 +1220,12 @@ export function Principals({
           readUnavailable={error !== undefined}
           onRefresh={onRefresh}
           notify={notify}
+        />
+        <PrincipalCredentialActions
+          mutations={mutations}
+          sinks={sinks}
+          detail={detail}
+          onRefresh={onRefresh}
         />
       </div>
     );

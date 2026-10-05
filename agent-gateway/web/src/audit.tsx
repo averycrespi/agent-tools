@@ -1009,14 +1009,14 @@ export function Audit({
                 segments: ["audit"],
               })}
             >
-              Back to audit history
+              Back to Audit Log
             </a>
           </nav>
           <header class="detail-context" data-testid="detail-context">
             <div class="detail-context-heading">
               <h1 tabindex={-1}>
                 {snapshot.item
-                  ? `${snapshot.item.category}.${snapshot.item.action}`
+                  ? `${sentenceCase(snapshot.item.action)} ${snapshot.item.category === "principal" ? "agent" : snapshot.item.category.replaceAll("_", " ")}`
                   : "Audit event"}
               </h1>
               {snapshot.item !== undefined && (
@@ -1054,6 +1054,18 @@ export function Audit({
               <h3>Event and attribution</h3>
               <dl class="detail-facts">
                 <div>
+                  <dt>Event</dt>
+                  <dd>
+                    {snapshot.item.category}.{snapshot.item.action}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Correlation ID</dt>
+                  <dd class="technical-value">
+                    {snapshot.item.correlation_id}
+                  </dd>
+                </div>
+                <div>
                   <dt>Sequence / phase</dt>
                   <dd>
                     {snapshot.item.sequence} · {snapshot.item.phase}
@@ -1086,48 +1098,51 @@ export function Audit({
                 <div>
                   <dt>Target</dt>
                   <dd>
-                    {snapshot.item.currentTargetName ||
-                      (snapshot.item.target.type === "principal"
-                        ? "Agent"
-                        : sentenceCase(snapshot.item.target.type))}
+                    {snapshot.item.target.type === "principal"
+                      ? "Agent"
+                      : sentenceCase(snapshot.item.target.type)}
                     :{" "}
                     {snapshot.targetLink === undefined ? (
-                      snapshot.item.target.id
+                      snapshot.item.currentTargetName || snapshot.item.target.id
                     ) : (
                       <a href={snapshot.targetLink}>
-                        {snapshot.item.target.id}
+                        {snapshot.item.currentTargetName ||
+                          snapshot.item.target.id}
                       </a>
+                    )}
+                    {snapshot.item.currentTargetName && (
+                      <span class="table-identifier">
+                        {snapshot.item.target.id}
+                      </span>
                     )}
                   </dd>
                 </div>
               </dl>
-              <h3>Recorded diagnostics</h3>
-              <dl class="detail-facts">
-                <div>
-                  <dt>Reason</dt>
-                  <dd>{snapshot.item.detail.reason ?? "None recorded"}</dd>
-                </div>
-                <div>
-                  <dt>Problem</dt>
-                  <dd>{snapshot.item.detail.problem ?? "None recorded"}</dd>
-                </div>
-              </dl>
+              {(snapshot.item.detail.reason !== null ||
+                snapshot.item.detail.problem !== null) && (
+                <>
+                  <h3>Recorded diagnostics</h3>
+                  <dl class="detail-facts">
+                    {snapshot.item.detail.reason !== null && (
+                      <div>
+                        <dt>Reason</dt>
+                        <dd>{snapshot.item.detail.reason}</dd>
+                      </div>
+                    )}
+                    {snapshot.item.detail.problem !== null && (
+                      <div>
+                        <dt>Problem</dt>
+                        <dd>{snapshot.item.detail.problem}</dd>
+                      </div>
+                    )}
+                  </dl>
+                </>
+              )}
               <p>
                 Credential attribution does not identify a named human. Pending
                 or unknown outcomes do not prove success, rollback, or
                 permission to replay.
               </p>
-              <details>
-                <summary>Technical details</summary>
-                <dl class="detail-facts">
-                  <div>
-                    <dt>Correlation ID</dt>
-                    <dd>
-                      <code>{snapshot.item.correlation_id}</code>
-                    </dd>
-                  </div>
-                </dl>
-              </details>
               {snapshot.targetUnavailable && (
                 <StateNotice state="warning" title="Current target unavailable">
                   <p>

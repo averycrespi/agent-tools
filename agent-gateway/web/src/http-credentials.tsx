@@ -182,13 +182,14 @@ export function HTTPCredentials(props: Props) {
       <nav class="detail-navigation" aria-label="HTTP credential navigation">
         <a href="#/http/credentials">Back to HTTP credentials</a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 tabindex={-1}>{detail.name}</h1>
           <StatusLabel state={detail.available ? "current" : "warning"}>
             {detail.available ? "Configured" : "Unavailable"}
           </StatusLabel>
         </div>
+        <p class="technical-value">{detail.id}</p>
       </header>
       <section
         class="detail-section"
@@ -221,17 +222,6 @@ export function HTTPCredentials(props: Props) {
             </dd>
           </div>
         </dl>
-        <h3>Identity and revision</h3>
-        <dl class="detail-facts">
-          <div>
-            <dt>Credential ID</dt>
-            <dd class="technical-value">{detail.id}</dd>
-          </div>
-          <div>
-            <dt>Revision</dt>
-            <dd>{detail.revision}</dd>
-          </div>
-        </dl>
         <h3>Referencing grants</h3>
         {detail.referencing_grants.length === 0 ? (
           <p>No referencing grants</p>
@@ -244,6 +234,13 @@ export function HTTPCredentials(props: Props) {
             ))}
           </ul>
         )}
+        <h3>Metadata</h3>
+        <dl class="detail-facts">
+          <div>
+            <dt>Revision</dt>
+            <dd>{detail.revision}</dd>
+          </div>
+        </dl>
       </section>
       <CredentialEditor
         {...props}
@@ -469,9 +466,7 @@ function CredentialEditor({
     mode === "create"
       ? "Create HTTP credential"
       : mode === "edit"
-        ? recipeReadOnly
-          ? "Edit boundary"
-          : "Edit boundary and recipe"
+        ? "Edit credential"
         : mode === "rotate"
           ? "Rotate secret"
           : "Delete credential";

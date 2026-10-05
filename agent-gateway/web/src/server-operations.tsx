@@ -444,17 +444,19 @@ export function ServerOperations({
       <div data-testid="operation-detail">
         <nav class="detail-navigation" aria-label="Operation navigation">
           <a href={`#/mcp/servers/${server.id}?tab=operations`}>
-            Back to operations
+            Back to server operations
           </a>
         </nav>
-        <header class="detail-context-heading">
-          <div>
-            <h2 id="operation-detail-title">Operation {operation.id}</h2>
-            <span class="table-secondary">{label(operation.kind)}</span>
+        <header class="detail-context" data-testid="detail-context">
+          <div class="detail-context-heading">
+            <h1 id="operation-detail-title" tabindex={-1}>
+              {label(operation.kind)}
+            </h1>
+            <StatusLabel state={operationState(operation)}>
+              {words(operation.state)}
+            </StatusLabel>
           </div>
-          <StatusLabel state={operationState(operation)}>
-            {words(operation.state)}
-          </StatusLabel>
+          <p class="technical-value">{operation.id}</p>
         </header>
         <section class="detail-section" aria-labelledby="operation-facts-title">
           <h3 id="operation-facts-title">Operation details</h3>
@@ -474,15 +476,22 @@ export function ServerOperations({
             <div>
               <dt>Finished</dt>
               <dd>
-                <UserTime value={operation.finishedAt} fallback="In progress" />
+                <UserTime
+                  value={operation.finishedAt}
+                  fallback={
+                    operationIsTerminal(operation)
+                      ? "Not recorded"
+                      : "In progress"
+                  }
+                />
               </dd>
             </div>
-            <div>
-              <dt>Reason</dt>
-              <dd>
-                {operation.reason === null ? "—" : words(operation.reason)}
-              </dd>
-            </div>
+            {operation.reason !== null && (
+              <div>
+                <dt>Reason</dt>
+                <dd>{words(operation.reason)}</dd>
+              </div>
+            )}
           </dl>
         </section>
       </div>

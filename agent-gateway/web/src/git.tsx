@@ -125,7 +125,7 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
       <nav class="detail-navigation" aria-label="Git resource navigation">
         <a href={`#/git/${kind}`}>Back to Git {kind}</a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 tabindex={-1}>{label(value)}</h1>
           {kind === "credentials" ? (
@@ -156,20 +156,12 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         </StateNotice>
       )}
       <section class="detail-section">
-        <h2>{`Git ${singular(kind)} details`}</h2>
+        <h2>{`${singular(kind)[0]!.toUpperCase()}${singular(kind).slice(1)} details`}</h2>
         <dl class="detail-facts">
-          <div>
-            <dt>ID</dt>
-            <dd class="technical-value">{value.id}</dd>
-          </div>
-          <div>
-            <dt>Revision</dt>
-            <dd>{value.revision}</dd>
-          </div>
           {kind === "repositories" && (
             <>
               <div>
-                <dt>Canonical destination (immutable)</dt>
+                <dt>Canonical destination</dt>
                 <dd>{value.url}</dd>
               </div>
               <div>
@@ -261,16 +253,27 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             </>
           )}
         </dl>
-        {kind === "grants" && (
-          <ul>
-            {value.policy?.refs.map((r) => (
-              <li key={`${r.ref.kind}:${r.ref.value}`}>
-                <span class="technical-value">{r.ref.value}</span> ({r.ref.kind}
-                ): {r.actions.join(", ")}
-              </li>
-            ))}
-          </ul>
-        )}
+        {kind === "grants" &&
+          (value.policy?.refs.length ? (
+            <ul>
+              {value.policy?.refs.map((r) => (
+                <li key={`${r.ref.kind}:${r.ref.value}`}>
+                  <span class="technical-value">{r.ref.value}</span> (
+                  {r.ref.kind}
+                  ): {r.actions.join(", ")}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No push permissions</p>
+          ))}
+        <h3>Metadata</h3>
+        <dl class="detail-facts">
+          <div>
+            <dt>Revision</dt>
+            <dd>{value.revision}</dd>
+          </div>
+        </dl>
       </section>
       <GitEditor
         {...props}
@@ -510,7 +513,10 @@ function GitEditor({
   const metadata = mode === "create" || mode === "edit",
     material =
       kind === "credentials" && (mode === "create" || mode === "rotate");
-  const title = `${mode === "create" ? "Create" : mode === "edit" ? "Edit" : mode === "rotate" ? "Rotate" : "Delete"} Git ${singular(kind)}`;
+  const title =
+    mode === "rotate"
+      ? "Rotate secret"
+      : `${mode === "create" ? "Create Git" : mode === "edit" ? "Edit" : "Delete"} ${singular(kind)}`;
   const change = <K extends keyof typeof draft>(
     key: K,
     value: (typeof draft)[K],
@@ -826,43 +832,50 @@ function GitEditor({
                 return (
                   <FormField
                     id={`git-${key}-${mode}`}
-                    label={`${title}${resource ? " (immutable)" : ""}`}
+                    label={title}
                     {...(draft[key] ? { hint: draft[key] } : {})}
                   >
-                    {(attributes) => (
-                      <select
-                        {...attributes}
-                        required
-                        disabled={
-                          resource !== undefined ||
-                          choices.loading ||
-                          choices.error
-                        }
-                        value={draft[key]}
-                        onChange={(e) => change(key, e.currentTarget.value)}
-                      >
-                        <option value="">
-                          {choices.loading
-                            ? `Loading ${title.toLowerCase()}s`
-                            : choices.error
-                              ? `${title} choices unavailable`
-                              : items.length
-                                ? `Select ${title.toLowerCase()}`
-                                : `No ${title.toLowerCase()}s configured`}
-                        </option>
-                        {draft[key] &&
-                          !items.some((item) => item.id === draft[key]) && (
-                            <option value={draft[key]}>
-                              {draft[key]} · Unavailable
-                            </option>
-                          )}
-                        {items.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {choiceLabel(item, items)}
+                    {(attributes) =>
+                      resource !== undefined ? (
+                        <input
+                          {...attributes}
+                          readOnly
+                          value={
+                            items.find((item) => item.id === draft[key])
+                              ?.name ?? draft[key]
+                          }
+                        />
+                      ) : (
+                        <select
+                          {...attributes}
+                          required
+                          disabled={choices.loading || choices.error}
+                          value={draft[key]}
+                          onChange={(e) => change(key, e.currentTarget.value)}
+                        >
+                          <option value="">
+                            {choices.loading
+                              ? `Loading ${title.toLowerCase()}s`
+                              : choices.error
+                                ? `${title} choices unavailable`
+                                : items.length
+                                  ? `Select ${title.toLowerCase()}`
+                                  : `No ${title.toLowerCase()}s configured`}
                           </option>
-                        ))}
-                      </select>
-                    )}
+                          {draft[key] &&
+                            !items.some((item) => item.id === draft[key]) && (
+                              <option value={draft[key]}>
+                                {draft[key]} · Unavailable
+                              </option>
+                            )}
+                          {items.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {choiceLabel(item, items)}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    }
                   </FormField>
                 );
               })}
@@ -940,36 +953,38 @@ function GitEditor({
                         />
                       )}
                     </FormField>
-                    {["create", "update", "delete"].map((action) => (
-                      <FormField
-                        id={`git-rule-${i}-${action}`}
-                        label={action[0]!.toUpperCase() + action.slice(1)}
-                      >
-                        {(attributes) => (
-                          <BinaryToggle
-                            attributes={attributes}
-                            checked={rule.actions.includes(action)}
-                            onChange={(v) =>
-                              change(
-                                "refs",
-                                draft.refs.map((r, j) =>
-                                  i === j
-                                    ? {
-                                        ...r,
-                                        actions: v
-                                          ? [...r.actions, action]
-                                          : r.actions.filter(
-                                              (a) => a !== action,
-                                            ),
-                                      }
-                                    : r,
-                                ),
-                              )
-                            }
-                          />
-                        )}
-                      </FormField>
-                    ))}
+                    <div class="push-permissions-row">
+                      {["create", "update", "delete"].map((action) => (
+                        <FormField
+                          id={`git-rule-${i}-${action}`}
+                          label={action[0]!.toUpperCase() + action.slice(1)}
+                        >
+                          {(attributes) => (
+                            <BinaryToggle
+                              attributes={attributes}
+                              checked={rule.actions.includes(action)}
+                              onChange={(v) =>
+                                change(
+                                  "refs",
+                                  draft.refs.map((r, j) =>
+                                    i === j
+                                      ? {
+                                          ...r,
+                                          actions: v
+                                            ? [...r.actions, action]
+                                            : r.actions.filter(
+                                                (a) => a !== action,
+                                              ),
+                                        }
+                                      : r,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
+                        </FormField>
+                      ))}
+                    </div>
                     <button
                       type="button"
                       onClick={() =>
@@ -1248,9 +1263,12 @@ export function GitTrafficView(props: Props) {
       <nav class="detail-navigation" aria-label="Git traffic navigation">
         <a href="#/git/traffic">Back to Git traffic</a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
-          <h1 tabindex={-1}>{a.policy?.repository_name || "Git exchange"}</h1>
+          <h1 tabindex={-1}>
+            {gitLabels[a.operation]}
+            {a.policy?.repository_name ? ` — ${a.policy.repository_name}` : ""}
+          </h1>
           <StatusLabel
             state={
               error
@@ -1262,7 +1280,7 @@ export function GitTrafficView(props: Props) {
                     : "warning"
             }
           >
-            {f.transport}
+            {`Transport: ${f.transport}`}
           </StatusLabel>
         </div>
         <p class="technical-value">{a.id}</p>

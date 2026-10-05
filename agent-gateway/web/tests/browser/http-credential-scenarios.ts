@@ -337,7 +337,7 @@ export async function runHTTPCredentials(
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Edit boundary and recipe", exact: true })
+    .getByRole("button", { name: "Edit credential", exact: true })
     .click();
   await expect(
     page.getByRole("alert").filter({ hasText: /operation is invalid/i }),
@@ -352,7 +352,7 @@ export async function runHTTPCredentials(
   await captureDetailLayout(page, "http-credential-metadata-review");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Edit boundary and recipe", exact: true })
+    .getByRole("button", { name: "Edit credential", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Renamed HTTP credential", exact: true }),
@@ -385,7 +385,7 @@ export async function runHTTPCredentials(
   await expect(page.getByLabel("HTTPS destination host")).toBeEditable();
   await expect(page.getByLabel("Port", { exact: true })).toBeEditable();
   await expect(
-    page.getByRole("heading", { name: "Edit boundary", exact: true }),
+    page.getByRole("heading", { name: "Edit credential", exact: true }),
   ).toBeVisible();
   await page.getByLabel("Name", { exact: true }).fill("Referenced credential");
   await page
@@ -393,7 +393,7 @@ export async function runHTTPCredentials(
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Edit boundary", exact: true })
+    .getByRole("button", { name: "Edit credential", exact: true })
     .click();
   await expect(
     page.getByRole("heading", { name: "Referenced credential", exact: true }),

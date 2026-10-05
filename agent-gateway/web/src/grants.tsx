@@ -914,7 +914,7 @@ function GrantDescriptionEditor({
     >
       <div class="panel-heading">
         <div>
-          <h2 id="grant-description-title">Description</h2>
+          <h2 id="grant-description-title">Edit grant description</h2>
         </div>
       </div>
       <form
@@ -1372,7 +1372,7 @@ export function Grants({
     return (
       <div class="domain-view" data-testid="grant-detail">
         <nav class="detail-navigation" aria-label="Grant navigation">
-          <a href="#/mcp/grants">Back to grants</a>
+          <a href="#/mcp/grants">Back to MCP Grants</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1433,12 +1433,8 @@ export function Grants({
               </dd>
             </div>
           </dl>
-          <h3>Identity and timing</h3>
+          <h3>Timing</h3>
           <dl class="detail-facts">
-            <div>
-              <dt>Grant ID</dt>
-              <dd class="technical-value">{detail.id}</dd>
-            </div>
             <div>
               <dt>Expires</dt>
               <dd>

@@ -168,9 +168,15 @@ test("git-traffic", async ({ page, frontend }) => {
     await expect(
       page.getByRole("heading", {
         level: 1,
-        name: /Git exchange|Synthetic policy repository/,
+        name: /^(Push|Read|Unsupported exchange)/,
       }),
     ).toBeVisible();
+    await expect(
+      page.getByTestId("detail-context").locator("h1"),
+    ).toBeFocused();
+    await expect(
+      page.getByTestId("detail-context").locator(".status-label"),
+    ).toContainText("Transport:");
     await expect(page.locator("section.intro")).toHaveAccessibleName(
       "Git Traffic details",
     );
