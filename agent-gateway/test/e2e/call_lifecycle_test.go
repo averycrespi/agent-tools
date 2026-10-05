@@ -175,7 +175,9 @@ func TestGatewayBinaryReplacementWithdrawsPinnedCallWithoutReroute(t *testing.T)
 
 func TestGatewayBinaryClassifiesLegacySessionAndStdioProcessLossWithoutReplay(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.Start()
+	// The failed HTTP runtime's scheduled poll must not contend with the
+	// independent stdio fixture's initial catalog audit admission.
+	harness.StartBetweenCatalogPolls()
 	principal := harness.CreatePrincipal("Loss caller", contract.VisibilityAll)
 	issued := harness.IssueCredential(principal)
 
