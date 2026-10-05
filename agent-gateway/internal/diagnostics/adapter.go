@@ -151,6 +151,7 @@ func (adapter *Adapter) Observe(facts Facts) {
 	}
 	defer adapter.mu.Unlock()
 	if adapter.stopped {
+		increment(&adapter.dropped)
 		return
 	}
 	if adapter.suppress(&facts) || upstreamEvent(facts.Event) && adapter.level < upstreamLevel(facts.Event) {
@@ -369,8 +370,29 @@ func (adapter *Adapter) write(data []byte) bool {
 	return ok
 }
 
+// Fence producers before discarding records the sole worker will never attempt.
+// The failed in-flight write remains uncertain and is not counted here.
+func (adapter *Adapter) discardPending() {
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	adapter.stopped = true
+	clear(adapter.suppression)
+	for {
+		select {
+		case _, ok := <-adapter.queue:
+			if !ok {
+				return
+			}
+			increment(&adapter.dropped)
+		default:
+			return
+		}
+	}
+}
+
 func (adapter *Adapter) run() {
 	defer close(adapter.done)
+	defer adapter.discardPending()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var lastLoss time.Time
