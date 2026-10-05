@@ -1738,12 +1738,14 @@ function CatalogRows({
           label: "Tool",
           type: "text",
           value: (descriptor) => descriptor.externalName,
+          literalValues: (descriptor) => [descriptor.id],
         },
         {
           key: "server",
           label: "Server",
           type: "text",
           value: (descriptor) => descriptor.serverDisplayName,
+          literalValues: (descriptor) => [descriptor.serverID],
         },
         {
           key: "status",
@@ -1782,9 +1784,14 @@ function CatalogRows({
           role: "relation",
           sortValue: (descriptor) => descriptor.serverDisplayName,
           render: (descriptor) => (
-            <a href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}>
-              {descriptor.serverDisplayName}
-            </a>
+            <TableIdentity
+              primary={
+                <a href={`#/mcp/servers/${descriptor.serverID}?tab=tools`}>
+                  {descriptor.serverDisplayName || descriptor.serverID}
+                </a>
+              }
+              secondary={descriptor.serverID}
+            />
           ),
         },
         {
@@ -1832,6 +1839,7 @@ function DescriptorRows({
           label: "Tool",
           type: "text",
           value: (descriptor) => descriptor.externalName,
+          literalValues: (descriptor) => [descriptor.id],
         },
         {
           key: "status",

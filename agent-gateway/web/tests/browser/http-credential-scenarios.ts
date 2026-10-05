@@ -258,6 +258,17 @@ export async function runHTTPCredentials(
   await expect(page).toHaveURL(
     /filter_boundary=api%20example%20443&filter_name=Example&filter_recipe=authorization%20bearer/,
   );
+  await page.getByRole("button", { name: "Credential", exact: true }).click();
+  await expect(page).toHaveURL(/sort=name&direction=descending/);
+  await page.getByRole("link", { name: created.name, exact: true }).click();
+  await expect(page).toHaveURL(/filter_name=Example/);
+  await page
+    .getByRole("link", { name: "Back to HTTP credentials", exact: true })
+    .click();
+  await expect(
+    page.getByRole("searchbox", { name: "Name or ID", exact: true }),
+  ).toHaveValue("Example");
+  await expect(page).toHaveURL(/sort=name&direction=descending/);
   await captureTableState(page, "http-credentials-keyboard-filters");
   const statusFilter = page.getByRole("combobox", {
     name: "Status",
@@ -275,6 +286,12 @@ export async function runHTTPCredentials(
     .selectOption("configured");
   await expect(page.getByRole("table")).toContainText(created.id);
   await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).toHaveURL(
+    /#\/http\/credentials\?sort=name&direction=descending$/,
+  );
+  await page.evaluate(() => {
+    window.location.hash = "#/http/credentials";
+  });
   await expect(page).toHaveURL(/#\/http\/credentials$/);
   // Enter as soon as the field mounts, before deferred effects can run.
   await page.evaluate(() => {

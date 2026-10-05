@@ -128,7 +128,13 @@ function authorizationCollectionQuery(
   const textKeys =
     collection === "principals"
       ? ["filter_name"]
-      : ["filter_identity", "filter_principal", "filter_target"];
+      : [
+          "filter_identity",
+          "filter_principal",
+          "filter_target",
+          "filter_server",
+          "filter_scope",
+        ];
   const values: Record<string, readonly string[]> =
     collection === "principals"
       ? {
@@ -140,7 +146,16 @@ function authorizationCollectionQuery(
       : {
           filter_effect: ["allow", "deny"],
           filter_state: ["active", "expired"],
-          sort: ["id", "description", "principal", "target", "effect", "state"],
+          sort: [
+            "id",
+            "description",
+            "principal",
+            "target",
+            "server",
+            "scope",
+            "effect",
+            "state",
+          ],
         };
   values.direction = ["ascending", "descending"];
   if (query.direction !== undefined && query.sort === undefined) return false;
@@ -400,7 +415,8 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   }
   if (
     first === "http-credentials" &&
-    (segments.length === 1
+    (query.direction === undefined || query.sort !== undefined) &&
+    (second !== "new"
       ? exactQuery(query, {
           filter_name: (value) => isCollectionFilter("filter_name", value),
           filter_boundary: (value) =>
@@ -408,6 +424,9 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
           filter_recipe: (value) => isCollectionFilter("filter_recipe", value),
           filter_status: (value) =>
             ["configured", "unavailable"].includes(value),
+          sort: (value) =>
+            ["name", "boundary", "recipe", "status"].includes(value),
+          direction: (value) => ["ascending", "descending"].includes(value),
         })
       : noQuery) &&
     (segments.length === 1 ||
@@ -515,6 +534,7 @@ const queryOrder: Readonly<Record<string, readonly string[]>> = {
   principals: ["sort", "direction"],
   grants: ["sort", "direction"],
   "http-grants": ["principal_id", "sort", "direction"],
+  "http-credentials": ["sort", "direction"],
   requests: ["queue", "sort", "direction"],
 };
 
@@ -525,6 +545,9 @@ export function serializeLocation(value: ApplicationLocation): string {
   if (path === "system" && query.tab === "status") delete query.tab;
   const fixedKeys =
     queryOrder[path] ??
+    (value.destination === "http-credentials"
+      ? queryOrder["http-credentials"]
+      : undefined) ??
     (query.tab === "tools" || query.tab === "operations"
       ? ["tab", "sort", "direction"]
       : Object.hasOwn(query, "tab")

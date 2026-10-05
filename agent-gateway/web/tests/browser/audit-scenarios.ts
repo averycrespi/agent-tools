@@ -497,9 +497,7 @@ export async function runAudit(
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page).toHaveURL(/#\/audit-log\?filter_outcome=unknown$/);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Clear filters", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(page.getByText("More filters", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Target ID", { exact: true })).toBeVisible();
   await expect(
@@ -646,7 +644,7 @@ export async function runAudit(
     .poll(() => queries.at(-1)?.get("from"))
     .toBe("2026-01-01T23:01:00.000000000Z");
   expect(queries.at(-1)?.get("until")).toBe("2026-01-02T23:00:00.123456789Z");
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
   await expect(from).toHaveValue("");
   await expect(until).toHaveValue("");
   await expect.poll(() => queries.at(-1)?.has("from")).toBe(false);
@@ -735,7 +733,7 @@ export async function runAudit(
   await expect(until).toHaveValue("2026-09-05T20:00");
   if (queries.at(-1)!.has("cursor")) fail("Query change retained cursor");
   mode = "normal";
-  await page.getByRole("button", { name: "Clear filters" }).first().click();
+  await page.getByRole("button", { name: "Reset" }).first().click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   mode = "delayed";
   hold = undefined;
@@ -745,7 +743,7 @@ export async function runAudit(
   ).toBeVisible();
   await expect.poll(() => hold !== undefined).toBe(true);
   mode = "normal";
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   (hold as unknown as () => void)();
   await expect.poll(() => delayedSettled).toBe(true);
@@ -794,16 +792,14 @@ export async function runAudit(
   await expect(
     page.getByText("No audit events yet", { exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Clear filters" }),
-  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reset" })).toBeDisabled();
   await capture("unfiltered-empty", 320);
   await page.getByLabel("Outcome", { exact: true }).selectOption("failed");
   await expect(
     page.getByText("No matching audit events", { exact: true }),
   ).toBeVisible();
   await capture("filtered-empty", 390);
-  await page.getByRole("button", { name: "Clear filters" }).last().click();
+  await page.getByRole("button", { name: "Reset" }).last().click();
   await expect(
     page.getByText("No audit events yet", { exact: true }),
   ).toBeVisible();

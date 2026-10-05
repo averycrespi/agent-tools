@@ -707,9 +707,14 @@ function GrantCollection(props: Props) {
               role: "relation",
               sortValue: (r) => r.principal_display_name,
               render: (r) => (
-                <a href={`#/agents/${r.grant.principal_id}`}>
-                  {r.principal_display_name}
-                </a>
+                <TableIdentity
+                  primary={
+                    <a href={`#/agents/${r.grant.principal_id}`}>
+                      {r.principal_display_name || r.grant.principal_id}
+                    </a>
+                  }
+                  secondary={r.grant.principal_id}
+                />
               ),
             },
             {

@@ -23,7 +23,7 @@ var (
 )
 
 // CollectionQuery recognizes safe metadata, never material or boundary authority.
-type CollectionQuery struct{ Name, Boundary, Recipe, Status string }
+type CollectionQuery struct{ Name, Boundary, Recipe, Status, Sort, Direction string }
 
 func (q CollectionQuery) Validate() bool {
 	for _, value := range []string{q.Name, q.Boundary, q.Recipe} {
@@ -31,7 +31,9 @@ func (q CollectionQuery) Validate() bool {
 			return false
 		}
 	}
-	return slices.Contains([]string{"", "configured", "unavailable"}, q.Status)
+	return slices.Contains([]string{"", "configured", "unavailable"}, q.Status) &&
+		slices.Contains([]string{"", "name", "boundary", "recipe", "status"}, q.Sort) &&
+		(q.Direction == "" || q.Sort != "" && slices.Contains([]string{"ascending", "descending"}, q.Direction))
 }
 
 type collectionCursor struct {
@@ -49,6 +51,9 @@ func SelectPage(items []Resource, q CollectionQuery, cursor string, limit int, n
 	var page contract.QueryCollection[Resource]
 	if len(cursorKey) < 32 || !q.Validate() || limit < 1 || limit > 100 || len(items) > contract.HTTPPolicyCredentials {
 		return page, ErrInvalid
+	}
+	if q.Sort != "" && q.Direction == "" {
+		q.Direction = "ascending"
 	}
 	metadata, err := json.Marshal(struct {
 		Query CollectionQuery
@@ -93,6 +98,18 @@ func SelectPage(items []Resource, q CollectionQuery, cursor string, limit int, n
 			matched = append(matched, item)
 		}
 	}
+	if q.Sort != "" {
+		slices.SortFunc(matched, func(a, b Resource) int {
+			order := strings.Compare(credentialSortValue(a, q.Sort), credentialSortValue(b, q.Sort))
+			if q.Direction == "descending" {
+				order = -order
+			}
+			if order == 0 {
+				return strings.Compare(a.ID, b.ID)
+			}
+			return order
+		})
+	}
 	start := 0
 	if position.After != "" {
 		found := false
@@ -124,6 +141,22 @@ func SelectPage(items []Resource, q CollectionQuery, cursor string, limit int, n
 	page.Items = matched[start:end]
 	page.CollectionRange = contract.CollectionRange{TotalCount: len(matched), Offset: start}
 	return page, nil
+}
+
+func credentialSortValue(item Resource, key string) string {
+	switch key {
+	case "name":
+		return normalizeRecognition(item.Name)
+	case "boundary":
+		return normalizeRecognition(item.Boundary.Host) + ":" + strconv.Itoa(int(item.Boundary.Port))
+	case "recipe":
+		return normalizeRecognition(item.Recipe.Header + " " + item.Recipe.Prefix)
+	default:
+		if item.Available {
+			return "configured"
+		}
+		return "unavailable"
+	}
 }
 
 func sealCollectionCursor(cursor *collectionCursor, key string) {

@@ -44,7 +44,7 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		selection := httpcredentials.CollectionQuery{}
-		fields := map[string]*string{"name": &selection.Name, "boundary": &selection.Boundary, "recipe": &selection.Recipe, "status": &selection.Status}
+		fields := map[string]*string{"name": &selection.Name, "boundary": &selection.Boundary, "recipe": &selection.Recipe, "status": &selection.Status, "sort": &selection.Sort, "direction": &selection.Direction}
 		for key, destination := range fields {
 			if members, exists := query[key]; exists {
 				if len(members) != 1 || members[0] == "" {

@@ -793,7 +793,7 @@ function Filters({
           }
           onClick={clear}
         >
-          Clear filters
+          Reset
         </button>
       </div>
     </form>
@@ -1191,7 +1191,7 @@ export function Audit({
             >
               {Object.keys(resolved.location.query).length > 0 ? (
                 <button type="button" onClick={() => navigate("#/audit-log")}>
-                  Clear filters
+                  Reset
                 </button>
               ) : (
                 <p>

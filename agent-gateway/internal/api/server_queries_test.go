@@ -108,6 +108,16 @@ func TestServerQueryGlobalPagesAndLiveInvalidation(t *testing.T) {
 	match := get("name=Server%2059&namespace=server_00&status=ready&sort=name", 200)
 	require.Len(t, match.Items, 1)
 	assert.Equal(t, "Server 59", match.Items[0].DisplayName)
+	for _, name := range []string{"Sevrer 59", match.Items[0].ID} {
+		matched := get("name="+url.QueryEscape(name)+"&sort=name", 200)
+		require.Equal(t, match.Items, matched.Items)
+	}
+	partialID := match.Items[0].ID[20:]
+	partial := get("name="+partialID+"&sort=name", 200)
+	require.Contains(t, partial.Items, match.Items[0])
+	for _, item := range partial.Items {
+		require.Contains(t, item.ID, partialID)
+	}
 	assert.Empty(t, get("name=missing&sort=name", 200).Items)
 	for _, sortKey := range []string{"name", "id", "namespace", "status", "tools"} {
 		query := "sort=" + sortKey + "&direction=descending&limit=17"

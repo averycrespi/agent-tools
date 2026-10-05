@@ -500,7 +500,7 @@ type constructorHooks struct {
 }
 
 var mandatoryConstructorStages = []string{
-	"server_repository", "authorization_repository", "authorization_collections", "catalog_repository", "process_id", "active_registry",
+	"server_repository", "authorization_repository", "catalog_repository", "authorization_collections", "process_id", "active_registry",
 	"grant_request_repository", "grant_request_validation", "grant_request_admin", "self_projection", "selfservice_cursor", "selfservice_service",
 	"invocation_repository", "invocation_validation", "invocation_pipeline", "invocation_service", "invocation_adapter",
 	"discovery_service", "discovery_cursor", "discovery_pager", "traverser", "remote_factory",
@@ -551,13 +551,6 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	}
 	options.Store.SetDiagnostics(options.Diagnostics)
 	built.authorization.SetDiagnostics(options.Diagnostics)
-	if err := check("authorization_collections"); err != nil {
-		return nil, err
-	}
-	built.collections, err = authorization.NewCollectionService(built.authorization, built.servers)
-	if err != nil {
-		return nil, fmt.Errorf("construct authorization collections: %w", err)
-	}
 	if err := built.authorization.ValidateStartup(context.Background(), built.servers); err != nil {
 		return nil, fmt.Errorf("validate authorization startup: %w", err)
 	}
@@ -567,6 +560,13 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.catalogRepository, err = catalog.NewRepository(options.Store, options.Clock, options.Entropy)
 	if err != nil {
 		return nil, fmt.Errorf("construct catalog_repository: %w", err)
+	}
+	if err := check("authorization_collections"); err != nil {
+		return nil, err
+	}
+	built.collections, err = authorization.NewCollectionService(built.authorization, built.servers, built.catalogRepository)
+	if err != nil {
+		return nil, fmt.Errorf("construct authorization collections: %w", err)
 	}
 	if err := check("process_id"); err != nil {
 		return nil, err

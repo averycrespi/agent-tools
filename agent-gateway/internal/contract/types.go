@@ -186,6 +186,7 @@ type GrantTableItem struct {
 	Grant                Grant  `json:"grant"`
 	PrincipalDisplayName string `json:"principal_display_name"`
 	ServerDisplayName    string `json:"server_display_name"`
+	ToolID               string `json:"tool_id,omitempty"`
 }
 
 type GrantConstraintValidation struct {

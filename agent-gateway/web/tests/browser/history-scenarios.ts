@@ -432,10 +432,9 @@ export async function assertAuthoritativeHistory(
     await live.uncheck();
     await page
       .getByTestId("invocation-row")
-      .getByRole("link", {
-        name: `Invocation ${selected.items[0].id}`,
-        exact: true,
-      })
+      .locator(
+        `[data-label="Invocation"] a[href*="/invocations/${selected.items[0].id}"]`,
+      )
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
@@ -476,10 +475,9 @@ export async function assertAuthoritativeHistory(
     ).toHaveCount(1);
     await page
       .getByTestId("invocation-row")
-      .getByRole("link", {
-        name: `Invocation ${selected.items[0].id}`,
-        exact: true,
-      })
+      .locator(
+        `[data-label="Invocation"] a[href*="/invocations/${selected.items[0].id}"]`,
+      )
       .click();
     const copiedDetail = page.url();
     const principalLink = page
@@ -596,9 +594,7 @@ export async function assertAuthoritativeHistory(
     await page.getByTestId("manual-refresh").click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(2);
     await expect(live).not.toBeChecked();
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await live.check();
     await expect(
@@ -617,8 +613,9 @@ export async function assertAuthoritativeHistory(
         });
         return row
           ? {
-              id: row.querySelector('a[aria-label^="Invocation "]')!
-                .textContent!,
+              id: row.querySelector(
+                '[data-label="Invocation"] .table-identifier',
+              )!.textContent!,
               top: row.getBoundingClientRect().top,
             }
           : null;
@@ -637,10 +634,9 @@ export async function assertAuthoritativeHistory(
     const anchorAfter = await page
       .getByTestId("invocation-row")
       .filter({
-        has: page.getByRole("link", {
-          name: `Invocation ${anchor.id}`,
-          exact: true,
-        }),
+        has: page.locator(
+          `[data-label="Invocation"] a[href*="/invocations/${anchor.id}"]`,
+        ),
       })
       .evaluate((row) => row.getBoundingClientRect().top);
     if (Math.abs(anchorAfter - anchor.top) > 80)
@@ -664,9 +660,7 @@ export async function assertAuthoritativeHistory(
     await expect(
       page.getByRole("button", { name: "Resume live" }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
       page.getByRole("button", { name: "Resume live" }),
@@ -742,9 +736,7 @@ export async function assertAuthoritativeHistory(
     await page.unroute("**/api/v2/mcp/invocations?*", holdLate);
     await page.unroute("**/api/v2/mcp/invocations?*", failures);
     agentBearer = "";
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await page.getByRole("button", { name: "Load older invocations" }).click();
     await expect(

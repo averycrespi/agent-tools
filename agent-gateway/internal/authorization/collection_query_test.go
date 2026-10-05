@@ -13,6 +13,15 @@ import (
 
 type collectionTargets map[string]string
 
+type collectionTools map[[2]string]string
+
+func (tools collectionTools) GrantToolIDsTx(_ context.Context, tx *sql.Tx) (map[[2]string]string, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("missing shared transaction")
+	}
+	return tools, nil
+}
+
 func (targets collectionTargets) GrantDisplayNamesTx(_ context.Context, tx *sql.Tx) (map[string]string, error) {
 	if tx == nil {
 		return nil, fmt.Errorf("missing shared transaction")
@@ -30,7 +39,7 @@ func TestCollectionQueriesPageGlobalMatchesAndStableTies(t *testing.T) {
 		seedPrincipal(t, store, principalRow{id: id(i), displayName: name})
 		seedGrant(t, store, grantRow{id: id(i + 200), principalID: id(i), serverID: contract.SyntheticServerID})
 	}
-	service, err := NewCollectionService(repository, collectionTargets{contract.SyntheticServerID: "Gateway self-service tools"})
+	service, err := NewCollectionService(repository, collectionTargets{contract.SyntheticServerID: "Gateway self-service tools"}, collectionTools{})
 	require.NoError(t, err)
 	ctx := context.Background()
 	query := CollectionQuery{Sort: "name", Direction: "ascending"}
@@ -116,7 +125,7 @@ func TestCollectionQueryExpiryRenameAndValidation(t *testing.T) {
 	seedGrant(t, store, grantRow{id: id(11), principalID: id(1), serverID: id(51), expiresAt: &expires})
 	seedGrant(t, store, grantRow{id: id(12), principalID: id(1), serverID: id(51)})
 	names := collectionTargets{id(51): "Remote label"}
-	service, err := NewCollectionService(repository, names)
+	service, err := NewCollectionService(repository, names, collectionTools{})
 	require.NoError(t, err)
 	ctx := context.Background()
 	query := CollectionQuery{Sort: "target", State: "active"}
@@ -150,7 +159,7 @@ func TestCollectionQueryExpiryRenameAndValidation(t *testing.T) {
 
 func TestEmptyCollectionQueryRanges(t *testing.T) {
 	repository, _ := newRepository(t, nil)
-	service, err := NewCollectionService(repository, collectionTargets{})
+	service, err := NewCollectionService(repository, collectionTargets{}, collectionTools{})
 	require.NoError(t, err)
 	principals, err := service.QueryPrincipals(context.Background(), CollectionQuery{Sort: "name"}, nil, 50)
 	require.NoError(t, err)

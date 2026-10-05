@@ -161,6 +161,7 @@ for (const entity of entities) {
     let mode: "populated" | "empty" | "error" | "loading" = "populated";
     let release: (() => void) | undefined;
     let writes = 0;
+    const collectionQueries: URLSearchParams[] = [];
     let current = { ...entity.record };
     let etag = `"${entity.path
       .replace("/", "-")
@@ -189,6 +190,8 @@ for (const entity of entities) {
             headers: { ETag: `"principal-${agentID}-1"` },
           });
         if (path === target || path === `${target}/${id}`) {
+          if (path === target)
+            collectionQueries.push(new URL(req.url()).searchParams);
           if (mode === "loading")
             await new Promise<void>((resolve) => {
               release = resolve;
@@ -292,6 +295,44 @@ for (const entity of entities) {
     };
     await nav();
     await expect(page.getByRole("table")).toContainText(entity.name);
+    if (entity.path === "http/credentials") {
+      expect(collectionQueries.at(-1)?.get("sort")).toBe("name");
+      expect(collectionQueries.at(-1)?.get("direction")).toBe("ascending");
+      await page
+        .getByRole("button", { name: "Credential", exact: true })
+        .click();
+      await expect
+        .poll(() => collectionQueries.at(-1)?.get("direction"))
+        .toBe("descending");
+      await page
+        .getByRole("searchbox", { name: "Name or ID", exact: true })
+        .fill("Synthetic");
+      await expect
+        .poll(() => collectionQueries.at(-1)?.get("name"))
+        .toBe("Synthetic");
+      await page.getByRole("link", { name: entity.name, exact: true }).click();
+      await expect(page).toHaveURL(/filter_name=Synthetic/);
+      await page
+        .getByRole("link", { name: "Back to HTTP credentials", exact: true })
+        .click();
+      await expect(
+        page.getByRole("searchbox", { name: "Name or ID", exact: true }),
+      ).toHaveValue("Synthetic");
+      await page.getByRole("button", { name: "Reset", exact: true }).click();
+      await expect(page).toHaveURL(/sort=name&direction=descending$/);
+      await expect
+        .poll(() => collectionQueries.at(-1)?.has("name"))
+        .toBe(false);
+      expect(collectionQueries.at(-1)?.get("direction")).toBe("descending");
+    }
+    if (entity.path === "http/grants") {
+      const agentCell = page.locator('[data-label="Agent"]');
+      await expect(agentCell.locator(".table-primary a")).toHaveText(
+        agent.display_name,
+      );
+      await expect(agentCell.locator(".table-identifier")).toHaveText(agentID);
+      await expect(agentCell.locator(".table-identifier a")).toHaveCount(0);
+    }
     await capture(page, "collection-populated", true);
     mode = "empty";
     await page.getByTestId("manual-refresh").click();

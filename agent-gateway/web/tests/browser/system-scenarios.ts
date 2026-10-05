@@ -2542,26 +2542,24 @@ export async function runInvocations(
   );
   await expect(
     toolCell(invocationIDs.policy).getByRole("link"),
-  ).toHaveAttribute(
-    "href",
-    `#/mcp/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
-  );
+  ).toHaveAttribute("href", `#/mcp/invocations/${invocationIDs.policy}`);
   await expect(toolCell(invocationIDs.admission)).toHaveText("Not resolved");
-  await expect(toolCell(invocationIDs.admission).getByRole("link")).toHaveCount(
-    0,
-  );
+  await expect(
+    toolCell(invocationIDs.admission).getByRole("link"),
+  ).toHaveAttribute("href", `#/mcp/invocations/${invocationIDs.admission}`);
 
   const invocationIdentity = page
     .getByTestId("invocation-row")
     .filter({ hasText: invocationIDs.policy })
-    .locator(".table-identifier");
+    .locator('[data-label="Invocation"] .table-identifier');
   await expect(invocationIdentity).toHaveText(invocationIDs.policy);
-  await expect(
-    invocationIdentity.getByRole("link", {
-      name: `Invocation ${invocationIDs.policy}`,
-      exact: true,
-    }),
-  ).toHaveAttribute("href", `#/mcp/invocations/${invocationIDs.policy}`);
+  await expect(invocationIdentity.getByRole("link")).toHaveCount(0);
+  const agentCell = page
+    .getByTestId("invocation-row")
+    .filter({ hasText: invocationIDs.policy })
+    .locator('[data-label="Agent"]');
+  await expect(agentCell.locator(".table-primary a")).toHaveText("Build agent");
+  await expect(agentCell.locator(".table-identifier")).not.toHaveText("");
 
   const authorizationLabel = (id: string) =>
     page
@@ -2603,10 +2601,9 @@ export async function runInvocations(
   await expect(page).toHaveURL(/filter_outcome=invalid_params/);
   await expect(page.getByTestId("invocation-row")).toHaveCount(1);
   await page
-    .getByRole("link", {
-      name: `Invocation ${invocationIDs.admission}`,
-      exact: true,
-    })
+    .locator(
+      `[data-label="Invocation"] a[href*="/invocations/${invocationIDs.admission}"]`,
+    )
     .click();
   await expect(
     page
@@ -2659,9 +2656,9 @@ export async function runInvocations(
   await expect(toolCell(invocationIDs.missing)).toHaveText(
     "mcp_gateway.get_identity",
   );
-  await expect(toolCell(invocationIDs.missing).getByRole("link")).toHaveCount(
-    0,
-  );
+  await expect(
+    toolCell(invocationIDs.missing).getByRole("link"),
+  ).toHaveAttribute("href", `#/mcp/invocations/${invocationIDs.missing}`);
   await expect(authorizationLabel(invocationIDs.terminal)).toHaveText("Allow");
   await expect(authorizationLabel(invocationIDs.terminal)).toHaveAttribute(
     "data-state",
@@ -2720,9 +2717,7 @@ export async function runInvocations(
     )
   )
     fail("invocation tool filter was not persisted in the URL");
-  await page
-    .getByRole("button", { name: "Clear filters", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(toolFilter).toHaveValue("");
   const storage = await browserStorage(page);
   if (JSON.stringify(storage).includes("namespace.allowed"))

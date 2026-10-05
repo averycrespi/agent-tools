@@ -704,7 +704,7 @@ function TrafficFilters({
             apply({});
           }}
         >
-          Clear filters
+          Reset
         </button>
       </div>
       {(query.filter_connect_id || query.filter_principal_id) && (

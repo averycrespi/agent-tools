@@ -1122,28 +1122,17 @@ function InvocationList({
               render: (item) => (
                 <TableIdentity
                   primary={
-                    item.target?.kind === "downstream" ? (
-                      <a
-                        href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
-                      >
-                        {invocationTargetLabel(item.target, item.requestedName)}
-                      </a>
-                    ) : (
-                      invocationTargetLabel(item.target, item.requestedName)
-                    )
-                  }
-                  secondary={
                     <a
-                      aria-label={`Invocation ${item.id}`}
                       href={serializeLocation({
                         destination: "invocations",
                         segments: ["invocations", item.id],
                         query,
                       })}
                     >
-                      {item.id}
+                      {invocationTargetLabel(item.target, item.requestedName)}
                     </a>
                   }
+                  secondary={item.id}
                 />
               ),
             },
@@ -1152,9 +1141,14 @@ function InvocationList({
               label: "Agent",
               role: "relation",
               render: (item) => (
-                <a href={`#/agents/${item.principalID}`}>
-                  {principalNames.get(item.principalID) ?? item.principalID}
-                </a>
+                <TableIdentity
+                  primary={
+                    <a href={`#/agents/${item.principalID}`}>
+                      {principalNames.get(item.principalID) ?? item.principalID}
+                    </a>
+                  }
+                  secondary={item.principalID}
+                />
               ),
             },
             {
@@ -1304,7 +1298,7 @@ function InvocationFilters({
             apply({});
           }}
         >
-          Clear filters
+          Reset
         </button>
       </div>
       {error && <StateNotice state="error" title={error} />}

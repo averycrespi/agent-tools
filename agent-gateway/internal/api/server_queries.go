@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
@@ -172,9 +173,9 @@ func (handler *Handler) queryServers(writer http.ResponseWriter, request *http.R
 		writeProblem(writer, contract.ProblemStaleCursor)
 		return
 	}
-	name, namespace := inventoryRecognition(query.Name), inventoryRecognition(query.Namespace)
+	namespace := inventoryRecognition(query.Namespace)
 	keys = slices.DeleteFunc(keys, func(key inventoryKey) bool {
-		return (!strings.Contains(inventoryRecognition(key.Name), name) && !strings.Contains(inventoryRecognition(key.ID), name)) || !strings.Contains(inventoryRecognition(key.Namespace), namespace) || query.Status != "" && query.Status != key.Status
+		return !catalog.MatchInventoryIdentity(key.Name, key.ID, query.Name) || !strings.Contains(inventoryRecognition(key.Namespace), namespace) || query.Status != "" && query.Status != key.Status
 	})
 	slices.SortFunc(keys, func(left, right inventoryKey) int {
 		leftKey, rightKey := left.Name, right.Name
