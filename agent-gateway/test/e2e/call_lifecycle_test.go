@@ -14,7 +14,6 @@ import (
 	"strconv"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/stretchr/testify/assert"
@@ -110,9 +109,7 @@ func TestGatewayBinaryClassifiesCompleteLossCancellationAndReplacementOnce(t *te
 	require.ErrorIs(t, <-requestDone, context.Canceled)
 	awaitFixtureSignal(t, cancelBarrier.cancelled, "downstream did not observe caller cancellation")
 	awaitFixtureSignal(t, cancelBarrier.completed, "cancelled downstream handler did not complete")
-	require.Eventually(t, func() bool {
-		return len(harness.LiveAuditObservations()) == 3
-	}, 3*time.Second, 10*time.Millisecond)
+	harness.WaitForAuditObservations(3, 0, 1)
 
 	harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()
@@ -149,6 +146,7 @@ func TestGatewayBinaryReplacementWithdrawsPinnedCallWithoutReroute(t *testing.T)
 	assert.Equal(t, 1, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"), "replacement rerouted the in-flight call")
 	awaitFixtureSignal(t, replacement.entered, "replacement discovery did not start after old-call withdrawal")
 	assertOperationState(t, harness, catalog.ServerID, mutation.Operation.ID, contract.OperationRunning)
+	harness.WaitForAuditObservations(1)
 
 	// Discovery cancellation can settle graceful shutdown before the second signal.
 	// An admitted incomplete request keeps the local HTTP owner draining.
@@ -206,6 +204,7 @@ func TestGatewayBinaryClassifiesLegacySessionAndStdioProcessLossWithoutReplay(t 
 	})
 	assert.Equal(t, 1, countFixtureEvents(events, "request", "tools/call"))
 
+	harness.WaitForAuditObservations(2)
 	harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()
 	require.Len(t, observations, 2)

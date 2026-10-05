@@ -271,10 +271,17 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 		return len(page.Items) == 1 && page.Items[0].ID != seededInvocationID(65535) && page.Items[0].Outcome.Basis == contract.InvocationBasisTerminal
 	}, 3*time.Second, 10*time.Millisecond)
 
+	// A visible terminal can precede writer unlock. Reap the writer before the
+	// one-shot backup; the restarted fixture issues no new traffic.
+	beforeBackup := harness.Stop(syscall.SIGTERM)
+	harness.Start()
+	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 	events := harness.OpenEvents()
 	require.Equal(t, http.StatusOK, events.StatusCode)
 	eventReader := newBoundedEventReader(events.Body)
-	evidence := [][]byte{eventReader.frame(t)}
+	evidence := [][]byte{beforeBackup.Stdout, beforeBackup.Stderr, eventReader.frame(t)}
 	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-retention"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
@@ -313,6 +320,15 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 	assertCallError(t, response, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
 	evidence := [][]byte{append([]byte(nil), response.Body...)}
 	clear(response.Body)
+	harness.WaitForAuditObservations(1, 0)
+	// Persisted evidence is not writer settlement. Process exit establishes it
+	// without retrying the backup or coupling the live call to persistence.
+	beforeBackup := harness.Stop(syscall.SIGTERM)
+	evidence = append(evidence, beforeBackup.Stdout, beforeBackup.Stderr)
+	harness.Start()
+	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
+		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
+	})
 	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-privacy"})
 	var artifact contract.Backup
 	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)

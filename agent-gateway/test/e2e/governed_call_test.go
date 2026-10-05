@@ -110,6 +110,7 @@ func TestGatewayBinaryRoutesBothInboundErasToLegacyStdioOnce(t *testing.T) {
 	require.NotEmpty(t, starts)
 	activePID := starts[len(starts)-1].PID
 
+	harness.WaitForAuditObservations(2, 0, 1)
 	harness.Stop(syscall.SIGTERM)
 	waitForProcessExit(t, activePID)
 	observations := harness.AuditObservations()
