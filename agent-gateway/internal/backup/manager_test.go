@@ -209,7 +209,7 @@ func TestCreateRejectsConcurrentWorkWithoutStartingIt(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-func TestListRejectsTamperedGeneration(t *testing.T) {
+func TestSelectedGetRejectsTamperedGeneration(t *testing.T) {
 	manager, _, ownership := newBackupManager(t, nil)
 	created, _, err := manager.Create(context.Background(), "authority", "retry-1")
 	require.NoError(t, err)
@@ -218,6 +218,9 @@ func TestListRejectsTamperedGeneration(t *testing.T) {
 	_, err = file.Write([]byte("tamper"))
 	require.NoError(t, err)
 	require.NoError(t, file.Close())
-	_, err = manager.List(context.Background())
+	items, err := manager.List(context.Background())
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	_, err = manager.Get(context.Background(), created.ID)
 	assert.ErrorIs(t, err, ErrInvalidArtifact)
 }

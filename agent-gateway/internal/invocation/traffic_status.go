@@ -9,8 +9,17 @@ import (
 )
 
 func (s *TrafficStore) Status(ctx context.Context) contract.TrafficStatus {
+	if s.optional != nil {
+		return s.optionalStatus(ctx)
+	}
 	s.mu.Lock()
 	status := contract.TrafficStatus{Ready: !s.closed && !s.faulted && !s.draining, Faulted: s.faulted, Pressure: s.queued >= s.config.QueueRecords || s.queuedBytes >= s.config.QueueBytes, BudgetBytes: s.config.BudgetBytes, QuotaRefusals: s.quotaRefusals, RollingHistory: true, UnknownCompletionPossible: true}
+	status.State = "ready"
+	if s.faulted {
+		status.State = "faulted"
+	} else if s.closed || s.draining {
+		status.State = "disabled"
+	}
 	s.mu.Unlock()
 	if info, err := os.Stat(s.path); err == nil {
 		status.DatabaseBytes = info.Size()
@@ -27,6 +36,9 @@ func (s *TrafficStore) Status(ctx context.Context) contract.TrafficStatus {
 	if err != nil {
 		status.Ready = false
 		status.Pressure = true
+		if status.State == "ready" {
+			status.State = "unavailable"
+		}
 	}
 	return status
 }

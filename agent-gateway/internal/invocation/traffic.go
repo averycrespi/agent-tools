@@ -79,6 +79,7 @@ type trafficRequest struct {
 // TrafficStore has one bounded nonblocking observation queue and one writer.
 // No caller waits for persistence and an uncertain write never gets replayed.
 type TrafficStore struct {
+	optional        *trafficLifecycle
 	db              *sql.DB
 	readerDB        *sql.DB
 	path            string
@@ -105,11 +106,26 @@ type TrafficStore struct {
 
 func (s *TrafficStore) BudgetBytes() int64 { return s.config.BudgetBytes }
 func (s *TrafficStore) Healthy() bool {
+	if s.optional != nil {
+		target := s.optionalTarget()
+		return target != nil && target.Healthy()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return !s.closed && !s.faulted && !s.draining
 }
-func (s *TrafficStore) BeginDrain() { s.mu.Lock(); s.draining = true; s.mu.Unlock() }
+func (s *TrafficStore) BeginDrain() {
+	s.mu.Lock()
+	s.draining = true
+	var target *TrafficStore
+	if s.optional != nil {
+		target = s.optional.target
+	}
+	s.mu.Unlock()
+	if target != nil {
+		target.BeginDrain()
+	}
+}
 
 func (s *TrafficStore) ObserveMCP(prepared PreparedAdmission) *TrafficObservation {
 	prepared.admission = cloneAdmissionEvidence(prepared.admission)
@@ -141,6 +157,12 @@ func (s *TrafficStore) enqueueObservation(r *trafficRequest) error {
 	refuse := func(err error) error { s.dropLocked(); return err }
 	if s.closed || s.faulted || s.draining {
 		return refuse(ErrTrafficFault)
+	}
+	if s.optional != nil {
+		if s.optional.target == nil {
+			return refuse(ErrTrafficFault)
+		}
+		return s.optional.target.enqueueObservation(r)
 	}
 	if s.queued >= s.config.QueueRecords || s.queuedBytes+r.bytes > s.config.QueueBytes ||
 		r.bytes > s.config.BatchBytes || r.bytes > maxTrafficRecordBytes+maxTrafficCompletionBytes {
@@ -199,6 +221,21 @@ func trafficCharge(p PreparedAdmission) int64 {
 }
 
 func (s *TrafficStore) Close() error {
+	if s.optional != nil {
+		s.closeOnce.Do(func() {
+			s.BeginDrain()
+			s.StartOpening(nil)
+			<-s.optional.done
+			s.mu.Lock()
+			s.closed = true
+			target := s.optional.target
+			s.mu.Unlock()
+			if target != nil {
+				s.closeErr = target.Close()
+			}
+		})
+		return s.closeErr
+	}
 	s.closeOnce.Do(func() {
 		s.mu.Lock()
 		s.closed = true

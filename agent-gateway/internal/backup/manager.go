@@ -59,15 +59,16 @@ type Options struct {
 }
 
 type Manager struct {
-	traffic *invocation.TrafficStore
-	store   *storage.Store
-	layout  gatewaypaths.Layout
-	clock   Clock
-	entropy io.Reader
-	fault   func(FaultPoint) error
-	work    chan struct{}
-	mu      sync.RWMutex
-	last    *string
+	traffic      *invocation.TrafficStore
+	store        *storage.Store
+	layout       gatewaypaths.Layout
+	clock        Clock
+	entropy      io.Reader
+	fault        func(FaultPoint) error
+	work         chan struct{}
+	mu           sync.RWMutex
+	last         *string
+	inventoryErr error
 }
 
 type artifactMetadata struct {
@@ -86,13 +87,15 @@ func New(options Options) (*Manager, error) {
 	if options.Store == nil || options.Clock == nil || options.Entropy == nil || options.Layout.Backups == "" {
 		return nil, errors.New("backup manager dependencies are incomplete")
 	}
-	if err := ensureDirectory(options.Layout.Backups); err != nil {
-		return nil, err
-	}
 	manager := &Manager{traffic: options.Traffic, store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
+	if err := ensureDirectory(options.Layout.Backups); err != nil {
+		manager.inventoryErr = err
+		return manager, nil
+	}
 	items, _, err := manager.load(context.Background())
 	if err != nil {
-		return nil, err
+		manager.inventoryErr = err
+		return manager, nil
 	}
 	if len(items) > 0 {
 		latest := items[len(items)-1].CreatedAt
@@ -119,7 +122,8 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 			if metadata[index].InputHash != digestText("{}") {
 				return contract.Backup{}, false, ErrInvalidIdempotency
 			}
-			return metadata[index].Backup, true, nil
+			verified, err := manager.Get(ctx, metadata[index].ID)
+			return verified, err == nil, err
 		}
 	}
 	maximum, _ := contract.FixedLimitByName("backup_records")
@@ -307,6 +311,9 @@ func (manager *Manager) Status() contract.BackupStatus {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
 	state := contract.BackupIdle
+	if manager.inventoryErr != nil {
+		state = contract.BackupUnavailable
+	}
 	if len(manager.work) == 1 {
 		state = contract.BackupCreating
 	}
@@ -314,25 +321,47 @@ func (manager *Manager) Status() contract.BackupStatus {
 }
 
 func (manager *Manager) load(ctx context.Context) ([]contract.Backup, []artifactMetadata, error) {
-	entries, err := os.ReadDir(manager.layout.Backups)
+	directory, err := openAccountingDirectory(manager.layout.Backups)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read backups: %w", err)
+		return nil, nil, err
 	}
-	items := make([]contract.Backup, 0, len(entries))
-	metadata := make([]artifactMetadata, 0, len(entries))
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".") {
-			continue
+	defer func() { _ = directory.Close() }()
+	items := make([]contract.Backup, 0)
+	metadata := make([]artifactMetadata, 0)
+	maximum, _ := contract.FixedLimitByName("backup_records")
+	seen := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
 		}
-		if !entry.IsDir() || !backupIDPattern.MatchString(entry.Name()) {
-			return nil, nil, ErrInvalidArtifact
-		}
-		artifact, readErr := manager.readArtifact(ctx, filepath.Join(manager.layout.Backups, entry.Name()), entry.Name())
-		if readErr != nil {
+		entries, readErr := directory.ReadDir(64)
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return nil, nil, readErr
 		}
-		items = append(items, artifact.Backup)
-		metadata = append(metadata, artifact)
+		for _, entry := range entries {
+			seen++
+			if seen > 4096 {
+				return nil, nil, ErrInvalidArtifact
+			}
+			if strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			if int64(len(items)) >= maximum.Maximum || !entry.IsDir() || !backupIDPattern.MatchString(entry.Name()) {
+				return nil, nil, ErrInvalidArtifact
+			}
+			artifact, err := readAccountingMetadata(directory, entry.Name())
+			if err != nil {
+				return nil, nil, err
+			}
+			if _, err := time.Parse(time.RFC3339Nano, artifact.CreatedAt); err != nil {
+				return nil, nil, ErrInvalidArtifact
+			}
+			items = append(items, artifact.Backup)
+			metadata = append(metadata, artifact)
+		}
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
 	}
 	sort.Slice(items, func(left, right int) bool { return items[left].ID < items[right].ID })
 	sort.Slice(metadata, func(left, right int) bool { return metadata[left].ID < metadata[right].ID })

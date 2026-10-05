@@ -27,7 +27,27 @@ Gateway must be stopped for `maintenance restore-backup`, `maintenance verify-an
 
 Stop service supervisors as well as Gateway before offline work; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
 
-All four `maintenance` operations support `--dry-run`, `--confirm`, and `--json`. A dry run takes existing stopped ownership, inspects identity, closed storage, recognized marker actions and applicable backup metadata, and writes no installation files, audit records or recovery markers. Nonempty WAL/journal state prevents a proven immutable read: preserve it and obtain a qualified WAL-aware recovery plan, never delete it or checkpoint it merely to make a preview pass. Execution shows the target and consequences, requires default-no interactive consent or explicit noninteractive `--confirm`, then revalidates the plan under the same lock. Dry-run output is not later authority. Unknown recovery actions refuse. No confirmation bypasses safety checks.
+All four `maintenance` operations support `--dry-run`, `--confirm`, and `--json`. A dry run takes existing stopped ownership, inspects identity, closed storage, recognized marker actions and applicable backup metadata, and writes no installation files, audit records or recovery markers. Nonempty WAL/journal state in an operation's inspected targets prevents a proven immutable read: preserve it and obtain a qualified WAL-aware recovery plan, never delete it or checkpoint it merely to make a preview pass. Execution shows the target and consequences, requires default-no interactive consent or explicit noninteractive `--confirm`, then revalidates the plan under the same lock. Dry-run output is not later authority. Unknown recovery actions refuse. No confirmation bypasses safety checks.
+
+## Optional history and serving
+
+Gateway starts security-ready serving while one owned history opener validates the
+selected generation. Status reports history as `opening`, `ready`, `unavailable`,
+`faulted`, or `disabled`; API/MCP admission is independent. A NULL selector disables
+capture and preserves legacy rows until explicit stopped migration. Control database,
+mandatory audit, security markers and malformed selectors still fail closed.
+
+Unavailable artifacts are retained without replacement or permission repair. Serving
+refuses nonempty history WAL/journals rather than silently repairing them; preserve
+those files for a qualified stopped WAL-aware plan. Do not edit selectors or remove
+sidecars to make history open. Security-only recovery does not inspect these files.
+Existing configuration, grants and credentials survive the lifecycle upgrade.
+
+Shutdown may report unconfirmed cleanup while still retaining the opener/writer and
+installation lock. Wait for actual settlement; a timeout does not cancel fsync or
+permit another owner. This is not isolation from shared-filesystem stalls,
+uninterruptible I/O or physical disk exhaustion. Paired backup creation still needs
+ready history; optional backup formats are a separate change.
 
 ## Create and manage backups
 
@@ -49,6 +69,12 @@ snapshot bound. Capacity/headroom refusal leaves healthy stores usable. Already
 admitted work may finish after the snapshot, so missing completion stays unknown.
 Both staged databases are verified before atomic directory publication. A backup contains safe durable Gateway state but no raw administrator bearer, agent bearer, keyring value, browser session, MCP session, runtime handle, or in-flight work.
 
+Startup and `backup list` discover bounded metadata only; a list entry does not
+certify payload integrity. `backup get`, delete, idempotent creation and restore
+fully verify the selected artifact. Damaged historical payloads do not prevent
+serving. Malformed or unsafe inventory makes backup administration unavailable,
+never an empty inventory or permission to delete artifacts.
+
 Creation generates an idempotency key unless one is supplied. If the response is uncertain, retain the reported key and canonical `{}` digest and use a backup read before deciding whether deliberate same-tuple replay is necessary. The CLI never retries automatically. Deletion requires confirmation and read-before-retry recovery.
 
 ## Verify the current installation
@@ -61,10 +87,12 @@ agent-gateway maintenance verify-and-recover-storage \
   --json --confirm
 ```
 
-`maintenance verify-and-recover-storage` accepts neither a backup ID nor `--secret-output`. Supply the
-installation's `--traffic-budget-bytes` value when it differs from 4 GiB. It fully
-validates the selected traffic generation as well as control storage, without
-manufacturing missing traffic or requiring a persistent traffic-only latch. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
+`maintenance verify-and-recover-storage` accepts neither a backup ID nor `--secret-output`.
+It verifies the installation's control store for security recovery. The compatibility
+`--traffic-budget-bytes` option does not cause history inspection. Neither this
+operation nor administrator reset reads or repairs untouched optional history,
+even if it is missing, corrupt or has nonempty WAL. Consent binds control state,
+its selector and security markers. It acquires the exclusive process lock; verifies installation identity, schema and migration history, SQLite durability, size, and integrity; applies only recognized marker recovery; and clears the marker durably before success. Unknown, conflicting, oversized, foreign-installation, or failed recovery remains latched.
 
 A recognized uncertain agent-credential candidate is cleared only when its agent, credential, and captured revisions are still current. The affected revisions advance once and no prior credential is restored. The command does not start Gateway; return ownership to the service before any online read:
 
@@ -202,7 +230,8 @@ traffic bindings before deciding on another action. Failure before control
 replacement leaves the original authoritative; failure afterward may mean the new
 pair is selected despite an error. Never assume two file renames are atomic, delete
 a stage to bypass a refusal, edit a selector, or fall back to empty traffic. Missing,
-foreign or corrupt selected traffic fails closed. Diagnose and use an explicitly
+foreign or corrupt selected traffic disables optional history, not security-ready
+serving. Diagnose and use an explicitly
 selected verified backup where necessary. Restart with the same budget and restore
 service supervision only after stopped verification succeeds. Fresh initialization
 creates a matching pair directly and needs no legacy migration. If first-run setup

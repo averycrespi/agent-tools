@@ -45,6 +45,7 @@ func TestInvocationReadComposition(t *testing.T) {
 	assert.Same(t, built.invocationReads, controlAPI.Invocations)
 	assert.Same(t, built.invocationReads, controlAPI.GitTraffic)
 	assert.Same(t, built.invocationReads, controlAPI.HTTPTraffic)
+	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 	gitPage, err := controlAPI.GitTraffic.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1})
 	require.NoError(t, err)
 	assert.Empty(t, gitPage.Items)
@@ -263,6 +264,7 @@ func TestCompositionPositiveAgentIngressUsesSyntheticLocalAndDrainFence(t *testi
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
+	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 	agentIngress, ok := built.AgentIngress()
 	require.True(t, ok)
 	ingress := mcpingress.New(mcpingress.Options{
@@ -396,6 +398,7 @@ func TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
 	built, err := New(options)
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
+	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 
 	principal, err := built.authorization.CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{DisplayName: "drain principal", Visibility: contract.VisibilityAll})
 	require.NoError(t, err)
@@ -409,6 +412,13 @@ func TestDrainWaitsForDetachedLocalCallThroughTerminalAnnotation(t *testing.T) {
 	require.True(t, found)
 	handlerEntered := make(chan struct{})
 	releaseHandler := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseHandler:
+		default:
+			close(releaseHandler)
+		}
+	}()
 	target, err := invocation.NewLocalTarget(synthetic, func(context.Context, authorization.AdmittedSubject, strictjson.Value) invocation.LocalCallResult {
 		close(handlerEntered)
 		<-releaseHandler

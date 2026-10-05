@@ -141,12 +141,14 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 			if operation == "migrate-traffic-storage" && snapshot.Identity.TrafficGeneration != "" {
 				return storage.ErrPlanChanged
 			}
-			if operation == "verify-and-recover-storage" && snapshot.Identity.TrafficGeneration == "" {
-				return storage.ErrTrafficUnselected
-			}
-			trafficSeal, trafficErr := composition.InspectTraffic(ctx, owner, snapshot.Identity, budget)
-			if trafficErr != nil && operation != "restore-backup" {
-				return trafficErr
+			inspectHistory := operation == "migrate-traffic-storage" || operation == "restore-backup"
+			var trafficSeal [32]byte
+			var trafficErr error
+			if inspectHistory {
+				trafficSeal, trafficErr = composition.InspectTraffic(ctx, owner, snapshot.Identity, budget)
+				if trafficErr != nil && operation != "restore-backup" {
+					return trafficErr
+				}
 			}
 			var restoreTraffic composition.TrafficEvidence
 			if operation == "restore-backup" {
@@ -170,7 +172,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 				plan.Actions = append(plan.Actions, "Replace current data; revoke restored administrator credentials; invalidate agent, HTTP credential and CA authority; publish one replacement administrator bearer. Sessions and in-flight work do not resume.")
 			}
 			if operation == "verify-and-recover-storage" {
-				plan.Actions = append(plan.Actions, "Write audit attempt/outcome; fully verify control and selected traffic storage; clear only verified markers and mark maintenance clean.")
+				plan.Actions = append(plan.Actions, "Write audit attempt/outcome; fully verify control storage; clear only verified security markers and mark maintenance clean. Optional history is not inspected or repaired.")
 				if snapshot.Recovery != "" {
 					plan.Actions = append(plan.Actions, "Detected action: "+snapshot.Recovery+" (conditional on current recorded authority)")
 				}
@@ -211,12 +213,14 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 				}
 				return checkNewSecretDestination(secretOutput)
 			}
-			currentSeal, err := composition.InspectTraffic(ctx, owner, snapshot.Identity, budget)
-			if err != nil {
-				return err
-			}
-			if currentSeal != trafficSeal {
-				return storage.ErrPlanChanged
+			if inspectHistory {
+				currentSeal, err := composition.InspectTraffic(ctx, owner, snapshot.Identity, budget)
+				if err != nil {
+					return err
+				}
+				if currentSeal != trafficSeal {
+					return storage.ErrPlanChanged
+				}
 			}
 			if needsSink {
 				return checkNewSecretDestination(secretOutput)
@@ -297,7 +301,7 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 	case errors.Is(err, storage.ErrInvalidDatabase):
 		code, title = "storage_invalid", "Selected storage failed integrity, schema or identity validation. Preserve the installation and obtain a qualified recovery plan."
 	case errors.Is(err, storage.ErrTrafficUnselected):
-		code, title = "traffic_unselected", "Existing storage requires maintenance migrate-traffic-storage with its exact --installation-id before serving or recovery verification."
+		code, title = "traffic_unselected", "History is disabled until maintenance migrate-traffic-storage selects a generation using the exact --installation-id; security-ready serving does not require history."
 	case errors.Is(err, admin.ErrNotInitialized):
 		code, title, exit = "not_initialized", "No administrator authority exists. Init can complete demonstrably missing setup without resetting authority.", 4
 	case errors.Is(err, admin.ErrAlreadyInitialized):

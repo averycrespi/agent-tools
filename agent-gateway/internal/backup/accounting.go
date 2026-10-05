@@ -22,6 +22,9 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 	retryLimit, _ := contract.FixedLimitByName("idempotency_records")
 	records.Limit, idempotency.Limit = recordLimit.Maximum, retryLimit.Maximum
 	defer func() {
+		manager.mu.Lock()
+		manager.inventoryErr = resultErr
+		manager.mu.Unlock()
 		if resultErr != nil {
 			records, idempotency = contract.LimitStatus{}, contract.LimitStatus{}
 			resultErr = errors.Join(ErrInvalidArtifact, resultErr)
@@ -33,6 +36,7 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 	}
 	defer func() { _ = directory.Close() }()
 	now := manager.clock.Now()
+	seen := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return records, idempotency, err
@@ -42,6 +46,10 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 			return records, idempotency, readErr
 		}
 		for _, entry := range entries {
+			seen++
+			if seen > 4096 {
+				return records, idempotency, ErrInvalidArtifact
+			}
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}

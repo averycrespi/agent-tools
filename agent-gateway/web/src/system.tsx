@@ -550,14 +550,11 @@ function StatusPanel({
                 (!status.traffic.ready ||
                   status.traffic.faulted ||
                   status.traffic.pressure) && (
-                  <StateNotice
-                    state="warning"
-                    title="Shared traffic persistence needs attention"
-                  >
+                  <StateNotice state="warning" title="Optional traffic history">
                     <p>
-                      {status.traffic.faulted
-                        ? "Traffic history is unavailable. Authorized MCP, HTTP and Git execution can continue; missing records do not prove nonexecution."
-                        : "Traffic observations may be dropped. Missing completion remains unknown; never automatically replay calls."}
+                      {status.traffic.state === "opening"
+                        ? "History is opening. Security-ready serving does not wait for it."
+                        : "Authorized MCP, HTTP and Git execution can continue without history. Missing records do not prove nonexecution; never automatically replay calls."}
                     </p>
                   </StateNotice>
                 )}
@@ -704,13 +701,7 @@ function StatusPanel({
                   <dt>Shared traffic storage</dt>
                   <dd>
                     <FactStatus
-                      value={
-                        status.traffic.faulted
-                          ? "faulted"
-                          : status.traffic.ready
-                            ? "ready"
-                            : "unavailable"
-                      }
+                      value={status.traffic.state}
                       current={panelStatus === "current"}
                     />
                     <span>

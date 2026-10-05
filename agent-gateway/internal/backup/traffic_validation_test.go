@@ -58,6 +58,7 @@ func TestPairedBackupRejectsResidualControlInvocations(t *testing.T) {
 	require.ErrorIs(t, err, storage.ErrInvalidDatabase)
 	_, err = manager.Get(t.Context(), created.ID)
 	require.ErrorIs(t, err, ErrInvalidArtifact)
-	_, err = manager.List(t.Context())
-	require.ErrorIs(t, err, ErrInvalidArtifact)
+	items, err = manager.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, items, 1, "metadata inventory is not integrity verification")
 }

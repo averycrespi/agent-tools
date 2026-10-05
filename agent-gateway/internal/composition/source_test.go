@@ -511,7 +511,7 @@ func productionSliceViolations(source productionSource) []string {
 		for _, symbol := range []string{
 			"grantrequests.New(", "built.requests.ValidateStartup(", "grantrequests.NewAdminService(", "authorization.NewSelfProjectionService(",
 			"selfservice.NewCursorCodec(", "selfservice.NewService(", "discovery.NewWithSyntheticCatalog(", "invocation.NewServiceWithLocal(",
-			"invocation.NewTrafficRepository(", "invocation.OpenTraffic(",
+			"invocation.NewTrafficRepository(", "invocation.NewOptionalTraffic(", "built.traffic.StartOpening(func()",
 			"type AgentIngressDependencies struct", "func (built *Composition) AgentIngress()",
 			"type ControlAPIDependencies struct", "func (built *Composition) ControlAPI()",
 			"Authenticator: built.authorization", "ListTools:     built.listTools", "CallTools:     built.callTools",

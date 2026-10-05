@@ -68,6 +68,7 @@ export interface LimitView {
   saturated: boolean;
 }
 export interface TrafficView {
+  state: string;
   ready: boolean;
   faulted: boolean;
   pressure: boolean;
@@ -239,6 +240,7 @@ export function decodeStatus(value: unknown): StatusView {
   let traffic: TrafficView | undefined;
   if (hasTraffic) {
     const item = record(root.traffic, [
+      "state",
       "ready",
       "faulted",
       "pressure",
@@ -257,6 +259,13 @@ export function decodeStatus(value: unknown): StatusView {
     )
       throw new Error("invalid traffic history semantics");
     traffic = {
+      state: closed(item.state, [
+        "opening",
+        "ready",
+        "unavailable",
+        "faulted",
+        "disabled",
+      ]),
       ready: booleanValue(item.ready),
       faulted: booleanValue(item.faulted),
       pressure: booleanValue(item.pressure),
@@ -331,7 +340,7 @@ export function decodeStatus(value: unknown): StatusView {
       "unsupported",
     ]),
     limits: limitNames.map((name) => limit(limits[name], name)),
-    backupState: closed(backup.state, ["idle", "creating"]),
+    backupState: closed(backup.state, ["idle", "creating", "unavailable"]),
     lastBackupAt: nullableString(backup.last_completed_at),
     modernProtocol: stringValue(protocols.modern),
     legacyProtocol: stringValue(protocols.legacy),
@@ -1083,13 +1092,10 @@ export function Overview({
                     value={
                       !status.traffic
                         ? undefined
-                        : status.traffic.faulted
-                          ? "faulted"
-                          : status.traffic.pressure
-                            ? "storage_pressure"
-                            : status.traffic.ready
-                              ? "ready"
-                              : "not_ready"
+                        : status.traffic.state === "ready" &&
+                            status.traffic.pressure
+                          ? "storage_pressure"
+                          : status.traffic.state
                     }
                     current={current("overview-status")}
                   />

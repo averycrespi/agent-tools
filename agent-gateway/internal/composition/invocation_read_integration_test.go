@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -24,6 +25,7 @@ func TestInvocationReadCompositionIntegration(t *testing.T) {
 	control, ok := built.ControlAPI()
 	require.True(t, ok)
 	assert.Same(t, built.invocationReads, control.Invocations)
+	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 	page, err := control.Invocations.List(context.Background(), contract.InvocationListQuery{Limit: 1})
 	require.NoError(t, err)
 	assert.Empty(t, page.Items)

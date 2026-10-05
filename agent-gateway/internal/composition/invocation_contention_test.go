@@ -112,6 +112,7 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			built, err := New(options)
 			require.NoError(t, err)
 			defer built.shutdownConstructed()
+			require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 			server := enableCompositionServer(t, built.servers, createServerWithTransport(t, built.servers, "parallel", contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: downstream.URL + "/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.NoAuthentication{Mode: contract.AuthenticationNone}}))
 			principal, err := built.authorization.CreatePrincipal(ctx, authorization.CreatePrincipalRequest{DisplayName: "parallel fixture", Visibility: contract.VisibilityAll})
 			require.NoError(t, err)

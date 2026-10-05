@@ -1072,6 +1072,7 @@ export async function runOverview(
               active_tunnels: 0,
             },
             traffic: {
+              state: statusMode === "quiet" ? "ready" : "faulted",
               ready: statusMode === "quiet",
               faulted: statusMode !== "quiet",
               pressure: statusMode !== "quiet",
@@ -2998,6 +2999,7 @@ export async function runSystemStatus(
       active_tunnels: 1,
     },
     traffic: {
+      state: "ready",
       ready: true,
       faulted: false,
       pressure: false,
@@ -3255,23 +3257,31 @@ export async function runSystemStatus(
     }),
   ).toHaveCount(0);
 
-  for (const faulted of [false, true]) {
+  for (const historyState of [
+    "ready",
+    "faulted",
+    "opening",
+    "unavailable",
+    "disabled",
+  ]) {
+    const faulted = historyState === "faulted";
+    const ready = historyState === "ready";
     currentStatus = {
       ...currentStatus,
       http_proxy: { ...currentStatus.http_proxy, ready: true },
       traffic: {
         ...currentStatus.traffic,
-        ready: !faulted,
+        state: historyState,
+        ready,
         faulted,
         pressure: faulted,
       },
     };
     await page.locator('[data-testid="manual-refresh"]').click();
     await page
-      .getByText(
-        faulted ? "Shared traffic persistence needs attention" : "Healthy",
-        { exact: true },
-      )
+      .getByText(!ready ? "Optional traffic history" : "Healthy", {
+        exact: true,
+      })
       .waitFor();
     if (
       (await page
@@ -3279,10 +3289,12 @@ export async function runSystemStatus(
         .getAttribute("data-mutation-availability")) !== "enabled"
     )
       fail("Traffic-only failure disabled healthy administration");
-    if (faulted) {
+    if (!ready) {
       await expect(
         page.getByText(
-          "Traffic history is unavailable. Authorized MCP, HTTP and Git execution can continue; missing records do not prove nonexecution.",
+          historyState === "opening"
+            ? "History is opening. Security-ready serving does not wait for it."
+            : "Authorized MCP, HTTP and Git execution can continue without history. Missing records do not prove nonexecution; never automatically replay calls.",
           { exact: true },
         ),
       ).toBeVisible();
@@ -3326,7 +3338,7 @@ export async function runSystemStatus(
       await captureScreenshot(page, {
         path: join(
           trafficScreenshots,
-          `${faulted ? "fault" : "ready"}-${width}.png`,
+          `${faulted ? "fault" : historyState}-${width}.png`,
         ),
         fullPage: true,
       });
@@ -3337,6 +3349,7 @@ export async function runSystemStatus(
     http_proxy: { ...currentStatus.http_proxy, ready: true },
     traffic: {
       ...currentStatus.traffic,
+      state: "ready",
       ready: true,
       faulted: false,
       pressure: false,

@@ -247,6 +247,16 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	seedInvocationHistory(t, harness.root, 65536)
 
 	harness.Start()
+	// Security readiness precedes the optional full-history validator. This
+	// retention fixture explicitly needs history, not a second serving gate.
+	waitHistory := func() {
+		require.Eventually(t, func() bool {
+			response := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
+			var status contract.SystemStatus
+			return response.StatusCode == http.StatusOK && json.Unmarshal(response.Body, &status) == nil && status.Traffic != nil && status.Traffic.Ready
+		}, 30*time.Second, 10*time.Millisecond)
+	}
+	waitHistory()
 	// Existing schema-9 rows remain readable through the new namespace after restart.
 	_, historicalPage := listInvocations(t, harness, url.Values{"limit": {"1"}})
 	require.Len(t, historicalPage.Items, 1)
@@ -275,6 +285,7 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	// one-shot backup; the restarted fixture issues no new traffic.
 	beforeBackup := harness.Stop(syscall.SIGTERM)
 	harness.Start()
+	waitHistory()
 	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
 		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
 	})

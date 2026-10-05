@@ -491,6 +491,7 @@ type constructorHooks struct {
 	newCoordinator   runtimes.CoordinatorFactory
 	scheduler        runtimes.Scheduler
 	startHooks       startHooks
+	openTraffic      func(context.Context, *gatewaypaths.Ownership, string, string, invocation.TrafficConfig) (*invocation.TrafficStore, error)
 }
 
 var mandatoryConstructorStages = []string{
@@ -630,13 +631,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, err
 	}
-	if generation == "" {
-		return nil, storage.ErrTrafficUnselected
-	}
-	built.traffic, err = invocation.OpenTraffic(context.Background(), options.Ownership, options.InstallationID, generation, trafficConfiguration(options.TrafficBudget))
-	if err != nil {
-		return nil, fmt.Errorf("open selected traffic generation: %w", err)
-	}
+	built.traffic = invocation.NewOptionalTraffic(trafficConfiguration(options.TrafficBudget))
 	built.invocationRepository, err = invocation.NewTrafficRepository(built.traffic, options.Clock, options.Entropy, options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)
@@ -648,9 +643,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation reads: %w", err)
 	}
-	// OpenTraffic already validated every row, accounting and generation under
-	// its startup deadline. Repeating the legacy scan through an online reader
-	// would incorrectly subject populated startup to the one-second read limit.
+	// Optional history validates independently; security construction never waits
+	// for an optional file or uses the legacy history scan.
 	if err := check("invocation_pipeline"); err != nil {
 		return nil, err
 	}
@@ -871,6 +865,17 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	}
 	built.flows.SetDiagnostics(options.Diagnostics, references.reference)
 	built.refresh.SetDiagnostics(options.Diagnostics, references.reference)
+	if generation != "" {
+		opener := hooks.openTraffic
+		if opener == nil {
+			opener = openOptionalTraffic
+		}
+		built.traffic.StartOpening(func() (*invocation.TrafficStore, error) {
+			return opener(context.Background(), options.Ownership, options.InstallationID, generation, trafficConfiguration(options.TrafficBudget))
+		})
+	} else {
+		built.traffic.StartOpening(nil)
+	}
 	cleanup = false
 	return built, nil
 }

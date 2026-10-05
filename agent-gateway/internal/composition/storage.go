@@ -218,24 +218,23 @@ func VerifyStorageBudget(ctx context.Context, root string, budget int64, approva
 	if !ValidTrafficBudget(budget) {
 		return storage.Identity{}, invocation.ErrInvalidInput
 	}
-	return storage.VerifyCurrentWithTraffic(ctx, root, func(ctx context.Context, owner *gatewaypaths.Ownership, store *storage.Store) error {
-		generation, err := store.SelectedTraffic(ctx)
-		if err != nil {
-			return err
-		}
-		if generation == "" {
-			return storage.ErrTrafficUnselected
-		}
-		identity, err := store.Identity(ctx)
-		if err != nil {
-			return err
-		}
-		traffic, err := invocation.OpenTraffic(ctx, owner, identity.InstallationID, generation, trafficConfiguration(budget))
-		if err != nil {
-			return err
-		}
-		return traffic.Close()
-	}, approvals...)
+	// Recovery acts on control and security markers only. The control snapshot
+	// binds the selector, not bytes of optional files this operation never touches.
+	return storage.VerifyCurrentWithTraffic(ctx, root, nil, approvals...)
+}
+
+// openOptionalTraffic refuses recovery of existing artifacts during serving.
+// Closed, fully validated history may acquire a writer; WAL-bearing history is
+// left untouched for explicit stopped inspection rather than silently repaired.
+func openOptionalTraffic(ctx context.Context, owner *gatewaypaths.Ownership, installation, generation string, config invocation.TrafficConfig) (*invocation.TrafficStore, error) {
+	path := filepath.Join(owner.Layout().Root, "traffic-"+generation+".db")
+	if err := storage.RequireClosedGeneration(path); err != nil {
+		return nil, err
+	}
+	if err := invocation.VerifyTrafficFile(ctx, path, installation, generation, config); err != nil {
+		return nil, err
+	}
+	return invocation.OpenTraffic(ctx, owner, installation, generation, config)
 }
 
 func (built *Composition) Traffic() *invocation.TrafficStore { return built.traffic }

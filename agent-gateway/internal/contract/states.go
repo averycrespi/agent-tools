@@ -56,12 +56,13 @@ func KeyringCapabilities() []KeyringCapability {
 type BackupState string
 
 const (
-	BackupIdle     BackupState = "idle"
-	BackupCreating BackupState = "creating"
+	BackupUnavailable BackupState = "unavailable"
+	BackupIdle        BackupState = "idle"
+	BackupCreating    BackupState = "creating"
 )
 
 func BackupStates() []BackupState {
-	return []BackupState{BackupIdle, BackupCreating}
+	return []BackupState{BackupIdle, BackupCreating, BackupUnavailable}
 }
 
 type AgentAuthMode string

@@ -44,14 +44,20 @@ Every connection installs a two-second busy policy, enables foreign keys, verifi
 ## Isolated traffic store
 
 Schema 18 adds the control-owned `traffic_selection` singleton. Production selects
-exactly one independently bound `invocation.TrafficStore` for MCP, HTTP and Git evidence,
-completion and history. Control retains identities, credentials, policy, requests,
+one stable optional-history facade for MCP, HTTP and Git evidence,
+completion and history. Its one asynchronous opener validates a selected generation
+without gating security-ready serving. Control retains identities, credentials, policy, requests,
 configuration and administrative audit. Storage owns traffic DDL; invocation owns
 its evidence, SQL, validation, writer and reads. There is one composition graph,
 installation lock and authenticator, with no dual writes, protocol registry, execution
 queue or replay. Composition retains installation ownership through traffic close.
-A missing, foreign or invalid selected generation fails closed; an unselected
-legacy installation requires explicit stopped migration, never live backfill.
+Missing, foreign, corrupt, unsafe or unreadable history is unavailable, not a
+security-readiness failure. A NULL selector explicitly disables capture, retaining
+legacy rows without live backfill; stopped migration can subsequently select a new
+generation. Malformed control-owned selectors, control integrity, mandatory audit
+and security markers remain fail-closed. Selector commits include durable
+administrative audit in the same transaction. Existing configuration, grants and
+credentials are unchanged by this lifecycle cutover.
 
 An explicitly created `traffic-<generation>.db` uses application ID `MGT1`, schema
 3, and exact installation/generation bindings. Control schema 20 retains the
@@ -84,7 +90,7 @@ even a complete HTTP 200 push remains outcome_unknown, not Git success. Git rows
 share sequence allocation, cross-domain identity uniqueness, retention and
 physical budgets with MCP and HTTP. Every retained row is semantically validated.
 
-Before readiness, under existing installation ownership and before constructing
+Before history attachment, under existing installation ownership and before constructing
 readers or starting the writer, a schema-1 or schema-2 selected generation receives
 one complete schema/binding/evidence/accounting validation. A bounded transaction
 adds only the missing empty HTTP/Git tables/indexes/triggers and advances
@@ -174,12 +180,25 @@ latch. Restart restores write authority only after exact schema/application/bind
 physical-budget, complete structural and every-row semantic validation, including
 nullable groups, chronology, accounting and sequence/pruning consistency. Validation
 is streaming and has a 30-second cooperative deadline; incomplete validation is
-failure, never partial readiness. Composition relies on this complete `OpenTraffic`
-validation rather than repeating the legacy invocation scan through an online reader
-with its one-second deadline. Reads may remain available while write authority
+failure, never partial history readiness. Closed nonmutating preflight precedes the
+writer's complete `OpenTraffic` validation; neither is subject to the online reader's
+one-second deadline, and neither gates security readiness. Reads may remain available while write authority
 is faulted; readable history grants no authority and cannot resume execution.
-Startup still validates the selected pair in this revision; optional startup and
-recovery selection are separate lifecycle work.
+History reports `opening`, `ready`, `unavailable`, `faulted`, or `disabled` independently
+of security readiness. Serving preflight refuses nonempty history WAL/journals and
+fully verifies closed artifacts without mutation before opening a writer. Invalid
+artifacts are never deleted, replaced, chmodded or repaired. Existing unclean history
+requires a separately qualified stopped WAL-aware plan; security-only recovery does
+not repair it. Valid older traffic schemas retain their bounded supported upgrade.
+
+The facade owns one opener for its lifetime, with no reopen loop. Drain prevents
+late attachment; a fully validated late result is closed instead. Close joins the
+opener, actual writer and reader settlement before composition releases storage or
+installation ownership. An observation deadline may report unconfirmed cleanup,
+never cancellation of fsync or permission to mark clean or start a replacement.
+Process exit releases the OS lock, but an unconfirmed drain never publishes a clean
+marker. Optional history does not isolate shared-filesystem stalls, uninterruptible
+I/O or physical disk exhaustion.
 
 ## Installation selection after migration retirement
 
@@ -219,7 +238,7 @@ Authorization separately owns general stopped-stage credential surgery on a supp
 
 The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, and `maintenance migrate-traffic-storage`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
 
-Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Inspection hashes the closed database, marker slots and selected traffic evidence; restore additionally verifies artifact metadata. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
+Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Security-only verification and administrator reset hash the closed control database and marker slots; this also binds the control-owned selector without reading untouched optional history. Explicit migration and restore additionally inspect and bind their history targets; restore verifies the selected artifact metadata and payloads. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
 
 CLI success projections use `operation:"verify-and-recover-storage"` or `operation:"restore-backup"`, with no `mode` member. Both retain `ok`, `installation_id`, and decimal-string `revision`; only restore has `backup_id`. This projection is separate from durable backup metadata and audit vocabulary. Exact JSON, typed exits, stopped-service prerequisites, and rollback/uncertainty procedures are published in the [operator recovery guide](../operators/backup-and-recovery.md#structured-results-and-exits). No command rename alters data-root precedence, schema support, installed service argv, installation/credential/keyring identities, lineage, or recovery markers. No automatic replay or compensation is added.
 
@@ -258,8 +277,15 @@ request observes the completed deletion without retrying the mutation.
 
 These counts do not establish artifact integrity: status neither opens nor reads
 backup databases, hashes their contents, nor runs SQLite or traffic verification.
-Creation/publication, initialization of the backup manager, list/get/delete,
-idempotent creation and stopped restore retain their full verification. Metadata
+Startup and list inventory use the same bounded no-follow metadata discipline,
+not historical payload verification. Enumeration additionally bounds hidden entries
+to 4096; excess or malformed inventory is explicit backup-administration
+unavailability, never healthy zero or automatic deletion. Backup-manager construction
+does not fail security startup for an inventory error. Creation/publication,
+selected get/delete, idempotent creation and stopped restore retain full verification.
+A listed artifact establishes inventory presence, not restore integrity. The current
+paired creation format still needs ready history; changing that format is separate
+from optional serving. Metadata
 accounting is not restore or mutation authorization; supported artifact formats
 and the successful status representation are unchanged.
 

@@ -13,6 +13,13 @@ import (
 // snapshot acquisition are fenced. Copying occurs after the short fence is
 // released, on the exact pinned connections. Live admitted executions continue.
 func (s *TrafficStore) BackupPair(ctx context.Context, control *storage.Store, controlPath, trafficPath string) (result error) {
+	if s.optional != nil {
+		target := s.optionalTarget()
+		if target == nil {
+			return ErrTrafficFault
+		}
+		return target.BackupPair(ctx, control, controlPath, trafficPath)
+	}
 	started := time.Now()
 	if !s.writerGate.TryLock() {
 		return ErrTrafficCapacity

@@ -277,6 +277,7 @@ type ProtocolStatus struct {
 }
 
 type TrafficStatus struct {
+	State                     string `json:"state"`
 	Ready                     bool   `json:"ready"`
 	Faulted                   bool   `json:"faulted"`
 	Pressure                  bool   `json:"pressure"`
