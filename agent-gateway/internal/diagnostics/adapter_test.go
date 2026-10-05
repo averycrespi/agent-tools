@@ -195,7 +195,7 @@ func TestDiagnosticExecutableEventManifest(t *testing.T) {
 	for index, event := range inventory {
 		require.Equal(t, event.Name, eventNames[index+1])
 		var output bytes.Buffer
-		adapter := &Adapter{sink: &output, abort: make(chan struct{}), process: "fixture"}
+		adapter := &Adapter{sink: &output, abort: make(chan struct{}), process: "fixture", now: time.Now, writeNow: time.Now}
 		facts := validEventExample(Event(index + 1))
 		if facts.Event != Loss {
 			require.True(t, validFacts(facts), event.Name)

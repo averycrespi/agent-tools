@@ -11,6 +11,20 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 )
 
+func (e *Engine) observeCompletion(protocol diagnostics.Protocol, outcome string, started time.Time) {
+	result := diagnostics.Unknown
+	switch outcome {
+	case "succeeded":
+		result = diagnostics.Succeeded
+	case "prestart_failure":
+		result = diagnostics.PrestartFailure
+	case "nonmutation":
+		result = diagnostics.Nonmutation
+	}
+	e.options.Observations.Result(protocol, result)
+	e.options.Observations.Latency(protocol, diagnostics.ExecutionStage, time.Since(started))
+}
+
 func (e *Engine) observeRejection(started time.Time, stage diagnostics.Stage, cause diagnostics.Cause, writers ...http.ResponseWriter) {
 	id := ""
 	if len(writers) != 0 {

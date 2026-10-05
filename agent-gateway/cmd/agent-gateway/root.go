@@ -354,8 +354,11 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 				mcpWork, mcpStreams, legacySessions,
 			)
 			trafficStatus := runtime.Traffic().Status(context.Background())
-			trafficStatus.Ready = trafficStatus.Ready && !store.Latched() && !draining.Load()
 			status.Traffic = &trafficStatus
+			diagnosticStatus := dependencies.diagnostics.Status()
+			status.Diagnostics = &diagnosticStatus
+			observations := runtime.Observations()
+			status.Observations = &observations
 			status.Endpoints = controlEndpointsStatus(authority, ready.Load(), runtimeStarted.Load(), store.Latched(), draining.Load(), status.Protocols.AgentAuth, trafficStatus)
 			proxyStatus := runtime.HTTPProxyStatus()
 			proxyStatus.Ready = proxyStatus.Ready && !store.Latched() && !draining.Load()

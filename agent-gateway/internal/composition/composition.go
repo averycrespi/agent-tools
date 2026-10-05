@@ -87,6 +87,7 @@ type ControlAPIDependencies struct {
 }
 
 type Composition struct {
+	observations         *diagnostics.Observations
 	traffic              *invocation.TrafficStore
 	diagnosticReferences *diagnosticReferences
 	httpDiagnostics      diagnostics.HTTPProxyObserver
@@ -178,7 +179,7 @@ func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy neti
 		}
 		return all
 	}
-	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Diagnostics: built.httpDiagnostics, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
+	built.httpProxy, err = httpproxy.New(httpproxy.Options{Authority: built.authorization, Evidence: built.invocationRepository, Admissions: admissions, Materials: built.httpCredentials, GitMaterials: built.gitCredentials, Remote: built.remoteFactory, Diagnostics: built.httpDiagnostics, Observations: built.observations, Signer: signer, Listeners: listeners, Now: built.httpNow, Ready: func() bool { return built.ready() && built.accepting.Load() }})
 	if err == nil {
 		built.httpProxyAuthority = proxy.String()
 	}
@@ -195,6 +196,10 @@ func (built *Composition) HTTPProxyStatus() contract.HTTPProxyStatus {
 	status.Authority = built.httpProxyAuthority
 	status.Ready = status.Ready && status.CAReady && built.ready() && built.accepting.Load()
 	return status
+}
+
+func (built *Composition) Observations() contract.ExecutionObservations {
+	return built.observations.Status()
 }
 
 func (built *Composition) Servers() *servers.Repository { return built.servers }
@@ -522,7 +527,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil
 	}
 	references := &diagnosticReferences{process: options.DiagnosticProcessID}
-	built := &Composition{httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
+	built := &Composition{observations: diagnostics.NewObservations(), httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -656,6 +661,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, fmt.Errorf("construct invocation_service: %w", err)
 	}
 	built.invocationService.SetDiagnostics(options.Diagnostics)
+	built.invocationService.SetObservations(built.observations)
 	if err := check("invocation_adapter"); err != nil {
 		return nil, err
 	}

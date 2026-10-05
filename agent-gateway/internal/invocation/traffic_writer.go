@@ -53,8 +53,13 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, err error) {
 	s.mu.Lock()
 	s.queued--
 	s.queuedBytes -= r.bytes
+	if r.terminal() {
+		s.completionQueued--
+	}
 	if err != nil {
 		s.dropLocked()
+	} else if s.acknowledged < contract.RecordedActivityMaxCount {
+		s.acknowledged++
 	}
 	s.mu.Unlock()
 }

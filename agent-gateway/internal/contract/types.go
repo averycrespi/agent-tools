@@ -278,18 +278,24 @@ type ProtocolStatus struct {
 }
 
 type TrafficStatus struct {
-	State                     string `json:"state"`
-	Ready                     bool   `json:"ready"`
-	Faulted                   bool   `json:"faulted"`
-	Pressure                  bool   `json:"pressure"`
-	BudgetBytes               int64  `json:"budget_bytes"`
-	DatabaseBytes             int64  `json:"database_bytes"`
-	WALBytes                  int64  `json:"wal_bytes"`
-	QuotaRefusals             int64  `json:"quota_refusals"`
-	PrunedRecords             int64  `json:"pruned_records"`
-	Generation                string `json:"generation"`
-	RollingHistory            bool   `json:"rolling_history"`
-	UnknownCompletionPossible bool   `json:"unknown_completion_possible"`
+	AccountingAvailable       bool             `json:"accounting_available"`
+	Delivery                  DeliveryCounters `json:"delivery"`
+	DatabaseMeasurement       ByteMeasurement  `json:"database_measurement"`
+	WALMeasurement            ByteMeasurement  `json:"wal_measurement"`
+	FreeSpaceMeasurement      ByteMeasurement  `json:"free_space_measurement"`
+	PressureReason            string           `json:"pressure_reason"`
+	State                     string           `json:"state"`
+	Ready                     bool             `json:"ready"`
+	Faulted                   bool             `json:"faulted"`
+	Pressure                  bool             `json:"pressure"`
+	BudgetBytes               int64            `json:"budget_bytes"`
+	DatabaseBytes             int64            `json:"database_bytes"`
+	WALBytes                  int64            `json:"wal_bytes"`
+	QuotaRefusals             int64            `json:"quota_refusals"`
+	PrunedRecords             int64            `json:"pruned_records"`
+	Generation                string           `json:"generation"`
+	RollingHistory            bool             `json:"rolling_history"`
+	UnknownCompletionPossible bool             `json:"unknown_completion_possible"`
 }
 
 type HTTPProxyStatus struct {
@@ -321,15 +327,17 @@ type ControlEndpointsStatus struct {
 }
 
 type SystemStatus struct {
-	Endpoints *ControlEndpointsStatus `json:"endpoints,omitempty"`
-	HTTPProxy *HTTPProxyStatus        `json:"http_proxy,omitempty"`
-	Traffic   *TrafficStatus          `json:"traffic,omitempty"`
-	Process   ProcessStatus           `json:"process"`
-	SQLite    SQLiteStatus            `json:"sqlite"`
-	Keyring   KeyringStatus           `json:"keyring"`
-	Limits    LimitsStatus            `json:"limits"`
-	Backup    BackupStatus            `json:"backup"`
-	Protocols ProtocolStatus          `json:"protocols"`
+	Observations *ExecutionObservations    `json:"observations,omitempty"`
+	Diagnostics  *DiagnosticDeliveryStatus `json:"diagnostics,omitempty"`
+	Endpoints    *ControlEndpointsStatus   `json:"endpoints,omitempty"`
+	HTTPProxy    *HTTPProxyStatus          `json:"http_proxy,omitempty"`
+	Traffic      *TrafficStatus            `json:"traffic,omitempty"`
+	Process      ProcessStatus             `json:"process"`
+	SQLite       SQLiteStatus              `json:"sqlite"`
+	Keyring      KeyringStatus             `json:"keyring"`
+	Limits       LimitsStatus              `json:"limits"`
+	Backup       BackupStatus              `json:"backup"`
+	Protocols    ProtocolStatus            `json:"protocols"`
 }
 
 type AdminSessionBootstrap struct {

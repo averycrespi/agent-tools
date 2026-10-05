@@ -269,6 +269,7 @@ func trafficCheckpoint(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
+	s.setPressureReason("none")
 	if err := trafficFiles(s.path, s.config); err != nil {
 		return err
 	}
@@ -293,6 +294,7 @@ func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
 	// A pinned backup may outlive the write deadline. Refuse before mutation
 	// rather than waiting for its snapshot or faulting otherwise healthy traffic.
 	if !s.readGate.TryLock() {
+		s.setPressureReason("checkpoint_reader")
 		return ErrTrafficCapacity
 	}
 	defer s.readGate.Unlock()
@@ -300,6 +302,7 @@ func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
 		return ErrTrafficDeadline
 	}
 	if err = trafficCheckpoint(ctx, s.db); err != nil {
+		s.setPressureReason("checkpoint_unavailable")
 		return err
 	}
 	wal, err = size()
@@ -307,9 +310,16 @@ func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
 		return err
 	}
 	if wal+trafficReservation(s.config) > maximum {
+		s.setPressureReason("budget_reservation")
 		return ErrTrafficCapacity
 	}
 	return nil
+}
+
+func (s *TrafficStore) setPressureReason(reason string) {
+	s.mu.Lock()
+	s.pressureReason = reason
+	s.mu.Unlock()
 }
 
 func (s *TrafficStore) validateTraffic(ctx context.Context, installation, generation string) error {

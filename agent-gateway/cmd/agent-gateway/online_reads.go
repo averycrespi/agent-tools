@@ -411,7 +411,28 @@ func statusTable(body []byte) (controlclient.Table, error) {
 		rows = append(rows, []string{"http_proxy", state, fmt.Sprintf("authority=%s ca_loaded=%t streams=%d tunnels=%d connections=%d/%d work=%d/%d; client trust is separate", proxy.Authority, proxy.CAReady, proxy.ActiveStreams, proxy.ActiveTunnels, proxy.Connections.InUse, proxy.Connections.Limit, proxy.Work.InUse, proxy.Work.Limit)})
 	}
 	if traffic := status.Traffic; traffic != nil {
-		rows = append(rows, []string{"traffic", fmt.Sprintf("ready=%t faulted=%t pressure=%t", traffic.Ready, traffic.Faulted, traffic.Pressure), fmt.Sprintf("bytes=%d budget=%d quota_refusals=%d; shared MCP/HTTP history, missing completion is unknown", traffic.DatabaseBytes+traffic.WALBytes, traffic.BudgetBytes, traffic.QuotaRefusals)})
+		rows = append(rows, []string{"history", traffic.State, fmt.Sprintf("pressure=%t reason=%s database=%s WAL=%s free=%s; budget=%d", traffic.Pressure, traffic.PressureReason, byteMeasurementText(traffic.DatabaseMeasurement), byteMeasurementText(traffic.WALMeasurement), byteMeasurementText(traffic.FreeSpaceMeasurement), traffic.BudgetBytes)})
+		d := traffic.Delivery
+		rows = append(rows, []string{"history_delivery", "process counters", fmt.Sprintf("accepted=%d acknowledged=%d discarded=%d queue=%d/%d records %d/%d bytes completions=%d", d.Accepted, d.Acknowledged, d.Discarded, d.QueueRecords, d.QueueRecordLimit, d.QueueBytes, d.QueueByteLimit, d.CompletionRecords)})
+		if !traffic.Ready || traffic.Pressure {
+			rows = append(rows, []string{"history_action", "inspect", "Serving is independent. Inspect history state and disk/sink capacity; use http test-access for policy-only preview. Missing records never authorize replay."})
+		}
+	}
+	if diagnostic := status.Diagnostics; diagnostic != nil {
+		last := "not observed"
+		if diagnostic.LastSuccessfulWrite != nil {
+			last = *diagnostic.LastSuccessfulWrite
+		}
+		rows = append(rows, []string{"diagnostics", diagnostic.State, fmt.Sprintf("accepted=%d written=%d dropped=%d invalid=%d failures=%d queue=%d/%d records reserved_bytes=%d writing=%t last_successful_write=%s", diagnostic.Accepted, diagnostic.Written, diagnostic.Dropped, diagnostic.Invalid, diagnostic.WriteFailures, diagnostic.QueueRecords, diagnostic.QueueLimit, diagnostic.QueueBytes, diagnostic.Writing, last)})
+		if diagnostic.State != "ready" && diagnostic.State != "writing" {
+			rows = append(rows, []string{"diagnostic_action", "inspect", "Inspect the configured stderr destination; no request replay."})
+		}
+	}
+	if observations := status.Observations; observations != nil {
+		rows = append(rows, []string{"observations", observations.Coverage, fmt.Sprintf("epoch=%s since=%s saturated=%t; process-local, crash loss unknown", observations.Epoch, observations.StartedAt, observations.Overflow)})
+		for _, p := range observations.Protocols {
+			rows = append(rows, []string{"observed." + p.Protocol, "owner boundaries", fmt.Sprintf("requests=%d execution_pipelines=%d results=%v; Git reports=%v (untrusted); latency=%v", p.Requests, p.Executions, p.Results, p.GitReports, p.Latency)})
+		}
 	}
 	for _, limit := range statusLimits(status.Limits) {
 		state := "available"
@@ -421,6 +442,16 @@ func statusTable(body []byte) (controlclient.Table, error) {
 		rows = append(rows, []string{"limit." + limit.name, state, fmt.Sprintf("in_use=%d limit=%d", limit.value.InUse, limit.value.Limit)})
 	}
 	return controlclient.Table{Headers: []string{"AREA", "STATE", "DETAIL"}, Rows: rows}, nil
+}
+
+func byteMeasurementText(m contract.ByteMeasurement) string {
+	if m.State == "available" && m.Bytes != nil {
+		return fmt.Sprintf("%d", *m.Bytes)
+	}
+	if m.State == "absent" {
+		return "absent"
+	}
+	return "unavailable"
 }
 
 type namedLimit struct {

@@ -56,6 +56,33 @@ and [manual proxy/client trust setup](http-proxy.md).
 
 `GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. `doctor` replaces the old top-level `status` (no alias). It reports independent checks as verified, failed, presence-only, absent, stopped or not checked; an unreachable listener is not proof of a stopped process. It shows one line per condition, with additional indented diagnostics only when needed. The absolute data directory and selection source appear once; paths inside it are relative, while external paths remain absolute. Installed service and log paths appear separately when safely available. `doctor --verbose` adds explanations for every check without running extra checks; `--json` retains structured details regardless of verbosity. File presence proves neither authority nor signing usability. `doctor --verify-storage` opts into expensive stopped, closed-generation inspection without recovery. `doctor --online` adds authenticated public-API status using `--admin-bearer-file` or the selected default. Protected keyring material is not probed. A partial checklist never claims whole-installation readiness.
 
+### Serving without optional evidence
+
+`doctor --online` and browser **System → Status** show serving, optional history,
+and diagnostic delivery separately. A history-only failure does not mean MCP/HTTP/Git
+forwarding stopped. Read the history state and pressure reason first: checkpoint
+readers, budget reservation and low disk space have different causes. Unavailable
+measurements are not zero usage; an absent WAL is separately identified. Inspect
+disk capacity and the selected history artifacts without deleting them or performing
+live recovery. Existing HTTP policy preview (`http test-access` or **HTTP → Grants →
+Test access**) checks policy without dispatching a request.
+
+Diagnostic **Writing** means a Write is outstanding, not a proven timeout. Inspect
+the configured stderr destination and last successful write when pressure/failure
+is reported; a timer cannot cancel every native writer. Cumulative dropped/invalid
+counts survive failed log summaries. Log timestamps mark observation before queueing,
+not the time delayed output arrived. Never restart or replay execution merely to
+repair missing evidence.
+
+Process observations count live owner boundaries independently of both sinks.
+Execution pipelines are not proof of downstream effects; HTTP requests include the
+separate Git subset, while CONNECT is separate. A reported Git success is upstream
+content, not a Gateway-confirmed successful push. History delivery counts submissions;
+Recorded activity still counts committed record changes. Do not compare these as
+success rates or infer active work by subtraction. Restart resets process epochs and
+counters; crash loss and missing terminals remain unknown. Live occupancy comes from
+Resource limits and the HTTP work/stream/tunnel owners.
+
 ## Administrator authentication
 
 Online administrator authentication never prompts. It resolves exactly one bearer source:

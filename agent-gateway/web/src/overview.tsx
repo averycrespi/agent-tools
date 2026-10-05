@@ -1,4 +1,13 @@
 import type { ComponentChildren } from "preact";
+import {
+  decodeHistoryHealth,
+  historyHealthKeys,
+  decodeDiagnosticHealth,
+  decodeObservations,
+  type HistoryHealth,
+  type DiagnosticHealth,
+  type Observations,
+} from "./observation-health";
 import { decodeDiagnosticCorrelation } from "./diagnostic-correlation";
 import { decodeReadOnly, readOnlyKeys } from "./read-only";
 import { useEffect, useState } from "preact/hooks";
@@ -68,6 +77,7 @@ export interface LimitView {
   saturated: boolean;
 }
 export interface TrafficView {
+  health?: HistoryHealth | undefined;
   state: string;
   ready: boolean;
   faulted: boolean;
@@ -90,6 +100,8 @@ export interface HTTPProxyView {
   activeTunnels: number;
 }
 export interface StatusView {
+  diagnostics?: DiagnosticHealth | undefined;
+  observations?: Observations | undefined;
   endpoints?: { authority: string; api: string; mcp: string };
   httpProxy?: HTTPProxyView;
   traffic?: TrafficView;
@@ -211,7 +223,12 @@ export function decodeStatus(value: unknown): StatusView {
     value !== null && typeof value === "object" && "http_proxy" in value;
   const hasEndpoints =
     value !== null && typeof value === "object" && "endpoints" in value;
+  const additions =
+    value !== null && typeof value === "object"
+      ? ["diagnostics", "observations"].filter((k) => k in value)
+      : [];
   const root = record(value, [
+    ...additions,
     ...(hasEndpoints ? ["endpoints"] : []),
     ...(hasProxy ? ["http_proxy"] : []),
     ...(hasTraffic ? ["traffic"] : []),
@@ -239,7 +256,14 @@ export function decodeStatus(value: unknown): StatusView {
   }
   let traffic: TrafficView | undefined;
   if (hasTraffic) {
+    const healthKeys =
+      root.traffic &&
+      typeof root.traffic === "object" &&
+      "delivery" in root.traffic
+        ? historyHealthKeys
+        : [];
     const item = record(root.traffic, [
+      ...healthKeys,
       "state",
       "ready",
       "faulted",
@@ -259,6 +283,7 @@ export function decodeStatus(value: unknown): StatusView {
     )
       throw new Error("invalid traffic history semantics");
     traffic = {
+      health: decodeHistoryHealth(item),
       state: closed(item.state, [
         "opening",
         "ready",
@@ -315,6 +340,8 @@ export function decodeStatus(value: unknown): StatusView {
   const backup = record(root.backup, ["state", "last_completed_at"]);
   const protocols = record(root.protocols, ["modern", "legacy", "agent_auth"]);
   return {
+    diagnostics: decodeDiagnosticHealth(root.diagnostics),
+    observations: decodeObservations(root.observations),
     ...(endpoints ? { endpoints } : {}),
     ...(traffic ? { traffic } : {}),
     ...(httpProxy ? { httpProxy } : {}),
@@ -1086,7 +1113,7 @@ export function Overview({
                 </dd>
               </div>
               <div>
-                <dt>Traffic store</dt>
+                <dt>Optional history</dt>
                 <dd>
                   <FactStatus
                     value={
@@ -1097,6 +1124,15 @@ export function Overview({
                           ? "storage_pressure"
                           : status.traffic.state
                     }
+                    current={current("overview-status")}
+                  />
+                </dd>
+              </div>
+              <div>
+                <dt>Diagnostic delivery</dt>
+                <dd>
+                  <FactStatus
+                    value={status.diagnostics?.state}
                     current={current("overview-status")}
                   />
                 </dd>

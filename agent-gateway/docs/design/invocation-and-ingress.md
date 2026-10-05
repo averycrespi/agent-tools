@@ -443,6 +443,43 @@ Collection starts when the selected store opens; retained admissions are never r
 
 MCP binding-only refusal classes, evaluated allow/deny/block, and prestart/downstream/explicit-unknown terminals retain their existing distinctions. HTTP request, CONNECT and invalid/unclassified admission evidence stay separate. Interception selection is not general failure or CONNECT/TLS completion; opaque CONNECT is not an inner request. Successful HTTP transfer evidence does not interpret application content or status class. Missing terminals are never inferred as explicit unknown completions or in-flight work, and admissions minus completions is not a valid population. There are no 24-hour/cross-restart trends, latency histograms, administrative-mutation success metrics, ingress-attempt counts or success percentages.
 
+### Process-local execution observations
+
+One composition-owned fixed-size memory collector counts at live owners, independently
+of the diagnostic level, stderr queue and history facade/writer. MCP counts recognizable
+calls entering `Service.Call`, not HTTP envelopes, authentication refusals or list/ping
+messages. HTTP counts entries to the proxy request handler; CONNECT is a separate
+population, and intercepted inner requests enter the HTTP owner independently. Git
+parser entries form a labeled subset of HTTP requests, never an additional HTTP
+execution. Do not sum HTTP and Git request counts. Pre-routing failures cannot invent
+a Git classification. Parser/socket failures before these owners remain outside
+coverage.
+
+Execution counts mean confirmed execution-pipeline entry (including subsequent
+prestart failure), not proof of downstream handoff. MCP local/downstream outcomes
+are counted by their single finish owner. HTTP/Git and opaque CONNECT count at the
+single completion owner after transfer bookkeeping and before optional capture.
+Interception selection does not count as an opaque tunnel execution. Git HTTP 200
+and even complete transfer retain an unknown mutation outcome; separately labeled
+upstream success/failure/partial reports are untrusted facts, never Gateway-observed
+successful pushes. Request completion latency includes cleanup; execution latency
+uses monotonic elapsed time at the corresponding owner. Admission latency covers
+handling through admission, not an independently timed SQL transaction.
+
+Each protocol has fixed admission/execution/request latency vectors with disjoint
+buckets <=1, <=10, <=100, <=1000, <=10000 ms and greater. No dynamic label, identity,
+URL, hostname, argument, ref, raw error, tracing registry or retained callback exists.
+Counters saturate at 2^53-1 and set overflow; they never wrap or reset on read or sink
+failure. A fresh random epoch and collection start identify each process graph. Entropy
+failure leaves the epoch empty (cross-snapshot correlation unavailable), without
+gating counting or falling back to clock/PID identity.
+Wall-clock changes neither reset cumulative counts nor alter monotonic durations.
+Crash losses, unobserved boundaries and missing terminals remain unknown; no completeness,
+rate, denominator, cross-restart continuity or zero-activity claim follows. These
+counters never derive occupancy by subtraction: MCP work/dispatch and HTTP work,
+connections, streams and tunnels still come from their existing actual owners.
+Recorded activity above and all historical query populations remain unchanged.
+
 ### Admission and execution
 
 Under a short authority gate and one coherent control read snapshot, evaluate the

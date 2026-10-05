@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
@@ -485,6 +486,19 @@ func TestServiceTerminalFailureNeverChangesLiveResultOrRetries(t *testing.T) {
 	waitTraffic(t, audits.traffic)
 	assert.False(t, audits.traffic.Healthy())
 	assert.False(t, audits.store.Latched())
+	observed := service.observations.Status().Protocols[diagnostics.MCP]
+	require.EqualValues(t, 1, observed.Requests)
+	require.EqualValues(t, 1, observed.Executions)
+	require.EqualValues(t, 1, observed.Results[diagnostics.Succeeded])
+	// A subsequent call still contributes exactly once after capture has faulted.
+	secondLease, err := authority.Authenticate(context.Background(), credential.Bearer)
+	require.NoError(t, err)
+	defer secondLease.Release()
+	response = service.Call(context.Background(), secondLease, validCallParams())
+	require.NotNil(t, response.Result)
+	observed = service.observations.Status().Protocols[diagnostics.MCP]
+	require.EqualValues(t, 2, observed.Requests)
+	require.EqualValues(t, 2, observed.Results[diagnostics.Succeeded])
 }
 
 type serviceExecutionLease struct {

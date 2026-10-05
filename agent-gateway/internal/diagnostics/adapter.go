@@ -17,22 +17,28 @@ import (
 // Adapter is the sole diagnostic encoder and sink writer. Callers retain it
 // until Done closes, even if Finish's bounded wait expires.
 type Adapter struct {
-	level       Level
-	sink        io.Writer
-	queue       chan Facts
-	done        chan struct{}
-	abort       chan struct{}
-	mu          sync.Mutex
-	stopped     bool
-	finish      sync.Once
-	terminal    boundedBytes
-	dropped     atomic.Uint64
-	invalid     atomic.Uint64
-	failed      atomic.Bool
-	calls       atomic.Uint64
-	process     string
-	now         func() time.Time
-	suppression map[suppressionKey]suppressionState
+	level         Level
+	sink          io.Writer
+	queue         chan queuedFact
+	done          chan struct{}
+	abort         chan struct{}
+	mu            sync.Mutex
+	stopped       bool
+	finish        sync.Once
+	terminal      boundedBytes
+	dropped       atomic.Uint64
+	invalid       atomic.Uint64
+	failed        atomic.Bool
+	accepted      atomic.Uint64
+	written       atomic.Uint64
+	writeFailures atomic.Uint64
+	writing       atomic.Bool
+	lastWrite     atomic.Pointer[time.Time]
+	calls         atomic.Uint64
+	process       string
+	now           func() time.Time
+	writeNow      func() time.Time
+	suppression   map[suppressionKey]suppressionState
 }
 
 func New(sink io.Writer, level Level) *Adapter {
@@ -47,7 +53,7 @@ func newAdapter(sink io.Writer, level Level, entropy io.Reader, now func() time.
 	if _, err := io.ReadFull(entropy, identity[:]); err == nil {
 		process = hex.EncodeToString(identity[:])
 	}
-	adapter := &Adapter{now: now, suppression: make(map[suppressionKey]suppressionState), level: level, sink: sink, queue: make(chan Facts, QueueRecords-1), done: make(chan struct{}), abort: make(chan struct{}), process: process}
+	adapter := &Adapter{now: now, writeNow: now, suppression: make(map[suppressionKey]suppressionState), level: level, sink: sink, queue: make(chan queuedFact, QueueRecords-1), done: make(chan struct{}), abort: make(chan struct{}), process: process}
 	go adapter.run()
 	return adapter
 }
@@ -151,7 +157,8 @@ func (adapter *Adapter) Observe(facts Facts) {
 		return
 	}
 	select {
-	case adapter.queue <- facts:
+	case adapter.queue <- queuedFact{facts: facts, observedAt: adapter.now().UTC()}:
+		increment(&adapter.accepted)
 	default:
 		increment(&adapter.dropped)
 	}
@@ -192,7 +199,46 @@ func (adapter *Adapter) Finish(terminal func(io.Writer)) bool {
 // HTTP diagnostics must use fixed typed events, never raw logger messages.
 func HTTPErrorLog() *log.Logger { return log.New(io.Discard, "", 0) }
 
-func increment(counter *atomic.Uint64) { _ = NextID(counter) }
+const maxCount = uint64(1<<53 - 1)
+
+func increment(counter *atomic.Uint64) {
+	for {
+		value := counter.Load()
+		if value >= maxCount || counter.CompareAndSwap(value, value+1) {
+			return
+		}
+	}
+}
+
+type queuedFact struct {
+	facts      Facts
+	observedAt time.Time
+}
+
+// Status never acquires the producer lock or waits for the sink.
+func (adapter *Adapter) Status() contract.DiagnosticDeliveryStatus {
+	if adapter == nil {
+		return contract.DiagnosticDeliveryStatus{State: "unavailable"}
+	}
+	s := contract.DiagnosticDeliveryStatus{State: "ready", Epoch: adapter.process,
+		Accepted: adapter.accepted.Load(), Written: adapter.written.Load(), Dropped: adapter.dropped.Load(), Invalid: adapter.invalid.Load(), WriteFailures: adapter.writeFailures.Load(),
+		QueueRecords: len(adapter.queue), QueueLimit: cap(adapter.queue), Writing: adapter.writing.Load()}
+	s.QueueBytes = s.QueueRecords * RecordBytes
+	if at := adapter.lastWrite.Load(); at != nil {
+		value := at.Format(time.RFC3339Nano)
+		s.LastSuccessfulWrite = &value
+	}
+	switch {
+	case adapter.failed.Load():
+		s.State = "failed"
+	case s.QueueRecords == s.QueueLimit:
+		s.State = "pressure"
+	case s.Writing:
+		s.State = "writing"
+	}
+	s.Overflow = s.Accepted == maxCount || s.Written == maxCount || s.Dropped == maxCount || s.Invalid == maxCount || s.WriteFailures == maxCount
+	return s
+}
 
 func validFacts(f Facts) bool {
 	if f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure {
@@ -309,10 +355,16 @@ func (adapter *Adapter) write(data []byte) bool {
 		return false
 	default:
 	}
+	adapter.writing.Store(true)
 	n, err := adapter.sink.Write(data)
+	adapter.writing.Store(false)
 	ok := err == nil && n == len(data)
 	if !ok {
+		increment(&adapter.writeFailures)
 		adapter.failed.Store(true)
+	} else {
+		at := adapter.writeNow().UTC()
+		adapter.lastWrite.Store(&at)
 	}
 	return ok
 }
@@ -322,18 +374,21 @@ func (adapter *Adapter) run() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	var lastLoss time.Time
+	var reportedDropped, reportedInvalid uint64
 	loss := func() bool {
 		now := time.Now()
 		if !lastLoss.IsZero() && now.Sub(lastLoss) < time.Second {
 			return true
 		}
-		dropped, invalid := adapter.dropped.Swap(0), adapter.invalid.Swap(0)
+		totalDropped, totalInvalid := adapter.dropped.Load(), adapter.invalid.Load()
+		dropped, invalid := totalDropped-reportedDropped, totalInvalid-reportedInvalid
 		if dropped == 0 && invalid == 0 {
 			return true
 		}
 		if !adapter.encode(Facts{Event: Loss}, dropped, invalid) {
 			return false
 		}
+		reportedDropped, reportedInvalid = totalDropped, totalInvalid
 		lastLoss = time.Now()
 		return true
 	}
@@ -362,7 +417,11 @@ func (adapter *Adapter) run() {
 				}
 				return
 			}
-			if !adapter.encode(facts, 0, 0) || !loss() {
+			if !adapter.encodeAt(facts.facts, 0, 0, facts.observedAt) {
+				return
+			}
+			increment(&adapter.written)
+			if !loss() {
 				return
 			}
 		}
@@ -370,6 +429,10 @@ func (adapter *Adapter) run() {
 }
 
 func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
+	return adapter.encodeAt(f, dropped, invalid, adapter.writeNow().UTC())
+}
+
+func (adapter *Adapter) encodeAt(f Facts, dropped, invalid uint64, observedAt time.Time) bool {
 	var buffer boundedBytes
 	handler := slog.NewJSONHandler(&buffer, &slog.HandlerOptions{Level: slog.LevelDebug, ReplaceAttr: func(_ []string, attr slog.Attr) slog.Attr {
 		if attr.Key == slog.MessageKey {
@@ -397,7 +460,7 @@ func (adapter *Adapter) encode(f Facts, dropped, invalid uint64) bool {
 			level = slog.LevelDebug
 		}
 	}
-	record := slog.NewRecord(time.Now().UTC(), level, eventNames[f.Event], 0)
+	record := slog.NewRecord(observedAt, level, eventNames[f.Event], 0)
 	record.AddAttrs(slog.Int("schema_version", 1), slog.String("process_id", adapter.process))
 	if level >= slog.LevelWarn {
 		record.AddAttrs(slog.String("action", guidance(f)))

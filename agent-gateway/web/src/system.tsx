@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { useUnsavedChanges } from "./navigation";
 import { readHistoryExport, type HistoryExport } from "./history-export";
 import { parseFragment } from "./location";
+import { measurementText } from "./observation-health";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
   MutationController,
@@ -503,10 +504,6 @@ function StatusPanel({
     (!status.endpoints ||
       (status.endpoints.api === "ready" && status.endpoints.mcp === "ready")) &&
     (!status.httpProxy?.enabled || status.httpProxy.ready) &&
-    (!status.traffic ||
-      (status.traffic.ready &&
-        !status.traffic.faulted &&
-        !status.traffic.pressure)) &&
     saturatedLimits.length === 0;
   return (
     <section
@@ -519,7 +516,7 @@ function StatusPanel({
         <h2 id="system-status-title">Gateway status</h2>
         {status !== undefined && panelStatus === "current" && (
           <StatusLabel state={healthy ? "current" : "warning"}>
-            {healthy ? "Healthy" : "Degraded"}
+            {healthy ? "Serving" : "Serving needs attention"}
           </StatusLabel>
         )}
       </div>
@@ -544,7 +541,11 @@ function StatusPanel({
         <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
         <div class="operator-status-stack">
-          {!healthy && (
+          {(!healthy ||
+            (status.traffic &&
+              (!status.traffic.ready ||
+                status.traffic.faulted ||
+                status.traffic.pressure))) && (
             <section
               class="operator-status-section"
               aria-labelledby="system-issues-title"
@@ -738,7 +739,7 @@ function StatusPanel({
               </div>
               {status.traffic && (
                 <div>
-                  <dt>Shared traffic storage</dt>
+                  <dt>Optional history</dt>
                   <dd>
                     <FactStatus
                       value={status.traffic.state}
@@ -747,33 +748,120 @@ function StatusPanel({
                     <span>
                       {status.traffic.pressure
                         ? "Capacity pressure"
-                        : "Within capacity"}
+                        : status.traffic.health?.database_measurement.state ===
+                              "available" &&
+                            status.traffic.health?.wal_measurement.state !==
+                              "unavailable" &&
+                            status.traffic.health?.free_space_measurement
+                              .state === "available"
+                          ? "No measured pressure"
+                          : "Capacity unavailable"}
                     </span>
                     <span>
-                      {formatStorageBytes(
-                        status.traffic.databaseBytes + status.traffic.walBytes,
-                      )}{" "}
-                      / {formatStorageBytes(status.traffic.budgetBytes)} ·{" "}
-                      {resourceUtilization(
-                        status.traffic.databaseBytes + status.traffic.walBytes,
-                        status.traffic.budgetBytes,
-                      )}{" "}
-                      used
-                    </span>
-                    <span class="muted">
-                      {(
-                        status.traffic.databaseBytes + status.traffic.walBytes
-                      ).toLocaleString()}{" "}
-                      / {status.traffic.budgetBytes.toLocaleString()} bytes
-                      (database + WAL)
+                      Database:{" "}
+                      {measurementText(
+                        status.traffic.health?.database_measurement,
+                      )}
                     </span>
                     <span>
-                      {status.traffic.quotaRefusals} quota refusals ·{" "}
-                      {status.traffic.prunedRecords} pruned records
+                      WAL:{" "}
+                      {measurementText(status.traffic.health?.wal_measurement)}
                     </span>
+                    <span>
+                      Free space:{" "}
+                      {measurementText(
+                        status.traffic.health?.free_space_measurement,
+                      )}
+                    </span>
+                    <span>
+                      Budget: {formatStorageBytes(status.traffic.budgetBytes)}
+                    </span>
+                    <span>
+                      Pruned records:{" "}
+                      {status.traffic.health?.accounting_available
+                        ? status.traffic.prunedRecords.toLocaleString()
+                        : "Unavailable"}
+                    </span>
+                    {status.traffic.health && (
+                      <>
+                        {status.traffic.health.pressure_reason !== "none" && (
+                          <span>
+                            Pressure reason:{" "}
+                            {sentenceCase(
+                              status.traffic.health.pressure_reason,
+                            )}
+                          </span>
+                        )}
+                        <span>
+                          {status.traffic.health.delivery.accepted} accepted ·{" "}
+                          {status.traffic.health.delivery.acknowledged}{" "}
+                          acknowledged ·{" "}
+                          {status.traffic.health.delivery.discarded} discarded
+                          submissions
+                        </span>
+                        <span>
+                          Queue: {status.traffic.health.delivery.queue_records}/
+                          {status.traffic.health.delivery.queue_record_limit}{" "}
+                          records · {status.traffic.health.delivery.queue_bytes}
+                          /{status.traffic.health.delivery.queue_byte_limit}{" "}
+                          bytes ·{" "}
+                          {status.traffic.health.delivery.completion_records}{" "}
+                          completions
+                        </span>
+                      </>
+                    )}
+                    <a href="#/http/grants/test-access">
+                      Preview HTTP policy without execution
+                    </a>
                   </dd>
                 </div>
               )}
+              <div>
+                <dt>Diagnostic delivery</dt>
+                <dd>
+                  <FactStatus
+                    value={status.diagnostics?.state}
+                    current={panelStatus === "current"}
+                  />
+                  {status.diagnostics && (
+                    <>
+                      <span>
+                        {status.diagnostics.accepted} accepted ·{" "}
+                        {status.diagnostics.written} written ·{" "}
+                        {status.diagnostics.dropped} dropped ·{" "}
+                        {status.diagnostics.invalid} invalid
+                      </span>
+                      <span>
+                        Queue: {status.diagnostics.queue_records}/
+                        {status.diagnostics.queue_limit} records ·{" "}
+                        {status.diagnostics.queue_bytes} reserved bytes
+                        {status.diagnostics.writing
+                          ? " · Write outstanding"
+                          : ""}
+                      </span>
+                      <span>
+                        {status.diagnostics.write_failures} write failures ·
+                        Last successful write:{" "}
+                        {status.diagnostics.last_successful_write ? (
+                          <UserTime
+                            value={status.diagnostics.last_successful_write}
+                          />
+                        ) : (
+                          "Not observed"
+                        )}
+                      </span>
+                      {["failed", "pressure", "unavailable"].includes(
+                        status.diagnostics.state,
+                      ) && (
+                        <span>
+                          Inspect the configured stderr destination; do not
+                          replay requests.
+                        </span>
+                      )}
+                    </>
+                  )}
+                </dd>
+              </div>
               <div>
                 <dt>Credential storage</dt>
                 <dd>
@@ -831,6 +919,39 @@ function StatusPanel({
                 </dd>
               </div>
             </dl>
+            {status.observations && (
+              <details>
+                <summary>Process observations</summary>
+                <p>
+                  Since {status.observations.started_at}. Observed owner
+                  boundaries only; missing terminals and crash loss remain
+                  unknown. HTTP requests include the Git subset; CONNECT is
+                  separate.
+                </p>
+                <dl class="technical-details-grid">
+                  {status.observations.protocols.map((p) => (
+                    <div key={p.protocol}>
+                      <dt>{p.protocol.toUpperCase()}</dt>
+                      <dd>
+                        {p.requests} requests · {p.executions} execution
+                        pipelines · {p.results[0]} succeeded · {p.results[1]}{" "}
+                        prestart failures · {p.results[2]} failed ·{" "}
+                        {p.results[3]} unknown · {p.results[4]} nonmutating
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+                <p>
+                  Git upstream reports (not Gateway-confirmed mutations):{" "}
+                  {status.observations.protocols[3]?.git_reports.join(" / ")}{" "}
+                  success / failure / partial.
+                </p>
+                <p>
+                  Epoch {status.observations.epoch || "Unavailable"}
+                  {status.observations.overflow ? " · Counters saturated" : ""}
+                </p>
+              </details>
+            )}
           </section>
         </div>
       ) : (

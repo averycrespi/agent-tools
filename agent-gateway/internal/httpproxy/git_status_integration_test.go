@@ -22,6 +22,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -144,6 +145,30 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			require.NotNil(t, r.Completion)
 			require.Equal(t, want, r.Completion.ReportedResult)
 			require.Equal(t, "outcome_unknown", r.Completion.Outcome)
+			observed := f.engine.options.Observations.Status()
+			require.EqualValues(t, 1, observed.Protocols[diagnostics.HTTP].Requests)
+			require.EqualValues(t, 1, observed.Protocols[diagnostics.Connect].Requests)
+			require.Zero(t, observed.Protocols[diagnostics.Connect].Executions, "interception is not a tunnel execution")
+			require.Zero(t, observed.Protocols[diagnostics.HTTP].Executions, "Git is not another HTTP execution")
+			gitObserved := observed.Protocols[diagnostics.Git]
+			require.EqualValues(t, 1, gitObserved.Requests)
+			require.EqualValues(t, 1, gitObserved.Executions)
+			require.Zero(t, gitObserved.Results[diagnostics.Succeeded], "HTTP 200 never confirms a successful push")
+			require.EqualValues(t, 1, gitObserved.Results[diagnostics.Unknown])
+			reports := [3]uint64{}
+			switch want {
+			case "reported_success":
+				reports[0] = 1
+			case "reported_failure":
+				reports[1] = 1
+			case "reported_partial":
+				reports[2] = 1
+			}
+			require.Equal(t, reports, gitObserved.GitReports)
+			public, marshalErr := json.Marshal(observed)
+			require.NoError(t, marshalErr)
+			require.NotContains(t, string(public), "private-")
+			require.NotContains(t, string(public), "secret-message")
 			require.Equal(t, mode != "interrupted", r.Completion.TransferComplete)
 			require.NoError(t, f.authority.DeleteGitGrant(ctx, grant.ID, grant.Revision))
 			repo.Name = "Renamed"

@@ -333,6 +333,46 @@ authority. Control readiness and latch remain independent; a traffic-only fault
 does not globally disable healthy administrative mutations. History item/list
 representations, routes, IDs, filters and one-shot CLI behavior remain unchanged.
 
+### Independent observation additions
+
+`SystemStatus` adds optional `diagnostics` and `observations` objects, present in
+current production. Bundled clients strictly validate their closed fields; absence
+in an older producer is unavailable, not an observed zero. This is an additive
+status cutover, not a change to history items, queries or recorded-activity buckets.
+
+`diagnostics` contains `state` (ready/writing/pressure/failed/unavailable), `epoch`,
+`accepted`, `written`, `dropped`, `invalid`, `write_failures`, `queue_records`,
+`queue_bytes`, `queue_limit`, `writing`, nullable `last_successful_write`, and
+`overflow`. Queue bytes are conservative fixed 4 KiB reservations per ordinary
+queued record, excluding the one bounded in-flight record and reserved terminal.
+Accepted/written count ordinary records only; last successful write includes loss
+summaries and terminal output. A pending native Write is not known failed or cancelled.
+
+`traffic` additionally contains `delivery`, `database_measurement`,
+`wal_measurement`, `free_space_measurement`, `pressure_reason`, and
+`accounting_available`. Each measurement is exactly `{state,bytes}`: available has
+a nonnegative integer, unavailable has null, and only WAL may be absent with null.
+Legacy numeric byte/pruning members remain for compatibility, but cannot be used
+when their associated measurement/accounting is unavailable. Delivery fields are
+`accepted`, `acknowledged`, `discarded`, `queue_records`, `queue_bytes`,
+`completion_records`, `queue_record_limit`, `queue_byte_limit`. Counts describe
+submissions, not rows; discarded includes both prequeue refusal and accepted losses.
+Pressure reasons are none, queue_capacity, checkpoint_reader, checkpoint_unavailable,
+budget_reservation, measurement_unavailable, low_space and history_unavailable.
+No missing measurement grants execution or storage authority.
+
+`observations` contains `epoch`, `started_at`, `coverage` (owner_boundaries or
+unavailable), `overflow`, and four fixed `protocols` entries ordered mcp/http/connect/git.
+Each entry has `protocol`, `requests`, `executions`, five `results` counters ordered
+succeeded/prestart_failure/failed/unknown/nonmutation, three `git_reports` counters
+ordered upstream-reported success/failure/partial, and a 3-by-6 `latency` array.
+Stages and disjoint millisecond bounds, coverage and population distinctions are
+normative in [execution observations](invocation-and-ingress.md#process-local-execution-observations).
+Every cumulative counter saturates at 2^53-1; process restart discards observations.
+History delivery shares the process observation epoch; historical generation is
+not an execution epoch. Snapshot fields are observations, not an atomic barrier
+across independent owners, and no cross-field subtraction establishes active work.
+
 ## Optional HTTP proxy status
 
 `http_proxy` is optional for older status producers and present in production.
@@ -341,7 +381,8 @@ Its closed fields are `enabled`, `ready`, `ca_ready`, `connections`, `work`,
 objects use `{in_use,limit,saturated}`; counters are nonnegative. Disabled HTTP
 reports false readiness and zero occupancy. `ca_ready` attests loaded process-local
 signing capability and certificate validity, not native persistence or client trust.
-Readiness also requires healthy traffic/control and open lifecycle admission.
+Readiness also requires healthy control authority and open lifecycle admission;
+optional history and diagnostic delivery cannot close serving readiness.
 No secret, request destination, path or principal identity appears in this status.
 
 ## Control-plane audit reads

@@ -3,7 +3,6 @@ package invocation
 import (
 	"database/sql"
 	"errors"
-	"math"
 	"path/filepath"
 	"sync"
 	"time"
@@ -79,27 +78,30 @@ type trafficRequest struct {
 // TrafficStore has one bounded nonblocking observation queue and one writer.
 // No caller waits for persistence and an uncertain write never gets replayed.
 type TrafficStore struct {
-	optional        *trafficLifecycle
-	db              *sql.DB
-	readerDB        *sql.DB
-	path            string
-	config          TrafficConfig
-	recorded        *recordedActivity
-	invalidate      func(contract.Invalidation)
-	mu              sync.Mutex
-	closed, faulted bool
-	draining        bool
-	queued          int
-	queuedBytes     int64
-	quotaRefusals   int64
-	observations    chan *trafficRequest
-	stop            chan struct{}
-	done            chan struct{}
-	readSlots       chan struct{}
-	readGate        sync.RWMutex
-	writerGate      sync.Mutex
-	closeOnce       sync.Once
-	closeErr        error
+	optional               *trafficLifecycle
+	db                     *sql.DB
+	readerDB               *sql.DB
+	path                   string
+	config                 TrafficConfig
+	recorded               *recordedActivity
+	invalidate             func(contract.Invalidation)
+	mu                     sync.Mutex
+	closed, faulted        bool
+	draining               bool
+	queued                 int
+	queuedBytes            int64
+	quotaRefusals          int64
+	accepted, acknowledged uint64
+	completionQueued       int
+	pressureReason         string
+	observations           chan *trafficRequest
+	stop                   chan struct{}
+	done                   chan struct{}
+	readSlots              chan struct{}
+	readGate               sync.RWMutex
+	writerGate             sync.Mutex
+	closeOnce              sync.Once
+	closeErr               error
 	// Tests inject failures/barriers only at the actual owning boundary.
 	fault func(string) error
 }
@@ -171,6 +173,12 @@ func (s *TrafficStore) enqueueObservation(r *trafficRequest) error {
 	r.expires = time.Now().Add(s.config.QueueLifetime)
 	s.queued++
 	s.queuedBytes += r.bytes
+	if s.accepted < contract.RecordedActivityMaxCount {
+		s.accepted++
+	}
+	if r.terminal() {
+		s.completionQueued++
+	}
 	s.observations <- r
 	return nil
 }
@@ -183,7 +191,7 @@ func (s *TrafficStore) drop() {
 	s.mu.Unlock()
 }
 func (s *TrafficStore) dropLocked() {
-	if s.quotaRefusals < math.MaxInt64 {
+	if s.quotaRefusals < int64(contract.RecordedActivityMaxCount) {
 		s.quotaRefusals++
 	}
 }

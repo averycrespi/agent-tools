@@ -68,10 +68,15 @@ func (s *TrafficStore) optionalStatus(ctx context.Context) contract.TrafficStatu
 	s.mu.Lock()
 	target, state, dropped := s.optional.target, s.optional.state, s.quotaRefusals
 	stopped := s.closed || s.draining
+	delivery := s.deliveryLocked()
 	s.mu.Unlock()
 	if target != nil {
 		status := target.Status(ctx)
 		status.QuotaRefusals += dropped
+		status.Delivery.Discarded += delivery.Discarded
+		if status.Delivery.Discarded > contract.RecordedActivityMaxCount {
+			status.Delivery.Discarded = contract.RecordedActivityMaxCount
+		}
 		if stopped {
 			status.Ready = false
 			status.State = "disabled"
@@ -81,5 +86,5 @@ func (s *TrafficStore) optionalStatus(ctx context.Context) contract.TrafficStatu
 	if stopped {
 		state = "disabled"
 	}
-	return contract.TrafficStatus{State: state, BudgetBytes: s.config.BudgetBytes, QuotaRefusals: dropped, RollingHistory: true, UnknownCompletionPossible: true}
+	return contract.TrafficStatus{State: state, Delivery: delivery, DatabaseMeasurement: contract.ByteMeasurement{State: "unavailable"}, WALMeasurement: contract.ByteMeasurement{State: "unavailable"}, FreeSpaceMeasurement: contract.ByteMeasurement{State: "unavailable"}, PressureReason: "history_unavailable", BudgetBytes: s.config.BudgetBytes, QuotaRefusals: dropped, RollingHistory: true, UnknownCompletionPossible: true}
 }

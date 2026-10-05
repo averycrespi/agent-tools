@@ -1738,7 +1738,7 @@ export async function runOverview(
   await expect(source("capacity")).toContainText(
     "1 additional pool under pressure",
   );
-  await expect(source("material")).toContainText("Traffic storeFaulted");
+  await expect(source("material")).toContainText("Optional historyFaulted");
   await assertCardAlignment();
   await capture("reported-pools");
   proxyDisabled = true;
@@ -1874,7 +1874,7 @@ export async function runOverview(
     "Administration APIReady",
     "MCP ingressReady",
     "HTTP proxyReady",
-    "Traffic storeReady",
+    "Optional historyReady",
     "HTTP connections0 / 256",
     "HTTP work0 / 128",
     "SQLiteReady · Not latched",
@@ -3068,6 +3068,56 @@ export async function runSystemStatus(
       generation: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
       rolling_history: true,
       unknown_completion_possible: true,
+      accounting_available: true,
+      database_measurement: {
+        state: "available",
+        bytes: 1048576 as number | null,
+      },
+      wal_measurement: { state: "available", bytes: 65536 as number | null },
+      free_space_measurement: {
+        state: "available",
+        bytes: 1073741824 as number | null,
+      },
+      pressure_reason: "none",
+      delivery: {
+        accepted: 12,
+        acknowledged: 9,
+        discarded: 3,
+        queue_records: 0,
+        queue_bytes: 0,
+        completion_records: 0,
+        queue_record_limit: 128,
+        queue_byte_limit: 2097152,
+      },
+    },
+    diagnostics: {
+      state: "ready",
+      epoch: "0123456789abcdef0123456789abcdef",
+      accepted: 3,
+      written: 3,
+      dropped: 0,
+      invalid: 0,
+      write_failures: 0,
+      queue_records: 0,
+      queue_bytes: 0,
+      queue_limit: 255,
+      writing: false,
+      last_successful_write: "2026-07-28T12:00:00Z",
+      overflow: false,
+    },
+    observations: {
+      epoch: "process-observation-fixture",
+      started_at: "2026-07-28T12:00:00Z",
+      coverage: "owner_boundaries",
+      overflow: false,
+      protocols: ["mcp", "http", "connect", "git"].map((protocol) => ({
+        protocol,
+        requests: 2,
+        executions: 1,
+        results: [0, 0, 0, 1, 0],
+        git_reports: [0, 0, 0],
+        latency: Array.from({ length: 3 }, () => [0, 0, 0, 0, 1, 0]),
+      })),
     },
   };
   const trafficScreenshots = await mkdtemp(
@@ -3171,7 +3221,7 @@ export async function runSystemStatus(
   )
     fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [
-    "Degraded",
+    "Serving needs attention",
     "Needs attention",
     "Gateway is not ready",
     "Storage mutations are unavailable",
@@ -3276,7 +3326,7 @@ export async function runSystemStatus(
     ),
   };
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.getByText("Healthy", { exact: true }).waitFor();
+  await page.getByText("Serving", { exact: true }).waitFor();
   body = (await statusPanel.textContent()) ?? "";
   if (
     (await statusPanel
@@ -3297,7 +3347,7 @@ export async function runSystemStatus(
       exact: true,
     }),
   ).toBeVisible();
-  await expect(statusPanel.getByText("Healthy", { exact: true })).toHaveCount(
+  await expect(statusPanel.getByText("Serving", { exact: true })).toHaveCount(
     0,
   );
   await expect(
@@ -3307,7 +3357,7 @@ export async function runSystemStatus(
   await captureStateFeedback(page, "system-stale");
   failStatus = false;
   await page.getByTestId("manual-refresh").click();
-  await expect(statusPanel.getByText("Healthy", { exact: true })).toBeVisible();
+  await expect(statusPanel.getByText("Serving", { exact: true })).toBeVisible();
   await expect(
     statusPanel.getByText("Refresh failed — last known status", {
       exact: true,
@@ -3336,7 +3386,7 @@ export async function runSystemStatus(
     };
     await page.locator('[data-testid="manual-refresh"]').click();
     await page
-      .getByText(!ready ? "Optional traffic history" : "Healthy", {
+      .getByText(!ready ? "Optional traffic history" : "Serving", {
         exact: true,
       })
       .waitFor();
@@ -3360,14 +3410,14 @@ export async function runSystemStatus(
       ).toHaveCount(0);
     }
     await expect(
-      page.getByText("Shared traffic storage", { exact: true }),
+      page.getByText("Optional history", { exact: true }),
     ).toBeVisible();
     await expect(page.getByText("HTTP proxy", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("1.1 MiB / 4 GiB · 0% used", { exact: true }),
+      page.getByText("Database: 1,048,576 bytes", { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByText("1,114,112 / 4,294,967,296 bytes (database + WAL)", {
+      page.getByText("WAL: 65,536 bytes", {
         exact: true,
       }),
     ).toBeVisible();
@@ -3401,6 +3451,55 @@ export async function runSystemStatus(
       });
     }
   }
+  const beforeDiagnosticFailure = currentStatus;
+  currentStatus = {
+    ...currentStatus,
+    diagnostics: {
+      ...currentStatus.diagnostics,
+      state: "failed",
+      write_failures: 1,
+      dropped: 41,
+      queue_records: 255,
+      queue_bytes: 1044480,
+      writing: true,
+    },
+    traffic: {
+      ...currentStatus.traffic,
+      database_measurement: { state: "unavailable", bytes: null },
+      wal_measurement: { state: "absent", bytes: null },
+      free_space_measurement: { state: "unavailable", bytes: null },
+      accounting_available: false,
+    },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    page.getByText("Database: Unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("WAL: Absent", { exact: true })).toBeVisible();
+  await expect(statusPanel.getByText("Serving", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(
+      "Inspect the configured stderr destination; do not replay requests.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Preview HTTP policy without execution" }),
+  ).toHaveAttribute("href", "#/http/grants/test-access");
+  await expect(
+    page.getByText("Capacity unavailable", { exact: true }),
+  ).toBeVisible();
+  await captureDetailLayout(page, "observation-health-failed");
+  await page.getByText("Process observations", { exact: true }).click();
+  await expect(
+    page.getByText(/HTTP requests include the Git subset/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Git upstream reports \(not Gateway-confirmed mutations\)/),
+  ).toBeVisible();
+  await captureDetailLayout(page, "process-observations");
+  await page.getByText("Process observations", { exact: true }).click();
+  currentStatus = beforeDiagnosticFailure;
   currentStatus = {
     ...currentStatus,
     http_proxy: { ...currentStatus.http_proxy, ready: true },
@@ -3414,7 +3513,7 @@ export async function runSystemStatus(
   };
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.getByText("Healthy", { exact: true }).waitFor();
+  await page.getByText("Serving", { exact: true }).waitFor();
 
   holdStatus = true;
   await page.locator('[data-testid="manual-refresh"]').click();

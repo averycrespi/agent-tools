@@ -90,6 +90,7 @@ type callTarget struct {
 type resolveCall func(string) (callTarget, bool)
 
 type Service struct {
+	observations  *diagnostics.Observations
 	diagnostics   diagnostics.InvocationObserver
 	diagnosticIDs atomic.Uint64
 	audits        *Repository
@@ -150,7 +151,12 @@ func newService(audits *Repository, authority *authorization.Repository, resolve
 	if err != nil {
 		return nil, err
 	}
-	return &Service{audits: audits, admissions: admissions, resolve: resolve}, nil
+	return &Service{observations: diagnostics.NewObservations(), audits: audits, admissions: admissions, resolve: resolve}, nil
+}
+
+// SetObservations binds the process-local counter owner before concurrent calls.
+func (service *Service) SetObservations(observations *diagnostics.Observations) {
+	service.observations = observations
 }
 
 // SetDiagnostics binds the startup-owned observer before concurrent calls.
@@ -169,7 +175,9 @@ func (service *Service) DiagnosticStopped(ctx context.Context) {
 }
 
 func (service *Service) Call(ctx context.Context, lease *authorization.Lease, request CallRequest) (response CallResponse) {
-	var started time.Time
+	started := time.Now()
+	service.observations.Request(diagnostics.MCP)
+	defer func() { service.observations.Latency(diagnostics.MCP, diagnostics.RequestStage, time.Since(started)) }()
 	admissionObserved := false
 	if diagnostics.FromContext(ctx).Writer == diagnostics.Foreign {
 		ctx = service.DiagnosticCall(ctx)
@@ -210,6 +218,7 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	}
 	identity, _ := service.audits.PrepareIdentity()
 	admission, err := service.admissions.Admit(ctx, lease, identity, admissionRequest)
+	service.observations.Latency(diagnostics.MCP, diagnostics.AdmissionStage, time.Since(started))
 	code, reason, mayRun := ClassifyAdmission(admission.Evaluated, admission.Class, admission.Decision)
 	if !started.IsZero() {
 		cause := diagnostics.Rejected
@@ -239,6 +248,7 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 	if !started.IsZero() {
 		ctx = context.WithValue(ctx, executionDiagnosticKey{}, time.Now())
 	}
+	service.observations.Execution(diagnostics.MCP)
 	service.callEvent(ctx, diagnostics.ExecutionStart, diagnostics.None, identity.InvocationID, 0)
 	if target.local != nil {
 		return service.finish(ctx, identity.InvocationID, admission.observation, SanitizeLocalCallResult(target.local(ctx, *admission.Subject, *classified.arguments)))
@@ -271,6 +281,17 @@ func (service *Service) finish(ctx context.Context, invocationID string, observa
 	if started, ok := ctx.Value(executionDiagnosticKey{}).(time.Time); ok {
 		duration = time.Since(started)
 	}
+	result := diagnostics.Failed
+	switch outcome.TerminalClass {
+	case contract.TerminalSucceeded:
+		result = diagnostics.Succeeded
+	case contract.TerminalPrestartFailure:
+		result = diagnostics.PrestartFailure
+	case contract.TerminalOutcomeUnknown:
+		result = diagnostics.Unknown
+	}
+	service.observations.Result(diagnostics.MCP, result)
+	service.observations.Latency(diagnostics.MCP, diagnostics.ExecutionStage, duration)
 	service.callEvent(ctx, diagnostics.ExecutionResult, cause, invocationID, duration)
 	if outcome.TerminalClass != "" {
 		var started time.Time

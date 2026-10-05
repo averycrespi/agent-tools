@@ -40,6 +40,7 @@ type Options struct {
 	Now          func() time.Time
 	Ready        func() bool
 	Diagnostics  diagnostics.HTTPProxyObserver
+	Observations *diagnostics.Observations
 }
 
 type Engine struct {
@@ -60,6 +61,9 @@ type Engine struct {
 func New(options Options) (*Engine, error) {
 	if options.Authority == nil || options.Evidence == nil || options.Admissions == nil || options.Materials == nil || options.Remote == nil || options.Listeners == nil || options.Now == nil {
 		return nil, ErrUnavailable
+	}
+	if options.Observations == nil {
+		options.Observations = diagnostics.NewObservations()
 	}
 	e := &Engine{options: options, connections: make(map[net.Conn]struct{}), principals: make(map[string]int), afterFunc: func(d time.Duration, f func()) func() { t := time.AfterFunc(d, f); return func() { t.Stop() } }}
 	e.server = e.newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { e.handle(w, r, nil) }))
@@ -165,6 +169,12 @@ func admissionContext(inside *intercepted) authorization.HTTPAdmissionContext {
 
 func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercepted) {
 	started := time.Now()
+	protocol := diagnostics.HTTP
+	if r.Method == http.MethodConnect {
+		protocol = diagnostics.Connect
+	}
+	e.options.Observations.Request(protocol)
+	defer func() { e.options.Observations.Latency(protocol, diagnostics.RequestStage, time.Since(started)) }()
 	tracked := &failureWriter{ResponseWriter: w, id: proxyID()}
 	w = tracked
 	// Never allow net/http's default panic logger to receive request material.
@@ -331,8 +341,14 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		}
 		return
 	}
+	e.options.Observations.Latency(diagnostics.HTTP, diagnostics.AdmissionStage, time.Since(started))
+	e.options.Observations.Execution(diagnostics.HTTP)
+	executionStarted := time.Now()
 	completion := contract.HTTPTrafficCompletion{Outcome: "prestart_failure"}
-	defer func() { e.complete(result, identity, completion) }()
+	defer func() {
+		e.observeCompletion(diagnostics.HTTP, completion.Outcome, executionStarted)
+		e.complete(result, identity, completion)
+	}()
 	rejectResponse := func(status int) {
 		completion.ResponseSource = "gateway"
 		completion.GatewayStatus = status

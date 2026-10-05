@@ -143,7 +143,7 @@ A reconciliation attempt reference is allocated for each actual worker, carried 
 
 Every warning/error record includes a closed `action` from `contract.DiagnosticActions`, computed only from validated typed facts. Cleanup uncertainty takes precedence (`inspect_settlement_no_replay`); actual scheduled work selects `wait_scheduled_retry` rather than an operator replay. Operator-auth waiting selects `authorize_upstream`; typed credential, connection and configuration reasons select `inspect_credentials`, `inspect_connection` and `inspect_configuration`. Unknown facts and lifecycle failures select `inspect_status`. Storage latch/durability failures select `storage_recovery`, loss selects `inspect_diagnostic_sink`, and recovery selects `no_action`. These are troubleshooting classifications, not runtime commands or new authority. None recommends replay of uncertain execution; operator procedures define safe inspection and separately authorized recovery.
 
-The queue holds at most 256 records: 255 ordinary fact records plus one reserved terminal-problem record. Ordinary submissions drop newest without waiting, including producer-lock contention. Facts contain only bounded metadata; only the worker encodes, with at most 4 KiB per encoded record including newline. Encoded queued data cannot exceed 1 MiB; the one worker has one bounded in-flight record. There are no per-event goroutines or replacement writers. Loss summaries aggregate dropped and invalid counts at most once per second when delivery is possible; their failures do not recursively count themselves.
+The queue holds at most 256 records: 255 ordinary fact records plus one reserved terminal-problem record. Ordinary submissions drop newest without waiting, including producer-lock contention. Facts contain only bounded metadata; only the worker encodes, with at most 4 KiB per encoded record including newline. Encoded queued data cannot exceed 1 MiB; the one worker has one bounded in-flight record. There are no per-event goroutines or replacement writers. Loss summaries report deltas of cumulative saturating dropped and invalid counters at most once per second when delivery is possible; only a successful summary advances its reporting watermark. Failed writes never reset cumulative loss. Their failures do not recursively count themselves. Each ordinary fact receives its incident timestamp before queue submission; the worker preserves it even after sink delay or wall-clock rollback. Last successful sink-write time is separate delivery evidence.
 
 After durable/runtime cleanup, shutdown stops ordinary submissions and allows at most one second total for accepted records and the existing single-owner terminal problem. All complete records and the problem share the same writer, preserving byte boundaries and problem format without an unbounded post-start stderr write. An arbitrary blocked OS Write can remain owned until process exit: cancellation cannot interrupt every pipe or terminal. Never close inherited stderr, restart a writer while one remains outstanding, or claim a flush acknowledgment on timeout. In-process fixtures must release only their owned sink and join the adapter's actual `Done` signal before replacement. Broken/short writes disable further output without replay; an incomplete final line and undelivered records are possible. Diagnostic loss alone changes neither service exit nor settled storage cleanliness; actual cleanup uncertainty retains its existing behavior. Logs are not audit evidence or permission to replay.
 
@@ -158,8 +158,31 @@ buffers still disconnect slow readers. Other event ordering is unchanged.
 
 ### Occupancy and status
 
-System separates control readiness/latch from traffic readiness, persistence
-faults, pressure, combined DB/WAL bytes, quota refusals and pruning. It explains
+System separates serving/control readiness and latch from optional history state
+and diagnostic delivery health. History reports delivery acceptance, acknowledgment,
+discard, queue record/charged-byte occupancy and queued completions from its actual
+writer owner, including in-flight settlement. These are submission counts, not rows
+or executions. Disabled/opening history retains facade discards across attachment.
+Database, WAL and filesystem free-space measurements carry explicit availability;
+absent WAL is not a failed measurement or an observed zero-byte WAL. Failed metadata
+reads mark pruning/generation accounting unavailable. Fixed pressure reasons separate
+queue capacity, history absence, checkpoint readers/failure, budget reservation,
+low space and unavailable measurements; checkpoint reasons retain the last observed
+reservation refusal until a subsequent reservation clears them.
+
+Diagnostic status is an independent in-memory snapshot: accepted ordinary facts,
+written ordinary facts, cumulative drops/invalid facts/write failures, queued fixed
+record-byte reservations, an outstanding-write flag, last successful write and
+process correlation epoch. States distinguish ready, writing (not proof of a stalled
+or cancellable writer), queue pressure, failed and unavailable. Loss-summary and
+terminal-problem writes are not ordinary-fact delivery counts. Failed/short writes
+retain uncertainty about partial output; a successful write is not durable audit.
+No status read writes audit/logs or invokes a replacement writer.
+
+Execution observations use the independent process collector described in
+[invocation and ingress](invocation-and-ingress.md#process-local-execution-observations).
+Neither optional sink owns execution or supplies live occupancy. History-only or
+diagnostic-only failure never changes the serving readiness verdict. It explains
 rolling history and unknown completions without treating status as execution
 proof. Traffic-only failure leaves healthy operator inspection and revocation
 available; only the control latch globally closes administrative mutations.

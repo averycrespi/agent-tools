@@ -17,6 +17,9 @@ import (
 )
 
 func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorization.Lease, target httppolicy.Request, address *remote.ProxyAddress, repository contract.GitRepository, profile contract.GitRoutingProfile) {
+	started := time.Now()
+	e.options.Observations.Request(diagnostics.Git)
+	defer func() { e.options.Observations.Latency(diagnostics.Git, diagnostics.RequestStage, time.Since(started)) }()
 	controller := http.NewResponseController(w)
 	if r.ProtoMajor == 1 {
 		if err := controller.EnableFullDuplex(); err != nil {
@@ -57,8 +60,15 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 		reject(w, http.StatusForbidden)
 		return
 	}
+	e.options.Observations.Latency(diagnostics.Git, diagnostics.AdmissionStage, time.Since(started))
+	e.options.Observations.Execution(diagnostics.Git)
+	executionStarted := time.Now()
 	completion := contract.GitTrafficCompletion{Outcome: "prestart_failure"}
-	defer func() { e.completeGit(result, identity, completion) }()
+	defer func() {
+		e.observeCompletion(diagnostics.Git, completion.Outcome, executionStarted)
+		e.options.Observations.GitReport(completion.ReportedResult)
+		e.completeGit(result, identity, completion)
+	}()
 	header := r.Header.Clone()
 	if result.Material != nil {
 		header, err = result.Material.Apply(repository.URL, header)

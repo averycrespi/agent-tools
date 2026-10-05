@@ -121,8 +121,14 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 		e.tunnels++
 		e.mu.Unlock()
 		defer func() { e.mu.Lock(); e.tunnels--; e.mu.Unlock() }()
+		e.options.Observations.Latency(diagnostics.Connect, diagnostics.AdmissionStage, time.Since(started))
+		e.options.Observations.Execution(diagnostics.Connect)
+		executionStarted := time.Now()
 		completion := contract.HTTPTrafficCompletion{Outcome: "prestart_failure"}
-		defer func() { e.complete(result, identity, completion) }()
+		defer func() {
+			e.observeCompletion(diagnostics.Connect, completion.Outcome, executionStarted)
+			e.complete(result, identity, completion)
+		}()
 		admittedAt := result.Execution.EvaluatedAt
 		remaining := admittedAt.Add(contract.HTTPProxyTunnelLifetime).Sub(e.options.Now())
 		if remaining <= 0 {
