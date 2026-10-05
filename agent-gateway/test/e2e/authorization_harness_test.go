@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
@@ -413,6 +414,26 @@ func (harness *gatewayHarness) LiveAuditObservations() []auditObservation {
 	harness.t.Helper()
 	require.NotNil(harness.t, harness.process, "live audit inspection requires a running Gateway")
 	return harness.readOnlyAuditObservations()
+}
+
+// WaitForAuditObservations synchronizes evidence assertions, never live calls.
+// Shutdown may discard optional observations that have not settled yet.
+func (harness *gatewayHarness) WaitForAuditObservations(count int, terminalIndices ...int) []auditObservation {
+	harness.t.Helper()
+	var observations []auditObservation
+	require.Eventually(harness.t, func() bool {
+		observations = harness.LiveAuditObservations()
+		if len(observations) != count {
+			return false
+		}
+		for _, index := range terminalIndices {
+			if observations[index].TerminalClass == "" {
+				return false
+			}
+		}
+		return true
+	}, 3*time.Second, 10*time.Millisecond, "expected retained traffic observations did not settle")
+	return observations
 }
 
 func (harness *gatewayHarness) readOnlyAuditObservations() []auditObservation {

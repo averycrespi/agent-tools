@@ -43,6 +43,7 @@ func TestGatewayBinaryCallOccupancyDrainsAndNeverReplaysAfterRestart(t *testing.
 	assert.Equal(t, contract.LimitStatus{InUse: 1, Limit: 4}, currentServer(t, harness, catalog.ServerID).Runtime.Dispatch)
 	barrier.Release()
 	assertCallSuccess(t, <-completed)
+	harness.WaitForAuditObservations(1, 0)
 
 	harness.Stop(syscall.SIGTERM)
 	harness.Start()
@@ -51,6 +52,7 @@ func TestGatewayBinaryCallOccupancyDrainsAndNeverReplaysAfterRestart(t *testing.
 	fresh := harness.ModernCall(issued.Bearer, json.RawMessage(`"fresh-after-restart"`), "call-capacity.alpha", json.RawMessage(`{}`))
 	assertCallSuccess(t, fresh)
 	assert.Equal(t, 2, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"))
+	harness.WaitForAuditObservations(2, 0, 1)
 
 	harness.Stop(syscall.SIGTERM)
 	observations := harness.AuditObservations()

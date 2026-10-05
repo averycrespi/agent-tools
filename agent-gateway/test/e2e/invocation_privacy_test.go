@@ -58,6 +58,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	catalog.Fixture.SetCallOutcome(fixtureCallDiagnostic)
 	toolError := harness.ModernCall(issued.Bearer, json.RawMessage(`"tool-error"`), "invocation-read.allowed", json.RawMessage(`{"note":"safe"}`))
 	failureID := assertCallError(t, toolError, json.RawMessage(`"tool-error"`), contract.DownstreamFailure, false)
+	harness.WaitForAuditObservations(4, 2, 3)
 	failureItemResponse := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+failureID, nil)
 	var failureItem contract.Invocation
 	decodeSnapshot(t, failureItemResponse, http.StatusOK, &failureItem)
@@ -79,6 +80,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	}()
 	awaitFixtureSignal(t, barrier.entered, "committed invocation did not reach the fixture barrier")
 	callsBeforeMissingRead := catalog.CallCount()
+	harness.WaitForAuditObservations(5, 2, 3)
 	missingResponse, missingPage := listInvocations(t, harness, url.Values{"limit": {"100"}})
 	assert.Equal(t, callsBeforeMissingRead, catalog.CallCount(), "invocation reads must not replay downstream work")
 	require.Len(t, missingPage.Items, 5)
@@ -113,7 +115,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	local := harness.ModernSelfServiceCall(issued.Bearer, json.RawMessage(`"local"`), "get_identity", map[string]any{})
 	require.Equal(t, http.StatusOK, local.StatusCode, string(local.Body))
 	callsBeforeReads := catalog.CallCount()
-	rowsBeforeReads := harness.LiveAuditObservations()
+	rowsBeforeReads := harness.WaitForAuditObservations(6, 2, 3, 4, 5)
 	require.Len(t, rowsBeforeReads, 6)
 
 	events := harness.OpenEvents()
@@ -262,6 +264,12 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	require.Equal(t, http.StatusOK, response.StatusCode)
 	assert.True(t, bytes.Contains(response.Body, []byte(fixturePrivateSuccessText)), "private success was not returned to its caller")
 	clear(response.Body)
+
+	// This fixture backs up retained evidence, not merely a completed live call.
+	require.Eventually(t, func() bool {
+		_, page := listInvocations(t, harness, url.Values{"limit": {"1"}})
+		return len(page.Items) == 1 && page.Items[0].ID != seededInvocationID(65535) && page.Items[0].Outcome.Basis == contract.InvocationBasisTerminal
+	}, 3*time.Second, 10*time.Millisecond)
 
 	events := harness.OpenEvents()
 	require.Equal(t, http.StatusOK, events.StatusCode)

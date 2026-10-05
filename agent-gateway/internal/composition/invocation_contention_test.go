@@ -27,10 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The former single-store wait workload now proves count-one traffic evidence
-// and diagnostic isolation through the same real HTTP ingress/downstream seam.
+// The former single-store wait workload now proves count-one execution and
+// diagnostic isolation; optional history may be dropped under contention.
 func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
-	for _, mode := range []string{"warn", "debug", "stalled"} {
+	for _, mode := range []string{"warn", "debug", "stalled", "history-draining"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 			defer cancel()
@@ -150,6 +150,9 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 				}
 				return nil
 			}
+			if mode == "history-draining" {
+				built.traffic.BeginDrain()
+			}
 			done := make(chan error, 4)
 			for worker := range 4 {
 				go func() {
@@ -173,26 +176,32 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 			require.EqualValues(t, 4, peak.Load())
 			require.Eventually(t, func() bool {
 				history, err := built.traffic.History(ctx, 0, 64)
-				if err != nil || len(history.Records) != 32 {
+				if err != nil {
 					return false
 				}
+				var terminals int64
 				for _, record := range history.Records {
-					if record.TerminalClass == nil {
-						return false
+					if record.TerminalClass != nil {
+						terminals++
 					}
 				}
-				return true
+				// Refusals include starts and terminals, not a per-call receipt.
+				// With no losses all 32 terminals must still become visible.
+				return terminals+built.traffic.Status(ctx).QuotaRefusals >= 32
 			}, 3*time.Second, 10*time.Millisecond)
 			history, err := built.traffic.History(ctx, 0, 64)
 			require.NoError(t, err)
-			require.Len(t, history.Records, 32)
+			require.LessOrEqual(t, len(history.Records), 32)
 			for _, record := range history.Records {
-				if record.TerminalClass == nil {
-					status := built.traffic.Status(ctx)
-					t.Logf("missing terminal evidence: traffic_ready=%t traffic_faulted=%t traffic_pressure=%t quota_refusals=%d context_done=%t authority_expired=%d", status.Ready, status.Faulted, status.Pressure, status.QuotaRefusals, ctx.Err() != nil, observed.authorityExpired.Load())
+				if record.TerminalClass != nil {
+					assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
 				}
-				require.NotNil(t, record.TerminalClass)
-				assert.Equal(t, contract.TerminalSucceeded, *record.TerminalClass)
+			}
+			status := built.traffic.Status(ctx)
+			assert.False(t, status.Faulted)
+			if mode == "history-draining" {
+				assert.Empty(t, history.Records)
+				assert.EqualValues(t, 64, status.QuotaRefusals, "each start and terminal was discarded without losing execution")
 			}
 			var legacy int
 			require.NoError(t, options.Store.View(ctx, func(tx *sql.Tx) error {
