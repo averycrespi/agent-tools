@@ -136,9 +136,16 @@ export async function exerciseCollectionPagination(
     if (
       search === "needle" ||
       query.get("principal") === "needle" ||
-      query.get("target") === "Far"
+      query.get("target") === "Far" ||
+      query.get("server") === "Far"
     )
       indices = indices.filter((index) => index === 127);
+    if (query.get("scope") !== null)
+      indices = indices.filter((index) =>
+        (grant(index).grant.upstream_name ?? "All tools").includes(
+          query.get("scope")!,
+        ),
+      );
     if (query.get("state") !== null)
       indices = indices.filter(
         (index) =>
@@ -561,7 +568,8 @@ export async function exerciseCollectionPagination(
         await selectFilter("Status", "expired", "state");
         for (const [label, value, parameter] of [
           ["Agent", "needle", "principal"],
-          ["Target", "Far", "target"],
+          ["Server", "Far", "server"],
+          ["Scope", "All tools", "scope"],
         ]) {
           const response = page.waitForResponse((response) => {
             const url = new URL(response.url());

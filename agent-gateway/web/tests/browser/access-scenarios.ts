@@ -3364,11 +3364,23 @@ export async function runGrantCorrection(
   await page.locator('[data-testid="grant-delete"]').click();
   await confirmAction();
   await page.locator('[data-testid="grants-view"]').waitFor();
+  const syntheticExactRow = page.getByTestId("grant-row").filter({
+    has: page.locator(`a[href="#/mcp/grants/${syntheticExactID}"]`),
+  });
   await expect(
-    page.getByTestId("grant-row").filter({
-      has: page.locator(`a[href="#/mcp/grants/${syntheticExactID}"]`),
-    }),
-  ).toContainText("Gateway self-service tools — get_identity");
+    syntheticExactRow.locator('[data-label="Server"] .table-primary'),
+  ).toHaveText("Gateway self-service tools");
+  await expect(
+    syntheticExactRow.locator('[data-label="Server"] .table-identifier'),
+  ).toHaveText("00000000000000000000000000");
+  await expect(syntheticExactRow.locator('[data-label="Scope"]')).toHaveText(
+    "get_identity",
+  );
+  await expect(
+    syntheticExactRow.locator(
+      '[data-label="Server"] a, [data-label="Scope"] a',
+    ),
+  ).toHaveCount(0);
   await captureRequestState(page, "synthetic-exact-table");
 
   await navigate(grantIDs[4]!);
