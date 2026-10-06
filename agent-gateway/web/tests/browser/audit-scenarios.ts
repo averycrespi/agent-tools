@@ -180,6 +180,25 @@ export async function runAudit(
     }
     if (mode === "replaced" && url.searchParams.get("generation") !== null)
       return problem(409, "audit_history_replaced");
+    if (mode === "custody-setup") {
+      const setup = {
+        ...fixture(6, "offline_maintenance"),
+        category: "keyring",
+        action: "setup",
+        outcome: "succeeded",
+        target: { type: "installation", id: id(7) },
+      };
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          items: [setup],
+          next_cursor: null,
+          history: history(),
+          target_recognition: recognition([setup]),
+        }),
+      });
+    }
     const items =
       mode === "presentation"
         ? ["pending", "succeeded", "failed", "rejected", "unknown"].map(
@@ -790,6 +809,20 @@ export async function runAudit(
   await page.getByTestId("theme-preference").selectOption("dark");
   await capture("outcomes-targets-dark", 390);
   await page.getByTestId("theme-preference").selectOption("system");
+  mode = "custody-setup";
+  await page.getByLabel("Event", { exact: true }).selectOption("keyring.setup");
+  await expect.poll(() => queries.at(-1)?.get("category")).toBe("keyring");
+  await expect.poll(() => queries.at(-1)?.get("action")).toBe("setup");
+  await expect(page.getByTestId("audit-row")).toHaveCount(1);
+  await expect(
+    page.getByTestId("audit-row").locator('[data-label="Event"]'),
+  ).toContainText("keyring.setup");
+  await expect(
+    page.getByTestId("audit-row").locator('[data-label="Outcome"]'),
+  ).toHaveText("Succeeded");
+  await capture("encrypted-custody-setup", 1440);
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page.getByLabel("Event", { exact: true })).toHaveValue("");
   mode = "empty";
   await refresh();
   await expect(

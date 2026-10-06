@@ -91,6 +91,7 @@
       "narrow-list": "standard",
       "outcomes-targets": "standard",
       "outcomes-targets-dark": "standard",
+      "encrypted-custody-setup": "standard",
       "partial-error": "standard",
       "removed-invalid-filter": "standard",
       "retention-expanded": "standard",

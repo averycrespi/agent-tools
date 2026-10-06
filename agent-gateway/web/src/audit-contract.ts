@@ -75,6 +75,7 @@ export const auditActions: Readonly<Record<string, readonly string[]>> = {
     "withdraw",
   ],
   keyring: [
+    "setup",
     "stage",
     "write",
     "commit",
@@ -151,6 +152,7 @@ const problems = [
   "invalid_json",
   "invalid_cursor",
   "invalid_idempotency_key",
+  "encrypted_backup_unsupported",
   "ambiguous_credentials",
   "invalid_oauth_state",
   "authentication_required",
