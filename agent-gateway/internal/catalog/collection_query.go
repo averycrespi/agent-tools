@@ -119,7 +119,7 @@ func (repository *Repository) QueryDescriptors(ctx context.Context, serverID str
 			return servers.ErrStorageUnavailable
 		}
 		candidates = slices.DeleteFunc(candidates, func(item toolCandidate) bool {
-			return !strings.Contains(toolRecognition(item.name), toolRecognition(query.Tool)) || query.Status != "" && query.Status != item.status
+			return !MatchInventoryIdentity(item.name, item.id, query.Tool) || query.Status != "" && query.Status != item.status
 		})
 		sortKey, direction := query.Sort, query.Direction
 		if sortKey == "" {
@@ -186,7 +186,6 @@ func (registry *ActiveRegistry) Query(query ToolQuery, cursor *ActiveCursor, lim
 	}
 	page := ActivePage{Summary: registry.summaryLocked(), ServerDisplayNames: make(map[string]string), ServerStates: make(map[string]contract.ActiveCatalogState)}
 	candidates := make([]DescriptorRecord, 0)
-	toolFilter, serverFilter := toolRecognition(query.Tool), toolRecognition(query.Server)
 	for serverID, snapshot := range registry.servers {
 		if snapshot.State == contract.ActiveCatalogAbsent || snapshot.State == contract.ActiveCatalogUnavailable {
 			continue
@@ -201,7 +200,7 @@ func (registry *ActiveRegistry) Query(query ToolQuery, cursor *ActiveCursor, lim
 			if cursor == nil {
 				upper = max(upper, item.InsertionSequence)
 			}
-			if cursor != nil && item.InsertionSequence > upper || query.Status != "" && query.Status != status || !strings.Contains(toolRecognition(snapshot.ServerDisplayName), serverFilter) || !strings.Contains(toolRecognition(item.Resource.ExternalName), toolFilter) {
+			if cursor != nil && item.InsertionSequence > upper || query.Status != "" && query.Status != status || !MatchInventoryIdentity(snapshot.ServerDisplayName, serverID, query.Server) || !MatchInventoryIdentity(item.Resource.ExternalName, item.Resource.ID, query.Tool) {
 				continue
 			}
 			candidates = append(candidates, item)

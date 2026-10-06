@@ -3,14 +3,14 @@ package gitcredentials
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"encoding/json"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
 // AuditTargetNamesTx reads only nonsecret recognition, never credential material.
 func (service *Service) AuditTargetNamesTx(ctx context.Context, tx *sql.Tx, targets []contract.AuditTarget) (map[contract.AuditTarget]string, error) {
-	if tx == nil || len(targets) > contract.AuditPageLimit {
+	if tx == nil || len(targets) > contract.AuditRetention {
 		return nil, ErrInvalid
 	}
 	names := make(map[contract.AuditTarget]string)
@@ -23,8 +23,11 @@ func (service *Service) AuditTargetNamesTx(ctx context.Context, tx *sql.Tx, targ
 	if len(ids) == 0 {
 		return names, nil
 	}
-	//nolint:gosec // Only bounded placeholder punctuation is generated; all IDs are bound values.
-	rows, err := tx.QueryContext(ctx, "SELECT id, name FROM git_credentials WHERE deleted = 0 AND id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+")", ids...)
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT id, name FROM git_credentials WHERE deleted = 0 AND id IN (SELECT value FROM json_each(?))", string(encoded))
 	if err != nil {
 		return nil, err
 	}

@@ -23,6 +23,8 @@ type CollectionQuery struct {
 	Identity       string
 	Principal      string
 	Target         string
+	Server         string
+	Scope          string
 	State          string
 	Visibility     string
 	HTTPDefault    string
@@ -76,9 +78,14 @@ type GrantDisplayNames interface {
 	GrantDisplayNamesTx(context.Context, *sql.Tx) (map[string]string, error)
 }
 
+type GrantToolIDs interface {
+	GrantToolIDsTx(context.Context, *sql.Tx) (map[[2]string]string, error)
+}
+
 type CollectionService struct {
 	repository *Repository
 	targets    GrantDisplayNames
+	tools      GrantToolIDs
 }
 
 type GrantTablePage struct {
@@ -93,15 +100,15 @@ type collectionSelection struct {
 	next  *SnapshotCursor
 }
 
-func NewCollectionService(repository *Repository, targets GrantDisplayNames) (*CollectionService, error) {
-	if repository == nil || targets == nil {
+func NewCollectionService(repository *Repository, targets GrantDisplayNames, tools GrantToolIDs) (*CollectionService, error) {
+	if repository == nil || targets == nil || tools == nil {
 		return nil, errors.New("collection query dependencies are incomplete")
 	}
-	return &CollectionService{repository: repository, targets: targets}, nil
+	return &CollectionService{repository: repository, targets: targets, tools: tools}, nil
 }
 
 func (query CollectionQuery) Validate(collection string) bool {
-	for _, value := range []string{query.Name, query.Identity, query.Principal, query.Target} {
+	for _, value := range []string{query.Name, query.Identity, query.Principal, query.Target, query.Server, query.Scope} {
 		if !utf8.ValidString(value) || len(value) > 256 || strings.IndexFunc(value, func(r rune) bool { return unicode.IsControl(r) || unicode.In(r, unicode.Cf) }) >= 0 {
 			return false
 		}
@@ -113,7 +120,7 @@ func (query CollectionQuery) Validate(collection string) bool {
 		return false
 	}
 	if collection == principalCollection {
-		return query.Representation == "" && query.Identity == "" && query.Principal == "" && query.Target == "" && query.Effect == "" && query.PrincipalID == "" && query.ServerID == "" &&
+		return query.Representation == "" && query.Identity == "" && query.Principal == "" && query.Target == "" && query.Server == "" && query.Scope == "" && query.Effect == "" && query.PrincipalID == "" && query.ServerID == "" &&
 			(query.State == "" || validPrincipalState(contract.PrincipalState(query.State))) &&
 			(query.Visibility == "" || validVisibility(contract.PrincipalVisibility(query.Visibility))) &&
 			(query.HTTPDefault == "" || query.HTTPDefault == string(contract.HTTPDefaultBlock) || query.HTTPDefault == string(contract.HTTPDefaultAllow)) &&
@@ -121,7 +128,7 @@ func (query CollectionQuery) Validate(collection string) bool {
 	}
 	return collection == grantCollection && (query.Representation == "" || query.Representation == "table") && query.Name == "" && query.Visibility == "" && query.HTTPDefault == "" &&
 		slices.Contains([]string{"", "active", "expired"}, query.State) && slices.Contains([]string{"", "allow", "deny"}, query.Effect) &&
-		slices.Contains([]string{"", "id", "description", "principal", "target", "effect", "state"}, query.Sort)
+		slices.Contains([]string{"", "id", "description", "principal", "target", "server", "scope", "effect", "state"}, query.Sort)
 }
 
 type collectionCandidate struct {
@@ -132,6 +139,8 @@ type collectionCandidate struct {
 	ServerID      string
 	ServerName    string
 	UpstreamName  string
+	Scope         string
+	ToolID        string
 	State         string
 	Visibility    string
 	HTTPDefault   string
@@ -195,8 +204,12 @@ func (service *CollectionService) QueryGrants(ctx context.Context, query Collect
 		if err != nil {
 			return err
 		}
+		tools, err := service.tools.GrantToolIDsTx(ctx, tx)
+		if err != nil {
+			return err
+		}
 		rows, err := tx.QueryContext(ctx, `SELECT g.id, coalesce(g.description, ''), g.principal_id, p.display_name,
-			g.server_id, coalesce(g.upstream_name, 'Entire server'), g.effect, g.expires_at, g.revision, g.insertion_sequence
+			g.server_id, coalesce(g.upstream_name, ''), g.read_only, g.effect, g.expires_at, g.revision, g.insertion_sequence
 			FROM grants g JOIN principals p ON p.id = g.principal_id ORDER BY g.insertion_sequence LIMIT ?`, mustLimit("grants")+1)
 		if err != nil {
 			return err
@@ -206,9 +219,19 @@ func (service *CollectionService) QueryGrants(ctx context.Context, query Collect
 		for rows.Next() {
 			var item collectionCandidate
 			var expiry sql.NullString
-			if err := rows.Scan(&item.ID, &item.Name, &item.PrincipalID, &item.PrincipalName, &item.ServerID, &item.UpstreamName, &item.Effect, &expiry, &item.Revision, &item.Sequence); err != nil {
+			var readOnly bool
+			if err := rows.Scan(&item.ID, &item.Name, &item.PrincipalID, &item.PrincipalName, &item.ServerID, &item.UpstreamName, &readOnly, &item.Effect, &expiry, &item.Revision, &item.Sequence); err != nil {
 				_ = rows.Close()
 				return err
+			}
+			item.Scope = item.UpstreamName
+			if item.UpstreamName == "" {
+				item.Scope = "All tools"
+				if readOnly {
+					item.Scope = "Read-only tools"
+				}
+			} else if item.ServerID != contract.SyntheticServerID {
+				item.ToolID = tools[[2]string{item.ServerID, item.UpstreamName}]
 			}
 			item.ServerName = names[item.ServerID]
 			if item.ServerName == "" {
@@ -244,7 +267,7 @@ func (service *CollectionService) QueryGrants(ctx context.Context, query Collect
 			if err != nil {
 				return err
 			}
-			page.Items = append(page.Items, contract.GrantTableItem{Grant: grant, PrincipalDisplayName: candidate.PrincipalName, ServerDisplayName: candidate.ServerName})
+			page.Items = append(page.Items, contract.GrantTableItem{Grant: grant, PrincipalDisplayName: candidate.PrincipalName, ServerDisplayName: candidate.ServerName, ToolID: candidate.ToolID})
 		}
 		page.Next = selected.next
 		page.CollectionRange = selected.CollectionRange
@@ -320,8 +343,13 @@ func (service *CollectionService) selectPage(collection string, query Collection
 }
 
 func candidateMatches(item collectionCandidate, query CollectionQuery) bool {
+	legacyScope := item.UpstreamName
+	if legacyScope == "" {
+		legacyScope = "Entire server"
+	}
 	return searchIdentity(item.Name, item.ID, query.Name) && searchIdentity(item.Name, item.ID, query.Identity) &&
-		searchIdentity(item.PrincipalName, item.PrincipalID, query.Principal) && searchIdentity(item.ServerName+" "+item.UpstreamName, item.ServerID, query.Target) &&
+		searchIdentity(item.PrincipalName, item.PrincipalID, query.Principal) && searchIdentity(item.ServerName+" "+legacyScope, item.ServerID, query.Target) &&
+		searchIdentity(item.ServerName, item.ServerID, query.Server) && searchIdentity(item.Scope, item.ToolID, query.Scope) &&
 		(query.State == "" || query.State == item.State) && (query.Visibility == "" || query.Visibility == item.Visibility) &&
 		(query.HTTPDefault == "" || query.HTTPDefault == item.HTTPDefault) && (query.Effect == "" || query.Effect == item.Effect) && (query.PrincipalID == "" || query.PrincipalID == item.PrincipalID) && (query.ServerID == "" || query.ServerID == item.ServerID)
 }
@@ -334,8 +362,10 @@ func candidateSortValue(item collectionCandidate, key string) string {
 		return item.ID
 	case "principal":
 		return normalizeSearch(item.PrincipalName)
-	case "target":
+	case "target", "server":
 		return normalizeSearch(item.ServerName)
+	case "scope":
+		return normalizeSearch(item.Scope)
 	case "state":
 		return item.State
 	case "visibility":

@@ -608,11 +608,14 @@ export async function runAccessibilityKeyboardResponsive(
 
   await systemLink.click();
   await page.getByTestId("system-status-panel").waitFor();
-  const observations = page.getByText("Process observations", { exact: true });
-  await observations.focus();
-  await page.keyboard.press("Enter");
   await expect(
-    page.getByText(/Git upstream reports \(not Gateway-confirmed mutations\)/),
+    page.getByRole("heading", { name: "Request activity", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("HTTP (includes Git)", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Git (HTTP subset)", { exact: true }),
   ).toBeVisible();
   for (const width of [1280, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -629,6 +632,71 @@ export async function runAccessibilityKeyboardResponsive(
     scriptedAssertions += 2;
   }
 
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=backups";
+  });
+  const history = page.getByTestId("history-export");
+  const downloadButton = history.getByRole("button", { name: "Download JSON" });
+  await downloadButton.focus();
+  const downloadEvent = page.waitForEvent("download");
+  await page.keyboard.press("Enter");
+  const download = await downloadEvent;
+  const stream = await download.createReadStream();
+  if (!stream) fail("real history download did not expose its content");
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+  const file = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  expect(file.format).toBe("agent-gateway-retained-traffic-v1");
+  expect(file.complete_traffic_audit).toBe(false);
+  expect(file.coverage.retained_boundary_traversed).toBe(true);
+  expect(file.coverage.atomic_snapshot).toBe(false);
+  expect(download.suggestedFilename()).toMatch(
+    /^agent-gateway-traffic-.*\.json$/,
+  );
+  await download.delete();
+  scriptedAssertions += 5;
+  const originalTheme = await page.getByTestId("theme-preference").inputValue();
+  const originalThemeStorage = await page.evaluate(() =>
+    localStorage.getItem("agent_gateway_theme"),
+  );
+  for (const state of ["download", "invalid-export"] as const) {
+    if (state === "invalid-export") {
+      await page.route("**/api/v2/history/export**", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: "{}",
+        }),
+      );
+      await downloadButton.click();
+      await expect(
+        history.getByText("History export stopped", { exact: true }),
+      ).toBeVisible();
+    }
+    for (const theme of ["light", "dark"] as const) {
+      await page.getByTestId("theme-preference").selectOption(theme);
+      await page.waitForFunction(
+        (expected) => document.documentElement.dataset.theme === expected,
+        theme,
+      );
+      for (const width of [1280, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expect(downloadButton).toBeEnabled();
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth > window.innerWidth,
+          ),
+        ).toBe(false);
+        await scan(`history-${state}-${theme}-${width}`);
+      }
+    }
+  }
+  await page.unroute("**/api/v2/history/export**");
+  await page.getByTestId("theme-preference").selectOption(originalTheme);
+  await page.evaluate((value) => {
+    if (value === null) localStorage.removeItem("agent_gateway_theme");
+    else localStorage.setItem("agent_gateway_theme", value);
+  }, originalThemeStorage);
   await assertSecretAbsent(
     page,
     context,

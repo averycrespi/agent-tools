@@ -24,6 +24,10 @@ import (
 
 type apiCollectionTargets struct{}
 
+func (apiCollectionTargets) GrantToolIDsTx(context.Context, *sql.Tx) (map[[2]string]string, error) {
+	return map[[2]string]string{}, nil
+}
+
 func (apiCollectionTargets) GrantDisplayNamesTx(context.Context, *sql.Tx) (map[string]string, error) {
 	return map[string]string{contract.SyntheticServerID: "Gateway self-service tools"}, nil
 }
@@ -58,7 +62,7 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 		last, err = repository.CreatePrincipal(context.Background(), authorization.CreatePrincipalRequest{DisplayName: name, Visibility: contract.VisibilityAll, HTTPDefault: &policy})
 		require.NoError(t, err)
 	}
-	service, err := authorization.NewCollectionService(repository, apiCollectionTargets{})
+	service, err := authorization.NewCollectionService(repository, apiCollectionTargets{}, apiCollectionTargets{})
 	require.NoError(t, err)
 	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: repository, AuthorizationCollections: service})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
@@ -139,6 +143,11 @@ func TestAuthorizationCollectionAPIWith128Records(t *testing.T) {
 	metadata("/api/v2/mcp/grants?sort=id&direction=descending", 128, 0)
 	var grantMatch contract.Collection[contract.GrantTableItem]
 	get("/api/v2/mcp/grants?principal=faraway&identity=Default&effect=allow&state=active&target=Gateway", &grantMatch)
+	var serverScope contract.QueryCollection[contract.GrantTableItem]
+	get("/api/v2/mcp/grants?server=Gatway&scope=All%20tools&sort=scope", &serverScope)
+	require.Equal(t, 128, serverScope.TotalCount)
+	get("/api/v2/mcp/grants?server=All%20tools&sort=server", &serverScope)
+	require.Zero(t, serverScope.TotalCount)
 	require.Len(t, grantMatch.Items, 1)
 	require.Equal(t, last.Principal.ID, grantMatch.Items[0].Grant.PrincipalID)
 	var defaults contract.QueryCollection[contract.GrantTableItem]

@@ -1,6 +1,6 @@
 import type { RefObject } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ResolvedLocation } from "./location";
+import { serializeLocation, type ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
 import type { MutationCoordinator, MutationSnapshot } from "./mutation";
 import {
@@ -180,15 +180,24 @@ export function HTTPCredentials(props: Props) {
         </StateNotice>
       )}
       <nav class="detail-navigation" aria-label="HTTP credential navigation">
-        <a href="#/http/credentials">Back to HTTP credentials</a>
+        <a
+          href={serializeLocation({
+            destination: "http-credentials",
+            segments: ["http-credentials"],
+            query: props.resolved.location.query,
+          })}
+        >
+          Back to HTTP credentials
+        </a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 tabindex={-1}>{detail.name}</h1>
           <StatusLabel state={detail.available ? "current" : "warning"}>
             {detail.available ? "Configured" : "Unavailable"}
           </StatusLabel>
         </div>
+        <p class="technical-value">{detail.id}</p>
       </header>
       <section
         class="detail-section"
@@ -221,17 +230,6 @@ export function HTTPCredentials(props: Props) {
             </dd>
           </div>
         </dl>
-        <h3>Identity and revision</h3>
-        <dl class="detail-facts">
-          <div>
-            <dt>Credential ID</dt>
-            <dd class="technical-value">{detail.id}</dd>
-          </div>
-          <div>
-            <dt>Revision</dt>
-            <dd>{detail.revision}</dd>
-          </div>
-        </dl>
         <h3>Referencing grants</h3>
         {detail.referencing_grants.length === 0 ? (
           <p>No referencing grants</p>
@@ -244,6 +242,13 @@ export function HTTPCredentials(props: Props) {
             ))}
           </ul>
         )}
+        <h3>Metadata</h3>
+        <dl class="detail-facts">
+          <div>
+            <dt>Revision</dt>
+            <dd>{detail.revision}</dd>
+          </div>
+        </dl>
       </section>
       <CredentialEditor
         {...props}
@@ -276,7 +281,11 @@ function CredentialCollection(props: Props) {
     props.resolved,
     props.view,
     (query, cursor, signal) => {
-      const params = new URLSearchParams({ limit: "50" });
+      const params = new URLSearchParams({
+        limit: "50",
+        sort: query.sort ?? "name",
+        direction: query.direction ?? "ascending",
+      });
       for (const key of ["name", "boundary", "recipe", "status"]) {
         const value = query[`filter_${key}`];
         if (value !== undefined) params.set(key, value);
@@ -290,7 +299,7 @@ function CredentialCollection(props: Props) {
       );
     },
     navigate,
-    { key: "created", direction: "descending" },
+    { key: "name", direction: "ascending" },
   );
   return (
     <div class="domain-view">
@@ -308,7 +317,7 @@ function CredentialCollection(props: Props) {
           emptyTitle="No HTTP credentials"
           items={items}
           rowKey={(c) => c.id}
-          initialSort={{ key: "created", direction: "descending" }}
+          initialSort={{ key: "name", direction: "ascending" }}
           filters={[
             {
               key: "name",
@@ -345,9 +354,20 @@ function CredentialCollection(props: Props) {
               key: "name",
               label: "Credential",
               role: "identity",
+              sortValue: (c) => c.name,
               render: (c) => (
                 <TableIdentity
-                  primary={<a href={`#/http/credentials/${c.id}`}>{c.name}</a>}
+                  primary={
+                    <a
+                      href={serializeLocation({
+                        destination: "http-credentials",
+                        segments: ["http-credentials", c.id],
+                        query: props.resolved.location.query,
+                      })}
+                    >
+                      {c.name}
+                    </a>
+                  }
                   secondary={c.id}
                 />
               ),
@@ -356,6 +376,7 @@ function CredentialCollection(props: Props) {
               key: "boundary",
               label: "HTTPS boundary",
               role: "relation",
+              sortValue: (c) => `${c.boundary.host}:${c.boundary.port}`,
               render: (c) => (
                 <>
                   {c.boundary.host}:{c.boundary.port}
@@ -366,6 +387,7 @@ function CredentialCollection(props: Props) {
               key: "recipe",
               label: "Header recipe",
               role: "identity",
+              sortValue: (c) => `${c.recipe.header} ${c.recipe.prefix}`,
               render: (c) => (
                 <>
                   {c.recipe.header}: {c.recipe.prefix}[secret]
@@ -376,6 +398,7 @@ function CredentialCollection(props: Props) {
               key: "status",
               label: "Status",
               role: "status",
+              sortValue: (c) => (c.available ? "configured" : "unavailable"),
               render: (c) => (
                 <StatusLabel state={c.available ? "current" : "warning"}>
                   {c.available ? "Configured" : "Unavailable"}
@@ -469,9 +492,7 @@ function CredentialEditor({
     mode === "create"
       ? "Create HTTP credential"
       : mode === "edit"
-        ? recipeReadOnly
-          ? "Edit boundary"
-          : "Edit boundary and recipe"
+        ? "Edit credential"
         : mode === "rotate"
           ? "Rotate secret"
           : "Delete credential";

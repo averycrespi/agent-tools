@@ -295,7 +295,7 @@ export async function assertAuthoritativeHistory(
       } else await route.fallback();
     };
     await page.route("**/api/v2/audit-events?*", auditFailure);
-    await page.getByRole("button", { name: "Load older audit events" }).click();
+    await page.getByRole("button", { name: "Load older events" }).click();
     await expect(
       page.getByText("Older audit results unavailable.", { exact: false }),
     ).toBeVisible();
@@ -304,7 +304,7 @@ export async function assertAuthoritativeHistory(
       page.getByText("Audit read unavailable", { exact: true }),
     ).toHaveCount(0);
     await capture("audit-continuation-error");
-    await page.getByRole("button", { name: "Load older audit events" }).click();
+    await page.getByRole("button", { name: "Load older events" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(100);
     await page.unroute("**/api/v2/audit-events?*", auditFailure);
     const auditResponse = page.waitForResponse(
@@ -330,7 +330,7 @@ export async function assertAuthoritativeHistory(
       page.locator('#primary-navigation a[aria-current="page"]'),
     ).toHaveText("Audit Log");
     await expect(page).toHaveURL(/filter_action=create/);
-    await page.getByRole("link", { name: "Back to audit history" }).click();
+    await page.getByRole("link", { name: "Back to Audit Log" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(1);
     await expect(page).toHaveURL(/filter_action=create/);
 
@@ -432,10 +432,9 @@ export async function assertAuthoritativeHistory(
     await live.uncheck();
     await page
       .getByTestId("invocation-row")
-      .getByRole("link", {
-        name: `Invocation ${selected.items[0].id}`,
-        exact: true,
-      })
+      .locator(
+        `[data-label="Invocation"] a[href*="/invocations/${selected.items[0].id}"]`,
+      )
       .click();
     await expect(
       page.locator('#primary-navigation a[aria-current="page"]'),
@@ -444,7 +443,7 @@ export async function assertAuthoritativeHistory(
       selected.items[0].requested_name,
     );
     await expect(page).toHaveURL(/filter_tool=historical%20lokoup/);
-    await page.getByRole("link", { name: "Back to invocations" }).click();
+    await page.getByRole("link", { name: "Back to MCP Invocations" }).click();
     await expect(live).not.toBeChecked();
     await expect(
       page.getByTestId("invocation-row"),
@@ -476,10 +475,9 @@ export async function assertAuthoritativeHistory(
     ).toHaveCount(1);
     await page
       .getByTestId("invocation-row")
-      .getByRole("link", {
-        name: `Invocation ${selected.items[0].id}`,
-        exact: true,
-      })
+      .locator(
+        `[data-label="Invocation"] a[href*="/invocations/${selected.items[0].id}"]`,
+      )
       .click();
     const copiedDetail = page.url();
     const principalLink = page
@@ -502,7 +500,7 @@ export async function assertAuthoritativeHistory(
       await expect(principalLink).toBeVisible();
     }
     await capture("detail");
-    await page.getByRole("link", { name: "Back to invocations" }).click();
+    await page.getByRole("link", { name: "Back to MCP Invocations" }).click();
     await expect(page).toHaveURL(copiedList);
     await expect(
       page.getByTestId("invocation-row"),
@@ -596,14 +594,43 @@ export async function assertAuthoritativeHistory(
     await page.getByTestId("manual-refresh").click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(2);
     await expect(live).not.toBeChecked();
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await live.check();
     await expect(
       page.getByRole("button", { name: "Load older invocations" }),
     ).toBeEnabled();
+    let releaseOlderRead: (() => void) | undefined;
+    let markOlderSettled!: () => void;
+    const olderSettled = new Promise<void>((resolve) => {
+      markOlderSettled = resolve;
+    });
+    const holdOlderRead = async (route: import("@playwright/test").Route) => {
+      if (!new URL(route.request().url()).searchParams.has("cursor"))
+        return route.fallback();
+      await new Promise<void>((resolve) => {
+        releaseOlderRead = resolve;
+      });
+      try {
+        await route.abort();
+      } catch {
+        // Live off may already have aborted the held request.
+      } finally {
+        markOlderSettled();
+      }
+    };
+    await page.route("**/api/v2/mcp/invocations?*", holdOlderRead);
+    await page.getByRole("button", { name: "Load older invocations" }).click();
+    await expect.poll(() => releaseOlderRead !== undefined).toBe(true);
+    await live.uncheck();
+    await expect(
+      page.getByRole("button", { name: "Load older invocations" }),
+    ).toBeEnabled();
+    releaseOlderRead!();
+    await olderSettled;
+    await page.unroute("**/api/v2/mcp/invocations?*", holdOlderRead);
+    await expect(page.getByTestId("invocation-row")).toHaveCount(50);
+    await live.check();
     failOlder = true;
     await page
       .getByRole("button", { name: "Load older invocations" })
@@ -617,8 +644,9 @@ export async function assertAuthoritativeHistory(
         });
         return row
           ? {
-              id: row.querySelector('a[aria-label^="Invocation "]')!
-                .textContent!,
+              id: row.querySelector(
+                '[data-label="Invocation"] .table-identifier',
+              )!.textContent!,
               top: row.getBoundingClientRect().top,
             }
           : null;
@@ -637,10 +665,9 @@ export async function assertAuthoritativeHistory(
     const anchorAfter = await page
       .getByTestId("invocation-row")
       .filter({
-        has: page.getByRole("link", {
-          name: `Invocation ${anchor.id}`,
-          exact: true,
-        }),
+        has: page.locator(
+          `[data-label="Invocation"] a[href*="/invocations/${anchor.id}"]`,
+        ),
       })
       .evaluate((row) => row.getBoundingClientRect().top);
     if (Math.abs(anchorAfter - anchor.top) > 80)
@@ -664,9 +691,7 @@ export async function assertAuthoritativeHistory(
     await expect(
       page.getByRole("button", { name: "Resume live" }),
     ).toBeVisible();
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await expect(
       page.getByRole("button", { name: "Resume live" }),
@@ -742,9 +767,7 @@ export async function assertAuthoritativeHistory(
     await page.unroute("**/api/v2/mcp/invocations?*", holdLate);
     await page.unroute("**/api/v2/mcp/invocations?*", failures);
     agentBearer = "";
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page.getByTestId("invocation-row")).toHaveCount(50);
     await page.getByRole("button", { name: "Load older invocations" }).click();
     await expect(

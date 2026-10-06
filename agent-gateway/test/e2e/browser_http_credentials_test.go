@@ -164,15 +164,28 @@ func seedBrowserHTTPRejections(t *testing.T, h *gatewayHarness, proxy string) {
 		require.NoError(t, response.Body.Close())
 		require.NoError(t, conn.Close())
 	}
-	page := h.adminSnapshot("GET", "/api/v2/http/traffic", nil)
-	require.Equal(t, 200, page.StatusCode)
-	require.NotContains(t, string(page.Body), "secret")
-	credential.Bearer.assertAbsent(t, "HTTP rejection history", strings.NewReader(string(page.Body)))
 	var traffic contract.HTTPTrafficPage
-	require.NoError(t, json.Unmarshal(page.Body, &traffic))
-	require.GreaterOrEqual(t, len(traffic.Items), 3)
-	for _, item := range traffic.Items[:3] {
+	// Traffic persistence is asynchronous; an immediate unfiltered read can
+	// return the earlier search fixtures rather than these rejection records.
+	require.Eventually(t, func() bool {
+		page := h.adminSnapshot("GET", "/api/v2/http/traffic?principal_id="+principal.Resource.ID, nil)
+		require.Equal(t, 200, page.StatusCode)
+		require.NotContains(t, string(page.Body), "secret")
+		credential.Bearer.assertAbsent(t, "HTTP rejection history", strings.NewReader(string(page.Body)))
+		require.NoError(t, json.Unmarshal(page.Body, &traffic))
+		return len(traffic.Items) == 3
+	}, 3*time.Second, 10*time.Millisecond)
+	require.Len(t, traffic.Items, 3)
+	rejections := make([]contract.HTTPRejection, 0, 3)
+	for _, item := range traffic.Items {
+		require.Equal(t, principal.Resource.ID, item.PrincipalID)
 		require.NotNil(t, item.Rejection)
 		require.Equal(t, "gateway", item.ResponseSource)
+		rejections = append(rejections, *item.Rejection)
 	}
+	require.ElementsMatch(t, []contract.HTTPRejection{
+		{Stage: "headers", Reason: "upgrade_unsupported"},
+		{Stage: "request_form", Reason: "absolute_http_required"},
+		{Stage: "target", Reason: "forbidden_path"},
+	}, rejections)
 }

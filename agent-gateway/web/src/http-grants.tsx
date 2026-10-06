@@ -183,7 +183,13 @@ function policyReviewFields(p: Policy) {
     },
   ];
 }
-function PolicyFacts({ policy }: { policy: Policy }) {
+function PolicyFacts({
+  policy,
+  credentialName,
+}: {
+  policy: Policy;
+  credentialName?: string | undefined;
+}) {
   return (
     <>
       {policyReviewFields(policy).map((field) => (
@@ -193,7 +199,17 @@ function PolicyFacts({ policy }: { policy: Policy }) {
             {field.href === undefined ? (
               field.value
             ) : (
-              <a href={field.href}>{field.value}</a>
+              <>
+                <a href={field.href}>
+                  {field.label === "Credential"
+                    ? (credentialName ?? field.value)
+                    : field.value}
+                </a>
+                {field.label === "Credential" &&
+                  credentialName !== undefined && (
+                    <span class="table-identifier">{policy.credential_id}</span>
+                  )}
+              </>
             )}
           </dd>
         </div>
@@ -382,17 +398,16 @@ export function HTTPGrants(props: Props) {
   const [detail, setDetail] = useState<Grant>();
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
+  const [editorVersion, setEditorVersion] = useState(0);
   const [saved, setSaved] = useState(false);
-  const editButton = useRef<HTMLButtonElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
   const choices = useGrantChoices(
     props,
     selected !== undefined && selected !== "test-access",
   );
   const closeEditor = () => {
-    setEditing(false);
-    editButton.current?.focus();
+    setEditorVersion((version) => version + 1);
+    title.current?.focus();
   };
   useEffect(() => {
     let current = true;
@@ -451,7 +466,7 @@ export function HTTPGrants(props: Props) {
       <nav class="detail-navigation" aria-label="HTTP grant navigation">
         <a href="#/http/grants">Back to HTTP grants</a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 ref={title} tabindex={-1}>
             {detail.description || "Unnamed HTTP grant"}
@@ -462,7 +477,7 @@ export function HTTPGrants(props: Props) {
             {detail.state === "active" ? "Active" : "Expired"}
           </StatusLabel>
         </div>
-        <span class="table-identifier">{detail.id}</span>
+        <p class="technical-value">{detail.id}</p>
       </header>
       {error && (
         <StateNotice
@@ -506,7 +521,14 @@ export function HTTPGrants(props: Props) {
               />
             </dd>
           </div>
-          <PolicyFacts policy={detail.policy} />
+          <PolicyFacts
+            policy={detail.policy}
+            credentialName={
+              choices.credentials.find(
+                (c) => c.id === detail.policy.credential_id,
+              )?.name
+            }
+          />
           {detail.policy.credential_id !== undefined && (
             <div>
               <dt>Credential material</dt>
@@ -537,42 +559,23 @@ export function HTTPGrants(props: Props) {
             </dd>
           </div>
         </dl>
-        <div class="form-actions">
-          <button
-            ref={editButton}
-            type="button"
-            aria-expanded={editing}
-            aria-controls="http-grant-editor"
-            disabled={error || loading}
-            onClick={() => {
-              if (!editing) {
-                setSaved(false);
-                props.notify();
-                setEditing(true);
-              }
-            }}
-          >
-            Edit grant
-          </button>
-        </div>
       </section>
-      {editing && (
-        <GrantEditor
-          {...props}
-          grant={detail}
-          choices={choices}
-          unavailable={error || loading}
-          onCancel={closeEditor}
-          onSaved={(value) => {
-            setDetail(value);
-            setSaved(true);
-            closeEditor();
-            title.current?.focus();
-            props.notify("Grant saved");
-            props.onRefresh();
-          }}
-        />
-      )}
+      <GrantEditor
+        {...props}
+        key={`${detail.id}:${editorVersion}`}
+        grant={detail}
+        choices={choices}
+        unavailable={error || loading}
+        onCancel={closeEditor}
+        onSaved={(value) => {
+          setDetail(value);
+          setSaved(true);
+          closeEditor();
+          title.current?.focus();
+          props.notify("Grant saved");
+          props.onRefresh();
+        }}
+      />
     </div>
   );
 }
@@ -704,9 +707,14 @@ function GrantCollection(props: Props) {
               role: "relation",
               sortValue: (r) => r.principal_display_name,
               render: (r) => (
-                <a href={`#/agents/${r.grant.principal_id}`}>
-                  {r.principal_display_name}
-                </a>
+                <TableIdentity
+                  primary={
+                    <a href={`#/agents/${r.grant.principal_id}`}>
+                      {r.principal_display_name || r.grant.principal_id}
+                    </a>
+                  }
+                  secondary={r.grant.principal_id}
+                />
               ),
             },
             {
@@ -812,9 +820,6 @@ function GrantEditor(
   const button = useRef<HTMLButtonElement>(null);
   const navigate = useUnsavedChanges(dirty);
   const mutation = usePolicyMutation<Grant | null>(props);
-  useEffect(() => {
-    if (g !== undefined) descriptionInput.current?.focus();
-  }, []);
   const requests = kind === "allow_requests" || kind === "block_requests";
   const allow = kind === "allow_requests" || kind === "allow_tunnel";
   const compatible = credentials.filter(
@@ -907,7 +912,7 @@ function GrantEditor(
     >
       <div class="panel-heading">
         <h2 id="http-grant-editor-title">
-          {g === undefined ? "Grant configuration" : "Edit HTTP grant"}
+          {g === undefined ? "Grant configuration" : "Edit grant"}
         </h2>
       </div>
       {loadError && (
@@ -959,32 +964,42 @@ function GrantEditor(
             label="Agent"
             {...(principal ? { hint: principal } : {})}
           >
-            {(a) => (
-              <select
-                {...a}
-                required
-                disabled={g !== undefined}
-                value={principal}
-                onChange={(e) => setPrincipal(e.currentTarget.value)}
-              >
-                <option value="">Select agent</option>
-                {g !== undefined &&
-                  !principals.some((v) => v.id === principal) && (
-                    <option value={principal}>
-                      Agent unavailable · {principal}
+            {(a) =>
+              g !== undefined ? (
+                <input
+                  {...a}
+                  readOnly
+                  value={
+                    principals.find((v) => v.id === principal)?.displayName ??
+                    principal
+                  }
+                />
+              ) : (
+                <select
+                  {...a}
+                  required
+                  value={principal}
+                  onChange={(e) => setPrincipal(e.currentTarget.value)}
+                >
+                  <option value="">Select agent</option>
+                  {g !== undefined &&
+                    !principals.some((v) => v.id === principal) && (
+                      <option value={principal}>
+                        Agent unavailable · {principal}
+                      </option>
+                    )}
+                  {principals.map((v) => (
+                    <option value={v.id} key={v.id}>
+                      {v.displayName}
+                      {principals.filter((p) => p.displayName === v.displayName)
+                        .length > 1
+                        ? ` · ${v.id}`
+                        : ""}
                     </option>
-                  )}
-                {principals.map((v) => (
-                  <option value={v.id} key={v.id}>
-                    {v.displayName}
-                    {principals.filter((p) => p.displayName === v.displayName)
-                      .length > 1
-                      ? ` · ${v.id}`
-                      : ""}
-                  </option>
-                ))}
-              </select>
-            )}
+                  ))}
+                </select>
+              )
+            }
           </FormField>
           <FormField id="http-grant-description" label="Description (optional)">
             {(a) => (
@@ -1259,22 +1274,27 @@ function GrantEditor(
               >
                 Cancel
               </button>
-              <button
-                ref={deleteButton}
-                type="button"
-                class="danger-action"
-                disabled={mutation.blocked || stale || props.unavailable}
-                onClick={() => {
-                  confirmationFocus.current = deleteButton.current;
-                  setConfirm("delete");
-                }}
-              >
-                Delete grant
-              </button>
             </>
           )}
         </div>
       </form>
+      {g !== undefined && (
+        <section class="detail-group" aria-label="Delete grant">
+          <h3>Delete grant</h3>
+          <button
+            ref={deleteButton}
+            type="button"
+            class="danger-action"
+            disabled={mutation.blocked || stale || props.unavailable}
+            onClick={() => {
+              confirmationFocus.current = deleteButton.current;
+              setConfirm("delete");
+            }}
+          >
+            Delete grant
+          </button>
+        </section>
+      )}
       <ConfirmationDialog
         id="http-grant-discard"
         open={discard}

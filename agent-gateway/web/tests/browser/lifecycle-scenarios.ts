@@ -1249,9 +1249,9 @@ export async function runShellPrimitives(
     ["Grants", "#/http/grants"],
     ["Traffic", "#/http/traffic"],
     ["Routing", "#/git/routing"],
+    ["Credentials", "#/git/credentials"],
     ["Repositories", "#/git/repositories"],
     ["Grants", "#/git/grants"],
-    ["Credentials", "#/git/credentials"],
     ["Traffic", "#/git/traffic"],
     ["Servers", "#/mcp/servers"],
     ["Tools", "#/mcp/tools"],
@@ -1275,7 +1275,7 @@ export async function runShellPrimitives(
     fail("domain navigation labels, order or legacy destinations changed");
   for (const [name, labels] of [
     ["HTTP", ["Credentials", "Grants", "Traffic"]],
-    ["Git", ["Routing", "Repositories", "Grants", "Credentials", "Traffic"]],
+    ["Git", ["Routing", "Credentials", "Repositories", "Grants", "Traffic"]],
     ["MCP", ["Servers", "Tools", "Grants", "Requests", "Invocations"]],
   ] as const) {
     const links = await primary

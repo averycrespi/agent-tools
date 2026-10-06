@@ -12,6 +12,7 @@ import (
 
 const gitTrafficChargeBase int64 = 1024 + contract.GitTrafficCompletionBytes
 const gitTrafficSelect = `SELECT insertion_sequence,id,admission,completion,bytes FROM git_traffic`
+const gitTrafficSearchSelect = `SELECT insertion_sequence,json_extract(admission,'$.repository.id'),coalesce(json_extract(admission,'$.policy.repository_name'),'') FROM git_traffic`
 
 func validGitRef(ref contract.GitRevisionRef) bool {
 	return validOpaqueInvocationID(ref.ID) && gitpolicy.ValidRevision(ref.Revision)

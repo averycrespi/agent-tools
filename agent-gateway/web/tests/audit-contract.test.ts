@@ -34,6 +34,25 @@ test("audit detail carries only a validated filter return query, never traversal
   ])
     assert.equal(parseFragment(`#/audit-log/${id}?${query}`), undefined);
 });
+test("audit browser canonicalizes retired controls without hidden active filters", () => {
+  const query = `filter_credential_id=${id}&filter_target_id=${id}&filter_from=2026-01-01T00%3A00%3A00.000000000Z&filter_until=2026-01-02T00%3A00%3A00.000000000Z`;
+  for (const path of ["#/audit-log", `#/audit-log/${id}`]) {
+    assert.equal(
+      serializeLocation(parseFragment(`${path}?${query}`)!),
+      `${path}?filter_target=${id}`,
+    );
+  }
+  for (const value of ["workshpo", "Q69G5", "%", "é".repeat(128)])
+    assert.equal(validAuditQuery({ filter_target: value }), true);
+  for (const value of [
+    "a".repeat(257),
+    "é".repeat(129),
+    "x\u0001",
+    "x\u200b",
+    "\ud800",
+  ])
+    assert.equal(validAuditQuery({ filter_target: value }), false);
+});
 test("audit JSON rejects duplicate members, including escaped keys", () => {
   for (const source of [
     '{"a":1,"a":2}',

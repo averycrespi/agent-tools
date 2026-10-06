@@ -1,4 +1,6 @@
 import type { RefObject } from "preact";
+import type { GitTrafficController } from "./git-traffic-history";
+import { gitTrafficOptions, validGitTrafficQuery } from "./git-traffic-query";
 import {
   useGitChoices,
   choiceLabel,
@@ -6,7 +8,12 @@ import {
   type GitChoices,
 } from "./git-choices";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ResolvedLocation } from "./location";
+import { serializeLocation, type ResolvedLocation } from "./location";
+import {
+  GitCoverage,
+  useGitCoverage,
+  type GitCoverageSource,
+} from "./git-coverage";
 import type { MutationCoordinator, MutationSnapshot } from "./mutation";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -17,6 +24,8 @@ import {
   StateNotice,
   StatusLabel,
   TableIdentity,
+  sentenceCase,
+  useDebouncedInput,
 } from "./primitives";
 import type { SessionClient } from "./session";
 import type { SensitiveSinkCoordinator } from "./sinks";
@@ -31,7 +40,6 @@ import {
   decodeGitResource,
   decodeGitResponse,
   decodeGitTraffic,
-  decodeGitTrafficPage,
   gitETag,
   gitFacts,
   gitID,
@@ -98,6 +106,12 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
   const { kind } = props,
     selected = props.resolved.location.segments[1];
   const choices = useGitChoices(props.session, props.view.generation, kind);
+  const coverage = useGitCoverage(
+    props.session,
+    props.view.generation,
+    kind === "repositories" &&
+      props.view.viewKey === props.resolved.canonicalFragment,
+  );
   const { value, error } = useGitDetail(
     props,
     selected && selected !== "new"
@@ -110,9 +124,16 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
     },
   );
   if (selected === undefined)
-    return <GitCollection {...props} choices={choices} />;
+    return <GitCollection {...props} choices={choices} coverage={coverage} />;
   if (selected === "new")
-    return <GitEditor {...props} choices={choices} mode="create" />;
+    return (
+      <GitEditor
+        {...props}
+        choices={choices}
+        coverage={coverage}
+        mode="create"
+      />
+    );
   if (!value)
     return (
       <StateNotice
@@ -123,9 +144,16 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
   return (
     <div class="domain-view">
       <nav class="detail-navigation" aria-label="Git resource navigation">
-        <a href={`#/git/${kind}`}>Back to Git {kind}</a>
+        <a
+          href={serializeLocation({
+            ...props.resolved.location,
+            segments: [props.resolved.location.destination],
+          })}
+        >
+          Back to Git {kind}
+        </a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
           <h1 tabindex={-1}>{label(value)}</h1>
           {kind === "credentials" ? (
@@ -156,21 +184,20 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         </StateNotice>
       )}
       <section class="detail-section">
-        <h2>{`Git ${singular(kind)} details`}</h2>
+        <h2>{`${singular(kind)[0]!.toUpperCase()}${singular(kind).slice(1)} details`}</h2>
         <dl class="detail-facts">
-          <div>
-            <dt>ID</dt>
-            <dd class="technical-value">{value.id}</dd>
-          </div>
-          <div>
-            <dt>Revision</dt>
-            <dd>{value.revision}</dd>
-          </div>
           {kind === "repositories" && (
             <>
               <div>
-                <dt>Canonical destination (immutable)</dt>
-                <dd>{value.url}</dd>
+                <dt>Canonical destination</dt>
+                <dd>
+                  {value.url}
+                  <GitCoverage
+                    source={coverage}
+                    destination={value.url!}
+                    contextual
+                  />
+                </dd>
               </div>
               <div>
                 <dt>Explicit aliases</dt>
@@ -261,16 +288,27 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             </>
           )}
         </dl>
-        {kind === "grants" && (
-          <ul>
-            {value.policy?.refs.map((r) => (
-              <li key={`${r.ref.kind}:${r.ref.value}`}>
-                <span class="technical-value">{r.ref.value}</span> ({r.ref.kind}
-                ): {r.actions.join(", ")}
-              </li>
-            ))}
-          </ul>
-        )}
+        {kind === "grants" &&
+          (value.policy?.refs.length ? (
+            <ul>
+              {value.policy?.refs.map((r) => (
+                <li key={`${r.ref.kind}:${r.ref.value}`}>
+                  <span class="technical-value">{r.ref.value}</span> (
+                  {r.ref.kind}
+                  ): {r.actions.join(", ")}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No push permissions</p>
+          ))}
+        <h3>Metadata</h3>
+        <dl class="detail-facts">
+          <div>
+            <dt>Revision</dt>
+            <dd>{value.revision}</dd>
+          </div>
+        </dl>
       </section>
       <GitEditor
         {...props}
@@ -322,22 +360,43 @@ function GitRelationship({
   );
 }
 
-function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
+function GitCollection(
+  props: Props & {
+    kind: GitKind;
+    choices: GitChoices;
+    coverage: GitCoverageSource;
+  },
+) {
   const navigate = useUnsavedChanges(false),
     { kind } = props;
   const { items, controls } = useCollectionPage<GitResource>(
     props.session,
     props.resolved,
     props.view,
-    (_q, cursor, signal) =>
-      readCollectionPage(
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({
+        limit: "50",
+        sort: query.sort ?? (kind === "grants" ? "description" : "name"),
+        direction: query.direction ?? "ascending",
+      });
+      for (const key of kind === "repositories"
+        ? ["name", "destination", "credential"]
+        : kind === "credentials"
+          ? ["name", "origin", "status"]
+          : ["identity", "repository", "principal", "state"]) {
+        const value = query[`filter_${key}`];
+        if (value !== undefined) params.set(key, value);
+      }
+      if (cursor !== null) params.set("cursor", cursor);
+      return readCollectionPage(
         props.session,
-        `/api/v2/git/${kind}?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
+        `/api/v2/git/${kind}?${params}`,
         (v) => decodeGitResource(kind, v),
         signal,
-      ),
+      );
+    },
     navigate,
-    { key: "id", direction: "ascending" },
+    { key: kind === "grants" ? "description" : "name", direction: "ascending" },
   );
   return (
     <div class="domain-view">
@@ -349,17 +408,104 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
       <section class="panel domain-panel">
         <CollectionTable
           caption={`Git ${kind}`}
-          rowHeaderKey="name"
+          rowHeaderKey={kind === "grants" ? "description" : "name"}
           remote={controls}
           itemNames={{ singular: singular(kind), plural: kind }}
           emptyTitle={`No Git ${kind}`}
           items={items}
           rowKey={(r) => r.id}
-          filters={[]}
-          initialSort={{ key: "id", direction: "ascending" }}
+          filters={[
+            {
+              key: kind === "grants" ? "identity" : "name",
+              label: kind === "grants" ? "Description or ID" : "Name or ID",
+              type: "text",
+              value: (r) => r.name ?? r.description ?? "",
+              literalValues: (r) => [r.id],
+            },
+            ...(kind === "grants"
+              ? [
+                  {
+                    key: "repository",
+                    label: "Repository",
+                    type: "text" as const,
+                    value: (r: GitResource) =>
+                      props.choices.repositories.find(
+                        (v) => v.id === r.repository_id,
+                      )?.name ?? "",
+                    literalValues: (r: GitResource) => [r.repository_id!],
+                  },
+                  {
+                    key: "principal",
+                    label: "Agent",
+                    type: "text" as const,
+                    value: (r: GitResource) =>
+                      props.choices.agents.find((v) => v.id === r.principal_id)
+                        ?.name ?? "",
+                    literalValues: (r: GitResource) => [r.principal_id!],
+                  },
+                  {
+                    key: "state",
+                    label: "Status",
+                    type: "select" as const,
+                    value: (r: GitResource) => r.state!,
+                    options: [
+                      { value: "active", label: "Active" },
+                      { value: "expired", label: "Expired" },
+                    ],
+                  },
+                ]
+              : kind === "repositories"
+                ? [
+                    {
+                      key: "destination",
+                      label: "Destination",
+                      type: "text" as const,
+                      value: (r: GitResource) => r.url!,
+                      placeholder: "Literal destination substring",
+                    },
+                    {
+                      key: "credential",
+                      label: "Git credential",
+                      type: "text" as const,
+                      value: (r: GitResource) =>
+                        props.choices.credentials.find(
+                          (v) => v.id === r.credential_id,
+                        )?.name ?? "",
+                      literalValues: (r: GitResource) => [
+                        r.credential_id ?? "",
+                      ],
+                    },
+                  ]
+                : [
+                    {
+                      key: "origin",
+                      label: "HTTPS origin",
+                      type: "text" as const,
+                      value: (r: GitResource) => r.origin!,
+                      placeholder: "Literal origin substring",
+                    },
+                    {
+                      key: "status",
+                      label: "Status",
+                      type: "select" as const,
+                      value: (r: GitResource) =>
+                        r.available ? "configured" : "unavailable",
+                      options: [
+                        { value: "configured", label: "Configured" },
+                        { value: "unavailable", label: "Unavailable" },
+                      ],
+                    },
+                  ]),
+          ]}
+          additionalSorts={[{ key: "id", label: "ID", sortValue: (r) => r.id }]}
+          initialSort={{
+            key: kind === "grants" ? "description" : "name",
+            direction: "ascending",
+          }}
           columns={[
             {
-              key: "name",
+              key: kind === "grants" ? "description" : "name",
+              sortValue: (r) => label(r),
               label:
                 kind === "repositories"
                   ? "Repository"
@@ -369,13 +515,33 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
               role: "identity",
               render: (r) => (
                 <TableIdentity
-                  primary={<a href={`#/git/${kind}/${r.id}`}>{label(r)}</a>}
+                  primary={
+                    <a
+                      href={serializeLocation({
+                        ...props.resolved.location,
+                        segments: [props.resolved.location.destination, r.id],
+                      })}
+                    >
+                      {label(r)}
+                    </a>
+                  }
                   secondary={r.id}
                 />
               ),
             },
             {
-              key: "scope",
+              key:
+                kind === "grants"
+                  ? "repository"
+                  : kind === "credentials"
+                    ? "origin"
+                    : "destination",
+              sortValue: (r) =>
+                r.url ??
+                r.origin ??
+                props.choices.repositories.find((v) => v.id === r.repository_id)
+                  ?.name ??
+                r.repository_id!,
               label: kind === "grants" ? "Repository" : "Destination",
               role: "relation",
               render: (r) =>
@@ -386,13 +552,24 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
                     choices={props.choices}
                   />
                 ) : (
-                  (r.url ?? r.origin)
+                  <>
+                    {r.url ?? r.origin}
+                    {kind === "repositories" && (
+                      <GitCoverage
+                        source={props.coverage}
+                        destination={r.url!}
+                      />
+                    )}
+                  </>
                 ),
             },
             ...(kind === "grants"
               ? [
                   {
-                    key: "agent",
+                    key: "principal",
+                    sortValue: (r: GitResource) =>
+                      props.choices.agents.find((v) => v.id === r.principal_id)
+                        ?.name ?? r.principal_id!,
                     label: "Agent",
                     role: "relation" as const,
                     render: (r: GitResource) => (
@@ -406,9 +583,26 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
                 ]
               : []),
             {
-              key: "status",
+              key:
+                kind === "repositories"
+                  ? "credential"
+                  : kind === "grants"
+                    ? "state"
+                    : "status",
+              sortValue: (r) =>
+                kind === "repositories"
+                  ? (props.choices.credentials.find(
+                      (v) => v.id === r.credential_id,
+                    )?.name ??
+                    r.credential_id ??
+                    "")
+                  : kind === "grants"
+                    ? r.state!
+                    : r.available
+                      ? "configured"
+                      : "unavailable",
               label: kind === "repositories" ? "Git credential" : "Status",
-              role: "status",
+              role: kind === "repositories" ? "relation" : "status",
               render: (r) =>
                 kind === "repositories" ? (
                   r.credential_id ? (
@@ -454,8 +648,10 @@ function GitEditor({
   resource,
   mode,
   unavailable = false,
+  coverage,
   ...props
 }: Props & {
+  coverage?: GitCoverageSource;
   kind: GitKind;
   choices: GitChoices;
   resource?: GitResource;
@@ -510,7 +706,10 @@ function GitEditor({
   const metadata = mode === "create" || mode === "edit",
     material =
       kind === "credentials" && (mode === "create" || mode === "rotate");
-  const title = `${mode === "create" ? "Create" : mode === "edit" ? "Edit" : mode === "rotate" ? "Rotate" : "Delete"} Git ${singular(kind)}`;
+  const title =
+    mode === "rotate"
+      ? "Rotate secret"
+      : `${mode === "create" ? "Create Git" : mode === "edit" ? "Edit" : "Delete"} ${singular(kind)}`;
   const change = <K extends keyof typeof draft>(
     key: K,
     value: (typeof draft)[K],
@@ -826,43 +1025,50 @@ function GitEditor({
                 return (
                   <FormField
                     id={`git-${key}-${mode}`}
-                    label={`${title}${resource ? " (immutable)" : ""}`}
+                    label={title}
                     {...(draft[key] ? { hint: draft[key] } : {})}
                   >
-                    {(attributes) => (
-                      <select
-                        {...attributes}
-                        required
-                        disabled={
-                          resource !== undefined ||
-                          choices.loading ||
-                          choices.error
-                        }
-                        value={draft[key]}
-                        onChange={(e) => change(key, e.currentTarget.value)}
-                      >
-                        <option value="">
-                          {choices.loading
-                            ? `Loading ${title.toLowerCase()}s`
-                            : choices.error
-                              ? `${title} choices unavailable`
-                              : items.length
-                                ? `Select ${title.toLowerCase()}`
-                                : `No ${title.toLowerCase()}s configured`}
-                        </option>
-                        {draft[key] &&
-                          !items.some((item) => item.id === draft[key]) && (
-                            <option value={draft[key]}>
-                              {draft[key]} · Unavailable
-                            </option>
-                          )}
-                        {items.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {choiceLabel(item, items)}
+                    {(attributes) =>
+                      resource !== undefined ? (
+                        <input
+                          {...attributes}
+                          readOnly
+                          value={
+                            items.find((item) => item.id === draft[key])
+                              ?.name ?? draft[key]
+                          }
+                        />
+                      ) : (
+                        <select
+                          {...attributes}
+                          required
+                          disabled={choices.loading || choices.error}
+                          value={draft[key]}
+                          onChange={(e) => change(key, e.currentTarget.value)}
+                        >
+                          <option value="">
+                            {choices.loading
+                              ? `Loading ${title.toLowerCase()}s`
+                              : choices.error
+                                ? `${title} choices unavailable`
+                                : items.length
+                                  ? `Select ${title.toLowerCase()}`
+                                  : `No ${title.toLowerCase()}s configured`}
                           </option>
-                        ))}
-                      </select>
-                    )}
+                          {draft[key] &&
+                            !items.some((item) => item.id === draft[key]) && (
+                              <option value={draft[key]}>
+                                {draft[key]} · Unavailable
+                              </option>
+                            )}
+                          {items.map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {choiceLabel(item, items)}
+                            </option>
+                          ))}
+                        </select>
+                      )
+                    }
                   </FormField>
                 );
               })}
@@ -940,36 +1146,38 @@ function GitEditor({
                         />
                       )}
                     </FormField>
-                    {["create", "update", "delete"].map((action) => (
-                      <FormField
-                        id={`git-rule-${i}-${action}`}
-                        label={action[0]!.toUpperCase() + action.slice(1)}
-                      >
-                        {(attributes) => (
-                          <BinaryToggle
-                            attributes={attributes}
-                            checked={rule.actions.includes(action)}
-                            onChange={(v) =>
-                              change(
-                                "refs",
-                                draft.refs.map((r, j) =>
-                                  i === j
-                                    ? {
-                                        ...r,
-                                        actions: v
-                                          ? [...r.actions, action]
-                                          : r.actions.filter(
-                                              (a) => a !== action,
-                                            ),
-                                      }
-                                    : r,
-                                ),
-                              )
-                            }
-                          />
-                        )}
-                      </FormField>
-                    ))}
+                    <div class="push-permissions-row">
+                      {["create", "update", "delete"].map((action) => (
+                        <FormField
+                          id={`git-rule-${i}-${action}`}
+                          label={action[0]!.toUpperCase() + action.slice(1)}
+                        >
+                          {(attributes) => (
+                            <BinaryToggle
+                              attributes={attributes}
+                              checked={rule.actions.includes(action)}
+                              onChange={(v) =>
+                                change(
+                                  "refs",
+                                  draft.refs.map((r, j) =>
+                                    i === j
+                                      ? {
+                                          ...r,
+                                          actions: v
+                                            ? [...r.actions, action]
+                                            : r.actions.filter(
+                                                (a) => a !== action,
+                                              ),
+                                        }
+                                      : r,
+                                  ),
+                                )
+                              }
+                            />
+                          )}
+                        </FormField>
+                      ))}
+                    </div>
                     <button
                       type="button"
                       onClick={() =>
@@ -1106,7 +1314,16 @@ function GitEditor({
                   <>
                     <div>
                       <dt>Immutable destination</dt>
-                      <dd>{draft.url}</dd>
+                      <dd>
+                        {draft.url}
+                        {coverage && (
+                          <GitCoverage
+                            source={coverage}
+                            destination={draft.url}
+                            contextual
+                          />
+                        )}
+                      </dd>
                     </div>
                     <div>
                       <dt>Aliases</dt>
@@ -1217,7 +1434,9 @@ function localTime(value: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function GitTrafficView(props: Props) {
+export function GitTrafficView(
+  props: Props & { controller: GitTrafficController },
+) {
   const selected = props.resolved.location.segments[1];
   const { value, error } = useGitDetail(
     props,
@@ -1246,11 +1465,21 @@ export function GitTrafficView(props: Props) {
   return (
     <div class="domain-view">
       <nav class="detail-navigation" aria-label="Git traffic navigation">
-        <a href="#/git/traffic">Back to Git traffic</a>
+        <a
+          href={serializeLocation({
+            ...props.resolved.location,
+            segments: ["git-traffic"],
+          })}
+        >
+          Back to Git traffic
+        </a>
       </nav>
-      <header class="detail-context">
+      <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
-          <h1 tabindex={-1}>{a.policy?.repository_name || "Git exchange"}</h1>
+          <h1 tabindex={-1}>
+            {gitLabels[a.operation]}
+            {a.policy?.repository_name ? ` — ${a.policy.repository_name}` : ""}
+          </h1>
           <StatusLabel
             state={
               error
@@ -1262,7 +1491,7 @@ export function GitTrafficView(props: Props) {
                     : "warning"
             }
           >
-            {f.transport}
+            {`Transport: ${f.transport}`}
           </StatusLabel>
         </div>
         <p class="technical-value">{a.id}</p>
@@ -1419,36 +1648,166 @@ export function GitTrafficView(props: Props) {
     </div>
   );
 }
-function GitTrafficCollection(props: Props) {
+function GitTrafficCollection(
+  props: Props & { controller: GitTrafficController },
+) {
   const navigate = useUnsavedChanges(false);
-  const { items, controls } = useCollectionPage<GitTraffic>(
-    props.session,
-    props.resolved,
-    props.view,
-    (_q, cursor, signal) =>
-      readCollectionPage(
-        props.session,
-        `/api/v2/git/traffic?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
-        undefined,
-        signal,
-        decodeGitTrafficPage,
-      ),
-    navigate,
-    { key: "admitted", direction: "descending" },
-  );
+  const [current, setCurrent] = useState(props.controller.snapshot());
+  useEffect(() => props.controller.subscribe(setCurrent), [props.controller]);
+  const query = props.resolved.location.query;
+  const [draft, setDraft] = useState({ ...query });
+  const [invalid, setInvalid] = useState(false);
+  const apply = (next: Record<string, string>) => {
+    const clean = Object.fromEntries(
+      Object.entries(next).filter(([, value]) => value !== ""),
+    );
+    if (!validGitTrafficQuery(clean)) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    if (JSON.stringify(clean) !== JSON.stringify(query))
+      navigate(
+        serializeLocation({
+          destination: "git-traffic",
+          segments: ["git-traffic"],
+          query: clean,
+        }),
+      );
+  };
+  useDebouncedInput(draft, apply);
+  const items = current.key === props.view.viewKey ? current.items : [];
+  const busy = props.view.panels["git-traffic"]?.refreshing === true;
+  const failed =
+    current.error || props.view.panels["git-traffic"]?.status === "error";
   return (
     <section class="panel domain-panel">
+      <div class="collection-toolbar live-collection-toolbar">
+        <label for="git-traffic-live-mode">Live mode</label>
+        <BinaryToggle
+          attributes={{ id: "git-traffic-live-mode" }}
+          checked={current.live}
+          showState={false}
+          onChange={(live) => props.controller.setLive(live)}
+        />
+      </div>
+      <div
+        class="table-filters collection-query-filters"
+        role="group"
+        aria-label="Git traffic filters"
+      >
+        {Object.entries(gitTrafficOptions).map(([key, values]) => (
+          <>
+            {key === "admission" && (
+              <input
+                type="search"
+                aria-label="Recorded repository name or ID"
+                placeholder="Recorded repository name or ID"
+                value={draft.filter_repository ?? ""}
+                onInput={(event) =>
+                  setDraft({
+                    ...draft,
+                    filter_repository: event.currentTarget.value,
+                  })
+                }
+              />
+            )}
+            <select
+              aria-label={
+                key === "report" ? "Upstream report" : sentenceCase(key)
+              }
+              value={draft[`filter_${key}`] ?? ""}
+              onChange={(event) => {
+                const next = {
+                  ...draft,
+                  [`filter_${key}`]: event.currentTarget.value,
+                };
+                setDraft(next);
+                apply(next);
+              }}
+            >
+              <option value="">
+                {key === "report" ? "Upstream report" : sentenceCase(key)}: any
+              </option>
+              {values.map((value) => (
+                <option value={value}>
+                  {gitLabels[value] ?? sentenceCase(value)}
+                </option>
+              ))}
+            </select>
+          </>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft({});
+            apply({});
+          }}
+        >
+          Reset
+        </button>
+      </div>
+      <p class="table-filter-hint">
+        Search recorded repository names with typo tolerance or literal partial
+        IDs.
+      </p>
+      {invalid && (
+        <StateNotice state="error" title="Invalid repository search" />
+      )}
+      {current.paused && (
+        <div class="inline-actions">
+          {current.live && (
+            <StatusLabel state="warning">
+              Live paused while viewing older results
+            </StatusLabel>
+          )}
+          <button type="button" onClick={() => props.controller.resume()}>
+            {current.live ? "Resume live" : "Return to newest"}
+          </button>
+        </div>
+      )}
+      {current.notice && <StateNotice state="warning" title={current.notice} />}
+      {current.olderError && (
+        <StateNotice state="error" title="Older exchanges unavailable">
+          Loaded exchanges are unchanged. Try Load older exchanges again.
+        </StateNotice>
+      )}
+      {failed && (
+        <StateNotice state="error" title="Git traffic unavailable">
+          Previously loaded exchanges may be stale.
+        </StateNotice>
+      )}
+      {!current.loaded && !failed && (
+        <StateNotice state="loading" title="Loading Git traffic" />
+      )}
       <CollectionTable
         caption="Git traffic"
         rowHeaderKey="exchange"
         layout="activity"
-        remote={controls}
+        localStale={failed}
+        localLoading={!current.loaded && !failed}
+        historySummary
+        historyMatching={Object.keys(query).length > 0}
+        summaryExtra={
+          current.loaded && !failed ? (
+            <span>
+              {current.next === null
+                ? "No older exchanges"
+                : items.length >= 500
+                  ? "Load limit reached. Narrow the filters or return to newest."
+                  : ""}
+            </span>
+          ) : undefined
+        }
+        hasMore={current.next !== null && items.length < 500 && !failed}
+        loadingMore={busy || current.loadingOlder}
+        loadMoreLabel="Load older exchanges"
+        onLoadMore={() => void props.controller.older()}
         itemNames={{ singular: "exchange", plural: "exchanges" }}
         emptyTitle="No Git traffic"
         items={items}
         rowKey={(r) => r.admission.id}
         filters={[]}
-        initialSort={{ key: "admitted", direction: "descending" }}
         columns={[
           {
             key: "admitted",
@@ -1463,7 +1822,12 @@ function GitTrafficCollection(props: Props) {
             render: (r) => (
               <TableIdentity
                 primary={
-                  <a href={`#/git/traffic/${r.admission.id}`}>
+                  <a
+                    href={serializeLocation({
+                      ...props.resolved.location,
+                      segments: ["git-traffic", r.admission.id],
+                    })}
+                  >
                     {gitLabels[r.admission.operation]}
                   </a>
                 }
@@ -1475,9 +1839,17 @@ function GitTrafficCollection(props: Props) {
             key: "repository",
             label: "Repository at admission",
             role: "relation",
-            render: (r) =>
-              r.admission.policy?.repository_name ??
-              (r.admission.repository.id || "Unavailable"),
+            render: (r) => (
+              <TableIdentity
+                primary={
+                  r.admission.policy?.repository_name ??
+                  (r.admission.repository.id || "Unavailable")
+                }
+                secondary={
+                  r.admission.policy ? r.admission.repository.id : undefined
+                }
+              />
+            ),
           },
           {
             key: "admission",

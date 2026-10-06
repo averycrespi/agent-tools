@@ -200,15 +200,17 @@ export async function runAudit(
               },
             }),
           )
-        : mode === "empty" || mode === "loading"
-          ? []
-          : mode === "replaced"
-            ? [fixture(5, "offline_maintenance")]
-            : mode === "stale" && restarted
-              ? [fixture(4)]
-              : url.searchParams.has("cursor")
-                ? [fixture(1, "operator")]
-                : [fixture(3), fixture(2, "offline_maintenance")];
+        : mode === "selected-outside"
+          ? [fixture(2, "offline_maintenance")]
+          : mode === "empty" || mode === "loading"
+            ? []
+            : mode === "replaced"
+              ? [fixture(5, "offline_maintenance")]
+              : mode === "stale" && restarted
+                ? [fixture(4)]
+                : url.searchParams.has("cursor")
+                  ? [fixture(1, "operator")]
+                  : [fixture(3), fixture(2, "offline_maintenance")];
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -308,7 +310,7 @@ export async function runAudit(
   await assertTableConventions(
     page,
     "Control-plane audit history",
-    ["Time", "Event", "Performer", "Target", "Outcome"],
+    ["Time", "Event", "Performer", "Target type", "Target", "Outcome"],
     "Event",
   );
   expect(
@@ -346,11 +348,27 @@ export async function runAudit(
     "Time",
     "Event",
     "Performer",
+    "Target type",
     "Target",
     "Outcome",
   ]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole("button", { name: "Load older audit events" }).click();
+  await page.clock.install();
+  const live = page.getByRole("switch", { name: "Live mode", exact: true });
+  await expect(live).toBeChecked();
+  await live.focus();
+  await page.keyboard.press("Space");
+  await expect(live).not.toBeChecked();
+  const pausedReads = queries.length;
+  await page.clock.fastForward(31000);
+  expect(queries.length).toBe(pausedReads);
+  await capture("live-off", 390);
+  await live.click();
+  await expect.poll(() => queries.length).toBeGreaterThan(pausedReads);
+  const liveReads = queries.length;
+  await page.clock.fastForward(31000);
+  await expect.poll(() => queries.length).toBeGreaterThan(liveReads);
+  await page.getByRole("button", { name: "Load older events" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(3);
   const continuation = queries.at(-1)!;
   if (
@@ -358,6 +376,37 @@ export async function runAudit(
     continuation.get("generation") !== generation
   )
     fail("Audit pagination transport lost its pin");
+  await expect(
+    page.getByText("Live paused while viewing older results", { exact: true }),
+  ).toBeVisible();
+  const olderReads = queries.length;
+  await page.clock.fastForward(31000);
+  expect(queries.length).toBe(olderReads);
+  await capture("older-paused", 1440);
+  await page.locator(`a[href="#/audit-log/${id(3)}"]`).click();
+  await page
+    .getByRole("link", { name: "Back to Audit Log", exact: true })
+    .click();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await capture("detail-return", 390);
+  await page.getByRole("button", { name: "Resume live", exact: true }).click();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await page.locator(`a[href="#/audit-log/${id(3)}"]`).click();
+  await page.goBack();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+  await page.clock.resume();
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
   await expect.poll(() => queries.at(-1)?.get("outcome")).toBe("unknown");
   mode = "target-delayed";
@@ -366,12 +415,10 @@ export async function runAudit(
     .focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("h1")).toBeFocused();
-  await expect(page.locator("h1")).toHaveText("server.reconcile");
+  await expect(page.locator("h1")).toHaveText("Reconcile server");
   await expect(page.getByText("interrupted", { exact: true })).toBeVisible();
   await expect.poll(() => holdTarget !== undefined).toBe(true);
-  await expect(
-    page.getByText(/Pending or unknown outcomes do not prove success/),
-  ).toBeVisible();
+  await expect(page.getByText(/The outcome is unconfirmed/)).toBeVisible();
   await expect(
     page.getByText(/Only allowlisted safe detail is retained/),
   ).toHaveCount(0);
@@ -382,7 +429,7 @@ export async function runAudit(
     page.getByText("Current target unavailable", { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("Initiating credential (not performer)", { exact: true }),
+    page.getByText("Initiating credential", { exact: true }),
   ).toBeVisible();
   const related = page.getByRole("region", {
     name: "Related events",
@@ -390,16 +437,23 @@ export async function runAudit(
   });
   await expect(related.getByRole("table")).toContainText("Selected event");
   await expect(related.getByRole("table")).toContainText("Workshop server");
+  await expect(related.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(
+    0,
+  );
   await assertTableConventions(
     page,
     "Related control-plane events",
-    ["Time", "Event", "Performer", "Target", "Phase", "Outcome"],
+    ["Time", "Event", "Performer", "Target type", "Target", "Outcome"],
     "Event",
   );
   await expect(related.getByText(/Newest recorded sequence first/)).toHaveCount(
     0,
   );
-  const technical = page.getByText("Technical details", { exact: true });
+  const technical = page.getByText("Correlation ID", { exact: true });
+  await expect(technical).toBeVisible();
+  await expect(
+    page.getByText("Technical details", { exact: true }),
+  ).toHaveCount(0);
   const technicalBox = await technical.boundingBox();
   const relatedBox = await related
     .getByRole("heading", { name: "Related events", exact: true })
@@ -408,9 +462,16 @@ export async function runAudit(
     relatedBox!.y - (technicalBox!.y + technicalBox!.height),
   ).toBeGreaterThanOrEqual(24);
   await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
-  await related
-    .getByRole("button", { name: "Load more related events" })
-    .click();
+  const olderBox = await related
+    .getByRole("button", { name: "Load older events" })
+    .boundingBox();
+  const relatedTableBox = await related.getByRole("table").boundingBox();
+  expect(Math.abs(olderBox!.x - relatedTableBox!.x)).toBeLessThanOrEqual(2);
+  const loadedBox = await related
+    .getByText("2 events loaded", { exact: true })
+    .boundingBox();
+  expect(loadedBox!.x).toBeGreaterThan(olderBox!.x + olderBox!.width);
+  await related.getByRole("button", { name: "Load older events" }).click();
   await expect(related.getByRole("row")).toHaveCount(4);
   expect(queries.at(-1)?.get("cursor")).toBe("opaque-page-2");
   mode = "failure";
@@ -418,7 +479,7 @@ export async function runAudit(
   await expect(
     related.getByText("Related events unavailable", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator("h1")).toHaveText("server.reconcile");
+  await expect(page.locator("h1")).toHaveText("Reconcile server");
   await expect(related.getByRole("row")).toHaveCount(4);
   await expect(
     related.getByText("3 events loaded (stale)", { exact: true }),
@@ -430,6 +491,34 @@ export async function runAudit(
     related.getByText("Related events unavailable", { exact: true }),
   ).toHaveCount(0);
   await expect(related.getByRole("row")).toHaveCount(3);
+  mode = "selected-outside";
+  await related.getByRole("button", { name: "Refresh related events" }).click();
+  await expect(
+    related.getByText("1 event loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    related.getByText("Plus the selected event", { exact: true }),
+  ).toBeVisible();
+  await expect(related.getByRole("row")).toHaveCount(3);
+  await expect(
+    related.getByText("Selected event", { exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByRole("region", { name: "Audit retention and continuity" }),
+  ).toHaveCount(0);
+  await expect(page.getByText("Sequence / phase", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("Problem", { exact: true })).toHaveCount(0);
+  await expect(related.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(
+    0,
+  );
+  await captureFrontend(page, "table-audit-selected-outside", true);
+  mode = "normal";
+  await related.getByRole("button", { name: "Refresh related events" }).click();
+  await expect(
+    related.getByText("Plus the selected event", { exact: true }),
+  ).toHaveCount(0);
   await captureDetailLayout(page, "audit-event-related-populated");
   await capture("desktop-detail", 1440);
   await capture("narrow-detail", 390);
@@ -449,17 +538,21 @@ export async function runAudit(
       );
   }
   mode = "normal";
-  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await page.getByRole("link", { name: "Back to Audit Log" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
   await page.goBack();
-  await expect(page.locator("h1")).toHaveText("server.reconcile");
+  await expect(page.locator("h1")).toHaveText("Reconcile server");
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toBeVisible();
   mode = "target-current";
   await refresh();
-  await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Audit event detail", exact: true })
+      .locator(`a[href="#/mcp/servers/${id(7)}"]`),
+  ).toBeVisible();
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toHaveCount(0);
@@ -471,11 +564,16 @@ export async function runAudit(
     );
     await refresh();
     await targetResponse;
-    await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(
-      0,
-    );
     await expect(
-      page.getByRole("heading", { name: "server.reconcile", exact: true }),
+      page
+        .getByRole("region", { name: "Audit event detail", exact: true })
+        .locator(`a[href="#/mcp/servers/${id(7)}"]`),
+    ).toHaveCount(0);
+    await expect(
+      related.locator(`a[href="#/mcp/servers/${id(7)}"]`),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Reconcile server", exact: true }),
     ).toBeVisible();
   }
   mode = "missing";
@@ -489,72 +587,35 @@ export async function runAudit(
     page.getByText("Previous-history detail discarded", { exact: true }),
   ).toBeVisible();
   mode = "normal";
-  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await page.getByRole("link", { name: "Back to Audit Log" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page).toHaveURL(/#\/audit-log\?filter_outcome=unknown$/);
   await expect(page.locator(`a[href="#/mcp/servers/${id(7)}"]`)).toHaveCount(0);
-  await page
-    .getByRole("button", { name: "Clear filters", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(page.getByText("More filters", { exact: true })).toHaveCount(0);
-  await expect(page.getByLabel("Target ID", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("combobox", { name: "Add filter", exact: true }),
-  ).toHaveCount(0);
-  const focusFilter = async (label: string) => {
-    const control = page.getByLabel(label, { exact: true });
-    await expect(control).toBeVisible();
-    await control.focus();
-    await expect(control).toBeFocused();
-  };
-  const from = page.getByLabel("From (inclusive, local time)", { exact: true });
-  const until = page.getByLabel("Until (exclusive, local time)", {
-    exact: true,
-  });
-  await expect(from).toHaveAttribute("type", "datetime-local");
-  await expect(until).toHaveAttribute("type", "datetime-local");
-  await expect(
-    page.getByText(
-      "Time bounds must both use nine fractional UTC digits and span at most 366 days.",
-      { exact: true },
-    ),
-  ).toHaveCount(0);
-  await expect(
-    page.getByText(
-      "Separate from Invocation History and Requests. Use Refresh to read the newest events.",
-      { exact: true },
-    ),
-  ).toHaveCount(0);
+  const target = page.getByLabel("Target", { exact: true });
+  await expect(target).toBeVisible();
+  const filters = page.getByRole("form", { name: "Filter audit history" });
+  await expect(filters.getByRole("combobox")).toHaveCount(4);
+  await expect(filters.getByRole("textbox")).toHaveCount(1);
+  await expect(page.locator('input[type="datetime-local"]')).toHaveCount(0);
+  await expect(page.getByLabel("Credential ID", { exact: true })).toHaveCount(
+    0,
+  );
   await expect.poll(() => queries.at(-1)?.has("outcome")).toBe(false);
   const beforeInvalid = queries.length;
-  await from.fill("2026-09-03T20:00");
-  for (const [value, message] of [
-    ["", "Choose both From and Until, or clear both."],
-    ["2026-09-03T19:00", "Until must be later than From."],
-    [
-      "2028-09-03T20:00",
-      "Choose valid dates and a time range of at most 366 days.",
-    ],
-  ]) {
-    await until.fill(value!);
-    await expect(
-      page.getByText(message!, { exact: true }).first(),
-    ).toBeVisible();
-    expect(
-      queries.slice(beforeInvalid).map((query) => query.toString()),
-      "Invalid drafts must not issue queries",
-    ).toEqual([]);
-  }
-  await focusFilter("Target ID");
-  await page.getByLabel("Target ID", { exact: true }).fill("invalid");
+  await target.fill("é".repeat(129));
+  await expect(
+    page.getByText("Use at most 256 UTF-8 bytes without control characters.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  expect(queries.slice(beforeInvalid)).toEqual([]);
   await page.getByLabel("Event", { exact: true }).selectOption("server.*");
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("server");
   expect(queries.at(-1)?.has("from")).toBe(false);
   expect(queries.at(-1)?.has("target_id")).toBe(false);
-  await expect(from).toHaveValue("2026-09-03T20:00");
-  await expect(page.getByLabel("Target ID", { exact: true })).toHaveValue(
-    "invalid",
-  );
+  await expect(target).toHaveValue("é".repeat(129));
   await page
     .getByLabel("Event", { exact: true })
     .selectOption("server.reconcile");
@@ -566,115 +627,58 @@ export async function runAudit(
   expect(queries.at(-1)?.has("action")).toBe(false);
   await expect(page.getByLabel("Action", { exact: true })).toHaveCount(0);
   await capture("invalid-filters", 320);
-  await page.getByLabel("Target ID", { exact: true }).fill("");
-  await expect(page.getByLabel("Target ID", { exact: true })).toBeVisible();
-  await expect(page.getByLabel("Target ID", { exact: true })).toBeFocused();
-  await expect.poll(() => queries.at(-1)?.has("target_id")).toBe(false);
-  await expect(
-    page.getByText(/Draft changes are not yet applied/),
-  ).toBeVisible();
+  await target.fill("");
+  await expect(target).toBeVisible();
+  await expect(target).toBeFocused();
+  await expect.poll(() => queries.at(-1)?.has("target")).toBe(false);
+  await expect(page.getByText(/Draft changes are not yet applied/)).toHaveCount(
+    0,
+  );
   await capture("removed-invalid-filter", 390);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => {
     window.location.hash =
       "#/audit-log?filter_from=2026-01-01T23%3A00%3A00.123456789Z&filter_until=2026-01-02T23%3A00%3A00.123456789Z";
   });
-  await expect(from).toHaveValue("2026-01-01T18:00");
-  await expect(until).toHaveValue("2026-01-02T18:00");
-  const boundViewport = page.viewportSize();
-  try {
-    for (const width of [640, 390, 320, 1440]) {
-      await page.setViewportSize({ width, height: 900 });
-      for (const bound of [from, until]) {
-        const fit = await bound.evaluate((node: HTMLInputElement) => {
-          const style = getComputedStyle(node);
-          const intrinsic = node.cloneNode() as HTMLInputElement;
-          intrinsic.removeAttribute("id");
-          intrinsic.setAttribute("aria-hidden", "true");
-          intrinsic.tabIndex = -1;
-          intrinsic.value = node.value;
-          Object.assign(intrinsic.style, {
-            position: "fixed",
-            left: "-10000px",
-            visibility: "hidden",
-            width: "max-content",
-            minWidth: "0",
-            maxWidth: "none",
-            font: style.font,
-            letterSpacing: style.letterSpacing,
-            padding: style.padding,
-            border: style.border,
-            boxSizing: style.boxSizing,
-          });
-          document.body.append(intrinsic);
-          try {
-            return {
-              actual: node.getBoundingClientRect().width,
-              required: intrinsic.getBoundingClientRect().width,
-            };
-          } finally {
-            intrinsic.remove();
-          }
-        });
-        expect(
-          fit.actual,
-          `Audit datetime bound must fit native content at ${width}px`,
-        ).toBeGreaterThanOrEqual(fit.required);
-      }
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
-    }
-    await captureTableState(page, "audit-datetime-bounds");
-  } finally {
-    if (boundViewport) await page.setViewportSize(boundViewport);
-  }
-  await expect(from).toHaveValue("2026-01-01T18:00");
-  await expect(until).toHaveValue("2026-01-02T18:00");
-  await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
-  await expect
-    .poll(() => queries.at(-1)?.get("from"))
-    .toBe("2026-01-01T23:00:00.123456789Z");
-  await from.fill("2026-01-01T18:01");
-  await expect
-    .poll(() => queries.at(-1)?.get("from"))
-    .toBe("2026-01-01T23:01:00.000000000Z");
-  expect(queries.at(-1)?.get("until")).toBe("2026-01-02T23:00:00.123456789Z");
-  await page.getByRole("button", { name: "Clear filters" }).click();
-  await expect(from).toHaveValue("");
-  await expect(until).toHaveValue("");
+  await expect(page).toHaveURL(/#\/audit-log$/);
   await expect.poll(() => queries.at(-1)?.has("from")).toBe(false);
-  for (const [key, label] of [
-    ["actor_type", "Performer type"],
-    ["credential_id", "Credential ID"],
-    ["target_type", "Target type"],
-    ["target_id", "Target ID"],
+  expect(queries.at(-1)?.has("until")).toBe(false);
+  await page.evaluate((credential) => {
+    location.hash = `#/audit-log?filter_credential_id=${credential}&filter_target_id=${credential}`;
+  }, id(7));
+  await expect(target).toHaveValue(id(7));
+  await expect.poll(() => queries.at(-1)?.get("target")).toBe(id(7));
+  expect(queries.at(-1)?.has("credential_id")).toBe(false);
+  expect(queries.at(-1)?.has("target_id")).toBe(false);
+  await page.getByRole("button", { name: "Reset" }).click();
+  for (const label of [
+    "Event",
+    "Performer",
+    "Target type",
+    "Target",
+    "Outcome",
   ]) {
-    expect(key).toBeDefined();
-    await focusFilter(label!);
+    await page.getByLabel(label, { exact: true }).focus();
+    await expect(page.getByLabel(label, { exact: true })).toBeFocused();
   }
   await expect(
     page.getByRole("combobox", { name: "Add filter", exact: true }),
   ).toHaveCount(0);
-  await page
-    .getByLabel("Performer type", { exact: true })
-    .selectOption("system");
+  await page.getByLabel("Performer", { exact: true }).selectOption("system");
   await expect.poll(() => queries.at(-1)?.get("actor_type")).toBe("system");
   const beforeText = queries.length;
-  await page.getByLabel("Credential ID", { exact: true }).fill(id(9));
+  await target.fill("workshpo");
   expect(
     queries.slice(beforeText).map((query) => query.toString()),
-    "ID filtering must be debounced",
+    "Target filtering must be debounced",
   ).toEqual([]);
-  await expect.poll(() => queries.at(-1)?.get("credential_id")).toBe(id(9));
+  await expect.poll(() => queries.at(-1)?.get("target")).toBe("workshpo");
   await page
     .getByLabel("Event", { exact: true })
     .selectOption("server.reconcile");
   await page.getByLabel("Target type", { exact: true }).selectOption("server");
-  await page.getByLabel("Target ID", { exact: true }).fill(id(7));
-  await expect.poll(() => queries.at(-1)?.get("target_id")).toBe(id(7));
+  await target.fill(id(7).slice(-8));
+  await expect.poll(() => queries.at(-1)?.get("target")).toBe(id(7).slice(-8));
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
   await page.evaluate((correlation) => {
     location.hash += `&filter_correlation_id=${correlation}`;
@@ -695,9 +699,8 @@ export async function runAudit(
     }),
   ).toBeVisible();
   await expect.poll(() => queries.at(-1)?.get("correlation_id")).toBe(id(8));
-  await from.fill("2026-09-03T20:00");
   mode = "loading";
-  await until.fill("2026-09-05T20:00");
+  await target.fill("Renamed workshop");
   await expect(
     page.getByText("Loading audit history", { exact: true }),
   ).toBeVisible();
@@ -713,25 +716,21 @@ export async function runAudit(
   await capture("empty", 1440);
   for (const key of [
     "actor_type",
-    "credential_id",
     "category",
     "action",
     "target_type",
-    "target_id",
+    "target",
     "outcome",
     "correlation_id",
-    "from",
-    "until",
   ])
     if (!queries.at(-1)!.has(key))
       fail(`Audit authoritative filter missing: ${key}`);
-  expect(queries.at(-1)!.get("from")).toBe("2026-09-04T00:00:00.000000000Z");
-  expect(queries.at(-1)!.get("until")).toBe("2026-09-06T00:00:00.000000000Z");
-  await expect(from).toHaveValue("2026-09-03T20:00");
-  await expect(until).toHaveValue("2026-09-05T20:00");
+  expect(queries.at(-1)!.get("target")).toBe("Renamed workshop");
+  for (const key of ["from", "until", "credential_id", "target_id"])
+    expect(queries.at(-1)!.has(key)).toBe(false);
   if (queries.at(-1)!.has("cursor")) fail("Query change retained cursor");
   mode = "normal";
-  await page.getByRole("button", { name: "Clear filters" }).first().click();
+  await page.getByRole("button", { name: "Reset" }).first().click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   mode = "delayed";
   hold = undefined;
@@ -741,7 +740,7 @@ export async function runAudit(
   ).toBeVisible();
   await expect.poll(() => hold !== undefined).toBe(true);
   mode = "normal";
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("button", { name: "Reset" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   (hold as unknown as () => void)();
   await expect.poll(() => delayedSettled).toBe(true);
@@ -773,8 +772,14 @@ export async function runAudit(
         labels.map((label) => label.getAttribute("data-state")),
       ),
   ).toEqual(["neutral", "current", "error", "neutral", "warning"]);
+  await expect(
+    page.getByTestId("audit-row").first().locator('[data-label="Outcome"]'),
+  ).toHaveText("Attempted — unconfirmed");
+  await expect(
+    page.getByTestId("audit-row").locator('[data-label="Performer"]'),
+  ).not.toContainText([id(9), id(9), id(9), id(9), id(9)]);
   for (const route of ["agents", "mcp/grants", "mcp/access-requests"])
-    await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toBeVisible();
+    await expect(page.locator(`a[href="#/${route}/${id(7)}"]`)).toHaveCount(0);
   await expect(
     page.getByTestId("audit-row").nth(0).locator('[data-label="Target"] a'),
   ).toHaveCount(0);
@@ -790,16 +795,14 @@ export async function runAudit(
   await expect(
     page.getByText("No audit events yet", { exact: true }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Clear filters" }),
-  ).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Reset" })).toBeDisabled();
   await capture("unfiltered-empty", 320);
   await page.getByLabel("Outcome", { exact: true }).selectOption("failed");
   await expect(
     page.getByText("No matching audit events", { exact: true }),
   ).toBeVisible();
   await capture("filtered-empty", 390);
-  await page.getByRole("button", { name: "Clear filters" }).last().click();
+  await page.getByRole("button", { name: "Reset" }).last().click();
   await expect(
     page.getByText("No audit events yet", { exact: true }),
   ).toBeVisible();
@@ -814,10 +817,13 @@ export async function runAudit(
   await expect(
     page.getByText("Audit read unavailable", { exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Load older audit events" }).click();
+  await page.getByRole("button", { name: "Load older events" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(1);
   await expect(
-    page.getByText(/previous traversal was discarded and restarted/),
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(page.locator(`a[href="#/audit-log/${id(4)}"]`)).toBeVisible();
   mode = "replaced";
@@ -890,7 +896,7 @@ export async function runAudit(
   await expect(
     page.getByText("Current target unavailable", { exact: true }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Back to audit history" }).click();
+  await page.getByRole("link", { name: "Back to Audit Log" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(2);
   await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue(
     "unknown",

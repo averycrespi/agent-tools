@@ -59,7 +59,16 @@ const entities = [
       principal_id: agentID,
       repository_id: id,
       description: "Synthetic Git grant",
-      policy: { version: 1, read: true, refs: [] },
+      policy: {
+        version: 1,
+        read: true,
+        refs: [
+          {
+            ref: { kind: "exact", value: "refs/heads/main" },
+            actions: ["update"],
+          },
+        ],
+      },
       expires_at: null,
       state: "active",
     },
@@ -152,6 +161,7 @@ for (const entity of entities) {
     let mode: "populated" | "empty" | "error" | "loading" = "populated";
     let release: (() => void) | undefined;
     let writes = 0;
+    const collectionQueries: URLSearchParams[] = [];
     let current = { ...entity.record };
     let etag = `"${entity.path
       .replace("/", "-")
@@ -180,6 +190,8 @@ for (const entity of entities) {
             headers: { ETag: `"principal-${agentID}-1"` },
           });
         if (path === target || path === `${target}/${id}`) {
+          if (path === target)
+            collectionQueries.push(new URL(req.url()).searchParams);
           if (mode === "loading")
             await new Promise<void>((resolve) => {
               release = resolve;
@@ -283,6 +295,116 @@ for (const entity of entities) {
     };
     await nav();
     await expect(page.getByRole("table")).toContainText(entity.name);
+    if (entity.path.startsWith("git/")) {
+      const grants = entity.path === "git/grants";
+      expect(collectionQueries.at(-1)?.get("sort")).toBe(
+        grants ? "description" : "name",
+      );
+      expect(collectionQueries.at(-1)?.get("direction")).toBe("ascending");
+      const fields =
+        entity.path === "git/repositories"
+          ? [
+              ["Name or ID", "name"],
+              ["Destination", "destination"],
+              ["Git credential", "credential"],
+            ]
+          : grants
+            ? [
+                ["Description or ID", "identity"],
+                ["Repository", "repository"],
+                ["Agent", "principal"],
+              ]
+            : [
+                ["Name or ID", "name"],
+                ["HTTPS origin", "origin"],
+              ];
+      for (const [label, key] of fields) {
+        await page
+          .getByRole("searchbox", { name: label!, exact: true })
+          .fill("Synthetic");
+        await expect
+          .poll(() => collectionQueries.at(-1)?.get(key!))
+          .toBe("Synthetic");
+      }
+      if (entity.path !== "git/repositories") {
+        await page
+          .getByRole("combobox", { name: "Status", exact: true })
+          .selectOption(grants ? "expired" : "unavailable");
+        await expect
+          .poll(() =>
+            collectionQueries.at(-1)?.get(grants ? "state" : "status"),
+          )
+          .toBe(grants ? "expired" : "unavailable");
+      }
+      await page.getByRole("link", { name: entity.name, exact: true }).click();
+      await expect(page).toHaveURL(/filter_/);
+      await page
+        .getByRole("link", {
+          name: `Back to Git ${entity.path.split("/")[1]}`,
+          exact: true,
+        })
+        .click();
+      await expect(
+        page.getByRole("searchbox", { name: fields[0]![0]!, exact: true }),
+      ).toHaveValue("Synthetic");
+      await capture(page, "collection-filtered", true);
+      await page.getByRole("button", { name: "Reset", exact: true }).click();
+      await expect
+        .poll(() => collectionQueries.at(-1)?.has(fields[0]![1]!))
+        .toBe(false);
+      await page
+        .getByRole("button", {
+          name: grants
+            ? "Grant"
+            : entity.path === "git/repositories"
+              ? "Repository"
+              : "Credential",
+          exact: true,
+        })
+        .focus();
+      await page.keyboard.press("Enter");
+      await expect
+        .poll(() => collectionQueries.at(-1)?.get("direction"))
+        .toBe("descending");
+    }
+    if (entity.path === "http/credentials") {
+      expect(collectionQueries.at(-1)?.get("sort")).toBe("name");
+      expect(collectionQueries.at(-1)?.get("direction")).toBe("ascending");
+      await page
+        .getByRole("button", { name: "Credential", exact: true })
+        .click();
+      await expect
+        .poll(() => collectionQueries.at(-1)?.get("direction"))
+        .toBe("descending");
+      await page
+        .getByRole("searchbox", { name: "Name or ID", exact: true })
+        .fill("Synthetic");
+      await expect
+        .poll(() => collectionQueries.at(-1)?.get("name"))
+        .toBe("Synthetic");
+      await page.getByRole("link", { name: entity.name, exact: true }).click();
+      await expect(page).toHaveURL(/filter_name=Synthetic/);
+      await page
+        .getByRole("link", { name: "Back to HTTP credentials", exact: true })
+        .click();
+      await expect(
+        page.getByRole("searchbox", { name: "Name or ID", exact: true }),
+      ).toHaveValue("Synthetic");
+      await page.getByRole("button", { name: "Reset", exact: true }).click();
+      await expect(page).toHaveURL(/sort=name&direction=descending$/);
+      await expect
+        .poll(() => collectionQueries.at(-1)?.has("name"))
+        .toBe(false);
+      expect(collectionQueries.at(-1)?.get("direction")).toBe("descending");
+    }
+    if (entity.path === "http/grants") {
+      const agentCell = page.locator('[data-label="Agent"]');
+      await expect(agentCell.locator(".table-primary a")).toHaveText(
+        agent.display_name,
+      );
+      await expect(agentCell.locator(".table-identifier")).toHaveText(agentID);
+      await expect(agentCell.locator(".table-identifier a")).toHaveCount(0);
+    }
     await capture(page, "collection-populated", true);
     mode = "empty";
     await page.getByTestId("manual-refresh").click();
@@ -369,6 +491,15 @@ for (const entity of entities) {
         .fill("refs/heads/");
       await page.getByLabel("Create", { exact: true }).click();
       await page.getByLabel("Delete", { exact: true }).click();
+      const toggles = await page
+        .locator(".push-permissions-row .form-field")
+        .evaluateAll((fields) =>
+          fields.map((field) => field.getBoundingClientRect().top),
+        );
+      expect(new Set(toggles).size).toBe(1);
+      await expect(page.getByLabel("Create", { exact: true })).toBeChecked();
+      await expect(page.getByLabel("Update", { exact: true })).toBeChecked();
+      await expect(page.getByLabel("Delete", { exact: true })).toBeChecked();
       await capture(page, "create-push-prefix-actions", true);
     }
     await capture(page, "create-populated", true);
@@ -400,6 +531,35 @@ for (const entity of entities) {
       await expect(page.locator("section.intro")).toHaveAccessibleName(
         detailLabels[entity.path]!,
       );
+    await expect(
+      page.getByTestId("detail-context").locator("h1"),
+    ).toBeFocused();
+    if (entity.path === "git/grants") {
+      await expect(page.getByLabel("Agent", { exact: true })).toHaveAttribute(
+        "readonly",
+        "",
+      );
+      await expect(
+        page.getByLabel("Repository", { exact: true }),
+      ).toHaveAttribute("readonly", "");
+      const toggles = await page
+        .locator(".push-permissions-row .form-field")
+        .evaluateAll((fields) =>
+          fields.map((field) => field.getBoundingClientRect().top),
+        );
+      expect(new Set(toggles).size).toBe(1);
+      await expect(
+        page.getByLabel("Create", { exact: true }),
+      ).not.toBeChecked();
+      await expect(page.getByLabel("Update", { exact: true })).toBeChecked();
+      await expect(
+        page.getByLabel("Delete", { exact: true }),
+      ).not.toBeChecked();
+    }
+    if (entity.path === "git/repositories")
+      await expect(
+        page.getByLabel("Canonical HTTPS destination"),
+      ).toHaveAttribute("readonly", "");
     await capture(page, "detail-edit", true);
     if (entity.path.endsWith("credentials")) {
       await page
@@ -419,10 +579,19 @@ for (const entity of entities) {
         .click();
       await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
     }
-    if (entity.path === "http/grants")
-      await page
-        .getByRole("button", { name: "Edit grant", exact: true })
-        .click();
+    await expect(page.getByTestId("detail-context")).toContainText(id);
+    await expect(
+      page.locator(".detail-section dt").filter({ hasText: /^ID$/ }),
+    ).toHaveCount(0);
+    if (entity.path === "http/grants") {
+      await expect(
+        page.getByRole("heading", { name: "Edit grant", exact: true }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Agent", { exact: true })).toHaveAttribute(
+        "readonly",
+        "",
+      );
+    }
     await page
       .getByRole("button", {
         name:
@@ -490,10 +659,6 @@ for (const entity of entities) {
       mode = "populated";
     }
     await nav(`/${id}`);
-    if (entity.path === "http/grants")
-      await page
-        .getByRole("button", { name: "Edit grant", exact: true })
-        .click();
     const editField = page.getByLabel(
       entity.path.endsWith("grants") ? "Description (optional)" : "Name",
       { exact: true },
@@ -544,10 +709,6 @@ for (const entity of entities) {
         page.getByRole("button", { name: "Review changes", exact: true }),
       ).toBeEnabled();
     } else await nav(`/${id}`);
-    if (entity.path === "http/grants")
-      await page
-        .getByRole("button", { name: "Edit grant", exact: true })
-        .click();
     await editField.fill("Pending synthetic draft");
     mutationMode = "pending";
     await page

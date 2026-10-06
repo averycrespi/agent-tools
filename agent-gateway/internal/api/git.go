@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -15,11 +14,11 @@ import (
 )
 
 type GitPolicyService interface {
-	ListGitRepositories(context.Context) ([]contract.GitRepository, error)
+	QueryGitRepositories(context.Context, authorization.GitCollectionQuery, string, int) (contract.QueryCollection[contract.GitRepository], error)
 	GetGitRepository(context.Context, string) (contract.GitRepository, error)
 	PutGitRepository(context.Context, string, string, contract.GitRepositoryDefinition) (contract.GitRepository, error)
 	DeleteGitRepository(context.Context, string, string) error
-	ListGitGrants(context.Context) ([]contract.GitGrant, error)
+	QueryGitGrants(context.Context, authorization.GitCollectionQuery, string, int) (contract.QueryCollection[contract.GitGrant], error)
 	GetGitGrant(context.Context, string) (contract.GitGrant, error)
 	PutGitGrant(context.Context, string, string, authorization.GitGrantInput) (contract.GitGrant, error)
 	DeleteGitGrant(context.Context, string, string) error
@@ -57,55 +56,11 @@ func gitPrecondition(w http.ResponseWriter, r *http.Request, kind, id string) (s
 	return revision, true
 }
 
-// Collections are bounded identity-ordered reads with explicit ID continuation,
-// not resumable policy snapshots or authority for later mutation.
-func gitCollection[T any](w http.ResponseWriter, r *http.Request, kind string, load func() ([]T, error), identity func(T) string) {
-	if !bodyless(r) {
-		writeProblem(w, contract.ProblemMalformedRequest)
-		return
-	}
-	query, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil {
-		writeProblem(w, contract.ProblemMalformedRequest)
-		return
-	}
-	limit, after, problem := parseCollectionQuery(query, kind)
-	if problem != "" {
-		writeProblem(w, problem)
-		return
-	}
-	items, err := load()
-	if err != nil {
-		writeGitPolicyError(w, err)
-		return
-	}
-	start := 0
-	if after != "" {
-		found := false
-		for i, item := range items {
-			if identity(item) == after {
-				start = i + 1
-				found = true
-				break
-			}
-		}
-		if !found {
-			writeProblem(w, contract.ProblemStaleCursor)
-			return
-		}
-	}
-	end := min(start+limit, len(items))
-	var next *string
-	if end < len(items) {
-		cursor := encodeCursor(kind, identity(items[end-1]))
-		next = &cursor
-	}
-	writeJSON(w, http.StatusOK, contract.QueryCollection[T]{Collection: contract.Collection[T]{Items: items[start:end], NextCursor: next}, CollectionRange: contract.CollectionRange{TotalCount: len(items), Offset: start}})
-}
-
 func (h *Handler) gitRepositories(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method == http.MethodGet && id == "" {
-		gitCollection(w, r, "git_repositories", func() ([]contract.GitRepository, error) { return h.gitPolicies.ListGitRepositories(r.Context()) }, func(g contract.GitRepository) string { return g.ID })
+		gitCollection(w, r, "git_repositories", func(q authorization.GitCollectionQuery, cursor string, limit int) (contract.QueryCollection[contract.GitRepository], error) {
+			return h.gitPolicies.QueryGitRepositories(r.Context(), q, cursor, limit)
+		})
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -181,7 +136,9 @@ func (h *Handler) gitRepositories(w http.ResponseWriter, r *http.Request, id str
 
 func (h *Handler) gitGrants(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method == http.MethodGet && id == "" {
-		gitCollection(w, r, "git_grants", func() ([]contract.GitGrant, error) { return h.gitPolicies.ListGitGrants(r.Context()) }, func(g contract.GitGrant) string { return g.ID })
+		gitCollection(w, r, "git_grants", func(q authorization.GitCollectionQuery, cursor string, limit int) (contract.QueryCollection[contract.GitGrant], error) {
+			return h.gitPolicies.QueryGitGrants(r.Context(), q, cursor, limit)
+		})
 		return
 	}
 	if r.URL.RawQuery != "" {

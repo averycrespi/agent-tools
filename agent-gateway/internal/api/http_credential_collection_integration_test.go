@@ -32,6 +32,14 @@ func TestIntegrationHTTPCredentialCollectionFiltersAndCursorBinding(t *testing.T
 		require.NotContains(t, result.Body.String(), "rotation-canary")
 		return page
 	}
+	named := get("sort=name&limit=1")
+	require.Equal(t, "Earlier needle", named.Items[0].Name)
+	require.NotNil(t, named.NextCursor)
+	namedNext := get("sort=name&direction=ascending&limit=1&cursor=" + url.QueryEscape(*named.NextCursor))
+	require.Equal(t, "Later ordinary", namedNext.Items[0].Name)
+	require.Equal(t, 1, namedNext.Offset)
+	changedSort := perform(handler, http.MethodGet, "/api/v2/http/credentials?sort=name&direction=descending&cursor="+url.QueryEscape(*named.NextCursor), "", headers)
+	require.Equal(t, 409, changedSort.Code)
 	first := get("limit=1")
 	require.Equal(t, 2, first.TotalCount)
 	require.Equal(t, "Later ordinary", first.Items[0].Name)
@@ -49,7 +57,7 @@ func TestIntegrationHTTPCredentialCollectionFiltersAndCursorBinding(t *testing.T
 	restartedResult := perform(restart(), http.MethodGet, "/api/v2/http/credentials?limit=1&cursor="+url.QueryEscape(*first.NextCursor), "", headers)
 	require.Equal(t, 409, restartedResult.Code, restartedResult.Body.String())
 	require.Contains(t, restartedResult.Body.String(), "stale_cursor")
-	for _, query := range []string{"name=", "name=x&name=y", "status=active", "recipe=" + url.QueryEscape(strings.Repeat("é", 129)), "boundary=a%0Ab", "secret=x", "sort=name", "cursor=bad", "cursor=a&cursor=b"} {
+	for _, query := range []string{"name=", "name=x&name=y", "status=active", "recipe=" + url.QueryEscape(strings.Repeat("é", 129)), "boundary=a%0Ab", "secret=x", "sort=unknown", "direction=ascending", "sort=name&sort=status", "sort=name&direction=up", "cursor=bad", "cursor=a&cursor=b"} {
 		result := perform(handler, http.MethodGet, "/api/v2/http/credentials?"+query, "", headers)
 		require.Equal(t, 400, result.Code, query)
 	}

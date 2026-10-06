@@ -52,6 +52,63 @@ func TestGitTrafficReadsBindHistoryAndPreserveReports(t *testing.T) {
 	require.ErrorIs(t, err, ErrStaleCursor)
 }
 
+func TestGitTrafficFiltersSelectRecordedHistory(t *testing.T) {
+	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
+	traffic, _ := trafficFixture(t, nil, nil)
+	audits.traffic = traffic
+	reader, err := NewReadService(audits, authority)
+	require.NoError(t, err)
+	for n := 1; n <= 5; n++ {
+		a := gitTrafficAdmission(n)
+		a.Policy = &contract.GitTrafficPolicy{RepositoryName: "Recorded library", RepositoryURL: "https://example.com:443/team/repo", Grants: []contract.GitRevisionRef{}, Updates: 1}
+		if n == 5 {
+			a.Policy.RepositoryName = "Renamed repository"
+		}
+		if n == 4 {
+			a.Allowed = false
+		}
+		observation := recordGit(t, traffic, a)
+		if n <= 2 {
+			c := gitTrafficCompletion()
+			c.ReportedResult = "reported_success"
+			recordGitCompletion(t, traffic, observation, c)
+		}
+	}
+	filter := contract.GitTrafficFilters{Operation: "push", Repository: "libray", Admission: "allowed", Transport: "complete", Report: "reported_success"}
+	page, err := reader.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1, Filters: filter})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	require.Equal(t, invocationID(2), page.Items[0].Admission.ID)
+	require.NotNil(t, page.NextCursor)
+	older, err := reader.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1, Filters: filter, Cursor: *page.NextCursor})
+	require.NoError(t, err)
+	require.Equal(t, invocationID(1), older.Items[0].Admission.ID)
+	require.Nil(t, older.NextCursor)
+	changed := filter
+	changed.Repository = "Renamed"
+	_, err = reader.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1, Filters: changed, Cursor: *page.NextCursor})
+	require.ErrorIs(t, err, ErrStaleCursor)
+	for _, tc := range []struct {
+		filters contract.GitTrafficFilters
+		count   int
+	}{
+		{contract.GitTrafficFilters{Repository: "Recorded"}, 4},
+		{contract.GitTrafficFilters{Repository: "Renamed"}, 1},
+		{contract.GitTrafficFilters{Repository: gitTrafficAdmission(1).Repository.ID}, 5},
+		{contract.GitTrafficFilters{Admission: "blocked", Transport: "not_dispatched", Report: "unknown"}, 1},
+		{contract.GitTrafficFilters{Transport: "unknown"}, 2},
+		{contract.GitTrafficFilters{Report: "not_a_push"}, 0},
+	} {
+		result, err := reader.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 50, Filters: tc.filters})
+		require.NoError(t, err)
+		require.Len(t, result.Items, tc.count)
+	}
+	for _, invalid := range []contract.GitTrafficFilters{{Operation: "delete"}, {Transport: "success"}, {Report: "complete"}, {Admission: "yes"}, {Repository: "\x00"}} {
+		_, err = reader.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1, Filters: invalid})
+		require.ErrorIs(t, err, ErrInvalidInput)
+	}
+}
+
 func TestGitTrafficReportRequiresCompletePushEvidence(t *testing.T) {
 	a := gitTrafficAdmission(1)
 	c := gitTrafficCompletion()

@@ -158,18 +158,24 @@ export async function runHTTPTraffic(
       .click();
     await expect(page).toHaveURL(/#\/http\/traffic$/);
     await expect(
-      page.getByRole("button", { name: "Load older", exact: true }),
+      page.getByRole("button", {
+        name: "Load older HTTP traffic records",
+        exact: true,
+      }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Load older", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: "Load older HTTP traffic records",
+        exact: true,
+      })
+      .click();
     await expect(page.getByRole("table")).toContainText("Café Investigator");
     await destinationSearch.fill("GiTHuB");
     await expect(
       page.getByText("2 matching HTTP traffic records loaded", { exact: true }),
     ).toBeVisible();
     expect(searchRequests.at(-1)!.searchParams.has("cursor")).toBe(false);
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     await expect(page).toHaveURL(/#\/http\/traffic$/);
     await page
       .getByRole("button", { name: "Resume live", exact: true })
@@ -231,9 +237,7 @@ export async function runHTTPTraffic(
     await page
       .getByRole("link", { name: "Back to HTTP traffic", exact: true })
       .click();
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .click();
+    await page.getByRole("button", { name: "Reset", exact: true }).click();
     // These three rows came through the real proxy, durable store and public API.
     for (const label of [
       "Protocol upgrades are not supported",
@@ -658,7 +662,51 @@ export async function runHTTPTraffic(
   failHistory = false;
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(historySummary).toHaveText("2 HTTP traffic records loaded");
-  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  let releaseOlder: (() => void) | undefined;
+  let markOlderSettled!: () => void;
+  const olderSettled = new Promise<void>((resolve) => {
+    markOlderSettled = resolve;
+  });
+  const heldOlder = async (route: import("@playwright/test").Route) => {
+    if (!new URL(route.request().url()).searchParams.has("cursor"))
+      return route.fallback();
+    await new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    try {
+      await route.fulfill({ json: { items: [summary(1)], next_cursor: null } });
+    } catch {
+      // Live off aborts this held browser request before its late response.
+    } finally {
+      markOlderSettled();
+    }
+  };
+  await page.route("**/api/v2/http/traffic?**", heldOlder);
+  await page
+    .getByRole("button", {
+      name: "Load older HTTP traffic records",
+      exact: true,
+    })
+    .click();
+  await expect.poll(() => releaseOlder !== undefined).toBe(true);
+  await page.getByRole("switch", { name: "Live mode", exact: true }).click();
+  await expect(
+    page.getByRole("button", {
+      name: "Load older HTTP traffic records",
+      exact: true,
+    }),
+  ).toBeEnabled();
+  releaseOlder!();
+  await olderSettled;
+  await page.unroute("**/api/v2/http/traffic?**", heldOlder);
+  await expect(historySummary).toHaveText("2 HTTP traffic records loaded");
+  await page.getByRole("switch", { name: "Live mode", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Load older HTTP traffic records",
+      exact: true,
+    })
+    .click();
   await expect(
     page.getByText("3 HTTP traffic records loaded", { exact: true }),
   ).toBeVisible();
@@ -666,7 +714,7 @@ export async function runHTTPTraffic(
     page.getByText("Live paused while viewing older results", { exact: true }),
   ).toBeVisible();
   const traversalNotice = page.getByText(
-    "The previous traffic traversal was discarded. Reading the newest matching page.",
+    "Showing the latest entries. Older results could not be continued.",
     { exact: true },
   );
   const expectRestartedTraversal = async () => {
@@ -701,7 +749,12 @@ export async function runHTTPTraffic(
   await live.focus();
   await page.keyboard.press("Space");
   await expect(live).not.toBeChecked();
-  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Load older HTTP traffic records",
+      exact: true,
+    })
+    .click();
   await expect(
     page.getByRole("button", { name: "Return to newest", exact: true }),
   ).toBeVisible();
@@ -724,7 +777,12 @@ export async function runHTTPTraffic(
   await expect(historySummary).toHaveText(
     "2 matching HTTP traffic records loaded",
   );
-  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Load older HTTP traffic records",
+      exact: true,
+    })
+    .click();
   await expect(historySummary).toHaveText(
     "3 matching HTTP traffic records loaded",
   );
@@ -849,10 +907,15 @@ export async function runHTTPTraffic(
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();
   stale = true;
-  await page.getByRole("button", { name: "Load older", exact: true }).click();
+  await page
+    .getByRole("button", {
+      name: "Load older HTTP traffic records",
+      exact: true,
+    })
+    .click();
   await expect(
     page.getByText(
-      "History changed. Restarted at the newest matching traffic.",
+      "Showing the latest entries. Older results could not be continued.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -1047,9 +1110,7 @@ export async function runHTTPTraffic(
   });
   await page.setViewportSize({ width: 1280, height: 900 });
   connectCases = true;
-  await page
-    .getByRole("button", { name: "Clear filters", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(
     page.getByText("3 HTTP traffic records loaded", { exact: true }),
@@ -1134,9 +1195,7 @@ export async function runHTTPTraffic(
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();
-  await page
-    .getByRole("button", { name: "Clear filters", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
   await page.locator(`a[href*="/http/traffic/${id(6)}"]`).click();
   await expect(page.getByText("CONNECT denied", { exact: true })).toHaveCount(
     2,

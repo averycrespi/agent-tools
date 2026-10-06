@@ -185,12 +185,12 @@ export async function runServerManagementCanary(
       .locator('section[data-testid="server-status-details"]')
       .count()) !== 1 ||
     (await serverStatus
+      .locator('[data-testid="server-context"] [data-testid="server-id"]')
+      .textContent()) !== serverID ||
+    (await page
       .locator(
         '[data-testid="server-status-details"] [data-testid="server-id"]',
       )
-      .textContent()) !== serverID ||
-    (await page
-      .locator('[data-testid="server-context"] [data-testid="server-id"]')
       .count()) !== 0 ||
     (await serverStatus
       .getByRole("button", { name: "Copy server ID" })
@@ -296,7 +296,7 @@ export async function runServerManagementCanary(
   await page.locator('[data-testid="delete-server"]').click();
   const body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
-    "Configuration",
+    "Edit server",
     "best-effort remote revocation",
     "immutable namespace",
   ])
@@ -1742,11 +1742,16 @@ export async function runServerOperations(
       `terminal operation continued polling (${beforePoll}, ${hiddenReads}, ${terminalReads} -> ${detailPollReads})`,
     );
   if (controlledClock) await page.clock.resume();
+  await expect(
+    page
+      .locator('[data-testid="operation-detail"] dt')
+      .filter({ hasText: /^Reason$/ }),
+  ).toHaveCount(0);
   await captureDetailLayout(page, "server-operation-succeeded");
   const detailText =
     (await page.locator('[data-testid="operation-detail"]').textContent()) ??
     "";
-  if (!detailText.includes("Back to operations"))
+  if (!detailText.includes("Back to server operations"))
     fail("operation detail omitted contextual back navigation");
   if (
     detailText.includes("Overview") ||
@@ -2713,6 +2718,11 @@ export async function runAuthFlows(
     (await page.locator('[data-testid="start-auth-flow"]').count()) !== 0
   )
     fail("exchanging auth flow offered a mutation");
+  await expect(
+    page
+      .locator('[data-testid="auth-flow-detail"] dt')
+      .filter({ hasText: /^Reason$/ }),
+  ).toHaveCount(0);
   await captureDetailLayout(page, "oauth-flow-exchanging-detail");
   showExchangeInList = true;
   await page.evaluate((id) => {
@@ -3817,7 +3827,7 @@ export async function runServerCatalogReads(
   await page.waitForFunction(
     () =>
       document.activeElement ===
-      document.querySelector('[data-testid="server-context"] h2'),
+      document.querySelector('[data-testid="server-context"] h1'),
   );
   if (
     await page.evaluate(
@@ -3836,7 +3846,7 @@ export async function runServerCatalogReads(
     if (!body.includes(phrase)) fail(`server detail omitted ${phrase}`);
   if (body.includes("Authorize server"))
     fail("non-OAuth server offered OAuth authorization");
-  const serverTitle = page.locator('[data-testid="server-context"] h2');
+  const serverTitle = page.locator('[data-testid="server-context"] h1');
   await expect(serverTitle).toHaveText(activeServer.display_name);
   if (!hasCaptureOwner(page)) {
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -3922,7 +3932,15 @@ export async function runServerCatalogReads(
     )
     .click();
   await page.locator('[data-testid="descriptor-detail"]').waitFor();
-  await expect(serverTitle).toHaveText(activeServer.display_name);
+  await expect(serverTitle).toHaveCount(0);
+  await expect(page.locator(".subnav")).toHaveCount(0);
+  await expect(page.locator("#descriptor-detail-title")).toBeFocused();
+  await expect(page.getByTestId("detail-context")).toContainText(
+    serverReadIDs.retiredTool,
+  );
+  await expect(
+    page.getByRole("link", { name: activeServer.display_name, exact: true }),
+  ).toHaveAttribute("href", `#/mcp/servers/${serverReadIDs.active}`);
   await expect(page.locator("#descriptor-detail-title")).toHaveText(
     "MCP Tool: server.retired-tool",
   );
@@ -3944,12 +3962,12 @@ export async function runServerCatalogReads(
       .count()) !== 0 ||
     (await page
       .getByRole("navigation", { name: "Tool navigation" })
-      .getByRole("link", { name: "Back to tools", exact: true })
+      .getByRole("link", { name: "Back to server tools", exact: true })
       .getAttribute("href")) !==
       `#/mcp/servers/${serverReadIDs.active}?tab=tools` ||
     (await page
       .getByRole("navigation", { name: "Tool navigation" })
-      .getByRole("link", { name: "Back to catalog", exact: true })
+      .getByRole("link", { name: "All MCP tools", exact: true })
       .getAttribute("href")) !== "#/mcp/tools"
   )
     fail(

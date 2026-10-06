@@ -376,8 +376,8 @@ export async function runHTTPGrants(
       page.getByRole("heading", { name: "Grant details", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Edit HTTP grant", exact: true }),
-    ).toHaveCount(0);
+      page.getByRole("heading", { name: "Edit grant", exact: true }),
+    ).toBeVisible();
     const facts = page.getByRole("region", {
       name: "Grant details",
       exact: true,
@@ -870,10 +870,8 @@ export async function runHTTPGrants(
   await captureState("detail-error");
   await page.unroute(editPath);
   await page.reload();
-  await page.getByRole("button", { name: "Edit grant", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Edit HTTP grant" }),
-  ).toBeVisible();
+  await expect(page.locator("#http-grant-editor")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Edit grant" })).toBeVisible();
   const actionBounds = await page
     .locator("#http-grant-editor .form-actions")
     .last()
@@ -884,8 +882,11 @@ export async function runHTTPGrants(
         y: button.getBoundingClientRect().y,
       })),
     );
-  expect(actionBounds[2]!.height).toBe(actionBounds[0]!.height);
-  expect(actionBounds[2]!.y).toBe(actionBounds[0]!.y);
+  expect(actionBounds[1]!.height).toBe(actionBounds[0]!.height);
+  expect(actionBounds[1]!.y).toBe(actionBounds[0]!.y);
+  await expect(
+    page.getByRole("region", { name: "Delete grant", exact: true }),
+  ).toBeVisible();
   await page.getByLabel("Description (optional)").fill("Retained local draft");
   const currentResponse = await api(
     `/api/v2/http/grants/${grants[0]!.id}`,
@@ -1012,10 +1013,9 @@ export async function runHTTPGrants(
   await expect(
     page.getByRole("heading", { name: "Retained local draft", exact: true }),
   ).toBeVisible();
-  await expect(page.locator("#http-grant-editor")).toHaveCount(0);
+  await expect(page.locator("#http-grant-editor")).toBeVisible();
   await captureState("detail-conflict-reviewed-save");
-  await page.getByRole("button", { name: "Edit grant", exact: true }).click();
-  await expect(page.getByTestId("toast")).toHaveCount(0);
+  await expect(page.getByTestId("toast")).toContainText("Grant saved");
   await expect(page.getByLabel("Description (optional)")).toBeVisible();
   await page.getByLabel("Description (optional)").fill("Retained local draft");
   await page.getByLabel("Grant type").selectOption("block_destination");
@@ -1031,7 +1031,7 @@ export async function runHTTPGrants(
     // Isolate each acknowledgement fault from the previous save's pending
     // invalidation reads, which intentionally disable mutation controls.
     await page.reload();
-    await page.getByRole("button", { name: "Edit grant", exact: true }).click();
+    await expect(page.locator("#http-grant-editor")).toBeVisible();
     await expect(page.getByLabel("Description (optional)")).toBeVisible();
     await page.getByLabel("Description (optional)").fill(draft);
     let editCalls = 0;
@@ -1093,7 +1093,7 @@ export async function runHTTPGrants(
         .locator("#http-grant-editor")
         .getByRole("button", { name: "Cancel", exact: true }),
     ).toBeDisabled();
-    await page.getByRole("button", { name: "Edit grant", exact: true }).click();
+    await expect(page.locator("#http-grant-editor")).toBeVisible();
     await expect(
       page.getByText("Outcome uncertain", { exact: true }),
     ).toBeVisible();

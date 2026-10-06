@@ -48,6 +48,43 @@ export async function capture(
 ): Promise<void> {
   const scenario = owners.get(page);
   if (!scenario) return;
+  const recordID = new URL(page.url()).hash.split("?")[0]!.split("/").at(-1);
+  const identity = page.locator(
+    '[data-testid="detail-context"], [data-testid="server-context"]',
+  );
+  if (
+    /^[0-9A-HJKMNP-TV-Z]{26}$/.test(recordID ?? "") &&
+    (await identity.count()) === 1
+  ) {
+    await expect(identity.locator("h1")).toHaveCount(1);
+    await expect(identity).toContainText(recordID!);
+    await expect(
+      identity
+        .locator(":scope > .technical-value, :scope > .copyable-value code")
+        .filter({ hasText: new RegExp(`^${recordID}$`) }),
+    ).toHaveCount(1);
+    const firstTask = identity.locator("xpath=following-sibling::section[1]");
+    const family = new URL(page.url()).hash.split("?")[0]!.split("/").at(-2)!;
+    const primaryLabels: Record<string, string> = {
+      agents: "Agent ID",
+      grants: "Grant ID",
+      credentials: "Credential ID",
+      repositories: "Repository ID",
+      servers: "Server ID",
+      descriptors: "Descriptor ID",
+      operations: "Operation ID",
+      "auth-flows": "Flow ID",
+      "access-requests": "Request ID",
+      invocations: "Invocation ID",
+      traffic: "Traffic ID",
+      "audit-log": "Event ID",
+    };
+    await expect(
+      firstTask
+        .locator(".detail-facts dt")
+        .filter({ hasText: new RegExp(`^(ID|${primaryLabels[family]})$`) }),
+    ).toHaveCount(0);
+  }
   const key = `${state}/${reflow}`;
   const seen = captured.get(page) ?? new Set<string>();
   if (seen.has(key)) return;
@@ -78,6 +115,23 @@ export async function capture(
         .getByLabel("Theme preference", { exact: true })
         .selectOption(theme, { force: true });
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+      for (const control of await page
+        .locator(
+          ".form-field input[readonly]:visible:not(:disabled), .form-field textarea[readonly]:visible:not(:disabled)",
+        )
+        .all()) {
+        await expect(control).not.toBeEditable();
+        expect(
+          await control.evaluate((element) => {
+            const style = getComputedStyle(element);
+            return (
+              style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+              style.color !== style.backgroundColor &&
+              style.borderStyle !== "none"
+            );
+          }),
+        ).toBe(true);
+      }
       for (const [viewport, width, height] of [
         ["desktop", 1440, 900],
         ["mobile", 390, 844],

@@ -92,9 +92,32 @@ agent-gateway history export --json
 agent-gateway history export --after-sequence 123 --limit 100 --json
 ```
 
-To retain output, redirect it to a new protected file using your shell's no-clobber
-and owner-only permissions. The browser's **System → Backups → Export optional traffic
-history** reads the same bounded JSON. Neither interface repairs or removes history.
+For a browser file, use **System → Backups → Traffic history export → Download JSON**.
+The always-visible card is separate from the complete Control-plane backups card.
+It reads all records retained at the first page's high-water, excluding later arrivals,
+then hands one JSON file to your browser. Progress reports actual received records,
+pages and bytes. Cancel, navigation and sign-out stop the export. Backup controls
+remain independently usable while reading or after a history failure. The file can
+contain identifying data; choose private storage and do not share it indiscriminately.
+
+Browser traversal is limited to 64 MiB of response data, two minutes and 4,096 pages;
+each request is limited to five seconds and each response to 900 KiB. These are safety
+limits, not a promise that every retained history fits. Changed generation/pruning,
+invalid coverage, interruption, read failure or a limit stops the export with **no
+partial file**. The filename contains only a timestamp, not installation or record IDs.
+The file's `agent-gateway-retained-traffic-v1` envelope retains original JSON pages,
+including number tokens, plus initial/final coverage and non-atomicity metadata.
+
+If the browser limit is reached, use the bounded CLI commands above to retain
+separate page files. Redirect each response to a new protected file using your shell's
+no-clobber and owner-only permissions. Record the first high-water and generation;
+advance `--after-sequence` only to the preceding response's `next_sequence`, checking
+pruning/generation and forward progress each time. Stop on a change, error or stall,
+and stop once the initial high-water is reached rather than chasing arrivals. The CLI
+reads a new bounded snapshot each time and can include newer arrivals in the final
+page: keep that coverage visible, never concatenate pages and label them an atomic or
+complete audit. It does not currently automate a full-history file. Neither interface
+repairs or removes history.
 
 Each response identifies generation, capture time, shared high-water/pruning, retained
 count, returned records, next sequence and truncation. It contains at most 256 total

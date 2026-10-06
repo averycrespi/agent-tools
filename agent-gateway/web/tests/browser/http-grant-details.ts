@@ -18,7 +18,7 @@ export async function exerciseGrantDetails(
   await capture("comparison-mcp-grant");
   const url = `${baseURL}/api/v2/http/grants/${grantID}`;
   await page.goto(`${baseURL}/#/http/grants/${grantID}`);
-  const edit = page.getByRole("button", { name: "Edit grant", exact: true });
+  const heading = page.getByTestId("detail-context").locator("h1");
   const editor = page.locator("#http-grant-editor");
   const description = page.getByLabel("Description (optional)");
   const review = page.getByRole("button", {
@@ -34,16 +34,19 @@ export async function exerciseGrantDetails(
     if (request.url() === url && ["PATCH", "DELETE"].includes(request.method()))
       writes++;
   });
-  await edit.focus();
-  await page.keyboard.press("Enter");
-  await expect(description).toBeFocused();
+  await expect(heading).toBeFocused();
+  await expect(editor).toBeVisible();
+  await expect(page.getByLabel("Agent", { exact: true })).toHaveAttribute(
+    "readonly",
+    "",
+  );
   await expect(description).toHaveValue("Test block_requests");
   await editor.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(editor).toHaveCount(0);
-  await expect(edit).toBeFocused();
+  await expect(editor).toBeVisible();
+  await expect(heading).toBeFocused();
   expect(writes).toBe(0);
   for (const action of ["Add method", "Remove method"]) {
-    await edit.click();
+    await expect(editor).toBeVisible();
     await expect(
       page.getByRole("textbox", { name: "Method 1", exact: true }),
     ).toHaveValue("GET");
@@ -84,10 +87,10 @@ export async function exerciseGrantDetails(
       .getByRole("dialog")
       .getByRole("button", { name: "Discard changes", exact: true })
       .click();
-    await expect(edit).toBeFocused();
+    await expect(heading).toBeFocused();
     expect(writes).toBe(0);
   }
-  await edit.click();
+  await expect(editor).toBeVisible();
   await description.fill("Unsaved draft");
   await page
     .getByRole("link", { name: "Back to HTTP grants", exact: true })
@@ -125,9 +128,9 @@ export async function exerciseGrantDetails(
     .getByRole("dialog")
     .getByRole("button", { name: "Discard changes", exact: true })
     .click();
-  await expect(edit).toBeFocused();
+  await expect(heading).toBeFocused();
   expect(writes).toBe(0);
-  await edit.click();
+  await expect(editor).toBeVisible();
   await expect(description).toHaveValue("Test block_requests");
   await description.fill("Acknowledged grant");
   let release!: () => void;
@@ -189,7 +192,7 @@ export async function exerciseGrantDetails(
     "aria-live",
     "polite",
   );
-  await expect(editor).toHaveCount(0);
+  await expect(editor).toBeVisible();
   await expect(
     page.getByRole("heading", {
       level: 1,
@@ -218,7 +221,7 @@ export async function exerciseGrantDetails(
       exact: true,
     }),
   ).toBeVisible();
-  await edit.click();
+  await expect(editor).toBeVisible();
   await expect(description).toHaveValue("Acknowledged grant");
   await description.fill("Rejected draft");
   await page.route(url, async (route) => {
@@ -276,13 +279,13 @@ export async function exerciseGrantDetails(
       exact: true,
     }),
   ).toBeVisible();
-  await expect(editor).toHaveCount(0);
-  await expect(edit).toBeDisabled();
+  await expect(editor).toBeVisible();
+  await expect(review).toBeDisabled();
   expect(writes).toBe(3);
   await capture("detail-saved-read-failed");
   await page.unroute(url);
   await page.getByRole("button", { name: "Refresh current view" }).click();
-  await expect(edit).toBeEnabled();
+  await expect(review).toBeEnabled();
   await expect(
     page.getByText("Grant saved; refresh unavailable", { exact: true }),
   ).toHaveCount(0);
@@ -385,7 +388,7 @@ export async function exerciseGrantDetails(
   await page.unroute(`${baseURL}/api/v2/http/credentials?**`);
   await page.unroute(url);
   await page.reload();
-  await edit.click();
+  await expect(editor).toBeVisible();
   const deletion = editor.getByRole("button", {
     name: "Delete grant",
     exact: true,

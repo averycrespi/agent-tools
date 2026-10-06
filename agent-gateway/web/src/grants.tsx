@@ -914,7 +914,7 @@ function GrantDescriptionEditor({
     >
       <div class="panel-heading">
         <div>
-          <h2 id="grant-description-title">Description</h2>
+          <h2 id="grant-description-title">Edit grant description</h2>
         </div>
       </div>
       <form
@@ -1372,7 +1372,7 @@ export function Grants({
     return (
       <div class="domain-view" data-testid="grant-detail">
         <nav class="detail-navigation" aria-label="Grant navigation">
-          <a href="#/mcp/grants">Back to grants</a>
+          <a href="#/mcp/grants">Back to MCP Grants</a>
         </nav>
         <header class="detail-context" data-testid="detail-context">
           <div class="detail-context-heading">
@@ -1433,12 +1433,8 @@ export function Grants({
               </dd>
             </div>
           </dl>
-          <h3>Identity and timing</h3>
+          <h3>Timing</h3>
           <dl class="detail-facts">
-            <div>
-              <dt>Grant ID</dt>
-              <dd class="technical-value">{detail.id}</dd>
-            </div>
             <div>
               <dt>Expires</dt>
               <dd>
@@ -1480,6 +1476,13 @@ export function Grants({
 interface GrantTableRow extends Grant {
   principalDisplayName: string;
   serverDisplayName: string;
+  toolID: string | undefined;
+}
+
+function grantScope(grant: Grant): string {
+  return (
+    grant.upstreamName ?? (grant.readOnly ? "Read-only tools" : "All tools")
+  );
 }
 
 function GrantCollection({
@@ -1506,6 +1509,8 @@ function GrantCollection({
         "identity",
         "principal",
         "target",
+        "server",
+        "scope",
         "effect",
         "state",
       ]) {
@@ -1517,15 +1522,21 @@ function GrantCollection({
         session,
         `/api/v2/mcp/grants?${params}`,
         (value) => {
+          const hasTool =
+            typeof value === "object" &&
+            value !== null &&
+            Object.hasOwn(value, "tool_id");
           const item = record(value, [
             "grant",
             "principal_display_name",
             "server_display_name",
+            ...(hasTool ? ["tool_id"] : []),
           ]);
           return {
             ...decodeGrant(item.grant),
             principalDisplayName: text(item.principal_display_name),
             serverDisplayName: text(item.server_display_name),
+            toolID: hasTool ? id(item.tool_id) : undefined,
           };
         },
         signal,
@@ -1536,9 +1547,6 @@ function GrantCollection({
   );
   const principalNames = new Map(
     items.map((grant) => [grant.principalID, grant.principalDisplayName]),
-  );
-  const serverNames = new Map(
-    items.map((grant) => [grant.serverID, grant.serverDisplayName]),
   );
   return (
     <div class="domain-view" data-testid="grants-view">
@@ -1558,6 +1566,11 @@ function GrantCollection({
           initialSort={{ key: "description", direction: "ascending" }}
           additionalSorts={[
             { key: "id", label: "Grant ID", sortValue: (grant) => grant.id },
+            {
+              key: "target",
+              label: "Server",
+              sortValue: (grant) => grant.serverDisplayName,
+            },
           ]}
           remote={controls}
           itemNames={{ singular: "grant", plural: "grants" }}
@@ -1580,13 +1593,31 @@ function GrantCollection({
               value: (grant) => principalNames.get(grant.principalID) ?? "",
               literalValues: (grant) => [grant.principalID],
             },
+            ...(resolved.location.query.filter_target === undefined
+              ? []
+              : [
+                  {
+                    key: "target",
+                    label: "Server or tool (legacy)",
+                    type: "text" as const,
+                    value: (grant: GrantTableRow) =>
+                      `${grant.serverDisplayName} ${grant.upstreamName ?? "Entire server"}`,
+                    literalValues: (grant: GrantTableRow) => [grant.serverID],
+                  },
+                ]),
             {
-              key: "target",
-              label: "Target",
+              key: "server",
+              label: "Server",
               type: "text",
-              value: (grant) =>
-                `${serverNames.get(grant.serverID) ?? "Gateway self-service tools"} ${grant.upstreamName ?? "Entire server"}`,
+              value: (grant) => grant.serverDisplayName,
               literalValues: (grant) => [grant.serverID],
+            },
+            {
+              key: "scope",
+              label: "Scope",
+              type: "text",
+              value: grantScope,
+              literalValues: (grant) => (grant.toolID ? [grant.toolID] : []),
             },
             {
               key: "effect",
@@ -1633,31 +1664,54 @@ function GrantCollection({
               sortValue: (grant) =>
                 principalNames.get(grant.principalID) ?? grant.principalID,
               render: (grant) => (
-                <a href={`#/agents/${grant.principalID}`}>
-                  {principalNames.get(grant.principalID) ??
-                    `Agent ${grant.principalID}`}
-                </a>
+                <TableIdentity
+                  primary={
+                    <a href={`#/agents/${grant.principalID}`}>
+                      {grant.principalDisplayName || grant.principalID}
+                    </a>
+                  }
+                  secondary={grant.principalID}
+                />
               ),
             },
             {
-              key: "target",
-              label: "Target",
+              key: "server",
+              label: "Server",
               role: "relation",
-              sortValue: (grant) =>
-                serverNames.get(grant.serverID) ?? grant.serverID,
+              sortValue: (grant) => grant.serverDisplayName,
               render: (grant) =>
                 grant.serverID === "00000000000000000000000000" ? (
-                  `Gateway self-service tools — ${grant.upstreamName ?? (grant.readOnly ? "Read-only tools" : "All tools")}`
+                  <TableIdentity
+                    primary="Gateway self-service tools"
+                    secondary={grant.serverID}
+                  />
                 ) : (
-                  <a href={`#/mcp/servers/${grant.serverID}?tab=tools`}>
-                    {serverNames.get(grant.serverID) ??
-                      `Server ${grant.serverID}`}
-                    {grant.upstreamName === null
-                      ? grant.readOnly
-                        ? " — Read-only tools"
-                        : " — All tools"
-                      : ` — ${grant.upstreamName}`}
+                  <TableIdentity
+                    primary={
+                      <a href={`#/mcp/servers/${grant.serverID}?tab=tools`}>
+                        {grant.serverDisplayName || grant.serverID}
+                      </a>
+                    }
+                    secondary={grant.serverID}
+                  />
+                ),
+            },
+            {
+              key: "scope",
+              label: "Scope",
+              role: "relation",
+              sortValue: grantScope,
+              render: (grant) =>
+                grant.toolID &&
+                grant.upstreamName !== null &&
+                grant.serverID !== "00000000000000000000000000" ? (
+                  <a
+                    href={`#/mcp/servers/${grant.serverID}/descriptors/${grant.toolID}`}
+                  >
+                    {grantScope(grant)}
                   </a>
+                ) : (
+                  grantScope(grant)
                 ),
             },
             {

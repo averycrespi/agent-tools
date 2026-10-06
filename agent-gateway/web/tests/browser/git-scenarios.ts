@@ -379,7 +379,7 @@ export async function runGit(
       r.request().method() === "PATCH" &&
       r.url().endsWith(`/git/repositories/${repository.id}`),
   );
-  await submitReview("Edit Git repository");
+  await submitReview("Edit repository");
   expect((await conflictResponse).status()).toBe(412);
   await page.unroute(`**/api/v2/git/repositories/${repository.id}`);
   await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
@@ -387,7 +387,7 @@ export async function runGit(
   );
   const editRepository = page.locator("section.panel").filter({
     has: page.getByRole("heading", {
-      name: "Edit Git repository",
+      name: "Edit repository",
       exact: true,
     }),
   });
@@ -420,7 +420,7 @@ export async function runGit(
   await page
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
-  await submitReview("Edit Git repository");
+  await submitReview("Edit repository");
   await expect(
     page.getByRole("heading", {
       name: "Retained repository draft",
@@ -464,7 +464,7 @@ export async function runGit(
       r.url().endsWith(`/git/repositories/${repository.id}`),
   );
   try {
-    await submitReview("Edit Git repository");
+    await submitReview("Edit repository");
     await requestDispatched;
     await expect(page.getByLabel("Name", { exact: true })).toBeDisabled();
     await expect(page.getByLabel("Alias 1", { exact: true })).toBeDisabled();
@@ -516,7 +516,7 @@ export async function runGit(
   await page
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
-  await submitReview("Edit Git repository");
+  await submitReview("Edit repository");
   await expect(
     page.getByRole("heading", {
       name: "Post-acknowledgement draft",
@@ -533,7 +533,7 @@ export async function runGit(
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
   await capture("grant-edit-review");
-  await submitReview("Edit Git grant");
+  await submitReview("Edit grant");
   await expect(
     page.getByRole("heading", { name: "Updated Git grant", exact: true }),
   ).toBeVisible();
@@ -549,13 +549,13 @@ export async function runGit(
     .getByRole("button", { name: "Review changes", exact: true })
     .click();
   await capture("credential-edit-review");
-  await submitReview("Edit Git credential");
+  await submitReview("Edit credential");
   await expect(
     page.getByRole("heading", { name: "Updated Git credential", exact: true }),
   ).toBeVisible();
   const rotateEditor = page.locator("section.panel").filter({
     has: page.getByRole("heading", {
-      name: "Rotate Git credential",
+      name: "Rotate secret",
       exact: true,
     }),
   });
@@ -574,7 +574,7 @@ export async function runGit(
       r.request().method() === "POST" &&
       r.url().endsWith(`/git/credentials/${credential.id}/rotate`),
   );
-  await submitReview("Rotate Git credential");
+  await submitReview("Rotate secret");
   const rotated = await (await rotationResponse).json();
   expect(rotated.available).toBe(true);
   await expect(page.getByLabel("Secret", { exact: true })).toHaveValue("");
@@ -604,7 +604,7 @@ export async function runGit(
   await page
     .getByRole("button", { name: "Review rotation", exact: true })
     .click();
-  await submitReview("Rotate Git credential");
+  await submitReview("Rotate secret");
   await expect(
     page.getByText("Change outcome unknown", { exact: true }),
   ).toBeVisible();
@@ -652,7 +652,7 @@ export async function runGit(
         r.request().method() === "DELETE" &&
         r.url().endsWith(`/git/${kind}/${id}`),
     );
-    await submitReview(`Delete Git ${singularName}`);
+    await submitReview(`Delete ${singularName}`);
     expect((await deletionResponse).status()).toBe(204);
     await expect(page.getByText(empty, { exact: true })).toBeVisible();
     const deleted = await context.request.get(

@@ -185,10 +185,12 @@ export class HTTPTrafficController {
     return () => this.listeners.delete(listener);
   }
   setLive(live: boolean): void {
+    this.views.cancelPanelRead("http-traffic");
     this.serial++;
-    this.value = { ...this.value, live };
+    this.continuation = null;
+    this.value = { ...this.value, live, loadingOlder: false };
     this.emit();
-    if (live && !this.value.paused) this.refresh();
+    if (!this.value.loaded || (live && !this.value.paused)) this.refresh();
   }
   refresh(): void {
     this.continuation = null;
@@ -203,6 +205,7 @@ export class HTTPTrafficController {
   async older(): Promise<void> {
     if (
       this.value.loadingOlder ||
+      this.value.error ||
       this.value.next === null ||
       this.value.items.length >= 500 ||
       this.value.key !== this.views.snapshot().viewKey ||
@@ -241,9 +244,9 @@ export class HTTPTrafficController {
         live: this.value.live,
         paused: this.value.paused,
         notice:
-          this.value.key === ""
-            ? ""
-            : "The previous traffic traversal was discarded. Reading the newest matching page.",
+          this.value.paused && location.segments.length === 1
+            ? "Showing the latest entries. Older results could not be continued."
+            : "",
       };
       this.emit();
     }
@@ -276,7 +279,8 @@ export class HTTPTrafficController {
           items: [],
           next: null,
           loaded: false,
-          notice: "History changed. Restarted at the newest matching traffic.",
+          notice:
+            "Showing the latest entries. Older results could not be continued.",
         };
         this.emit();
         response = await get(context, listPath(location.query, null));
@@ -285,9 +289,10 @@ export class HTTPTrafficController {
       if (page.items.length > 50) throw new Error("Invalid HTTP page size.");
       if (
         append &&
-        page.items.some((item) =>
-          this.value.items.some((prior) => prior.id === item.id),
-        )
+        (this.value.items.length + page.items.length > 500 ||
+          page.items.some((item) =>
+            this.value.items.some((prior) => prior.id === item.id),
+          ))
       )
         throw new Error("Repeated HTTP traffic evidence.");
       return { ...basis, kind: "page", page, append };
@@ -585,6 +590,13 @@ export function HTTPTraffic({
             ]}
           />
           <div class="history-continuation">
+            {current.loaded &&
+              current.next === null &&
+              !current.error &&
+              !current.olderError &&
+              panel?.status !== "error" && (
+                <span>No older HTTP traffic records</span>
+              )}
             {current.loaded && (
               <LoadedHistorySummary
                 count={current.items.length}
@@ -594,20 +606,25 @@ export function HTTPTraffic({
                 stale={current.error || panel?.status === "error"}
               />
             )}
-            {current.next !== null && current.items.length < 500 && (
-              <button
-                type="button"
-                disabled={current.loadingOlder}
-                onClick={() => void controller.older()}
-              >
-                {current.loadingOlder ? "Loading…" : "Load older"}
-              </button>
-            )}
+            {current.next !== null &&
+              current.items.length < 500 &&
+              !current.error &&
+              panel?.status !== "error" && (
+                <button
+                  type="button"
+                  disabled={current.loadingOlder}
+                  onClick={() => void controller.older()}
+                >
+                  {current.loadingOlder
+                    ? "Loading…"
+                    : "Load older HTTP traffic records"}
+                </button>
+              )}
           </div>
           {current.olderError && (
             <StateNotice state="error" title="Older traffic unavailable">
-              Loaded records are retained. Use Load older to try this read
-              again.
+              Loaded records are retained. Use Load older HTTP traffic records
+              to try this read again.
             </StateNotice>
           )}
           {current.items.length >= 500 && (
@@ -704,7 +721,7 @@ function TrafficFilters({
             apply({});
           }}
         >
-          Clear filters
+          Reset
         </button>
       </div>
       {(query.filter_connect_id || query.filter_principal_id) && (
@@ -887,7 +904,7 @@ function RelatedTraffic({
             disabled={current.loading}
             onClick={() => controller.more()}
           >
-            Load more requests
+            Load older requests
           </button>
         )}
       </div>

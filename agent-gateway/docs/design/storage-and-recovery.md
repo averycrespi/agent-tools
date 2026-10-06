@@ -341,7 +341,9 @@ empty export; capacity/deadline failure is `history_busy`.
 
 Coverage is only that response's rolling-history snapshot, not a complete traffic
 audit. `after_sequence` requests a new transaction, not a continuation of a frozen
-snapshot: completion, pruning and generation can change between calls. Consumers
-must compare generation/coverage; absent rows never establish nonexecution and missing
+snapshot: completion, pruning and generation can change between calls. Optional
+inclusive `through_sequence` limits records to an earlier high-water without pinning
+storage or changing global coverage metadata. Consumers must compare
+generation/coverage; absent rows never establish nonexecution and missing
 completion remains unknown. Export neither repairs nor deletes original files,
 unsafe paths, journals or interrupted stages.

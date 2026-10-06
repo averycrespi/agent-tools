@@ -1,3 +1,4 @@
+import { validGitTrafficQuery } from "./git-traffic-query.ts";
 import { validAuditQuery } from "./audit-contract.ts";
 import { validInvocationQuery } from "./invocation-query.ts";
 import { validHTTPTrafficQuery } from "./http-traffic-contract.ts";
@@ -128,7 +129,13 @@ function authorizationCollectionQuery(
   const textKeys =
     collection === "principals"
       ? ["filter_name"]
-      : ["filter_identity", "filter_principal", "filter_target"];
+      : [
+          "filter_identity",
+          "filter_principal",
+          "filter_target",
+          "filter_server",
+          "filter_scope",
+        ];
   const values: Record<string, readonly string[]> =
     collection === "principals"
       ? {
@@ -140,7 +147,16 @@ function authorizationCollectionQuery(
       : {
           filter_effect: ["allow", "deny"],
           filter_state: ["active", "expired"],
-          sort: ["id", "description", "principal", "target", "effect", "state"],
+          sort: [
+            "id",
+            "description",
+            "principal",
+            "target",
+            "server",
+            "scope",
+            "effect",
+            "state",
+          ],
         };
   values.direction = ["ascending", "descending"];
   if (query.direction !== undefined && query.sort === undefined) return false;
@@ -148,6 +164,38 @@ function authorizationCollectionQuery(
     textKeys.includes(key)
       ? isCollectionFilter(key, value)
       : values[key]?.includes(value) === true,
+  );
+}
+
+function gitCollectionQuery(
+  query: Record<string, string>,
+  kind: string,
+): boolean {
+  const text =
+    kind === "git-repositories"
+      ? ["name", "destination", "credential"]
+      : kind === "git-credentials"
+        ? ["name", "origin"]
+        : ["identity", "repository", "principal"];
+  const values: Record<string, readonly string[]> = {
+    direction: ["ascending", "descending"],
+    sort:
+      kind === "git-repositories"
+        ? ["id", "name", "destination", "credential"]
+        : kind === "git-credentials"
+          ? ["id", "name", "origin", "status"]
+          : ["id", "description", "repository", "principal", "state"],
+  };
+  if (kind === "git-credentials")
+    values.filter_status = ["configured", "unavailable"];
+  if (kind === "git-grants") values.filter_state = ["active", "expired"];
+  return (
+    !(query.direction !== undefined && query.sort === undefined) &&
+    Object.entries(query).every(([key, value]) =>
+      text.some((field) => key === `filter_${field}`)
+        ? isCollectionFilter(key, value)
+        : values[key]?.includes(value) === true,
+    )
   );
 }
 
@@ -344,7 +392,11 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       first === "git-grants" ||
       first === "git-credentials" ||
       first === "git-traffic") &&
-    noQuery &&
+    (first === "git-traffic"
+      ? validGitTrafficQuery(query)
+      : second === "new"
+        ? noQuery
+        : gitCollectionQuery(query, first)) &&
     (segments.length === 1 ||
       (segments.length === 2 &&
         second !== undefined &&
@@ -400,7 +452,8 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
   }
   if (
     first === "http-credentials" &&
-    (segments.length === 1
+    (query.direction === undefined || query.sort !== undefined) &&
+    (second !== "new"
       ? exactQuery(query, {
           filter_name: (value) => isCollectionFilter("filter_name", value),
           filter_boundary: (value) =>
@@ -408,6 +461,9 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
           filter_recipe: (value) => isCollectionFilter("filter_recipe", value),
           filter_status: (value) =>
             ["configured", "unavailable"].includes(value),
+          sort: (value) =>
+            ["name", "boundary", "recipe", "status"].includes(value),
+          direction: (value) => ["ascending", "descending"].includes(value),
         })
       : noQuery) &&
     (segments.length === 1 ||
@@ -468,15 +524,28 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     }
   }
   if (first === "audit") {
+    const visibleQuery = Object.fromEntries(
+      Object.entries(query).filter(
+        ([key]) =>
+          ![
+            "filter_from",
+            "filter_until",
+            "filter_credential_id",
+            "filter_target_id",
+          ].includes(key),
+      ),
+    );
+    if (query.filter_target_id && !visibleQuery.filter_target)
+      visibleQuery.filter_target = query.filter_target_id;
     if (segments.length === 1 && validAuditQuery(query))
-      return location("audit", segments, query);
+      return location("audit", segments, visibleQuery);
     if (
       segments.length === 2 &&
       second !== undefined &&
       isGatewayID(second) &&
       validAuditQuery(query)
     )
-      return location("audit", segments, query);
+      return location("audit", segments, visibleQuery);
   }
   if (first === "invocations") {
     if (segments.length === 1 && validInvocationQuery(query)) {
@@ -515,6 +584,10 @@ const queryOrder: Readonly<Record<string, readonly string[]>> = {
   principals: ["sort", "direction"],
   grants: ["sort", "direction"],
   "http-grants": ["principal_id", "sort", "direction"],
+  "http-credentials": ["sort", "direction"],
+  "git-repositories": ["sort", "direction"],
+  "git-credentials": ["sort", "direction"],
+  "git-grants": ["sort", "direction"],
   requests: ["queue", "sort", "direction"],
 };
 
@@ -525,6 +598,14 @@ export function serializeLocation(value: ApplicationLocation): string {
   if (path === "system" && query.tab === "status") delete query.tab;
   const fixedKeys =
     queryOrder[path] ??
+    ([
+      "http-credentials",
+      "git-repositories",
+      "git-credentials",
+      "git-grants",
+    ].includes(value.destination)
+      ? queryOrder[value.destination]
+      : undefined) ??
     (query.tab === "tools" || query.tab === "operations"
       ? ["tab", "sort", "direction"]
       : Object.hasOwn(query, "tab")

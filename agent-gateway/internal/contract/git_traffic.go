@@ -57,9 +57,19 @@ type GitTrafficCompletion struct {
 	ReportedResult   string `json:"reported_result,omitempty"`
 	Failure          string `json:"failure,omitempty"`
 }
+type GitTrafficFilters struct {
+	Operation    string
+	Repository   string
+	Admission    string
+	Transport    string
+	Report       string
+	SearchLocale string
+}
+
 type GitTrafficQuery struct {
-	Cursor string
-	Limit  int
+	Cursor  string
+	Limit   int
+	Filters GitTrafficFilters
 }
 type GitTrafficPage struct {
 	Items      []GitTrafficRecord `json:"items"`

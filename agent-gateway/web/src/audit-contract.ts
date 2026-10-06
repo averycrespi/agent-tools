@@ -204,6 +204,7 @@ export const auditFilterKeys = [
   "action",
   "target_type",
   "target_id",
+  "target",
   "outcome",
   "correlation_id",
   "from",
@@ -258,6 +259,12 @@ export function validAuditQuery(
       if (
         ["credential_id", "target_id", "correlation_id"].includes(key) &&
         !gatewayID.test(value)
+      )
+        return false;
+      if (
+        key === "target" &&
+        (new TextEncoder().encode(value).length > 256 ||
+          /[\p{Cc}\p{Cf}\p{Cs}]/u.test(value))
       )
         return false;
       if (key === "from" || key === "until") timestamp(value);

@@ -1897,6 +1897,7 @@ export function Requests({
               {sentenceCase(detail.state)}
             </StatusLabel>
           </div>
+          <p class="technical-value">{detail.id}</p>
         </header>
         <section class="detail-section" aria-labelledby="request-title">
           <div class="panel-heading">
@@ -1970,13 +1971,99 @@ export function Requests({
             readAvailable={error === undefined}
           />
         )}
+        {detail.state !== "pending" && (
+          <section
+            class="detail-section"
+            aria-labelledby="approved-policy-title"
+          >
+            <h2 id="approved-policy-title">
+              {sentenceCase(detail.state)} decision
+            </h2>
+            {detail.approvedGrantID !== null && (
+              <dl class="detail-facts">
+                <div>
+                  <dt>Created grant</dt>
+                  <dd>
+                    <a href={`#/mcp/grants/${detail.approvedGrantID}`}>
+                      {detail.approvedGrantID}
+                    </a>
+                  </dd>
+                </div>
+              </dl>
+            )}
+            <StateNotice state="empty" title="Request adjudication is closed">
+              <p>Terminal requests cannot be approved or rejected again.</p>
+            </StateNotice>
+            {detail.approvedPolicy === null ? (
+              <p>
+                {detail.state === "cancelled"
+                  ? "The requesting agent cancelled this request."
+                  : "This request was rejected."}{" "}
+                This decision created no grant and did not revoke existing
+                access or create a DENY.
+              </p>
+            ) : (
+              <>
+                <section
+                  class="detail-group"
+                  aria-label="Requested versus approved"
+                >
+                  <h3>Requested versus Approved</h3>
+                  {policyComparisonFacts(
+                    detail.requestedPolicy,
+                    detail.approvedPolicy,
+                  )}
+                  <DetailComparison
+                    label="Requested versus approved conditions"
+                    fullWidth
+                    beforeLabel="Requested"
+                    afterLabel="Approved"
+                    rows={[
+                      {
+                        label: "Conditions",
+                        before: (
+                          <Conditions
+                            source={detail.submittedConstraintSource}
+                          />
+                        ),
+                        after: (
+                          <Conditions
+                            source={detail.approvedConstraintSource}
+                          />
+                        ),
+                        changed:
+                          detail.submittedConstraintSource !==
+                          detail.approvedConstraintSource,
+                      },
+                    ]}
+                  />
+                </section>
+                <details>
+                  <summary>Approved serialized policy</summary>
+                  <pre
+                    class="inert-json"
+                    tabindex={0}
+                    aria-label="Approved policy"
+                  >
+                    {detail.approvedPolicySource}
+                  </pre>
+                </details>
+              </>
+            )}
+            {detail.approvedEvidence !== null && (
+              <details>
+                <summary>Approved descriptor evidence</summary>
+                <Evidence evidence={detail.approvedEvidence} label="Approved" />
+              </details>
+            )}
+            {detail.rejectionReason !== null && (
+              <p>Closed rejection reason: {detail.rejectionReason}</p>
+            )}
+          </section>
+        )}
         <details class="detail-section">
           <summary>Technical identifiers and immutable evidence</summary>
           <dl class="detail-facts">
-            <div>
-              <dt>Request ID</dt>
-              <dd>{detail.id}</dd>
-            </div>
             <div>
               <dt>Agent ID</dt>
               <dd>{detail.principalID}</dd>
@@ -2077,96 +2164,6 @@ export function Requests({
             )}
           </section>
         </details>
-        {detail.state !== "pending" && (
-          <section
-            class="detail-section"
-            aria-labelledby="approved-policy-title"
-          >
-            <h2 id="approved-policy-title">
-              {sentenceCase(detail.state)} decision
-            </h2>
-            {detail.approvedGrantID !== null && (
-              <dl class="detail-facts">
-                <div>
-                  <dt>Created grant</dt>
-                  <dd>
-                    <a href={`#/mcp/grants/${detail.approvedGrantID}`}>
-                      {detail.approvedGrantID}
-                    </a>
-                  </dd>
-                </div>
-              </dl>
-            )}
-            <StateNotice state="empty" title="Request adjudication is closed">
-              <p>Terminal requests cannot be approved or rejected again.</p>
-            </StateNotice>
-            {detail.approvedPolicy === null ? (
-              <p>
-                {detail.state === "cancelled"
-                  ? "The requesting agent cancelled this request."
-                  : "This request was rejected."}{" "}
-                This decision created no grant and did not revoke existing
-                access or create a DENY.
-              </p>
-            ) : (
-              <>
-                <section
-                  class="detail-group"
-                  aria-label="Requested versus approved"
-                >
-                  <h3>Requested versus Approved</h3>
-                  {policyComparisonFacts(
-                    detail.requestedPolicy,
-                    detail.approvedPolicy,
-                  )}
-                  <DetailComparison
-                    label="Requested versus approved conditions"
-                    fullWidth
-                    beforeLabel="Requested"
-                    afterLabel="Approved"
-                    rows={[
-                      {
-                        label: "Conditions",
-                        before: (
-                          <Conditions
-                            source={detail.submittedConstraintSource}
-                          />
-                        ),
-                        after: (
-                          <Conditions
-                            source={detail.approvedConstraintSource}
-                          />
-                        ),
-                        changed:
-                          detail.submittedConstraintSource !==
-                          detail.approvedConstraintSource,
-                      },
-                    ]}
-                  />
-                </section>
-                <details>
-                  <summary>Approved serialized policy</summary>
-                  <pre
-                    class="inert-json"
-                    tabindex={0}
-                    aria-label="Approved policy"
-                  >
-                    {detail.approvedPolicySource}
-                  </pre>
-                </details>
-              </>
-            )}
-            {detail.approvedEvidence !== null && (
-              <details>
-                <summary>Approved descriptor evidence</summary>
-                <Evidence evidence={detail.approvedEvidence} label="Approved" />
-              </details>
-            )}
-            {detail.rejectionReason !== null && (
-              <p>Closed rejection reason: {detail.rejectionReason}</p>
-            )}
-          </section>
-        )}
       </div>
     );
   }

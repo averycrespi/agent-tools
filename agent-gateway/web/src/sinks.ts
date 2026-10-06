@@ -4,6 +4,27 @@ export type SinkPublication = "published" | "lost";
 export type ClipboardPublication = "copied" | "failed";
 export type OAuthOpenResult = "opened" | "blocked";
 
+// A read-only export has no persistent browser storage or external destination.
+// The caller fences session/navigation before this synchronous handoff.
+export function downloadHistoryJSON(blob: Blob): boolean {
+  let url: string | undefined;
+  const anchor = document.createElement("a");
+  try {
+    url = URL.createObjectURL(blob);
+    anchor.href = url;
+    anchor.download = `agent-gateway-traffic-${new Date().toISOString().replaceAll(":", "-")}.json`;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    anchor.remove();
+    if (url !== undefined) URL.revokeObjectURL(url);
+  }
+}
+
 export async function copyToClipboard(
   value: string,
   write: (candidate: string) => Promise<void>,

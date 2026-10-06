@@ -21,6 +21,7 @@ import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
 import { GitConfiguration, GitTrafficView } from "./git";
+import { GitTrafficController } from "./git-traffic-history";
 import { GitRouting } from "./git-routing";
 import { HTTPCredentials } from "./http-credentials";
 import { HTTPGrants } from "./http-grants";
@@ -66,9 +67,9 @@ const navigation: ReadonlyArray<{
     label: "Git",
     destinations: [
       "git-routing",
+      "git-credentials",
       "git-repositories",
       "git-grants",
-      "git-credentials",
       "git-traffic",
     ],
   },
@@ -143,6 +144,10 @@ const httpTrafficController = new HTTPTrafficController(
   sessionClient,
   viewCoordinator,
 );
+const gitTrafficController = new GitTrafficController(
+  sessionClient,
+  viewCoordinator,
+);
 const principalDirectory = new PrincipalDirectory(
   sessionClient,
   viewCoordinator,
@@ -178,9 +183,9 @@ const registerInvalidationTrigger = (
 registerInvalidationTrigger(
   "git-invalidation",
   (key) =>
-    /^#\/git\/(?:routing|repositories|grants|credentials|traffic)(?:[/?]|$)/.test(
+    /^#\/git\/(?:routing|repositories|grants|credentials)(?:[/?]|$)/.test(
       key,
-    ),
+    ) || /^#\/git\/traffic\//.test(key),
   ["authorization", "system_status"],
 );
 registerInvalidationTrigger(
@@ -456,11 +461,31 @@ function App() {
       resolved.location.destination === "audit"
         ? resolved.location.segments[1]
         : undefined;
+    const configurationID =
+      [
+        "http-credentials",
+        "http-grants",
+        "git-repositories",
+        "git-credentials",
+        "git-grants",
+        "git-traffic",
+      ].includes(resolved.location.destination) &&
+      resolved.location.segments[1] !== "new" &&
+      resolved.location.segments[1] !== "test-access"
+        ? resolved.location.segments[1]
+        : undefined;
+    const nestedServerID =
+      serverID !== undefined ? resolved.location.segments[3] : undefined;
     const detailID =
-      principalID ?? invocationID ?? grantID ?? requestID ?? auditID;
+      principalID ??
+      invocationID ??
+      grantID ??
+      requestID ??
+      auditID ??
+      configurationID;
     const owner =
       serverID !== undefined
-        ? `server:${serverID}`
+        ? `server:${serverID}:${nestedServerID ?? ""}`
         : detailID !== undefined
           ? `${resolved.location.destination}:${detailID}`
           : resolved.location.destination;
@@ -475,9 +500,11 @@ function App() {
       } else {
         const focusContextTitle = () => {
           const heading = document.querySelector<HTMLElement>(
-            serverID !== undefined
-              ? '[data-testid="server-context"] h2'
-              : '[data-testid="detail-context"] h1',
+            nestedServerID !== undefined
+              ? '[data-testid="detail-context"] h1'
+              : serverID !== undefined
+                ? '[data-testid="server-context"] h1'
+                : '[data-testid="detail-context"] h1',
           );
           heading?.focus();
           return heading !== null;
@@ -536,6 +563,7 @@ function App() {
       resolved.location.segments[1] !== undefined &&
       resolved.location.segments[1] !== "new" &&
       resolved.location.segments[1] !== "test-access") ||
+    isServerDetail ||
     isPrincipalDetail ||
     isInvocationDetail ||
     isGrantDetail ||
@@ -796,29 +824,31 @@ function App() {
               class="visually-hidden"
               tabindex={-1}
             >
-              {isPrincipalDetail
-                ? "Agent details"
-                : isInvocationDetail
-                  ? "MCP Invocation details"
-                  : isGrantDetail
-                    ? "MCP Grant details"
-                    : isRequestDetail
-                      ? "MCP Access Request details"
-                      : destination === "http-credentials"
-                        ? "HTTP Credential details"
-                        : destination === "http-grants"
-                          ? "HTTP Grant details"
-                          : destination === "http-traffic"
-                            ? "HTTP Traffic details"
-                            : destination === "git-repositories"
-                              ? "Git Repository details"
-                              : destination === "git-credentials"
-                                ? "Git Credential details"
-                                : destination === "git-grants"
-                                  ? "Git Grant details"
-                                  : destination === "git-traffic"
-                                    ? "Git Traffic details"
-                                    : "Audit event details"}
+              {isServerDetail
+                ? "MCP Server details"
+                : isPrincipalDetail
+                  ? "Agent details"
+                  : isInvocationDetail
+                    ? "MCP Invocation details"
+                    : isGrantDetail
+                      ? "MCP Grant details"
+                      : isRequestDetail
+                        ? "MCP Access Request details"
+                        : destination === "http-credentials"
+                          ? "HTTP Credential details"
+                          : destination === "http-grants"
+                            ? "HTTP Grant details"
+                            : destination === "http-traffic"
+                              ? "HTTP Traffic details"
+                              : destination === "git-repositories"
+                                ? "Git Repository details"
+                                : destination === "git-credentials"
+                                  ? "Git Credential details"
+                                  : destination === "git-grants"
+                                    ? "Git Grant details"
+                                    : destination === "git-traffic"
+                                      ? "Git Traffic details"
+                                      : "Audit event details"}
             </span>
           ) : (
             <h1
@@ -900,6 +930,7 @@ function App() {
             />
           ) : destination === "git-traffic" ? (
             <GitTrafficView
+              controller={gitTrafficController}
               key={resolved.canonicalFragment}
               session={sessionClient}
               mutations={mutationCoordinator}

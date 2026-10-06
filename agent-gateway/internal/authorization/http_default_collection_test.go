@@ -19,7 +19,7 @@ func TestPrincipalCollectionHTTPDefaultSelectsAcrossPages(t *testing.T) {
 		_, err := tx.ExecContext(ctx, `UPDATE http_defaults SET policy='allow' WHERE principal_id=?`, id(128))
 		return err
 	}))
-	service, err := NewCollectionService(repository, collectionTargets{})
+	service, err := NewCollectionService(repository, collectionTargets{}, collectionTools{})
 	require.NoError(t, err)
 	all, err := service.QueryPrincipals(ctx, CollectionQuery{Sort: "name"}, nil, 50)
 	require.NoError(t, err)

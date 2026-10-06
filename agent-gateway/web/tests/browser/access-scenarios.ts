@@ -1486,6 +1486,8 @@ export async function runGrantReadsCreate(
   let descriptionOutcome: "success" | "rejected" | "unknown" = "success";
   let optionsUnavailable = false;
   let descriptorRequests = 0;
+  let grantRecognitionMode = false;
+  const grantQueries: URLSearchParams[] = [];
   const expectedExpiry = await page.evaluate(() =>
     new Date("2030-01-01T12:34:56").toISOString(),
   );
@@ -1727,6 +1729,7 @@ export async function runGrantReadsCreate(
 
   await page.route("**/api/v2/mcp/grants?*", async (route) => {
     const query = new URL(route.request().url()).searchParams;
+    grantQueries.push(query);
     if (
       route.request().method() !== "GET" ||
       query.get("limit") !== "50" ||
@@ -1740,6 +1743,8 @@ export async function runGrantReadsCreate(
             "identity",
             "principal",
             "target",
+            "server",
+            "scope",
             "effect",
             "state",
           ].includes(key),
@@ -1764,20 +1769,51 @@ export async function runGrantReadsCreate(
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        items: (query.get("identity") === "Reportng access"
-          ? [active]
-          : [active, expired]
+        items: (grantRecognitionMode
+          ? [
+              active,
+              expired,
+              {
+                ...expired,
+                id: "01ARZ3NDEKTSV4RRFFQ69G5FC0",
+                upstream_name: "absent.tool",
+                description: "Unknown tool",
+              },
+              {
+                ...active,
+                id: "01ARZ3NDEKTSV4RRFFQ69G5FC1",
+                server_id: "00000000000000000000000000",
+                read_only: false,
+                description: "Gateway access",
+              },
+              {
+                ...active,
+                id: "01ARZ3NDEKTSV4RRFFQ69G5FC2",
+                read_only: false,
+                description: "All server tools",
+              },
+            ]
+          : query.get("identity") === "Reportng access"
+            ? [active]
+            : [active, expired]
         ).map((grant) => ({
           grant,
           principal_display_name: "Automation agent",
-          server_display_name: "Reporting server",
+          server_display_name:
+            grant.server_id === "00000000000000000000000000"
+              ? "Gateway self-service tools"
+              : "Reporting server",
+          ...(grantRecognitionMode && grant.id === secondGrantID
+            ? { tool_id: "01ARZ3NDEKTSV4RRFFQ69G5FD0" }
+            : {}),
         })),
         next_cursor:
           staleRestarted || query.get("identity") !== null
             ? null
             : "grant-stale",
-        total_count:
-          query.get("identity") === "Reportng access"
+        total_count: grantRecognitionMode
+          ? 5
+          : query.get("identity") === "Reportng access"
             ? 1
             : staleRestarted
               ? 2
@@ -1955,6 +1991,33 @@ export async function runGrantReadsCreate(
   });
   await waitForCollectionRows(page, "grant", 2);
   let body = (await page.locator("body").textContent()) ?? "";
+  await page
+    .getByRole("searchbox", { name: "Server", exact: true })
+    .fill("Reporting");
+  await expect.poll(() => grantQueries.at(-1)?.get("server")).toBe("Reporting");
+  expect(grantQueries.at(-1)?.has("target")).toBe(false);
+  await page
+    .getByRole("searchbox", { name: "Scope", exact: true })
+    .fill("tool");
+  await expect.poll(() => grantQueries.at(-1)?.get("scope")).toBe("tool");
+  await page.getByRole("button", { name: "Server", exact: true }).click();
+  await expect.poll(() => grantQueries.at(-1)?.get("sort")).toBe("server");
+  await page.reload();
+  await waitForLifecycle(page, "authenticated");
+  await expect(
+    page.getByRole("searchbox", { name: "Server", exact: true }),
+  ).toHaveValue("Reporting");
+  await expect(
+    page.getByRole("searchbox", { name: "Scope", exact: true }),
+  ).toHaveValue("tool");
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).toHaveURL(/sort=server&direction=ascending$/);
+  await expect.poll(() => grantQueries.at(-1)?.has("scope")).toBe(false);
+  expect(grantQueries.at(-1)?.has("server")).toBe(false);
+  await page.evaluate(() => {
+    window.location.hash = "#/mcp/grants";
+  });
+  await waitForCollectionRows(page, "grant", 2);
   if (staleRestarted) fail("grant list traversed without navigation");
   await page.getByRole("button", { name: "Next", exact: true }).last().click();
   await page
@@ -1989,7 +2052,8 @@ export async function runGrantReadsCreate(
   expect(headers.map((header) => header.replace(/[↕↑↓]/g, "").trim())).toEqual([
     "Grant",
     "Agent",
-    "Target",
+    "Server",
+    "Scope",
     "Effect",
     "Status",
     "Conditions",
@@ -2010,13 +2074,86 @@ export async function runGrantReadsCreate(
   await assertTableConventions(
     page,
     "Grant policy records",
-    ["Grant", "Agent", "Target", "Effect", "Status", "Conditions", "Expires"],
+    [
+      "Grant",
+      "Agent",
+      "Server",
+      "Scope",
+      "Effect",
+      "Status",
+      "Conditions",
+      "Expires",
+    ],
     "Grant",
   );
-  await expect(firstGrantRow.locator(".table-primary")).toHaveText(
-    active.description!,
+  await expect(
+    page
+      .getByLabel("Grant policy records sort column", { exact: true })
+      .locator('option[value="server"]'),
+  ).toHaveCount(1);
+  await expect(
+    page
+      .getByLabel("Grant policy records sort column", { exact: true })
+      .locator('option[value="target"]'),
+  ).toHaveCount(0);
+  await expect(
+    firstGrantRow.locator('[data-label="Grant"] .table-primary'),
+  ).toHaveText(active.description!);
+  await expect(
+    firstGrantRow.locator('[data-label="Agent"] .table-primary a'),
+  ).toHaveText("Automation agent");
+  await expect(
+    firstGrantRow.locator('[data-label="Agent"] .table-identifier'),
+  ).toHaveText(principalID);
+  await expect(
+    firstGrantRow.locator('[data-label="Server"] .table-primary a'),
+  ).toHaveText("Reporting server");
+  await expect(
+    firstGrantRow.locator('[data-label="Server"] .table-identifier'),
+  ).toHaveText(serverID);
+  await expect(firstGrantRow.locator('[data-label="Scope"]')).toHaveText(
+    "Read-only tools",
   );
+  await expect(expiredRow.locator('[data-label="Scope"]')).toHaveText(
+    "dangerous.tool",
+  );
+  await expect(expiredRow.locator('[data-label="Scope"] a')).toHaveCount(0);
+  const recognitionReads = descriptorRequests;
+  grantRecognitionMode = true;
+  await page.getByTestId("manual-refresh").click();
+  await waitForCollectionRows(page, "grant", 5);
+  await expect(expiredRow.locator('[data-label="Scope"] a')).toHaveAttribute(
+    "href",
+    `#/mcp/servers/${serverID}/descriptors/01ARZ3NDEKTSV4RRFFQ69G5FD0`,
+  );
+  const unknownToolRow = page
+    .getByTestId("grant-row")
+    .filter({ hasText: "Unknown tool" });
+  await expect(unknownToolRow.locator('[data-label="Scope"]')).toHaveText(
+    "absent.tool",
+  );
+  await expect(unknownToolRow.locator('[data-label="Scope"] a')).toHaveCount(0);
+  const gatewayRow = page
+    .getByTestId("grant-row")
+    .filter({ hasText: "Gateway access" });
+  await expect(gatewayRow.locator('[data-label="Server"] a')).toHaveCount(0);
+  await expect(gatewayRow.locator('[data-label="Server"]')).toContainText(
+    "Gateway self-service tools",
+  );
+  await expect(gatewayRow.locator('[data-label="Scope"]')).toHaveText(
+    "All tools",
+  );
+  await expect(
+    page
+      .getByTestId("grant-row")
+      .filter({ hasText: "All server tools" })
+      .locator('[data-label="Scope"]'),
+  ).toHaveText("All tools");
+  expect(descriptorRequests).toBe(recognitionReads);
   await captureRequestState(page, "grant-table");
+  grantRecognitionMode = false;
+  await page.getByTestId("manual-refresh").click();
+  await waitForCollectionRows(page, "grant", 2);
   if (
     (await firstGrantRow
       .locator(`a[href="#/mcp/grants/${firstGrantID}"]`)
@@ -2025,9 +2162,9 @@ export async function runGrantReadsCreate(
       active.description
   )
     fail("grant identity did not link its complete description");
-  await expect(firstGrantRow.locator(".table-identifier")).toHaveText(
-    firstGrantID,
-  );
+  await expect(
+    firstGrantRow.locator('[data-label="Grant"] .table-identifier'),
+  ).toHaveText(firstGrantID);
   if (
     body.includes("Open grant") ||
     body.includes("Synthetic default namespace")
@@ -2057,7 +2194,7 @@ export async function runGrantReadsCreate(
   );
   const grantFactLabels = await grantDetail.locator("dt").allTextContents();
   if (
-    !grantFactLabels.includes("Grant ID") ||
+    grantFactLabels.includes("Grant ID") ||
     grantFactLabels.includes("ID") ||
     (await grantDetail.getByText("Back to principal grants").count()) !== 0 ||
     (await grantDetail.locator('[data-testid="detail-context"] h1').count()) !==
@@ -3227,11 +3364,23 @@ export async function runGrantCorrection(
   await page.locator('[data-testid="grant-delete"]').click();
   await confirmAction();
   await page.locator('[data-testid="grants-view"]').waitFor();
+  const syntheticExactRow = page.getByTestId("grant-row").filter({
+    has: page.locator(`a[href="#/mcp/grants/${syntheticExactID}"]`),
+  });
   await expect(
-    page.getByTestId("grant-row").filter({
-      has: page.locator(`a[href="#/mcp/grants/${syntheticExactID}"]`),
-    }),
-  ).toContainText("Gateway self-service tools — get_identity");
+    syntheticExactRow.locator('[data-label="Server"] .table-primary'),
+  ).toHaveText("Gateway self-service tools");
+  await expect(
+    syntheticExactRow.locator('[data-label="Server"] .table-identifier'),
+  ).toHaveText("00000000000000000000000000");
+  await expect(syntheticExactRow.locator('[data-label="Scope"]')).toHaveText(
+    "get_identity",
+  );
+  await expect(
+    syntheticExactRow.locator(
+      '[data-label="Server"] a, [data-label="Scope"] a',
+    ),
+  ).toHaveCount(0);
   await captureRequestState(page, "synthetic-exact-table");
 
   await navigate(grantIDs[4]!);

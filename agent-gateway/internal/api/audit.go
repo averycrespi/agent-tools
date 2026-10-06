@@ -167,7 +167,7 @@ func parseAuditQuery(raw string, item bool) (audit.Query, error) {
 	}
 	allowed := map[string]bool{"generation": true}
 	if !item {
-		for _, key := range []string{"cursor", "limit", "actor_type", "credential_id", "category", "action", "target_type", "target_id", "outcome", "correlation_id", "from", "until"} {
+		for _, key := range []string{"cursor", "limit", "actor_type", "credential_id", "category", "action", "target_type", "target_id", "target", "outcome", "correlation_id", "from", "until"} {
 			allowed[key] = true
 		}
 	}
@@ -178,7 +178,7 @@ func parseAuditQuery(raw string, item bool) (audit.Query, error) {
 	}
 	query := audit.Query{Limit: contract.AdminListPageDefault, Cursor: values.Get("cursor"), Generation: values.Get("generation"), Filters: contract.AuditFilters{
 		ActorType: contract.AuditActorType(values.Get("actor_type")), CredentialID: values.Get("credential_id"), Category: values.Get("category"), Action: values.Get("action"),
-		TargetType: values.Get("target_type"), TargetID: values.Get("target_id"), Outcome: values.Get("outcome"), CorrelationID: values.Get("correlation_id"), From: values.Get("from"), Until: values.Get("until"),
+		TargetType: values.Get("target_type"), TargetID: values.Get("target_id"), Target: values.Get("target"), Outcome: values.Get("outcome"), CorrelationID: values.Get("correlation_id"), From: values.Get("from"), Until: values.Get("until"),
 	}}
 	if value := values.Get("limit"); value != "" {
 		limit, err := strconv.Atoi(value)

@@ -42,7 +42,7 @@ func TestProductionFrontendSeparationValidator(t *testing.T) {
 }
 
 func validateProductionFrontendSeparation(files map[string][]byte, lock []byte) error {
-	const expectedLockSHA256 = "3179b01fceb75d1df80217849de915f024e98ee0ab1b821639fbf04b33c5a8e0"
+	const expectedLockSHA256 = "803a2e9799f85f9f473b1a8507e29dba98b9f50f5430c9ad0970b0c600e0065a"
 	if digest := fmt.Sprintf("%x", sha256.Sum256(lock)); digest != expectedLockSHA256 {
 		return fmt.Errorf("frontend lockfile digest changed: %s", digest)
 	}

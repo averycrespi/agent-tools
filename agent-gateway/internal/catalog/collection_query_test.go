@@ -121,6 +121,21 @@ func TestActiveQueryPagesAndGenerationFence(t *testing.T) {
 	matching, err := registry.Query(ToolQuery{Tool: "TOOL_124", Status: "available"}, nil, 50)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"tool_124"}, descriptorNames(matching.Items))
+	for _, toolQuery := range []ToolQuery{{Tool: "aggreagte tool_124"}, {Tool: matching.Items[0].Resource.ID}, {Server: server.ID, Tool: "tool_124"}, {Server: server.ID[18:], Tool: "tool_124"}} {
+		found, err := registry.Query(toolQuery, nil, 50)
+		require.NoError(t, err)
+		require.Equal(t, matching.Items, found.Items)
+	}
+	partialID := matching.Items[0].Resource.ID[18:]
+	partial, err := registry.Query(ToolQuery{Tool: partialID}, nil, 50)
+	require.NoError(t, err)
+	require.Contains(t, partial.Items, matching.Items[0])
+	for _, item := range partial.Items {
+		require.Contains(t, item.Resource.ID, partialID)
+	}
+	wrongServer, err := registry.Query(ToolQuery{Server: "tool_124"}, nil, 50)
+	require.NoError(t, err)
+	require.Empty(t, wrongServer.Items)
 	_, err = registry.List(first.Next, 50)
 	require.ErrorIs(t, err, servers.ErrStaleCursor)
 	_, err = registry.Query(ToolQuery{Sort: "server"}, first.Next, 50)

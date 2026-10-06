@@ -25,7 +25,7 @@ without claiming their omitted history was verified. History-inclusive legacy re
 still requires every claimed payload and reports `history:"restored"`. Every restore
 invalidates restored agent/HTTP/Git/CA authority and rekeys administration. This differs
 from an ordinary upgrade, which preserves live configuration, grants and credentials.
-Use separate `history export --json` or the browser export disclosure for bounded
+Use separate `history export --json` or the browser Traffic history export card for bounded
 rolling history; no export proves complete traffic coverage or safe replay. See the
 [recovery guide](backup-and-recovery.md) for staging, consent and preservation rules.
 No installed-resource mutation or live qualification is authorized by this source
@@ -171,6 +171,8 @@ Upgrade standalone CLI binaries, API clients, JSON scripts, and the service toge
 | Descriptor `retired=include/exclude/only` and `representation=summary`                                    | Omit status for all, use `status=available/retired`, and explicit `projection=full/summary` (default full)                                                                                           |
 | Bare operation, agent, grant, and request pages without counts                                            | Their ordinary normalized query pages always include exact `total_count` and `offset`; grants/requests use enriched collection items                                                                 |
 | Insertion-order defaults for servers, catalog, descriptors, agents, grants, and operation/request history | Defaults listed in the [normalized collection contract](../design/public-contract.md#normalized-administrative-collections); default limit 50, MCP inventory/catalog/descriptor/operation maximum 50 |
+
+HTTP Credentials in the browser now requests `sort=name&direction=ascending`; HTTP credential API/CLI calls omitting sort retain creation-descending order. The list API also accepts name/boundary/recipe/status sorts and ascending/descending direction, with ID-ascending ties. Reset preserves the selected sort. MCP grants add separate `server` and `scope` recognition filters/sorts; `target` remains the combined legacy server/tool filter and server-name sort. Restored browser `filter_target` remains visible with its legacy meaning. Grant list rows may include optional `tool_id` for an exact descriptor-backed tool; update closed list-row decoders accordingly. This is current recognition, including readable retired descriptors, not historical evidence or new authority. Member grants and agent self-service projections are unchanged. Server/catalog/tool name filters now recognize one-edit typos, while IDs match literal partial text only; exact IDs remain reliable. Existing bounds and normalized case handling are preserved.
 
 `projection=active` remains an exclusive operation read with `{items,has_more}`. Other ordinary pages do not acquire invented totals. The CLI's `--retired` descriptor selector translates to the new status query; API clients must use the new grammar. Exact grant/request policy fields and member-resource shapes are unchanged.
 

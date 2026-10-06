@@ -25,6 +25,7 @@ func parseAuthorizationCollectionQuery(raw, collection string) (authorization.Co
 		fields["name"], fields["visibility"], fields["http_default"] = &query.Name, &query.Visibility, &query.HTTPDefault
 	} else {
 		fields["identity"], fields["principal"], fields["target"], fields["effect"] = &query.Identity, &query.Principal, &query.Target, &query.Effect
+		fields["server"], fields["scope"] = &query.Server, &query.Scope
 		query.PrincipalID, query.ServerID = values.Get("principal_id"), values.Get("server_id")
 	}
 	for key, destination := range fields {

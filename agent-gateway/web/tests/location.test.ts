@@ -66,8 +66,8 @@ test("table queries round-trip authoritative filters and exact grant context onl
     "#/http/credentials?filter_status=active",
     "#/http/credentials?filter_name=" + "x".repeat(257),
     "#/http/credentials?secret=canary",
-    "#/http/credentials?sort=name",
-    `#/http/credentials/${id}?filter_name=x`,
+    "#/http/credentials?sort=unknown",
+    `#/http/credentials/${id}?filter_name=`,
     `#/mcp/servers/${id}?tab=authentication&filter_status=failed`,
     "#/system?tab=admin-credentials&filter_status=active",
   ])
@@ -232,6 +232,18 @@ test("destination queries have deterministic ordering and preserve valid context
       `audit-log/${id}?filter_category=server&filter_outcome=succeeded`,
     ],
     ["system?tab=status", "system"],
+    [
+      `http/credentials/${id}?filter_name=Example&sort=name&direction=descending`,
+      `http/credentials/${id}?sort=name&direction=descending&filter_name=Example`,
+    ],
+    [
+      "http/credentials?sort=name&direction=descending&filter_name=Example",
+      "http/credentials?sort=name&direction=descending&filter_name=Example",
+    ],
+    [
+      "mcp/grants?filter_server=Remote&filter_scope=tool&sort=scope&direction=ascending",
+      "mcp/grants?sort=scope&direction=ascending&filter_scope=tool&filter_server=Remote",
+    ],
   ];
   for (const [input, expected] of cases) {
     const parsed = parseFragment(`#/${input}`);
@@ -245,6 +257,9 @@ test("destination queries have deterministic ordering and preserve valid context
     "mcp/tools?filter_status=retired",
     "mcp/access-requests?filter_state=pending",
     "principals?direction=ascending",
+    "http/credentials?direction=ascending",
+    `http/credentials/${id}?sort=unsupported`,
+    "http/credentials/new?sort=name",
     `mcp/grants/new?filter_name=x`,
     "system?filter_name=x",
   ]) {
