@@ -1,7 +1,7 @@
 {
   "version": 1,
   "sourceDigests": {
-    "audit.tsx": "646c76757698493c576add3ea936424ab7afcf38e2989cd9662772542c8b8250",
+    "audit.tsx": "28252ae8bc5e4009372ae5453202c9507ec3d09dded793fd91c7155b6bbf399f",
     "git-coverage.tsx": "582d5abc7e19f9ae5d30e97726682fc36ee59f6dc9ad0ecf89bb55a436e76478",
     "git-routing.tsx": "385e05d2519a52274e43b55acd113550e5518311a127f965bc87accf45f44a34",
     "git.tsx": "04328443e0d60a50be7a21157765270327686c3ab38990b0f9ebcbcc29eaae75",
@@ -10,7 +10,7 @@
     "http-grants.tsx": "2cb6338a666efc44b4f94944228a0b962bef51e27c8203e775787beb44b55f7b",
     "http-traffic.tsx": "2cfc05889a5df609db74e477adf791ac6ad8c534f718956a510dfea53f24b4a6",
     "invocations.tsx": "d9fc6a31779043ba32e53b9487f4d2637a8223c373b84d37f22c3e629e2d8436",
-    "location.ts": "e4f8d76b69da2e052758c961fdaafdce6dce66e0ec5bddf32631d2e1b7d863eb",
+    "location.ts": "c124702701625b08b0b9b4b1c4abe91dd438cce476c105298c7b0980a612018f",
     "main.tsx": "911c1fbb5630dd11f4175b8ff3f6c6ace4a21112c2e1af162a7d8797423cea94",
     "matcher-editor.tsx": "8b39daa8cbf95e88699cba49788d1a6603b370f1865bdc141db30ef46300b849",
     "navigation.tsx": "7ea4a9f9657be2ba033e6f98956d4772d7511bf7baef810d64f40231cd68e3b8",
@@ -26,7 +26,7 @@
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
     "server-reads.tsx": "397b1bd49346dd94629510321b440cee7b9ac1cbd1f850b64a090cca59822cb3",
     "sinks-ui.tsx": "441f2fc37576566fe89003f1c951ff740629609384867beb648eccde922ebb65",
-    "styles.css": "714ff7265f0ac0cb1cd1a92fdc2e6f949fc11eab9ed9c21703934635c0e00d50",
+    "styles.css": "965a786f512b69a6a185619fbdc1a89a99595e84dda7f5487c0b371b9355b6d3",
     "system.tsx": "2c36e0e77e799fb809f0a9191b1a46eeca86592a2e987a25b7efbed76f64a1dc",
     "time.tsx": "d7bdf2985dce8c64c48e87640096f284facbbc859335cc4fad3cbe1cd6b4f2be",
     "toast.tsx": "29724123c1efd625a7a7e79bfd7917f8a61481b2018736f856ead6ee6d158c2c"
@@ -92,7 +92,7 @@
       "removed-invalid-filter": "standard",
       "retention-expanded": "standard",
       "small-list": "standard",
-      "table-audit-datetime-bounds": "standard",
+      "table-audit-selected-outside": "reflow",
       "table-audit-filtered-empty": "standard",
       "table-audit-invalid-filters": "standard",
       "table-audit-loading": "standard",

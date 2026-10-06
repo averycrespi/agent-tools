@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 const (
@@ -115,6 +117,7 @@ type AuditFilters struct {
 	Action        string         `json:"action"`
 	TargetType    string         `json:"target_type"`
 	TargetID      string         `json:"target_id"`
+	Target        string         `json:"target"`
 	Outcome       string         `json:"outcome"`
 	CorrelationID string         `json:"correlation_id"`
 	From          string         `json:"from"`
@@ -223,6 +226,14 @@ func ValidateAuditEvent(event AuditEvent) error {
 }
 
 func ValidateAuditFilters(filters AuditFilters) error {
+	if len(filters.Target) > 256 || !utf8.ValidString(filters.Target) {
+		return ErrInvalidAudit
+	}
+	for _, r := range filters.Target {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return ErrInvalidAudit
+		}
+	}
 	if filters.ActorType != "" && !slices.Contains(AuditActorTypes(), filters.ActorType) ||
 		filters.Category != "" && !slices.Contains(AuditCategories(), filters.Category) ||
 		filters.TargetType != "" && !slices.Contains(AuditTargetTypes(), filters.TargetType) ||

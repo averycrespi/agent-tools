@@ -31,7 +31,7 @@ var collectionContracts = []CollectionContract{
 	{Pattern: "/api/v2/mcp/grants", DefaultOrder: "description ascending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GrantTableItem>", QueryMembers: []string{"cursor", "limit", "principal_id", "server_id", "identity", "principal", "target", "server", "scope", "effect", "state", "sort", "direction"}},
 	{Pattern: "/api/v2/mcp/grant-requests", DefaultOrder: "submitted descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "QueryPage<GrantRequestTableItem>", QueryMembers: []string{"cursor", "limit", "principal_id", "state", "request", "principal", "target", "scope", "sort", "direction"}},
 	{Pattern: "/api/v2/mcp/invocations", DefaultOrder: "insertion_sequence descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "InvocationPage", QueryMembers: []string{"cursor", "limit", "principal_id", "server_id", "requested_name", "admission_class", "decision", "outcome", "tool", "principal", "search_locale"}},
-	{Pattern: "/api/v2/audit-events", DefaultOrder: "insertion_sequence descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "AuditPage", QueryMembers: []string{"cursor", "limit", "generation", "actor_type", "credential_id", "category", "action", "target_type", "target_id", "outcome", "correlation_id", "from", "until"}},
+	{Pattern: "/api/v2/audit-events", DefaultOrder: "insertion_sequence descending", DefaultLimit: 50, MaximumLimit: 100, SuccessSchema: "AuditPage", QueryMembers: []string{"cursor", "limit", "generation", "actor_type", "credential_id", "category", "action", "target_type", "target_id", "target", "outcome", "correlation_id", "from", "until"}},
 }
 
 func ServerStatusFilters() []string {

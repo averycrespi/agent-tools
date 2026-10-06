@@ -521,15 +521,28 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     }
   }
   if (first === "audit") {
+    const visibleQuery = Object.fromEntries(
+      Object.entries(query).filter(
+        ([key]) =>
+          ![
+            "filter_from",
+            "filter_until",
+            "filter_credential_id",
+            "filter_target_id",
+          ].includes(key),
+      ),
+    );
+    if (query.filter_target_id && !visibleQuery.filter_target)
+      visibleQuery.filter_target = query.filter_target_id;
     if (segments.length === 1 && validAuditQuery(query))
-      return location("audit", segments, query);
+      return location("audit", segments, visibleQuery);
     if (
       segments.length === 2 &&
       second !== undefined &&
       isGatewayID(second) &&
       validAuditQuery(query)
     )
-      return location("audit", segments, query);
+      return location("audit", segments, visibleQuery);
   }
   if (first === "invocations") {
     if (segments.length === 1 && validInvocationQuery(query)) {

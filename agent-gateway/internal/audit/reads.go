@@ -22,6 +22,7 @@ type cursor struct {
 	Generation string `json:"g"`
 	Epoch      string `json:"e"`
 	Filters    string `json:"f"`
+	Targets    string `json:"t,omitempty"`
 	Oldest     int64  `json:"o"`
 	Upper      int64  `json:"u"`
 	Before     int64  `json:"b"`
@@ -68,6 +69,26 @@ func (repository *Repository) List(ctx context.Context, query Query) (contract.A
 			}
 		}
 		statement, args := listStatement(query.Filters, binding, query.Limit+1)
+		if query.Filters.Target != "" {
+			matched, digest, err := repository.searchTargets(ctx, tx, query.Filters, binding)
+			if err != nil {
+				return err
+			}
+			if query.Cursor != "" && binding.Targets != digest {
+				return ErrStaleCursor
+			}
+			binding.Targets = digest
+			keys := make([]string, 0, len(matched))
+			for target := range matched {
+				keys = append(keys, target.Type+"/"+target.ID)
+			}
+			encoded, err := json.Marshal(keys)
+			if err != nil {
+				return err
+			}
+			statement = strings.Replace(statement, " WHERE ", " WHERE target_type || '/' || target_id IN (SELECT value FROM json_each(?)) AND ", 1)
+			args = append([]any{string(encoded)}, args...)
+		}
 		rows, err := tx.QueryContext(ctx, statement, args...)
 		if err != nil {
 			return err
@@ -208,6 +229,7 @@ func (repository *Repository) decodeCursor(encoded string) (cursor, error) {
 	var value cursor
 	if strictjson.Decode(contents, &value, strictjson.Options{MaxBytes: contract.AuditCursorBytes, MaxDepth: 2, RejectUnknownMembers: true}) != nil ||
 		value.Version != 1 || !validGeneration(value.Generation) || !validGeneration(value.Filters) ||
+		value.Targets != "" && !validGeneration(value.Targets) ||
 		value.Oldest < 1 || value.Upper < value.Oldest || value.Before <= value.Oldest || value.Before > value.Upper {
 		return cursor{}, ErrInvalidCursor
 	}

@@ -172,6 +172,21 @@ func TestAuditReadAPIUsesAuthenticatedBoundedHistory(t *testing.T) {
 	assert.NotNil(t, page.History.OldestRetained)
 	assert.False(t, page.History.Pruned)
 
+	for _, target := range []string{testID, testID[8:20]} {
+		response = perform(boundary, http.MethodGet, "/api/v2/audit-events?category=grant&target="+target, "", bearer)
+		require.Equal(t, http.StatusOK, response.Code)
+		var matched contract.AuditPage
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &matched))
+		require.Len(t, matched.Items, 1)
+		require.Equal(t, entry.AuditSummary, matched.Items[0])
+	}
+	for _, target := range []string{"%25", "%5F", "not-a-current-name"} {
+		response = perform(boundary, http.MethodGet, "/api/v2/audit-events?target="+target, "", bearer)
+		require.Equal(t, http.StatusOK, response.Code)
+		var matched contract.AuditPage
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &matched))
+		require.Empty(t, matched.Items)
+	}
 	response = perform(boundary, http.MethodGet, "/api/v2/audit-events/"+testID+"?generation="+page.History.Generation, "", bearer)
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	var item contract.AuditItem
@@ -187,7 +202,7 @@ func TestAuditReadAPIUsesAuthenticatedBoundedHistory(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, perform(boundary, http.MethodGet, "/api/v2/audit-events"+suffix, "", map[string]string{"Cookie": contract.SessionCookieName + "=session"}).Code)
 		assert.Equal(t, http.StatusOK, perform(boundary, http.MethodGet, "/api/v2/audit-events"+suffix, "", map[string]string{"Cookie": contract.SessionCookieName + "=session", "Origin": contract.CanonicalOrigin}).Code)
 	}
-	for _, query := range []string{"unknown=x", "limit=1&limit=2", "limit=0", "limit=101", "limit=01", "cursor=", "cursor=garbage", "actor_type=human", "credential_id=canary", "category=invocation", "category=grant_request&action=submit", "target_type=url", "target_id=bad", "outcome=other", "correlation_id=bad", "from=2026-09-05T00:00:00.000000000Z", "generation=bad", "generation="} {
+	for _, query := range []string{"unknown=x", "limit=1&limit=2", "limit=0", "limit=101", "limit=01", "cursor=", "cursor=garbage", "actor_type=human", "credential_id=canary", "category=invocation", "category=grant_request&action=submit", "target_type=url", "target_id=bad", "target=", "target=x&target=y", "target=%00", "target=%FF", "target=" + strings.Repeat("a", 257), "outcome=other", "correlation_id=bad", "from=2026-09-05T00:00:00.000000000Z", "generation=bad", "generation="} {
 		response = perform(boundary, http.MethodGet, "/api/v2/audit-events?"+query, "", bearer)
 		assert.Equal(t, http.StatusBadRequest, response.Code, query)
 	}

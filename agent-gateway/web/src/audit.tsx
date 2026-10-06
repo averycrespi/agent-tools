@@ -41,7 +41,46 @@ const targetRoutes: Readonly<Record<string, readonly [string, Destination]>> = {
   principal: ["principals", "principals"],
   grant: ["mcp/grants", "grants"],
   grant_request: ["mcp/grant-requests", "requests"],
+  http_credential: ["http/credentials", "http-credentials"],
+  http_grant: ["http/grants", "http-grants"],
+  git_repository: ["git/repositories", "git-repositories"],
+  git_credential: ["git/credentials", "git-credentials"],
+  git_grant: ["git/grants", "git-grants"],
 };
+function outcomeLabel(outcome: string): string {
+  return outcome === "pending"
+    ? "Attempted — unconfirmed"
+    : sentenceCase(outcome);
+}
+function targetType(type: string): string {
+  return type === "principal" ? "Agent" : sentenceCase(type);
+}
+function TargetIdentity({
+  item,
+  href,
+}: {
+  item: AuditSummary;
+  href: string | undefined;
+}) {
+  const label = item.currentTargetName || item.target.id;
+  return (
+    <TableIdentity
+      primary={href ? <a href={href}>{label}</a> : label}
+      secondary={item.currentTargetName ? item.target.id : undefined}
+    />
+  );
+}
+function recognizedTargetLink(item: AuditSummary): string | undefined {
+  const route = targetRoutes[item.target.type];
+  return item.currentTargetName &&
+    route &&
+    !(
+      item.target.type === "server" &&
+      item.target.id === "00000000000000000000000000"
+    )
+    ? `#/${destinationPaths[route[1]]}/${item.target.id}`
+    : undefined;
+}
 function outcomeState(outcome: string): OperationalState {
   return outcome === "succeeded"
     ? "current"
@@ -246,6 +285,7 @@ export class AuditController {
     const key = `${item.target.type}/${item.target.id}`;
     if (
       route === undefined ||
+      !item.currentTargetName ||
       this.unavailableTargets.has(key) ||
       this.value.items.some(
         (event) =>
@@ -256,7 +296,7 @@ export class AuditController {
       )
     )
       return undefined;
-    return `#/${destinationPaths[route[1]]}/${item.target.id}`;
+    return recognizedTargetLink(item);
   }
   snapshot(): AuditSnapshot {
     return this.value;
@@ -506,37 +546,17 @@ function History({ value }: { value: AuditHistory }) {
     </section>
   );
 }
-function localAuditTime(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return value;
-  return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 19);
-}
 const filterLabel = (key: string) =>
   key === "category"
     ? "Event"
     : key === "actor_type"
-      ? "Performer type"
+      ? "Performer"
       : sentenceCase(key).replace(/\bid\b/g, "ID");
-const idFilters = ["credential_id", "target_id", "correlation_id"];
+const textFilters = ["target"];
 function compactQuery(query: Readonly<Record<string, string>>) {
   return Object.fromEntries(
     Object.entries(query).filter(([, value]) => value !== ""),
   );
-}
-function dateError(
-  draft: Readonly<Record<string, string>>,
-): string | undefined {
-  const from = draft.filter_from || undefined;
-  const until = draft.filter_until || undefined;
-  if ((from === undefined) !== (until === undefined))
-    return "Choose both From and Until, or clear both.";
-  if (from === undefined || until === undefined) return undefined;
-  if (from >= until) return "Until must be later than From.";
-  if (!validAuditQuery({ filter_from: from, filter_until: until }))
-    return "Choose valid dates and a time range of at most 366 days.";
-  return undefined;
 }
 function Filters({
   resolved,
@@ -575,22 +595,19 @@ function Filters({
   };
   useDebouncedInput(draft, (settled) => {
     const patch: Record<string, string> = {};
-    for (const key of idFilters) {
+    for (const key of textFilters) {
       const name = `filter_${key}`;
       const value = settled[name] ?? "";
       if (validAuditQuery(compactQuery({ [name]: value }))) patch[name] = value;
     }
     apply(patch);
   });
-  const dates = dateError(draft);
   const errors: Record<string, string> = {};
-  for (const key of idFilters) {
+  for (const key of textFilters) {
     const value = draft[`filter_${key}`] ?? "";
     if (!validAuditQuery(compactQuery({ [`filter_${key}`]: value })))
-      errors[key] =
-        "Enter a complete 26-character Gateway ID, or clear this field.";
+      errors[key] = "Use at most 256 UTF-8 bytes without control characters.";
   }
-  if (dates !== undefined) errors.from = errors.until = dates;
   const pending =
     serializeLocation({ ...resolved.location, query: compactQuery(draft) }) !==
     serializeLocation({ ...resolved.location, query: applied.current });
@@ -603,20 +620,12 @@ function Filters({
   const field = (key: string) => {
     const name = `filter_${key}`;
     const choices = auditFilterOptions(key, draft.filter_category);
-    const timeBound = key === "from" || key === "until";
-    const label =
-      key === "from"
-        ? "From (inclusive, local time)"
-        : key === "until"
-          ? "Until (exclusive, local time)"
-          : filterLabel(key);
+    const label = filterLabel(key);
     const appliedValue = applied.current[name] ?? "";
     const hint = [
-      key === "credential_id"
-        ? "Matches the performing operator or a known system initiator."
-        : "",
+      key === "target" ? "Current names or literal partial IDs." : "",
       (draft[name] ?? "") !== appliedValue
-        ? `Current results: ${appliedValue === "" ? "Any" : timeBound ? localAuditTime(appliedValue) : appliedValue}.`
+        ? `Current results: ${appliedValue === "" ? "Any" : appliedValue}.`
         : "",
     ]
       .filter(Boolean)
@@ -633,30 +642,12 @@ function Filters({
           choices === undefined ? (
             <input
               {...attributes}
-              type={timeBound ? "datetime-local" : "text"}
-              step={timeBound ? "1" : undefined}
-              value={
-                timeBound
-                  ? localAuditTime(draft[name] ?? "")
-                  : (draft[name] ?? "")
+              type="text"
+              value={draft[name] ?? ""}
+              maxLength={256}
+              onInput={(event) =>
+                setDraft({ ...draft, [name]: event.currentTarget.value })
               }
-              maxLength={64}
-              onInput={(event) => {
-                const value = event.currentTarget.value;
-                const timestamp = timeBound ? Date.parse(value) : NaN;
-                const next = {
-                  ...draft,
-                  [name]: Number.isFinite(timestamp)
-                    ? new Date(timestamp).toISOString().replace("Z", "000000Z")
-                    : value,
-                };
-                setDraft(next);
-                if (timeBound && dateError(next) === undefined)
-                  apply({
-                    filter_from: next.filter_from ?? "",
-                    filter_until: next.filter_until ?? "",
-                  });
-              }}
             />
           ) : (
             <select
@@ -709,10 +700,6 @@ function Filters({
         </div>
       )}
       <div class="audit-filter-grid">
-        <div class="audit-filter-group audit-date-bounds">
-          {field("from")}
-          {field("until")}
-        </div>
         <FormField id="audit-event" label="Event">
           {(attributes) => (
             <select
@@ -758,22 +745,9 @@ function Filters({
             </select>
           )}
         </FormField>
-        <div
-          class="audit-filter-group"
-          role="group"
-          aria-label="Performer filters"
-        >
-          {field("actor_type")}
-          {field("credential_id")}
-        </div>
-        <div
-          class="audit-filter-group"
-          role="group"
-          aria-label="Target filters"
-        >
-          {field("target_type")}
-          {field("target_id")}
-        </div>
+        {field("actor_type")}
+        {field("target_type")}
+        {field("target")}
         {field("outcome")}
       </div>
       {pending && (
@@ -804,9 +778,11 @@ function RelatedAudit({
   resolved,
   view,
   selected,
+  targetHref,
 }: {
   controller: RelatedHistory<AuditSummary>;
   selected: AuditEvent;
+  targetHref: (item: AuditSummary) => string | undefined;
   resolved: ResolvedLocation;
   view: ViewSnapshot;
 }) {
@@ -886,11 +862,8 @@ function RelatedAudit({
                         {row.category}.{row.action}
                       </a>
                       {row.id === resolved.location.segments[1] && (
-                        <div class="muted">Selected event</div>
+                        <div class="audit-selected">Selected event</div>
                       )}
-                      <span class="table-secondary">
-                        Sequence {row.sequence}
-                      </span>
                     </>
                   }
                   secondary={row.id}
@@ -901,42 +874,21 @@ function RelatedAudit({
               key: "actor",
               label: "Performer",
               role: "text",
-              render: (row) => (
-                <>
-                  <TableIdentity
-                    primary={sentenceCase(row.actor.type)}
-                    secondary={row.actor.credential?.id}
-                  />
-                  {row.initiator !== null && (
-                    <span class="table-secondary">
-                      Initiated by{" "}
-                      <span class="technical-value">{row.initiator.id}</span>
-                    </span>
-                  )}
-                </>
-              ),
+              render: (row) => sentenceCase(row.actor.type),
+            },
+            {
+              key: "target-type",
+              label: "Target type",
+              role: "text",
+              render: (row) => targetType(row.target.type),
             },
             {
               key: "target",
               label: "Target",
               role: "relation",
               render: (row) => (
-                <TableIdentity
-                  primary={
-                    row.currentTargetName ||
-                    (row.target.type === "principal"
-                      ? "Agent"
-                      : sentenceCase(row.target.type))
-                  }
-                  secondary={row.target.id}
-                />
+                <TargetIdentity item={row} href={targetHref(row)} />
               ),
-            },
-            {
-              key: "phase",
-              label: "Phase",
-              role: "text",
-              render: (row) => sentenceCase(row.phase),
             },
             {
               key: "outcome",
@@ -944,7 +896,7 @@ function RelatedAudit({
               role: "status",
               render: (row) => (
                 <StatusLabel state={outcomeState(row.outcome)}>
-                  {sentenceCase(row.outcome)}
+                  {outcomeLabel(row.outcome)}
                 </StatusLabel>
               ),
             },
@@ -952,6 +904,15 @@ function RelatedAudit({
         />
       )}
       <div class="collection-pagination">
+        {current?.next && current.items.length < 500 && (
+          <button
+            type="button"
+            disabled={current.loading}
+            onClick={() => controller.more()}
+          >
+            Load older events
+          </button>
+        )}
         {current?.loaded && (
           <>
             <LoadedHistorySummary
@@ -965,15 +926,6 @@ function RelatedAudit({
               <span class="table-filter-summary">Plus the selected event</span>
             )}
           </>
-        )}
-        {current?.next && current.items.length < 500 && (
-          <button
-            type="button"
-            disabled={current.loading}
-            onClick={() => controller.more()}
-          >
-            Load more related events
-          </button>
         )}
       </div>
     </section>
@@ -1021,7 +973,7 @@ export function Audit({
               </h1>
               {snapshot.item !== undefined && (
                 <StatusLabel state={outcomeState(snapshot.item.outcome)}>
-                  {sentenceCase(snapshot.item.outcome)}
+                  {outcomeLabel(snapshot.item.outcome)}
                 </StatusLabel>
               )}
             </div>
@@ -1051,7 +1003,6 @@ export function Audit({
               <div class="panel-heading">
                 <h2>Event details</h2>
               </div>
-              <h3>Event and attribution</h3>
               <dl class="detail-facts">
                 <div>
                   <dt>Event</dt>
@@ -1063,12 +1014,6 @@ export function Audit({
                   <dt>Correlation ID</dt>
                   <dd class="technical-value">
                     {snapshot.item.correlation_id}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Sequence / phase</dt>
-                  <dd>
-                    {snapshot.item.sequence} · {snapshot.item.phase}
                   </dd>
                 </div>
                 <div>
@@ -1090,31 +1035,22 @@ export function Audit({
                   </dd>
                 </div>
                 <div>
-                  <dt>Initiating credential (not performer)</dt>
+                  <dt>Initiating credential</dt>
                   <dd>
                     <Credential value={snapshot.item.initiator} />
                   </dd>
                 </div>
                 <div>
+                  <dt>Target type</dt>
+                  <dd>{targetType(snapshot.item.target.type)}</dd>
+                </div>
+                <div>
                   <dt>Target</dt>
                   <dd>
-                    {snapshot.item.target.type === "principal"
-                      ? "Agent"
-                      : sentenceCase(snapshot.item.target.type)}
-                    :{" "}
-                    {snapshot.targetLink === undefined ? (
-                      snapshot.item.currentTargetName || snapshot.item.target.id
-                    ) : (
-                      <a href={snapshot.targetLink}>
-                        {snapshot.item.currentTargetName ||
-                          snapshot.item.target.id}
-                      </a>
-                    )}
-                    {snapshot.item.currentTargetName && (
-                      <span class="table-identifier">
-                        {snapshot.item.target.id}
-                      </span>
-                    )}
+                    <TargetIdentity
+                      item={snapshot.item}
+                      href={snapshot.targetLink}
+                    />
                   </dd>
                 </div>
               </dl>
@@ -1138,11 +1074,12 @@ export function Audit({
                   </dl>
                 </>
               )}
-              <p>
-                Credential attribution does not identify a named human. Pending
-                or unknown outcomes do not prove success, rollback, or
-                permission to replay.
-              </p>
+              {["pending", "unknown"].includes(snapshot.item.outcome) && (
+                <p>
+                  The outcome is unconfirmed. This event does not establish
+                  success, rollback, or safe replay.
+                </p>
+              )}
               {snapshot.targetUnavailable && (
                 <StateNotice state="warning" title="Current target unavailable">
                   <p>
@@ -1154,6 +1091,7 @@ export function Audit({
             </section>
             <RelatedAudit
               controller={controller.related}
+              targetHref={(row) => controller.listTarget(row)}
               selected={snapshot.item}
               resolved={resolved}
               view={view}
@@ -1239,45 +1177,23 @@ export function Audit({
                   key: "actor",
                   label: "Performer",
                   role: "relation",
-                  render: (item) => (
-                    <>
-                      {sentenceCase(item.actor.type)}
-                      {item.actor.credential !== null && (
-                        <span class="table-identifier">
-                          {item.actor.credential.id}
-                        </span>
-                      )}
-                      {item.initiator !== null && (
-                        <span class="table-secondary">
-                          Initiated by{" "}
-                          <span class="technical-value">
-                            {item.initiator.id}
-                          </span>
-                        </span>
-                      )}
-                    </>
-                  ),
+                  render: (item) => sentenceCase(item.actor.type),
+                },
+                {
+                  key: "target-type",
+                  label: "Target type",
+                  role: "text",
+                  render: (item) => targetType(item.target.type),
                 },
                 {
                   key: "target",
                   label: "Target",
                   role: "relation",
                   render: (item) => (
-                    <>
-                      {item.currentTargetName ||
-                        (item.target.type === "principal"
-                          ? "Agent"
-                          : sentenceCase(item.target.type))}
-                      <span class="table-identifier">
-                        {controller.listTarget(item) === undefined ? (
-                          item.target.id
-                        ) : (
-                          <a href={controller.listTarget(item)}>
-                            {item.target.id}
-                          </a>
-                        )}
-                      </span>
-                    </>
+                    <TargetIdentity
+                      item={item}
+                      href={controller.listTarget(item)}
+                    />
                   ),
                 },
                 {
@@ -1285,14 +1201,9 @@ export function Audit({
                   label: "Outcome",
                   role: "status",
                   render: (item) => (
-                    <>
-                      <StatusLabel state={outcomeState(item.outcome)}>
-                        {sentenceCase(item.outcome)}
-                      </StatusLabel>
-                      <span class="table-secondary">
-                        {sentenceCase(item.phase)}
-                      </span>
-                    </>
+                    <StatusLabel state={outcomeState(item.outcome)}>
+                      {outcomeLabel(item.outcome)}
+                    </StatusLabel>
                   ),
                 },
               ]}
@@ -1323,7 +1234,9 @@ export function Audit({
           )}
         </section>
       )}
-      {snapshot.history !== undefined && <History value={snapshot.history} />}
+      {!detail && snapshot.history !== undefined && (
+        <History value={snapshot.history} />
+      )}
     </div>
   );
 }

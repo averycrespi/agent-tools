@@ -3,14 +3,14 @@ package servers
 import (
 	"context"
 	"database/sql"
-	"strings"
+	"encoding/json"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
 // AuditTargetNamesTx reads live names in the audit reader's snapshot.
 func (repository *Repository) AuditTargetNamesTx(ctx context.Context, tx *sql.Tx, targets []contract.AuditTarget) (map[contract.AuditTarget]string, error) {
-	if tx == nil || len(targets) > contract.AuditPageLimit {
+	if tx == nil || len(targets) > contract.AuditRetention {
 		return nil, ErrStorageUnavailable
 	}
 	names := make(map[contract.AuditTarget]string)
@@ -27,8 +27,11 @@ func (repository *Repository) AuditTargetNamesTx(ctx context.Context, tx *sql.Tx
 	if len(ids) == 0 {
 		return names, nil
 	}
-	//nolint:gosec // Only bounded placeholder punctuation is generated; all IDs are bound values.
-	rows, err := tx.QueryContext(ctx, "SELECT id, display_name FROM servers WHERE desired_state != 'deleted' AND id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+")", ids...)
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, "SELECT id, display_name FROM servers WHERE desired_state != 'deleted' AND id IN (SELECT value FROM json_each(?))", string(encoded))
 	if err != nil {
 		return nil, err
 	}

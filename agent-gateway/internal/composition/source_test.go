@@ -288,6 +288,11 @@ var _ = mcp.NewClient
 			want:     "internal/audit/producer.go: prohibited control audit SQL",
 		},
 		{
+			name: "audit mutation in search owner", path: "internal/audit/search.go",
+			contents: "package audit\nfunc mutate() { _ = `DELETE FROM control_audit_events` }\n",
+			want:     "internal/audit/search.go: prohibited control audit SQL",
+		},
+		{
 			name: "audit mutation in read owner", path: "internal/audit/reads.go",
 			contents: "package audit\nfunc mutate() { _ = `DELETE FROM control_audit_events` }\n",
 			want:     "internal/audit/reads.go: prohibited control audit SQL",
@@ -618,7 +623,7 @@ func productionSliceViolations(source productionSource) []string {
 		}
 		return true
 	})
-	auditOwner := source.path == "internal/audit/repository.go" || source.path == "internal/audit/reads.go" || source.path == "internal/audit/producer.go"
+	auditOwner := source.path == "internal/audit/repository.go" || source.path == "internal/audit/reads.go" || source.path == "internal/audit/search.go" || source.path == "internal/audit/producer.go"
 	if strings.HasPrefix(source.path, "internal/audit/") && !auditOwner || strings.HasPrefix(source.path, "internal/ui/") {
 		violations = append(violations, fmt.Sprintf("%s: prohibited S4/S5 package", source.path))
 	}
