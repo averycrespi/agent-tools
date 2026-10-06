@@ -66,9 +66,9 @@ const navigation: ReadonlyArray<{
     label: "Git",
     destinations: [
       "git-routing",
+      "git-credentials",
       "git-repositories",
       "git-grants",
-      "git-credentials",
       "git-traffic",
     ],
   },

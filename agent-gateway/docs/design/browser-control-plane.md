@@ -8,8 +8,8 @@ This chapter owns browser state, workflows, presentation and secret sinks. [Admi
 
 ## Git administration and traffic
 
-The dedicated Git group contains Routing, Repositories, Grants, Credentials and Traffic at
-`#/git/routing`, `#/git/repositories`, `#/git/grants`, `#/git/credentials` and `#/git/traffic`.
+The dedicated Git group contains Routing, Credentials, Repositories, Grants and Traffic at
+`#/git/routing`, `#/git/credentials`, `#/git/repositories`, `#/git/grants` and `#/git/traffic`.
 Routing is a singleton page showing the read-only enforcement state, revision and
 complete enabled-origin list. Add/remove HTTPS origin rows and confirm the full
 current/proposed replacement under an exact profile ETag. An empty list is valid;
@@ -40,6 +40,25 @@ identity. Bounded snapshot traversals cover all choices, not just page one; load
 or incompatible selected credential never silently becomes None. Relationship
 names also appear in lists, details and confirmation. Alias and push-rule editors
 share grouped add/remove rows and form-action spacing.
+
+Git resource tables explicitly request name ascending (repositories/credentials)
+or description ascending (grants), with **Unnamed Git grant** fallback and
+ID-ascending ties. Full-inventory filters follow the columns: repository name/ID,
+canonical destination and credential name/ID; credential name/ID, origin and
+availability; grant description/ID, repository name/ID, agent name/ID and state.
+Names use typo-tolerant recognition, IDs literal case-sensitive substrings, and
+canonical destinations/origins literal case-insensitive substrings. All visible
+columns sort through the backend; Reset clears filters, not ordering. Applied
+queries survive detail/back navigation; create locations remain queryless.
+
+Repository views share one authorized routing-profile read, never one per row.
+An active profile missing the exact normalized canonical HTTPS origin shows
+**Not routed** beside the destination and in detail/create review, with a contextual
+**Git routing** link. Explicit same-origin `.git` aliases have the same coverage;
+no alias is added automatically. Loading, unavailable/stale profile and inactive
+routing are distinct from uncovered. Origin coverage says nothing about grants,
+material readiness or successful access. It does not block saving. Invalid draft
+coordinates have unknown coverage rather than an inferred match.
 
 Traffic uses bounded newest-first server-selected pages with shared Previous/Next
 controls and manual/coalesced refresh, not an independent polling or stream owner.
@@ -119,7 +138,7 @@ The frontend development path is build/test-only and uses a second independently
 
 The developer control application is built from strict TypeScript and Preact with Vite into a fixed embedded HTML, stylesheet, and module allowlist. The checked-in bundle contains no external or inline active content, source maps, chunks, or runtime Node dependency and uses the fixed restrictive CSP.
 
-The application is branded **Agent Gateway**. Primary navigation separates shared administration from the MCP domain: **Overview**, **Agents**, **Audit Log**, **System** in one unlabeled group; then **HTTP** (Credentials, Grants, Traffic), **Git** (Routing, Repositories, Grants, Credentials, Traffic) and **MCP** (Servers, Tools, Grants, Requests, Invocations). Groups are not new destinations or domain editors. MCP collection page titles include their protocol: **MCP Servers**, **MCP Tools**, **MCP Grants**, **MCP Access Requests**, and **MCP Invocations**. Creation titles are **Create MCP Server** and **Create MCP Grant**. Sidebar and tab labels remain short; **Audit Log** matches its navigation label. Invocations needs no explanatory subtitle and presents only existing MCP invocation evidence, separately from Audit Log; no additional protocol coverage or placeholder is implied. These are history destinations, not identity directories. Audit Log retains all existing audit attribution, including system and offline maintenance events; its label is not an actor filter. Overview remains shared, with protocol-specific summaries labeled MCP. System optional history reports the shared MCP/HTTP/Git budget, delivery, fault and pruning boundary. Separately labeled process observations are not history/query totals. Desktop and narrow disclosure navigation share the same ordered links, current-destination semantics, keyboard handling, and state owners.
+The application is branded **Agent Gateway**. Primary navigation separates shared administration from the MCP domain: **Overview**, **Agents**, **Audit Log**, **System** in one unlabeled group; then **HTTP** (Credentials, Grants, Traffic), **Git** (Routing, Credentials, Repositories, Grants, Traffic) and **MCP** (Servers, Tools, Grants, Requests, Invocations). Groups are not new destinations or domain editors. MCP collection page titles include their protocol: **MCP Servers**, **MCP Tools**, **MCP Grants**, **MCP Access Requests**, and **MCP Invocations**. Creation titles are **Create MCP Server** and **Create MCP Grant**. Sidebar and tab labels remain short; **Audit Log** matches its navigation label. Invocations needs no explanatory subtitle and presents only existing MCP invocation evidence, separately from Audit Log; no additional protocol coverage or placeholder is implied. These are history destinations, not identity directories. Audit Log retains all existing audit attribution, including system and offline maintenance events; its label is not an actor filter. Overview remains shared, with protocol-specific summaries labeled MCP. System optional history reports the shared MCP/HTTP/Git budget, delivery, fault and pruning boundary. Separately labeled process observations are not history/query totals. Desktop and narrow disclosure navigation share the same ordered links, current-destination semantics, keyboard handling, and state owners.
 
 One closed domain-grouped hash grammar owns browser locations: `#/mcp/servers`, `#/mcp/tools`, `#/agents`, `#/mcp/grants`, `#/mcp/access-requests`, `#/mcp/invocations`, `#/audit-log`, `#/http/credentials`, `#/http/grants`, `#/http/traffic`, `#/git/routing`, `#/git/repositories`, `#/git/grants`, `#/git/credentials`, `#/git/traffic`, and `#/system`. Overview and sign-in remain `#/overview` and `#/sign-in`. Detail and create suffixes remain beneath their owning collection; server-owned `operations/{id}`, `auth-flows/{id}`, and `descriptors/{id}` remain beneath `#/mcp/servers/{id}`. System create destinations remain unchanged. Retired `#/access/principals`, `#/activity/audit`, `#/access/grants`, `#/access/requests`, `#/activity/invocations`, and other undeclared paths are invalid, with no aliases or redirects. Valid former `#/principals` collection, detail and create links are canonically replaced with `#/agents`, retaining declared filter/sort state within the fragment and the outer URL query. Invalid suffixes or queries still fail closed; unrelated retired paths gain no redirect. Agent detail/create and audit detail suffixes follow their canonical collection; this browser location cleanup changes no API endpoints. Create and edit expose HTTP default as parallel **Block requests** / **Allow requests** choices; create initially selects Block requests and submits the selected value in its single atomic creation. Review and Agent details use the same labels, with details reflecting persisted settings. Default allow supplies no credential, tunnel permission or local/private access and does not override explicit policies. Invalid locations retain the safe fixed fallback and navigation notice, never a resource lookup or mutation inferred from the rejected path. No pathname fallback serving is introduced. See the [operator location mapping](../operators/upgrade-compatibility.md#browser-location-cutover). Location naming does not change the shared theme owner, session epochs, refresh/pagination, mutation coordination, or one-time-secret sinks.
 

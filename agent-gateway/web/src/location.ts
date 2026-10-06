@@ -166,6 +166,38 @@ function authorizationCollectionQuery(
   );
 }
 
+function gitCollectionQuery(
+  query: Record<string, string>,
+  kind: string,
+): boolean {
+  const text =
+    kind === "git-repositories"
+      ? ["name", "destination", "credential"]
+      : kind === "git-credentials"
+        ? ["name", "origin"]
+        : ["identity", "repository", "principal"];
+  const values: Record<string, readonly string[]> = {
+    direction: ["ascending", "descending"],
+    sort:
+      kind === "git-repositories"
+        ? ["id", "name", "destination", "credential"]
+        : kind === "git-credentials"
+          ? ["id", "name", "origin", "status"]
+          : ["id", "description", "repository", "principal", "state"],
+  };
+  if (kind === "git-credentials")
+    values.filter_status = ["configured", "unavailable"];
+  if (kind === "git-grants") values.filter_state = ["active", "expired"];
+  return (
+    !(query.direction !== undefined && query.sort === undefined) &&
+    Object.entries(query).every(([key, value]) =>
+      text.some((field) => key === `filter_${field}`)
+        ? isCollectionFilter(key, value)
+        : values[key]?.includes(value) === true,
+    )
+  );
+}
+
 function requestCollectionQuery(query: Record<string, string>): boolean {
   const values: Record<string, readonly string[]> = {
     queue: ["all"],
@@ -359,7 +391,9 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       first === "git-grants" ||
       first === "git-credentials" ||
       first === "git-traffic") &&
-    noQuery &&
+    (first === "git-traffic" || second === "new"
+      ? noQuery
+      : gitCollectionQuery(query, first)) &&
     (segments.length === 1 ||
       (segments.length === 2 &&
         second !== undefined &&
@@ -535,6 +569,9 @@ const queryOrder: Readonly<Record<string, readonly string[]>> = {
   grants: ["sort", "direction"],
   "http-grants": ["principal_id", "sort", "direction"],
   "http-credentials": ["sort", "direction"],
+  "git-repositories": ["sort", "direction"],
+  "git-credentials": ["sort", "direction"],
+  "git-grants": ["sort", "direction"],
   requests: ["queue", "sort", "direction"],
 };
 
@@ -545,8 +582,13 @@ export function serializeLocation(value: ApplicationLocation): string {
   if (path === "system" && query.tab === "status") delete query.tab;
   const fixedKeys =
     queryOrder[path] ??
-    (value.destination === "http-credentials"
-      ? queryOrder["http-credentials"]
+    ([
+      "http-credentials",
+      "git-repositories",
+      "git-credentials",
+      "git-grants",
+    ].includes(value.destination)
+      ? queryOrder[value.destination]
       : undefined) ??
     (query.tab === "tools" || query.tab === "operations"
       ? ["tab", "sort", "direction"]

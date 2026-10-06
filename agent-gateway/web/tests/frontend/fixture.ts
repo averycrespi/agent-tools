@@ -173,6 +173,11 @@ export const test = base.extend<{
         );
       }
       if (method === "GET") {
+        if (path === "/api/v2/git/routing-profile")
+          return route.fulfill({
+            json: { origins: [], revision: "1", active: true },
+            headers: { ETag: '"git-profile-routing-1"' },
+          });
         if (path === "/api/v2/audit-events")
           return json({
             items: [],

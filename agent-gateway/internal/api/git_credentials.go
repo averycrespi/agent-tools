@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
@@ -13,7 +14,7 @@ import (
 )
 
 type GitCredentialService interface {
-	List(context.Context) ([]contract.GitCredential, error)
+	Query(context.Context, authorization.GitCollectionQuery, string, int) (contract.QueryCollection[contract.GitCredential], error)
 	Get(context.Context, string) (contract.GitCredential, error)
 	Create(context.Context, contract.GitCredentialDefinition, []byte) (contract.GitCredential, error)
 	Update(context.Context, string, string, contract.GitCredentialDefinition) (contract.GitCredential, error)
@@ -23,7 +24,9 @@ type GitCredentialService interface {
 
 func (h *Handler) gitCredential(w http.ResponseWriter, r *http.Request, id string, rotate bool) {
 	if r.Method == http.MethodGet && id == "" {
-		gitCollection(w, r, "git_credentials", func() ([]contract.GitCredential, error) { return h.gitCredentials.List(r.Context()) }, func(c contract.GitCredential) string { return c.ID })
+		gitCollection(w, r, "git_credentials", func(q authorization.GitCollectionQuery, cursor string, limit int) (contract.QueryCollection[contract.GitCredential], error) {
+			return h.gitCredentials.Query(r.Context(), q, cursor, limit)
+		})
 		return
 	}
 	if r.URL.RawQuery != "" {

@@ -6,7 +6,12 @@ import {
   type GitChoices,
 } from "./git-choices";
 import { useEffect, useRef, useState } from "preact/hooks";
-import type { ResolvedLocation } from "./location";
+import { serializeLocation, type ResolvedLocation } from "./location";
+import {
+  GitCoverage,
+  useGitCoverage,
+  type GitCoverageSource,
+} from "./git-coverage";
 import type { MutationCoordinator, MutationSnapshot } from "./mutation";
 import { useUnsavedChanges } from "./navigation";
 import {
@@ -98,6 +103,12 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
   const { kind } = props,
     selected = props.resolved.location.segments[1];
   const choices = useGitChoices(props.session, props.view.generation, kind);
+  const coverage = useGitCoverage(
+    props.session,
+    props.view.generation,
+    kind === "repositories" &&
+      props.view.viewKey === props.resolved.canonicalFragment,
+  );
   const { value, error } = useGitDetail(
     props,
     selected && selected !== "new"
@@ -110,9 +121,16 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
     },
   );
   if (selected === undefined)
-    return <GitCollection {...props} choices={choices} />;
+    return <GitCollection {...props} choices={choices} coverage={coverage} />;
   if (selected === "new")
-    return <GitEditor {...props} choices={choices} mode="create" />;
+    return (
+      <GitEditor
+        {...props}
+        choices={choices}
+        coverage={coverage}
+        mode="create"
+      />
+    );
   if (!value)
     return (
       <StateNotice
@@ -123,7 +141,14 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
   return (
     <div class="domain-view">
       <nav class="detail-navigation" aria-label="Git resource navigation">
-        <a href={`#/git/${kind}`}>Back to Git {kind}</a>
+        <a
+          href={serializeLocation({
+            ...props.resolved.location,
+            segments: [props.resolved.location.destination],
+          })}
+        >
+          Back to Git {kind}
+        </a>
       </nav>
       <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
@@ -162,7 +187,14 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             <>
               <div>
                 <dt>Canonical destination</dt>
-                <dd>{value.url}</dd>
+                <dd>
+                  {value.url}
+                  <GitCoverage
+                    source={coverage}
+                    destination={value.url!}
+                    contextual
+                  />
+                </dd>
               </div>
               <div>
                 <dt>Explicit aliases</dt>
@@ -325,22 +357,43 @@ function GitRelationship({
   );
 }
 
-function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
+function GitCollection(
+  props: Props & {
+    kind: GitKind;
+    choices: GitChoices;
+    coverage: GitCoverageSource;
+  },
+) {
   const navigate = useUnsavedChanges(false),
     { kind } = props;
   const { items, controls } = useCollectionPage<GitResource>(
     props.session,
     props.resolved,
     props.view,
-    (_q, cursor, signal) =>
-      readCollectionPage(
+    (query, cursor, signal) => {
+      const params = new URLSearchParams({
+        limit: "50",
+        sort: query.sort ?? (kind === "grants" ? "description" : "name"),
+        direction: query.direction ?? "ascending",
+      });
+      for (const key of kind === "repositories"
+        ? ["name", "destination", "credential"]
+        : kind === "credentials"
+          ? ["name", "origin", "status"]
+          : ["identity", "repository", "principal", "state"]) {
+        const value = query[`filter_${key}`];
+        if (value !== undefined) params.set(key, value);
+      }
+      if (cursor !== null) params.set("cursor", cursor);
+      return readCollectionPage(
         props.session,
-        `/api/v2/git/${kind}?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
+        `/api/v2/git/${kind}?${params}`,
         (v) => decodeGitResource(kind, v),
         signal,
-      ),
+      );
+    },
     navigate,
-    { key: "id", direction: "ascending" },
+    { key: kind === "grants" ? "description" : "name", direction: "ascending" },
   );
   return (
     <div class="domain-view">
@@ -352,17 +405,104 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
       <section class="panel domain-panel">
         <CollectionTable
           caption={`Git ${kind}`}
-          rowHeaderKey="name"
+          rowHeaderKey={kind === "grants" ? "description" : "name"}
           remote={controls}
           itemNames={{ singular: singular(kind), plural: kind }}
           emptyTitle={`No Git ${kind}`}
           items={items}
           rowKey={(r) => r.id}
-          filters={[]}
-          initialSort={{ key: "id", direction: "ascending" }}
+          filters={[
+            {
+              key: kind === "grants" ? "identity" : "name",
+              label: kind === "grants" ? "Description or ID" : "Name or ID",
+              type: "text",
+              value: (r) => r.name ?? r.description ?? "",
+              literalValues: (r) => [r.id],
+            },
+            ...(kind === "grants"
+              ? [
+                  {
+                    key: "repository",
+                    label: "Repository",
+                    type: "text" as const,
+                    value: (r: GitResource) =>
+                      props.choices.repositories.find(
+                        (v) => v.id === r.repository_id,
+                      )?.name ?? "",
+                    literalValues: (r: GitResource) => [r.repository_id!],
+                  },
+                  {
+                    key: "principal",
+                    label: "Agent",
+                    type: "text" as const,
+                    value: (r: GitResource) =>
+                      props.choices.agents.find((v) => v.id === r.principal_id)
+                        ?.name ?? "",
+                    literalValues: (r: GitResource) => [r.principal_id!],
+                  },
+                  {
+                    key: "state",
+                    label: "Status",
+                    type: "select" as const,
+                    value: (r: GitResource) => r.state!,
+                    options: [
+                      { value: "active", label: "Active" },
+                      { value: "expired", label: "Expired" },
+                    ],
+                  },
+                ]
+              : kind === "repositories"
+                ? [
+                    {
+                      key: "destination",
+                      label: "Destination",
+                      type: "text" as const,
+                      value: (r: GitResource) => r.url!,
+                      placeholder: "Literal destination substring",
+                    },
+                    {
+                      key: "credential",
+                      label: "Git credential",
+                      type: "text" as const,
+                      value: (r: GitResource) =>
+                        props.choices.credentials.find(
+                          (v) => v.id === r.credential_id,
+                        )?.name ?? "",
+                      literalValues: (r: GitResource) => [
+                        r.credential_id ?? "",
+                      ],
+                    },
+                  ]
+                : [
+                    {
+                      key: "origin",
+                      label: "HTTPS origin",
+                      type: "text" as const,
+                      value: (r: GitResource) => r.origin!,
+                      placeholder: "Literal origin substring",
+                    },
+                    {
+                      key: "status",
+                      label: "Status",
+                      type: "select" as const,
+                      value: (r: GitResource) =>
+                        r.available ? "configured" : "unavailable",
+                      options: [
+                        { value: "configured", label: "Configured" },
+                        { value: "unavailable", label: "Unavailable" },
+                      ],
+                    },
+                  ]),
+          ]}
+          additionalSorts={[{ key: "id", label: "ID", sortValue: (r) => r.id }]}
+          initialSort={{
+            key: kind === "grants" ? "description" : "name",
+            direction: "ascending",
+          }}
           columns={[
             {
-              key: "name",
+              key: kind === "grants" ? "description" : "name",
+              sortValue: (r) => label(r),
               label:
                 kind === "repositories"
                   ? "Repository"
@@ -372,13 +512,33 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
               role: "identity",
               render: (r) => (
                 <TableIdentity
-                  primary={<a href={`#/git/${kind}/${r.id}`}>{label(r)}</a>}
+                  primary={
+                    <a
+                      href={serializeLocation({
+                        ...props.resolved.location,
+                        segments: [props.resolved.location.destination, r.id],
+                      })}
+                    >
+                      {label(r)}
+                    </a>
+                  }
                   secondary={r.id}
                 />
               ),
             },
             {
-              key: "scope",
+              key:
+                kind === "grants"
+                  ? "repository"
+                  : kind === "credentials"
+                    ? "origin"
+                    : "destination",
+              sortValue: (r) =>
+                r.url ??
+                r.origin ??
+                props.choices.repositories.find((v) => v.id === r.repository_id)
+                  ?.name ??
+                r.repository_id!,
               label: kind === "grants" ? "Repository" : "Destination",
               role: "relation",
               render: (r) =>
@@ -389,13 +549,24 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
                     choices={props.choices}
                   />
                 ) : (
-                  (r.url ?? r.origin)
+                  <>
+                    {r.url ?? r.origin}
+                    {kind === "repositories" && (
+                      <GitCoverage
+                        source={props.coverage}
+                        destination={r.url!}
+                      />
+                    )}
+                  </>
                 ),
             },
             ...(kind === "grants"
               ? [
                   {
-                    key: "agent",
+                    key: "principal",
+                    sortValue: (r: GitResource) =>
+                      props.choices.agents.find((v) => v.id === r.principal_id)
+                        ?.name ?? r.principal_id!,
                     label: "Agent",
                     role: "relation" as const,
                     render: (r: GitResource) => (
@@ -409,9 +580,26 @@ function GitCollection(props: Props & { kind: GitKind; choices: GitChoices }) {
                 ]
               : []),
             {
-              key: "status",
+              key:
+                kind === "repositories"
+                  ? "credential"
+                  : kind === "grants"
+                    ? "state"
+                    : "status",
+              sortValue: (r) =>
+                kind === "repositories"
+                  ? (props.choices.credentials.find(
+                      (v) => v.id === r.credential_id,
+                    )?.name ??
+                    r.credential_id ??
+                    "")
+                  : kind === "grants"
+                    ? r.state!
+                    : r.available
+                      ? "configured"
+                      : "unavailable",
               label: kind === "repositories" ? "Git credential" : "Status",
-              role: "status",
+              role: kind === "repositories" ? "relation" : "status",
               render: (r) =>
                 kind === "repositories" ? (
                   r.credential_id ? (
@@ -457,8 +645,10 @@ function GitEditor({
   resource,
   mode,
   unavailable = false,
+  coverage,
   ...props
 }: Props & {
+  coverage?: GitCoverageSource;
   kind: GitKind;
   choices: GitChoices;
   resource?: GitResource;
@@ -1121,7 +1311,16 @@ function GitEditor({
                   <>
                     <div>
                       <dt>Immutable destination</dt>
-                      <dd>{draft.url}</dd>
+                      <dd>
+                        {draft.url}
+                        {coverage && (
+                          <GitCoverage
+                            source={coverage}
+                            destination={draft.url}
+                            contextual
+                          />
+                        )}
+                      </dd>
                     </div>
                     <div>
                       <dt>Aliases</dt>

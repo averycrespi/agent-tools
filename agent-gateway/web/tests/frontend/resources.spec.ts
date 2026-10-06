@@ -295,6 +295,78 @@ for (const entity of entities) {
     };
     await nav();
     await expect(page.getByRole("table")).toContainText(entity.name);
+    if (entity.path.startsWith("git/")) {
+      const grants = entity.path === "git/grants";
+      expect(collectionQueries.at(-1)?.get("sort")).toBe(
+        grants ? "description" : "name",
+      );
+      expect(collectionQueries.at(-1)?.get("direction")).toBe("ascending");
+      const fields =
+        entity.path === "git/repositories"
+          ? [
+              ["Name or ID", "name"],
+              ["Destination", "destination"],
+              ["Git credential", "credential"],
+            ]
+          : grants
+            ? [
+                ["Description or ID", "identity"],
+                ["Repository", "repository"],
+                ["Agent", "principal"],
+              ]
+            : [
+                ["Name or ID", "name"],
+                ["HTTPS origin", "origin"],
+              ];
+      for (const [label, key] of fields) {
+        await page
+          .getByRole("searchbox", { name: label!, exact: true })
+          .fill("Synthetic");
+        await expect
+          .poll(() => collectionQueries.at(-1)?.get(key!))
+          .toBe("Synthetic");
+      }
+      if (entity.path !== "git/repositories") {
+        await page
+          .getByRole("combobox", { name: "Status", exact: true })
+          .selectOption(grants ? "expired" : "unavailable");
+        await expect
+          .poll(() =>
+            collectionQueries.at(-1)?.get(grants ? "state" : "status"),
+          )
+          .toBe(grants ? "expired" : "unavailable");
+      }
+      await page.getByRole("link", { name: entity.name, exact: true }).click();
+      await expect(page).toHaveURL(/filter_/);
+      await page
+        .getByRole("link", {
+          name: `Back to Git ${entity.path.split("/")[1]}`,
+          exact: true,
+        })
+        .click();
+      await expect(
+        page.getByRole("searchbox", { name: fields[0]![0]!, exact: true }),
+      ).toHaveValue("Synthetic");
+      await capture(page, "collection-filtered", true);
+      await page.getByRole("button", { name: "Reset", exact: true }).click();
+      await expect
+        .poll(() => collectionQueries.at(-1)?.has(fields[0]![1]!))
+        .toBe(false);
+      await page
+        .getByRole("button", {
+          name: grants
+            ? "Grant"
+            : entity.path === "git/repositories"
+              ? "Repository"
+              : "Credential",
+          exact: true,
+        })
+        .focus();
+      await page.keyboard.press("Enter");
+      await expect
+        .poll(() => collectionQueries.at(-1)?.get("direction"))
+        .toBe("descending");
+    }
     if (entity.path === "http/credentials") {
       expect(collectionQueries.at(-1)?.get("sort")).toBe("name");
       expect(collectionQueries.at(-1)?.get("direction")).toBe("ascending");

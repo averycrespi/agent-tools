@@ -218,27 +218,47 @@ All use existing administrator bearer/session authority, strict bounded JSON, no
 
 All `/api/v2/git` resources use existing administrator bearer/session authority,
 strict bounded closed JSON, no-store responses and no automatic replay. They add
-no listener or agent identity. Configuration collections accept only singleton nonempty
-`cursor` and canonical `limit` (default 50, maximum 100), use ID ascending order
-and return `{items,next_cursor,total_count,offset}` from one bounded read. ID
-continuations are representation-bound, not frozen policy snapshots; a missing
-continuation identity is stale. Item/profile reads are bodyless and queryless.
+no listener or agent identity. Configuration collections accept singleton nonempty
+`cursor` and canonical `limit` (default 50, maximum 100), with ID ascending as the
+compatible omitted API order. They return `{items,next_cursor,total_count,offset}`
+from one bounded SQL view. Repository queries add `name`, `destination`, `credential`
+and `sort=id|name|destination|credential`; credentials add `name`, `origin`,
+`status=configured|unavailable` and `sort=id|name|origin|status`; grants add `identity`,
+`repository`, `principal`, `state=active|expired` and
+`sort=id|description|repository|principal|state`. `direction=ascending|descending`
+requires an explicit sort and otherwise defaults to ascending. ID-ascending ties
+are deterministic in either direction. Missing grant descriptions sort as
+**Unnamed Git grant**, then ID. Names/descriptions and relationship names use
+shared typo-tolerant recognition; IDs are case-sensitive literal substrings.
+Destination/origin filters are case-insensitive literal substrings of the canonical
+coordinate, not aliases, wildcard policy, or authority. Text is bounded to 256 UTF-8
+bytes without control/format characters; filters compose with AND.
+
+Selection scans only bounded compact recognition/revision metadata and hydrates
+the selected page, never all 4,096 grant policies. Five-minute process-key-authenticated
+cursors bind collection, effective query, full metadata snapshot, related names,
+revisions, derived expiry and credential material/reference evidence. Changed facts
+or query meaning are stale; continuation never extends expiry. Legacy ID cursors
+may finish only the unfiltered ID-ascending traversal and require the identity to
+remain present; the next cursor uses the new snapshot contract. Cursors confer no
+mutation authority. Credential availability is SQL publication/fence evidence, not
+a keyring readiness probe. Item/profile reads remain bodyless and queryless.
 
 | Method and pattern                         | Closed request schema | Success schema/status            | Exact If-Match | Response ETag |
 | ------------------------------------------ | --------------------- | -------------------------------- | -------------- | ------------- |
-| `GET /api/v2/git/repositories`             | `GitListQuery`        | `QueryPage<GitRepository>` / 200 | no             | no            |
+| `GET /api/v2/git/repositories`             | `GitRepositoryQuery`  | `QueryPage<GitRepository>` / 200 | no             | no            |
 | `POST /api/v2/git/repositories`            | `GitRepositoryWrite`  | `GitRepository` / 201            | no             | yes           |
 | `GET /api/v2/git/repositories/{id}`        | `None`                | `GitRepository` / 200            | no             | yes           |
 | `PATCH /api/v2/git/repositories/{id}`      | `GitRepositoryWrite`  | `GitRepository` / 200            | yes            | yes           |
 | `DELETE /api/v2/git/repositories/{id}`     | `None`                | `Empty` / 204                    | yes            | no            |
-| `GET /api/v2/git/grants`                   | `GitListQuery`        | `QueryPage<GitGrant>` / 200      | no             | no            |
+| `GET /api/v2/git/grants`                   | `GitGrantQuery`       | `QueryPage<GitGrant>` / 200      | no             | no            |
 | `POST /api/v2/git/grants`                  | `GitGrantWrite`       | `GitGrant` / 201                 | no             | yes           |
 | `GET /api/v2/git/grants/{id}`              | `None`                | `GitGrant` / 200                 | no             | yes           |
 | `PATCH /api/v2/git/grants/{id}`            | `GitGrantWrite`       | `GitGrant` / 200                 | yes            | yes           |
 | `DELETE /api/v2/git/grants/{id}`           | `None`                | `Empty` / 204                    | yes            | no            |
 | `GET /api/v2/git/routing-profile`          | `None`                | `GitRoutingProfile` / 200        | no             | yes           |
 | `PATCH /api/v2/git/routing-profile`        | `GitProfileWrite`     | `GitRoutingProfile` / 200        | yes            | yes           |
-| `GET /api/v2/git/credentials`              | `GitListQuery`        | `QueryPage<GitCredential>` / 200 | no             | no            |
+| `GET /api/v2/git/credentials`              | `GitCredentialQuery`  | `QueryPage<GitCredential>` / 200 | no             | no            |
 | `POST /api/v2/git/credentials`             | `GitCredentialCreate` | `GitCredential` / 201            | no             | yes           |
 | `GET /api/v2/git/credentials/{id}`         | `None`                | `GitCredential` / 200            | no             | yes           |
 | `PATCH /api/v2/git/credentials/{id}`       | `GitCredentialUpdate` | `GitCredential` / 200            | yes            | yes           |

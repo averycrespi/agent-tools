@@ -26,6 +26,31 @@ export function normalizeGitOrigin(value: string): string {
   return `https://${url.hostname}:${url.port || "443"}`;
 }
 
+// Valid aliases share the canonical origin; a .git suffix cannot change coverage.
+export function gitOriginCovered(
+  destination: string,
+  profile: GitRoutingProfile,
+): boolean | undefined {
+  try {
+    const match = /^https:\/\/([^/?#@%\\\s]+)(\/[A-Za-z0-9._~/-]+)$/.exec(
+      destination,
+    );
+    if (
+      destination.length > 4096 ||
+      !match ||
+      match[2]!
+        .slice(1)
+        .split("/")
+        .some((part) => part === "" || part === "." || part === "..")
+    )
+      return undefined;
+    const url = new URL(destination);
+    return profile.origins.includes(normalizeGitOrigin(`https://${url.host}`));
+  } catch {
+    return undefined;
+  }
+}
+
 export function normalizeGitOrigins(values: string[]): string[] {
   if (values.length > 256) throw new Error("Use at most 256 origins.");
   const origins = values.map(normalizeGitOrigin).sort();

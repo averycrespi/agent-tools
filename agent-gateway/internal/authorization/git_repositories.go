@@ -279,6 +279,30 @@ func (r *Repository) DeleteGitRepository(ctx context.Context, id, revision strin
 	return r.mapMutationError(err)
 }
 
+// GitCredentialReferenceIDsTx reads the bounded reference inventory once for a
+// credential collection, including permanent tombstones without hydrating policies.
+func GitCredentialReferenceIDsTx(ctx context.Context, tx *sql.Tx) (map[string][]contract.GitCredentialReference, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT id,credential_id FROM git_repositories WHERE credential_id IS NOT NULL ORDER BY id LIMIT ?`, contract.GitRepositoryIdentities+1)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := make(map[string][]contract.GitCredentialReference)
+	count := 0
+	for rows.Next() {
+		var id, credential string
+		if err := rows.Scan(&id, &credential); err != nil {
+			return nil, err
+		}
+		count++
+		out[credential] = append(out[credential], contract.GitCredentialReference{ID: id})
+	}
+	if count > contract.GitRepositoryIdentities {
+		return nil, ErrInvalidState
+	}
+	return out, rows.Err()
+}
+
 // GitCredentialReferencesTx includes tombstoned repository configuration. The
 // credential owner calls it on its supplied writer, never through a nested view.
 func GitCredentialReferencesTx(ctx context.Context, tx *sql.Tx, id string) ([]contract.GitRepository, error) {
