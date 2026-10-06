@@ -23,7 +23,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 		},
 		"../../README.md": {
 			"## Why Gateway?", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
-			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Native keyring operations may prompt",
+			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Legacy native keyring reads may prompt", "authenticated encryption", "master-key",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",

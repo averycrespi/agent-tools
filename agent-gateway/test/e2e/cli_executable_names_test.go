@@ -126,6 +126,8 @@ func TestCLIExecutableNames(t *testing.T) {
 			}
 		})
 	}
+	// Retain renamed-binary restore coverage on an explicitly legacy installation.
+	initializeLegacyGatewayFixture(t, root, filepath.Join(root, "admin-bearer"))
 	initialized, err := runner.Run(t.Context(), legacy, "init", "--confirm", "--json")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)

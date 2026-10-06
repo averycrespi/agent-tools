@@ -160,16 +160,20 @@ The retention E2E owner seeds the real 65,536-row boundary with one set-based tr
 
 ### HTTP activation fixtures
 
-The HTTP activation real-binary fixture links an absolute disposable fake-material
-directory into a separate `e2e` binary. The disposable demo uses this same link-time
-mechanism to share its CA between stopped creation and serving; unconfigured E2E
-builds retain process-local material. Normal builds contain neither fixture selector
-nor plaintext backend.
-The fixture's marked private directory is outside installation/backup/evidence trees,
-bounded and removed by its test owner. It permits stopped CA creation, serve and
-restart to share fake material without touching a native keyring. This is production
-composition correctness, **not** native signing persistence, protected key custody,
-unattended access, client trust qualification or target capacity evidence.
+The HTTP activation real-binary fixture retains an absolute disposable fake-material
+directory linked into a separate `e2e` binary for explicit legacy reads. Normal builds
+contain neither fixture selector nor plaintext backend. The marked private directory
+is outside installation/backup/evidence trees, bounded and removed by its test owner.
+Fresh init, stopped CA replacement, serving and restart now use encrypted control
+SQLite and the owner-only installation master key; the restart test asserts that the
+legacy material directory contains only its marker. This qualifies source-level
+custody and composition without touching a native keyring, **not** installed/native
+adoption, client trust qualification or target capacity evidence.
+
+Legacy backup/restore E2E scenarios explicitly seed historical custody through domain
+owners instead of bypassing the new-installation refusal. Separate fresh-installation
+scenarios require the explicit encrypted-backup conflict and fail-closed missing-key
+behavior. No fixture converts a failed or unavailable restore into success.
 
 ### Native HTTPS Git transport fixtures
 

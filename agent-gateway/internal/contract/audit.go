@@ -144,7 +144,7 @@ var (
 		"operation":         {"request", "activate", "reload", "retry", "refresh_catalog", "credential_replace", "disable", "delete", "disconnect_credentials", "schedule", "start", "finish", "recover"},
 		"oauth":             {"create", "prepare", "authorize", "register", "publish_registration", "invalidate_registration", "await_callback", "begin_exchange", "exchange", "refresh", "install", "finish", "cancel", "expire", "supersede", "recover", "revoke"},
 		"catalog":           {"refresh", "commit", "publish", "retire", "invalidate", "fence", "withdraw"},
-		"keyring":           {"stage", "write", "commit", "activate", "fence", "delete", "cleanup"},
+		"keyring":           {"setup", "stage", "write", "commit", "activate", "fence", "delete", "cleanup"},
 		"principal":         {"create", "update"},
 		"agent_credential":  {"issue", "revoke", "invalidate"},
 		"grant":             {"create", "update", "delete"},

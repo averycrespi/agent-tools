@@ -443,56 +443,57 @@ The read/store backend does not itself establish producer coverage or restore co
 
 Problems normally have exactly `status`, `code`, and `title`. The `invalid_server_configuration` problem additionally has one required `context` object with exact `field` and `rule` members so every administrative client can identify the rejected configuration boundary. Both values come from closed vocabularies: fields are `configuration`, `namespace`, `display_name`, `enabled`, `transport`, `transport.kind`, `transport.executable`, `transport.arguments`, `transport.working_directory`, `transport.environment`, `transport.secret_environment`, `transport.url`, `transport.protocol_mode`, `transport.headers`, `transport.authentication`, `transport.authentication.mode`, `transport.authentication.trusted_origins`, `transport.authentication.request_offline_access`, `transport.authentication.registration`, `transport.authentication.registration.mode`, `transport.authentication.registration.issuer`, `transport.authentication.registration.client_id`, and `transport.authentication.registration.token_endpoint_auth_method`; rules are `invalid`, `required`, `maximum`, `unique`, `disjoint`, `canonical_absolute_path`, `canonical_url`, and `transport_policy`. Only one deterministic first violation is returned. Dependency messages, submitted values, paths, payloads, dynamic map keys, array positions, and other details are never added.
 
-| Status | Code                                    | Fixed title                                                                                 |
-| -----: | --------------------------------------- | ------------------------------------------------------------------------------------------- |
-|    400 | `malformed_request`                     | The request is invalid.                                                                     |
-|    400 | `invalid_json`                          | The JSON body is invalid.                                                                   |
-|    400 | `invalid_cursor`                        | The cursor is invalid.                                                                      |
-|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                                             |
-|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                                                    |
-|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                                                      |
-|    401 | `authentication_required`               | Authentication is required.                                                                 |
-|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                                                |
-|    403 | `forbidden_origin`                      | The Origin is not accepted.                                                                 |
-|    403 | `csrf_failed`                           | CSRF validation failed.                                                                     |
-|    404 | `not_found`                             | The resource was not found.                                                                 |
-|    405 | `method_not_allowed`                    | The method is not allowed.                                                                  |
-|    409 | `conflict`                              | The request conflicts with current state.                                                   |
-|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                                              |
-|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state.                         |
-|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                                              |
-|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                                           |
-|    413 | `body_too_large`                        | The request body is too large.                                                              |
-|    415 | `unsupported_media_type`                | The media type is not supported.                                                            |
-|    421 | `misdirected_request`                   | The Host is not accepted.                                                                   |
-|    429 | `resource_limit`                        | The resource limit is reached.                                                              |
-|    503 | `storage_unavailable`                   | Storage is unavailable.                                                                     |
-|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                                                     |
-|    503 | `shutting_down`                         | The service is shutting down.                                                               |
-|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                                        |
-|    400 | `invalid_operation`                     | The server operation is invalid.                                                            |
-|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                                        |
-|    409 | `operation_conflict`                    | The server has conflicting work.                                                            |
-|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                                                       |
-|    409 | `oauth_callback_unavailable`            | The OAuth callback port is unavailable. Stop the conflicting listener and start a new flow. |
-|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                                                 |
-|    409 | `audit_history_replaced`                | The audit history generation has changed.                                                   |
-|    412 | `stale_revision`                        | The server revision is stale.                                                               |
-|    428 | `precondition_required`                 | The current server revision is required.                                                    |
-|    503 | `downstream_unavailable`                | The downstream server is unavailable.                                                       |
-|    400 | `invalid_principal`                     | The principal is invalid.                                                                   |
-|    400 | `invalid_grant`                         | The grant is invalid.                                                                       |
-|    412 | `stale_grant_revision`                  | The grant revision is stale.                                                                |
-|    428 | `grant_precondition_required`           | The current grant revision is required.                                                     |
-|    412 | `stale_principal_revision`              | The principal revision is stale.                                                            |
-|    428 | `principal_precondition_required`       | The current principal revision is required.                                                 |
-|    503 | `authorization_unavailable`             | Authorization is unavailable.                                                               |
-|    400 | `invalid_grant_request`                 | The grant request is invalid.                                                               |
-|    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                             |
-|    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                        |
-|    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                             |
-|    503 | `history_unavailable`                   | Optional history is unavailable; security operations remain independent.                    |
-|    503 | `history_busy`                          | Optional history export capacity or deadline was exceeded.                                  |
+| Status | Code                                    | Fixed title                                                                                               |
+| -----: | --------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+|    400 | `malformed_request`                     | The request is invalid.                                                                                   |
+|    400 | `invalid_json`                          | The JSON body is invalid.                                                                                 |
+|    400 | `invalid_cursor`                        | The cursor is invalid.                                                                                    |
+|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                                                           |
+|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                                                                  |
+|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                                                                    |
+|    401 | `authentication_required`               | Authentication is required.                                                                               |
+|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                                                              |
+|    403 | `forbidden_origin`                      | The Origin is not accepted.                                                                               |
+|    403 | `csrf_failed`                           | CSRF validation failed.                                                                                   |
+|    404 | `not_found`                             | The resource was not found.                                                                               |
+|    405 | `method_not_allowed`                    | The method is not allowed.                                                                                |
+|    409 | `conflict`                              | The request conflicts with current state.                                                                 |
+|    409 | `encrypted_backup_unsupported`          | Backup creation and restore are not supported with encrypted secret custody. Preserve existing artifacts. |
+|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                                                            |
+|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state.                                       |
+|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                                                            |
+|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                                                         |
+|    413 | `body_too_large`                        | The request body is too large.                                                                            |
+|    415 | `unsupported_media_type`                | The media type is not supported.                                                                          |
+|    421 | `misdirected_request`                   | The Host is not accepted.                                                                                 |
+|    429 | `resource_limit`                        | The resource limit is reached.                                                                            |
+|    503 | `storage_unavailable`                   | Storage is unavailable.                                                                                   |
+|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                                                                   |
+|    503 | `shutting_down`                         | The service is shutting down.                                                                             |
+|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                                                      |
+|    400 | `invalid_operation`                     | The server operation is invalid.                                                                          |
+|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                                                      |
+|    409 | `operation_conflict`                    | The server has conflicting work.                                                                          |
+|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                                                                     |
+|    409 | `oauth_callback_unavailable`            | The OAuth callback port is unavailable. Stop the conflicting listener and start a new flow.               |
+|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                                                               |
+|    409 | `audit_history_replaced`                | The audit history generation has changed.                                                                 |
+|    412 | `stale_revision`                        | The server revision is stale.                                                                             |
+|    428 | `precondition_required`                 | The current server revision is required.                                                                  |
+|    503 | `downstream_unavailable`                | The downstream server is unavailable.                                                                     |
+|    400 | `invalid_principal`                     | The principal is invalid.                                                                                 |
+|    400 | `invalid_grant`                         | The grant is invalid.                                                                                     |
+|    412 | `stale_grant_revision`                  | The grant revision is stale.                                                                              |
+|    428 | `grant_precondition_required`           | The current grant revision is required.                                                                   |
+|    412 | `stale_principal_revision`              | The principal revision is stale.                                                                          |
+|    428 | `principal_precondition_required`       | The current principal revision is required.                                                               |
+|    503 | `authorization_unavailable`             | Authorization is unavailable.                                                                             |
+|    400 | `invalid_grant_request`                 | The grant request is invalid.                                                                             |
+|    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                                           |
+|    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                                      |
+|    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                                           |
+|    503 | `history_unavailable`                   | Optional history is unavailable; security operations remain independent.                                  |
+|    503 | `history_busy`                          | Optional history export capacity or deadline was exceeded.                                                |
 
 ## Fixed numeric limits
 

@@ -17,6 +17,7 @@ func TestRestoreInspectionAndExecutionRejectArtifactSidecars(t *testing.T) {
 			t.Run(file+suffix, func(t *testing.T) {
 				manager, store, owner := newBackupManager(t, nil)
 				artifact := legacyArtifact(t, manager, nil)
+				require.NoError(t, store.Checkpoint(t.Context()))
 				expected, err := InspectRestore(t.Context(), owner, artifact.ID)
 				require.NoError(t, err)
 				path := filepath.Join(owner.Layout().Backups, artifact.ID, file+suffix)

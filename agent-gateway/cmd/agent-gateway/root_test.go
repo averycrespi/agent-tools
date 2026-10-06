@@ -399,11 +399,7 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
 	initialSecret := filepath.Join(t.TempDir(), "initial")
-	command := newTestRootCmd(t)
-	command.SetOut(new(bytes.Buffer))
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"init", "--confirm", "--data-dir", root, "--secret-output", initialSecret})
-	require.NoError(t, command.ExecuteContext(ctx))
+	initializeLegacyBackupFixture(t, root, initialSecret)
 
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
@@ -424,7 +420,7 @@ func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
 	require.NoError(t, ownership.Close())
 
 	stderr := new(bytes.Buffer)
-	command = newTestRootCmd(t)
+	command := newTestRootCmd(t)
 	command.SetOut(new(bytes.Buffer))
 	command.SetErr(stderr)
 	command.SetArgs([]string{"maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--json"})

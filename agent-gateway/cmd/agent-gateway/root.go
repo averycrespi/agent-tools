@@ -652,6 +652,9 @@ func serveCommandProblem(err error, acknowledged bool, dataDir string) *controlc
 	if acknowledged {
 		return &controlclient.Problem{Code: "serve_stopped", Title: "The Gateway stopped after startup because clean shutdown could not be confirmed. The installation remains marked unclean.", Exit: 7}
 	}
+	if errors.Is(err, composition.ErrSecretCustody) {
+		return &controlclient.Problem{Code: "secret_storage_unavailable", Title: "The installation master-key is missing, unsafe or does not match encrypted storage. Preserve the key and database; inspect stopped secret-storage setup and recovery guidance. Never regenerate an established key.", Exit: 7}
+	}
 	var inputProblem *controlclient.Problem
 	if errors.As(err, &inputProblem) {
 		return inputProblem
@@ -736,6 +739,9 @@ func executeAdminAuthority(
 		}
 		if initialized {
 			return storage.Identity{}, admin.ErrAlreadyInitialized
+		}
+		if err := composition.SetupSecrets(ctx, ownership, store, dependencies.clock); err != nil {
+			return storage.Identity{}, err
 		}
 		// A control store without any historical administrator credential is
 		// interrupted first-run setup, not an installed legacy service. Retain

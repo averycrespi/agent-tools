@@ -47,7 +47,7 @@ If summaries disagree, the owning normative chapter controls product intent and 
 - Own every route and method explicitly. Authenticate production MCP requests before reading or classifying their bodies.
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation paths separate. Raw secrets may appear only at approved one-time sinks.
 - Treat SQLite availability and integrity as security state. Security-critical writes fail closed, uncertain durability latches storage, and recovery is stopped-process only.
-- Treat OS keyring support as an explicit typed capability with no plaintext fallback.
+- Encrypt new secret generations in control SQLite with an owner-only installation master key. Retain explicit legacy native reads only, with no plaintext or stale-native fallback; [downstream servers](docs/design/downstream-servers.md#keyring-capability-and-generation-cutover) owns custody and its threat limits.
 - Keep registries and admission controls bounded and nonblocking except for the compiled authority-gate and invocation-only storage acquisition waits. An existing reconciliation worker may also perform the narrowly bounded terminal-persistence acquisition reattempts defined in [downstream servers](docs/design/downstream-servers.md), without joining the storage wait queue or replaying external work. Restart discards sessions, streams, subscribers, runtime publications, and in-flight work.
 - Supply at most one automatic downstream attempt. Uncertain handoff never causes retry, reroute, or replay.
 
@@ -68,7 +68,7 @@ Dependencies flow from the command composition root into domain packages. Domain
 - Go module: `github.com/averycrespi/agent-tools/agent-gateway`
 - MCP protocol adapter: `github.com/modelcontextprotocol/go-sdk`
 - SQLite: `github.com/ncruces/go-sqlite3`, with live connection settings explicitly verified
-- Credential provider: `github.com/zalando/go-keyring`, behind an injectable typed adapter
+- Credential custody: Go AES-256-GCM authenticated encryption and an owner-only installation key; `github.com/zalando/go-keyring` remains behind a typed adapter for explicitly legacy reads
 - CLI: Cobra
 - Browser application: strict TypeScript and Preact, built by Vite into a fixed embedded allowlist
 

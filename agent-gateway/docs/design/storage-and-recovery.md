@@ -33,9 +33,13 @@ Schema 20 adds HTTP default and grant tables without changing MCP rows. Defaults
 Schema 21 adds the installation CA's safe singleton revision, opaque handle and
 public certificate, and expands the closed keyring fence kind to `http_ca`.
 The CA owner validates metadata/bindings; signing bytes remain only in protected
-keyring generations. Every staged restore invalidates CA authority before installation,
+credential generations (encrypted control records for new writes). Every staged restore invalidates CA authority before installation,
 requiring explicit replacement and client trust updates even when old physical keys
 survive. See [CA lifecycle](downstream-servers.md#installation-interception-ca).
+
+Schema 23 adds `secret_custody` (the installation key identity/version and nonrefundable encryption count) and bounded `secret_generations` (explicit legacy selection or authenticated ciphertext). Migration labels only existing keyring handles as legacy and never reads native material. Secret selection still commits atomically with domain metadata through the existing coordinator. Admin and agent tokens remain hash-only; the protected administrator-bearer file is unchanged.
+
+The fixed `master-key` file is a 32-byte random key, not a password. Creation uses exclusive no-follow creation relative to a verified 0700 owner directory, a regular single-link 0600 owner file, file sync and directory sync before recording key identity. Setup retains partial/uncertain files rather than overwriting or replaying creation. A complete unbound key from interrupted initial setup can be adopted explicitly; an established database key identity or encrypted material never permits generating a replacement for a missing/wrong key. Reads check ownership, mode, file type, link count and exact size. Initialization provisions custody before administrator/CA authority. Existing installations use explicit stopped `maintenance setup-secret-storage`, without reinitialization or native migration. Established missing/wrong keys fail startup closed.
 
 Storage owns only this DDL, seeding, and structural migration boundary. Authorization owns online SQL and validates every bounded principal-authority singleton and row coherently before the rest of the production graph is constructed; server target existence and synthetic collision checks remain delegated to the servers package on that same transaction.
 
@@ -236,7 +240,7 @@ Authorization separately owns general stopped-stage credential surgery on a supp
 
 ### Operator command boundary
 
-The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, and `maintenance migrate-traffic-storage`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
+The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, `maintenance migrate-traffic-storage`, and `maintenance setup-secret-storage`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
 
 Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Security-only verification and administrator reset hash the closed control database and marker slots; this also binds the control-owned selector without reading untouched optional history. Explicit migration and history-inclusive restore additionally inspect and bind their history targets. Security-only restore binds only control, security markers and independently verified artifact control; untouched optional history and unrelated retained artifacts do not participate in approval. A changed control-owned selector still invalidates consent. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
 
@@ -245,6 +249,8 @@ CLI success projections use `operation:"verify-and-recover-storage"` or `operati
 ## Backup and generation replacement
 
 ### Backup publication
+
+**Transitional compatibility refusal:** backup creation and restore are unsupported once encrypted custody is selected, even with zero encrypted rows or a missing key. Creation refuses before idempotent replay, staging or backup effects. Restore refuses when either current installation or selected artifact uses encrypted custody, including `--security-only` and dry-run inspection; it never restores legacy authority over an encrypted installation. The explicit `encrypted_backup_unsupported` conflict preserves existing artifacts. Inventory and verified legacy reads/deletion remain available. A control copy is not complete encrypted-secret recovery: no supported key-plus-database backup contract exists yet. The following publication/restore semantics apply only to compatible legacy custody.
 
 New artifacts use distinct **format 3**, with `history:"omitted"` in metadata and
 public backup representations. They contain only the control database and metadata,

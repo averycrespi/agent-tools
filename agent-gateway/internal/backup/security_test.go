@@ -44,6 +44,7 @@ func TestSecurityBackupRestoreDoesNotInspectOptionalHistory(t *testing.T) {
 			require.ErrorIs(t, err, os.ErrNotExist)
 			// Unrelated history artifacts and sidecars are not security mutation targets.
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "traffic.db-wal"), []byte("preserve"), 0600))
+			require.NoError(t, control.Checkpoint(t.Context()))
 			inspected, err := InspectRestore(t.Context(), owner, artifact.ID)
 			require.NoError(t, err)
 			require.Equal(t, "omitted-not-verified", inspected.History)
@@ -106,6 +107,7 @@ func TestSecurityImportDoesNotClaimDamagedPairValid(t *testing.T) {
 	require.Error(t, err)
 	_, err = InspectRestore(t.Context(), owner, artifact.ID)
 	require.Error(t, err)
+	require.NoError(t, control.Checkpoint(t.Context()))
 	inspection, err := InspectRestoreScope(t.Context(), owner, artifact.ID, true)
 	require.NoError(t, err)
 	require.Equal(t, "omitted-not-verified", inspection.History)

@@ -15,6 +15,23 @@ This guide owns Agent Gateway operator procedures for backup lifecycle, restore 
 
 Gateway must be stopped for `maintenance restore-backup`, `maintenance verify-and-recover-storage`, and `maintenance reset-admin-credentials`. Backup list/get/create/delete require a running Gateway; restore remains offline and never acquires an online administrator bearer.
 
+## Encrypted secret storage
+
+New `init` installations provision `<data-dir>/master-key` as a random, exclusive 0600 file under the 0700 data root. New MCP static/OAuth, HTTP/Git and CA material is authenticated-encrypted in control SQLite, never traffic history. Administrator and agent tokens remain hash-only, and the separate protected `admin-bearer` file is retained.
+
+For an existing installation, stop Gateway and all launchers, then inspect and approve setup without reinitialization:
+
+```bash
+agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data --dry-run
+agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data --confirm
+```
+
+This creates or verifies the master key and binds its identity; it does not migrate native entries, rotate credentials, start services or change trust. Existing records explicitly marked legacy may still read native storage. New writes require setup and use database custody. Selected missing/corrupt encrypted records never fall back to old native values. Database-backed restart does not require native credentials.
+
+Preserve the key and database together. Do not delete, replace, chmod, symlink or regenerate a refused key to bypass validation. A missing/wrong established key, partial key file or uncertain setup needs diagnosis and a separately qualified recovery plan; setup never overwrites it. Encryption protects against database-only theft, not theft of both key and database, or compromise of the Gateway account/root.
+
+**Backup creation and restore currently refuse encrypted custody**, including empty encrypted installations, old idempotency keys, dry-run restore and `--security-only`. Restore refuses if either the current installation or selected artifact uses encrypted custody. The `encrypted_backup_unsupported` result does not mean recovery succeeded. Existing inventory and verified legacy artifact reads/deletion remain available. Retain artifacts; a copied ciphertext database without a supported key-recovery contract is not a complete secret backup. The procedures below describe legacy-compatible backup operations only.
+
 ## Choose a recovery task
 
 | Task                                                         | Service state | Procedure                                                                   |
@@ -262,8 +279,7 @@ agent-gateway http ca replace --data-dir /path/to/gateway-data \
 `http ca create` is removed. `init` owns first creation and never replaces an existing or restored CA.
 `replace` supports verified absence or selects new protected signing material and a new public certificate.
 Creation/replacement writes `<data-dir>/http-ca.pem` and reports its SHA-256 fingerprint.
-Replacement updates that managed file only when it matches the previously selected certificate; unrelated files are retained and publication failure is reported separately from authority change. Explicitly update client trust before interception. Ordinary restart never calls either mutation. The native
-keyring must be available; there is no plaintext fallback.
+Replacement updates that managed file only when it matches the previously selected certificate; unrelated files are retained and publication failure is reported separately from authority change. Explicitly update client trust before interception. Ordinary restart never calls either mutation. New signing material requires configured encrypted secret custody; only explicitly legacy CA reads use the native keyring. There is no plaintext or stale-generation fallback.
 
 `export` writes `<data-dir>/http-ca.pem` by default, accepts `--output PATH` as a file destination, or streams only public PEM with `--stdout`. Identical re-export is safe; different existing files and links are refused. `--json` selects structured results, not the certificate destination; it cannot be combined with `--stdout`. Export never reads the keyring. Its success
 is not proof that signing material is available or that client trust is installed;

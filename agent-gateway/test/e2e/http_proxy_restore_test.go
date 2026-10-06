@@ -11,15 +11,15 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTPProxyRestoreAndKeyLossRequireExplicitCAReprovisioning(t *testing.T) {
+func TestHTTPProxyEncryptedCustodyRestartAndRecoveryRefusal(t *testing.T) {
 	h := newGatewayHarness(t)
 	binary, material := httpMaterialBinary(t)
 	h.binary = binary
 	originalCA := createHTTPCA(t, h)
-	baseArgs := append([]string(nil), h.serveArgs...)
 	h.serveArgs = append(h.serveArgs, "--clear-http-proxy-listen=false", "--http-proxy-listen", unusedAuthority(t))
 	h.Start()
 	defer func() {
@@ -27,60 +27,45 @@ func TestHTTPProxyRestoreAndKeyLossRequireExplicitCAReprovisioning(t *testing.T)
 			h.Stop(syscall.SIGTERM)
 		}
 	}()
-	principal := h.CreatePrincipal("Restore HTTP policy", contract.VisibilityRequestable)
+	principal := h.CreatePrincipal("Encrypted HTTP policy", contract.VisibilityRequestable)
 	credential := h.IssueCredential(principal)
 	putProxyTestGrant(t, h, principal.Resource.ID, contract.HTTPPolicy{Version: 1, Type: contract.HTTPBlockDestination, Destination: &contract.HTTPDestinationSelector{Host: "example.invalid", Port: 443}})
 	h.Restart()
-	backupResponse := h.adminSnapshotWithHeaders("POST", "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "http-activation-restore"})
-	var artifact contract.Backup
-	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
-	h.RevokeCredential(credential.Principal)
+	refusal := h.adminSnapshotWithHeaders("POST", "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "encrypted-custody"})
+	require.Equal(t, http.StatusConflict, refusal.StatusCode)
+	require.Contains(t, string(refusal.Body), `"code":"encrypted_backup_unsupported"`)
+	require.Equal(t, "no-store", refusal.Header.Get("Cache-Control"))
+	require.Equal(t, http.StatusOK, h.ModernList(credential.Bearer, json.RawMessage(`"still-current"`), "").StatusCode)
 	h.Stop(syscall.SIGTERM)
-	secret := filepath.Join(t.TempDir(), "restored-admin")
-	restored, err := h.runner.Run(h.ctx, binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", h.root, "--secret-output", secret, "--json")
-	require.NoError(t, err, "restore: %s", restored.Stderr)
-	h.bearer = readBearer(t, secret)
-	// Old physical fixture keys remain, but restored handles are not authority.
-	refused, err := h.runner.Run(h.ctx, binary, h.serveArgs...)
-	require.Error(t, err)
-	require.Empty(t, refused.Stdout)
-	require.Contains(t, string(refused.Stderr), "CA signing material")
-	defaultArgs := append(append([]string(nil), baseArgs...), "--clear-http-proxy-listen=false")
-	defaultRefused, defaultErr := h.runner.Run(h.ctx, binary, defaultArgs...)
-	require.Error(t, defaultErr)
-	require.Empty(t, defaultRefused.Stdout)
-	require.Contains(t, string(defaultRefused.Stderr), "after restore or key loss")
-	enabledArgs := h.serveArgs
-	h.serveArgs = baseArgs
-	h.Start()
-	old := h.ModernList(credential.Bearer, json.RawMessage(`"restored-old"`), "")
-	require.Equal(t, 401, old.StatusCode)
-	grants := h.adminSnapshot("GET", "/api/v2/http/grants", nil)
-	require.Equal(t, 200, grants.StatusCode)
-	require.Contains(t, string(grants.Body), "example.invalid")
-	h.Stop(syscall.SIGTERM)
-	_, err = h.runner.Run(h.ctx, binary, "http", "ca", "replace", "--data-dir", h.root, "--installation-id", artifact.InstallationID, "--confirm")
-	require.NoError(t, err)
-	exported, err := h.runner.Run(h.ctx, binary, "http", "ca", "export", "--data-dir", h.root, "--installation-id", artifact.InstallationID)
-	require.NoError(t, err)
-	require.NotEqual(t, originalCA, exported.Stdout)
-	h.serveArgs = enabledArgs
-	h.Start()
-	h.Stop(syscall.SIGTERM)
-	// Deleting only this test's fake keyring material simulates key loss. Metadata
-	// export remains possible, but explicit activation must not regenerate keys.
+	// The native fixture has no secret material: both stopped CA creation and
+	// subsequent processes use the encrypted control generation and file key.
 	entries, err := os.ReadDir(material)
 	require.NoError(t, err)
-	for _, entry := range entries {
-		if entry.Name() != ".fixture" {
-			require.NoError(t, os.Remove(filepath.Join(material, entry.Name())))
-		}
-	}
-	refused, err = h.runner.Run(h.ctx, binary, h.serveArgs...)
-	require.Error(t, err)
-	require.Empty(t, refused.Stdout)
-	require.Contains(t, string(refused.Stderr), "CA signing material")
-	public, err := h.runner.Run(h.ctx, binary, "http", "ca", "export", "--data-dir", h.root, "--installation-id", artifact.InstallationID)
+	require.Len(t, entries, 1)
+	require.Equal(t, ".fixture", entries[0].Name())
+	h.Start()
+	h.Stop(syscall.SIGTERM)
+	public, err := h.runner.Run(h.ctx, binary, "http", "ca", "export", "--data-dir", h.root, "--stdout")
 	require.NoError(t, err)
-	require.Equal(t, exported.Stdout, public.Stdout)
+	require.Equal(t, originalCA, public.Stdout)
+	keyPath := filepath.Join(h.root, gatewaypaths.MasterKeyName)
+	retainedKey := filepath.Join(t.TempDir(), "retained-key")
+	require.NoError(t, os.Rename(keyPath, retainedKey))
+	failed, err := h.runner.Run(h.ctx, binary, h.serveArgs...)
+	require.Error(t, err)
+	require.Empty(t, failed.Stdout)
+	require.Contains(t, string(failed.Stderr), "master-key")
+	setup, err := h.runner.Run(h.ctx, binary, "maintenance", "setup-secret-storage", "--data-dir", h.root, "--confirm", "--json")
+	require.Error(t, err)
+	require.Empty(t, setup.Stdout)
+	require.Contains(t, string(setup.Stderr), "secret_storage_unavailable")
+	_, err = os.Lstat(keyPath)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	public, err = h.runner.Run(h.ctx, binary, "http", "ca", "export", "--data-dir", h.root, "--stdout")
+	require.NoError(t, err)
+	require.Equal(t, originalCA, public.Stdout)
+	// Restore the exact retained fixture key, not a generated replacement.
+	require.NoError(t, os.Rename(retainedKey, keyPath))
+	h.Start()
+	h.Stop(syscall.SIGTERM)
 }

@@ -22,9 +22,7 @@ Gateway denies calls by default and checks current policy before execution. Rota
 
 ### Service credentials stay with Gateway
 
-Gateway manages upstream authentication, including server credentials and OAuth. Agents authenticate with a separate Gateway credential; they never need your upstream API keys or OAuth tokens.
-
-Administrator and agent credentials are separate, and Gateway uses the operating-system keyring for server secrets rather than falling back to plaintext storage.
+Gateway manages upstream credentials and OAuth. Agents use separate Gateway credentials, never upstream API keys or OAuth tokens. New secrets use authenticated encryption in control SQLite; only explicitly legacy credentials use native storage.
 
 ### Sandbox-agnostic
 
@@ -46,7 +44,7 @@ Gateway never queues or automatically replays tool calls. If a handoff leaves th
 
 ## Installation
 
-Requirements: Go 1.26.6 or later, GNU Make, and a supported operating-system keyring for server credentials.
+Requirements: Go 1.26.6 or later and GNU Make. A supported operating-system keyring is needed only for legacy credentials.
 
 From the `agent-gateway` directory:
 
@@ -112,7 +110,7 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 - Gateway is deny by default: only a current credential for an active agent can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
 - One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
-- Native keyring operations may prompt, fail, or outlive cancellation. Gateway never falls back to plaintext credential storage.
+- Legacy native keyring reads may prompt. Encrypted custody uses a private `master-key`; see [setup, threat limits and temporary backup refusal](docs/operators/backup-and-recovery.md#encrypted-secret-storage).
 
 See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/operators/invocation-evidence.md) for operator interpretation.
 

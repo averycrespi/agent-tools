@@ -226,6 +226,7 @@ func (coordinator *Coordinator) replaceFencedAdmitted(
 		return CutoverResult{}, err
 	}
 	loaded, err := coordinator.provider.ReadGeneration(ctx, namespace, handle)
+	defer clear(loaded)
 	if err != nil || !bytes.Equal(loaded, secret) {
 		if err == nil {
 			err = ErrIncompleteGeneration

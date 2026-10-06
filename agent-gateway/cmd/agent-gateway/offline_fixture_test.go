@@ -31,7 +31,8 @@ func (b offlineBackend) Get(service, user string) (string, error) {
 func (b offlineBackend) Delete(service, user string) error { delete(b, service+"/"+user); return nil }
 
 // CLI tests use actual CA SQL and protected-generation lifecycle with a disposable
-// in-memory backend. Composition's own tests independently cover the stopped owner.
+// legacy backend. New material uses the same encrypted custody as production.
+// Composition's own tests independently cover the stopped owner.
 func newTestRootCmd(t *testing.T) *cobra.Command {
 	t.Helper()
 	return newRootCmdWithDependencies(offlineDependencies{clock: systemClock{}, entropy: rand.Reader, newComposition: composition.New, caOperation: fixtureCAOperation})
@@ -75,6 +76,9 @@ func fixtureCAOperation(ctx context.Context, root, installation, operation strin
 		}
 		provider, err := keyring.NewProviderWithBackend(identity.InstallationID, offlineBackend{})
 		if err != nil {
+			return nil, err
+		}
+		if err := provider.UseDatabaseCustody(ctx, owner, store); err != nil {
 			return nil, err
 		}
 		coordinator := keyring.NewCoordinator(provider, store, clock, entropy)

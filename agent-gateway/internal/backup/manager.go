@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -105,6 +106,9 @@ func New(options Options) (*Manager, error) {
 
 func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey string) (result contract.Backup, replay bool, resultErr error) {
 	if err := validateIdempotencyKey(idempotencyKey); err != nil {
+		return contract.Backup{}, false, err
+	}
+	if err := manager.store.View(ctx, func(tx *sql.Tx) error { return requireLegacyCustody(ctx, tx) }); err != nil {
 		return contract.Backup{}, false, err
 	}
 	authorityHash, keyHash := digestText(authorityID), digestText(idempotencyKey)

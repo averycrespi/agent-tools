@@ -24,7 +24,7 @@ var errDryRun = errors.New("read-only plan completed")
 func newMaintenanceCmd(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{Use: "maintenance", Short: "Inspect and recover stopped installations", Long: "Choose an operation, inspect its --dry-run plan, then use --confirm for noninteractive consent. Running maintenance alone only shows help."}
 	configureNamespaceCommand(command)
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "restore-backup", "migrate-traffic-storage"} {
+	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "restore-backup", "migrate-traffic-storage", "setup-secret-storage"} {
 		command.AddCommand(newMaintenanceOperation(operation, dependencies))
 	}
 	return command
@@ -46,13 +46,15 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	var installation, secretOutput string
 	var confirm, dryRun, jsonOutput, securityOnly bool
 	var budget int64
-	descriptions := map[string]string{
+	descriptions := map[string]string{ //nolint:gosec // Public command descriptions, not credentials.
+		"setup-secret-storage":       "Initialize encrypted secret storage",
 		"verify-and-recover-storage": "Verify and recover storage",
 		"reset-admin-credentials":    "Reset all administrator credentials",
 		"restore-backup":             "Restore an installation backup",
 		"migrate-traffic-storage":    "Migrate traffic to separate storage",
 	}
 	details := map[string]string{
+		"setup-secret-storage":       "Create or verify the installation master key without reinitializing or migrating legacy credentials",
 		"verify-and-recover-storage": "Validate storage, write audit evidence and apply recognized marker recovery",
 		"reset-admin-credentials":    "Replace all administrator authority, retaining product state",
 		"restore-backup":             "Replace current state from a verified backup and invalidate restored credentials",
@@ -137,7 +139,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 			if installation != "" && snapshot.Identity.InstallationID != installation {
 				return composition.ErrCAIdentity
 			}
-			if operation != "migrate-traffic-storage" && snapshot.Identity.SchemaVersion != storage.CurrentSchema {
+			if operation != "migrate-traffic-storage" && operation != "setup-secret-storage" && snapshot.Identity.SchemaVersion != storage.CurrentSchema {
 				return storage.ErrInvalidDatabase
 			}
 			if operation != "verify-and-recover-storage" && operation != "restore-backup" && snapshot.Marked {
@@ -242,6 +244,8 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 		}
 		var identity storage.Identity
 		switch operation {
+		case "setup-secret-storage":
+			identity, err = composition.SetupStoppedSecrets(ctx, layout.Root, dependencies.clock, approval)
 		case "verify-and-recover-storage":
 			identity, err = composition.VerifyStorageBudget(ctx, layout.Root, budget, approval)
 		case "reset-admin-credentials":
@@ -289,7 +293,10 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	if operation == "restore-backup" {
 		command.Flags().BoolVar(&securityOnly, "security-only", false, "omit unverified history when importing a legacy backup")
 	}
-	storageSizeFlag(command.Flags(), &budget, composition.DefaultTrafficBudget, "selected traffic database/WAL budget")
+	budget = composition.DefaultTrafficBudget
+	if operation != "setup-secret-storage" {
+		storageSizeFlag(command.Flags(), &budget, composition.DefaultTrafficBudget, "selected traffic database/WAL budget")
+	}
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return fail(offlineFlagMessage(err)) })
 	return command
 }
@@ -327,6 +334,10 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 		code, title = "inspection_unavailable", "Read-only inspection is blocked by uncheckpointed WAL or journal state. No maintenance changes made; retain all files. A qualified WAL-aware recovery plan is required."
 	case errors.Is(err, storage.ErrStorageLatched):
 		code, title = "storage_latched", "Recovery state is unknown or incompatible with this operation. No fallback reset, restore or deletion was attempted."
+	case errors.Is(err, composition.ErrSecretCustody):
+		code, title, exit = "secret_storage_unavailable", "The master-key is missing, unsafe, incomplete or mismatched. Preserve the key and database and obtain a stopped recovery plan; setup never replaces an established key.", 7
+	case errors.Is(err, backup.ErrEncryptedCustodyUnsupported):
+		code, title, exit = "encrypted_backup_unsupported", "Backup creation and restore are not supported with encrypted secret custody. No restore changes made; preserve existing artifacts.", 5
 	case errors.Is(err, backup.ErrInvalidArtifact), errors.Is(err, backup.ErrNotFound):
 		code, title, exit = "invalid_backup", "The selected backup is unavailable, foreign or invalid; choose a verified backup from this installation.", 4
 	case errors.Is(err, admin.ErrSecretPublication):

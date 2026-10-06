@@ -71,11 +71,6 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return storage.Identity{}, err
 	}
-	if options.Before != nil {
-		if err := options.Before(ctx, ownership); err != nil {
-			return storage.Identity{}, err
-		}
-	}
 	layout := ownership.Layout()
 	manager := &Manager{layout: layout}
 	artifact, err := manager.readArtifactScope(ctx, filepath.Join(layout.Backups, options.BackupID), options.BackupID, options.SecurityOnly)
@@ -88,8 +83,13 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		}
 		return storage.Identity{}, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
 	}
-	if _, err := storage.InspectMaintenance(ctx, ownership, nil); err != nil {
+	if err := requireRestoreCustody(ctx, ownership, options.BackupID); err != nil {
 		return storage.Identity{}, err
+	}
+	if options.Before != nil {
+		if err := options.Before(ctx, ownership); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	current, err := storage.InspectBaseIdentity(ctx, layout.Database)
 	if err != nil {

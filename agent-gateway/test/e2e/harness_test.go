@@ -103,6 +103,11 @@ func newGatewayHarnessContext(t *testing.T, ctx context.Context) *gatewayHarness
 
 func newGatewayHarnessBinary(t *testing.T, ctx context.Context, binary string) *gatewayHarness {
 	t.Helper()
+	return newGatewayHarnessCustody(t, ctx, binary, false)
+}
+
+func newGatewayHarnessCustody(t *testing.T, ctx context.Context, binary string, legacy bool) *gatewayHarness {
+	t.Helper()
 	runner, err := testutil.NewBinaryRunner(gatewayHarnessProcessDeadline, 128*1024)
 	require.NoError(t, err)
 	harness := &gatewayHarness{
@@ -113,12 +118,17 @@ func newGatewayHarnessBinary(t *testing.T, ctx context.Context, binary string) *
 	harness.initializationArgs = []string{"init", "--confirm", "--data-dir", harness.root, "--secret-output", secretPath}
 	// Ordinary fixtures use process-local CA material and exercise MCP only.
 	harness.serveArgs = []string{"serve", "--data-dir", harness.root, "--listen", harness.authority, "--clear-http-proxy-listen"}
-	initialized, err := runner.Run(ctx, harness.binary, harness.initializationArgs...)
-	require.NoError(t, err, "initialize: %s", initialized.Stderr)
-	require.False(t, initialized.StdoutTruncated)
-	require.False(t, initialized.StderrTruncated)
+	if legacy {
+		initializeLegacyGatewayFixture(t, harness.root, secretPath)
+		harness.initializationArgs = nil // Domain-seeded historical fixture, not a CLI init receipt.
+	} else {
+		initialized, err := runner.Run(ctx, harness.binary, harness.initializationArgs...)
+		require.NoError(t, err, "initialize: %s", initialized.Stderr)
+		require.False(t, initialized.StdoutTruncated)
+		require.False(t, initialized.StderrTruncated)
+		harness.initialization = initialized
+	}
 	harness.bearer = readBearer(t, secretPath)
-	harness.initialization = initialized
 	t.Cleanup(func() {
 		if harness.process == nil {
 			return

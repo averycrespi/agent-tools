@@ -22,7 +22,7 @@ import (
 )
 
 func TestGatewayBinaryRestoresPolicyWithoutRestoringAuthority(t *testing.T) {
-	harness := newGatewayHarness(t)
+	harness := newLegacyGatewayHarness(t)
 	harness.Start()
 	processResults := []testutil.ProcessResult{harness.initialization}
 	var evidence [][]byte

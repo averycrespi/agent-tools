@@ -41,6 +41,9 @@ func InspectRestoreScope(ctx context.Context, owner *gatewaypaths.Ownership, id 
 		}
 		return RestoreInspection{}, err
 	}
+	if err := requireRestoreCustody(ctx, owner, id); err != nil {
+		return RestoreInspection{}, err
+	}
 	history := "restored"
 	if securityOnly || metadata.Format == 3 {
 		history = "omitted-not-verified"

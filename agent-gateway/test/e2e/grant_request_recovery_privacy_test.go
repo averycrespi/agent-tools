@@ -26,7 +26,7 @@ import (
 )
 
 func TestE2EGrantRequestRecoveryPrivacy(t *testing.T) {
-	harness := newGatewayHarness(t)
+	harness := newLegacyGatewayHarness(t)
 	initialAdmin := harness.bearer
 	harness.Start()
 	defer func() {

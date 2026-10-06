@@ -78,6 +78,9 @@ func (provider *Provider) WriteGeneration(
 	if err := provider.validate(namespace, generationManifestItem(namespace, handle)); err != nil {
 		return err
 	}
+	if provider.custody != nil {
+		return provider.custody.write(ctx, namespace, handle, secret)
+	}
 	release, err := provider.acquireWork()
 	if err != nil {
 		return err
@@ -144,6 +147,12 @@ func (provider *Provider) ReadGeneration(
 	if err := provider.validate(namespace, manifestItem); err != nil {
 		return nil, err
 	}
+	if provider.custody != nil {
+		secret, legacy, err := provider.custody.read(ctx, namespace, handle)
+		if err != nil || !legacy {
+			return secret, err
+		}
+	}
 	release, err := provider.acquireWork()
 	if err != nil {
 		return nil, err
@@ -204,6 +213,9 @@ func (provider *Provider) DeleteGeneration(ctx context.Context, namespace Namesp
 	manifestItem := generationManifestItem(namespace, handle)
 	if err := provider.validate(namespace, manifestItem); err != nil {
 		return err
+	}
+	if provider.custody != nil {
+		return provider.custody.remove(ctx, namespace, handle)
 	}
 	release, err := provider.acquireWork()
 	if err != nil {
