@@ -608,11 +608,14 @@ export async function runAccessibilityKeyboardResponsive(
 
   await systemLink.click();
   await page.getByTestId("system-status-panel").waitFor();
-  const observations = page.getByText("Process observations", { exact: true });
-  await observations.focus();
-  await page.keyboard.press("Enter");
   await expect(
-    page.getByText(/Git upstream reports \(not Gateway-confirmed mutations\)/),
+    page.getByRole("heading", { name: "Request activity", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("HTTP (includes Git)", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Git (HTTP subset)", { exact: true }),
   ).toBeVisible();
   for (const width of [1280, 320]) {
     await page.setViewportSize({ width, height: 900 });

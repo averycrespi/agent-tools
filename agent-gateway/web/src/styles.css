@@ -1092,8 +1092,7 @@ textarea[readonly] {
   grid-column: span 3;
 }
 
-.overview-panel[data-testid="overview-inventory"],
-.overview-panel[data-testid="overview-activity"] {
+.overview-panel[data-testid="overview-inventory"] {
   grid-column: 1 / -1;
 }
 
@@ -1115,11 +1114,6 @@ textarea[readonly] {
   display: flex;
   flex-wrap: wrap;
   gap: 16px 48px;
-}
-
-.overview-catalog {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
 }
 
 @media (max-width: 1200px) {
@@ -1168,8 +1162,8 @@ textarea[readonly] {
 
 .overview-panel[data-testid="overview-inventory"] {
   display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
   gap: 12px 24px;
 }
 
@@ -1187,9 +1181,12 @@ textarea[readonly] {
   display: none;
 }
 
-.overview-panel[data-testid="overview-inventory"] .overview-catalog {
-  border: 0;
-  padding: 0;
+.overview-panel[data-testid="overview-inventory"] .panel-heading {
+  margin: 0;
+}
+
+.overview-panel[data-testid="overview-inventory"] .overview-evidence {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 960px) {
@@ -1200,13 +1197,13 @@ textarea[readonly] {
 
 .overview-facts {
   display: grid;
-  gap: 12px;
+  gap: 8px;
   margin: 0;
 }
 
 .overview-facts > div {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   align-items: baseline;
   gap: 12px;
   min-width: 0;

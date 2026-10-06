@@ -10,14 +10,29 @@ export function formatUserTime(value: string): string {
 export function UserTime({
   value,
   fallback = "—",
+  compact = false,
 }: {
   value: string | null | undefined;
   fallback?: string;
+  compact?: boolean;
 }) {
   if (value === null || value === undefined) return <>{fallback}</>;
   const date = new Date(value);
   if (!Number.isFinite(date.getTime()))
     return <time dateTime={value}>{value}</time>;
+  if (compact)
+    return (
+      <time
+        dateTime={value}
+        title={value}
+        aria-label={`${formatUserTime(value)} (${value})`}
+      >
+        {new Intl.DateTimeFormat(undefined, {
+          dateStyle: "short",
+          timeStyle: "short",
+        }).format(date)}
+      </time>
+    );
   const parts = new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "medium",

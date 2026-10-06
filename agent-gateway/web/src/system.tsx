@@ -451,12 +451,12 @@ function stateForLimit(limit: LimitView): "current" | "warning" {
 
 function keyringGuidance(capability: string): string {
   if (capability === "locked")
-    return "Unlock the operating-system keyring, then refresh status.";
+    return "The operating-system keyring was locked at startup. This is not a live credential check.";
   if (capability === "interaction_required")
-    return "Complete the operating-system keyring interaction, then refresh status.";
+    return "The operating-system keyring required interaction at startup. This is not a live credential check.";
   if (capability === "absent" || capability === "unsupported")
     return "Configure a supported operating-system keyring before managing credentials.";
-  return "Check operating-system keyring availability and Gateway process access.";
+  return "Check operating-system keyring availability and Gateway process access. Status records startup capability only.";
 }
 
 function SystemTabs({ current }: { current: SystemTab }) {
@@ -508,18 +508,10 @@ function StatusPanel({
   return (
     <section
       class="operator-status-view system-status-view"
-      aria-labelledby="system-status-title"
+      aria-label="System status"
       data-testid="system-status-panel"
       data-panel-status={panelStatus}
     >
-      <div class="panel-heading detail-section">
-        <h2 id="system-status-title">Gateway status</h2>
-        {status !== undefined && panelStatus === "current" && (
-          <StatusLabel state={healthy ? "current" : "warning"}>
-            {healthy ? "Serving" : "Serving needs attention"}
-          </StatusLabel>
-        )}
-      </div>
       {status !== undefined &&
         (panelStatus === "error" || panelStatus === "stale") && (
           <StateNotice
@@ -541,11 +533,7 @@ function StatusPanel({
         <StateNotice state="loading" title="Loading system status" />
       ) : status !== undefined ? (
         <div class="operator-status-stack">
-          {(!healthy ||
-            (status.traffic &&
-              (!status.traffic.ready ||
-                status.traffic.faulted ||
-                status.traffic.pressure))) && (
+          {!healthy && (
             <section
               class="operator-status-section"
               aria-labelledby="system-issues-title"
@@ -587,18 +575,6 @@ function StatusPanel({
                   </p>
                 </StateNotice>
               )}
-              {status.traffic &&
-                (!status.traffic.ready ||
-                  status.traffic.faulted ||
-                  status.traffic.pressure) && (
-                  <StateNotice state="warning" title="Optional traffic history">
-                    <p>
-                      {status.traffic.state === "opening"
-                        ? "History is opening. Security-ready serving does not wait for it."
-                        : "Authorized MCP, HTTP and Git execution can continue without history. Missing records do not prove nonexecution; never automatically replay calls."}
-                    </p>
-                  </StateNotice>
-                )}
               {status.httpProxy?.enabled && !status.httpProxy.ready && (
                 <StateNotice state="warning" title="HTTP proxy is unavailable">
                   <p>
@@ -610,7 +586,7 @@ function StatusPanel({
               {status.keyring !== "ready" && (
                 <StateNotice
                   state="warning"
-                  title="Credential storage is unavailable"
+                  title="Credentials at startup need attention"
                 >
                   <p>{keyringGuidance(status.keyring)}</p>
                 </StateNotice>
@@ -628,10 +604,10 @@ function StatusPanel({
 
           <section
             class="detail-section"
-            aria-labelledby="system-operational-title"
+            aria-labelledby="system-status-title"
             data-testid="system-status-operational"
           >
-            <h3 id="system-operational-title">Operational state</h3>
+            <h2 id="system-status-title">Gateway status</h2>
             <dl class="operator-status-grid">
               <div>
                 <dt>Process</dt>
@@ -647,7 +623,7 @@ function StatusPanel({
                 </dd>
               </div>
               <div>
-                <dt>Gateway API</dt>
+                <dt>Administration API</dt>
                 <dd>
                   <FactStatus
                     value={status.endpoints?.api}
@@ -665,7 +641,7 @@ function StatusPanel({
                 </dd>
               </div>
               <div>
-                <dt>MCP endpoint</dt>
+                <dt>MCP ingress</dt>
                 <dd>
                   <FactStatus
                     value={status.endpoints?.mcp}
@@ -680,7 +656,8 @@ function StatusPanel({
                       state.
                     </span>
                   )}
-                  {status.endpoints?.mcp === "disabled" && (
+                  {(status.endpoints?.mcp === "disabled" ||
+                    status.agentAuth === "deny_all") && (
                     <span>Agent authentication is disabled.</span>
                   )}
                 </dd>
@@ -703,10 +680,6 @@ function StatusPanel({
                       <>
                         <span>{status.httpProxy.authority}</span>
                         <span>
-                          Interception CA{" "}
-                          {status.httpProxy.caReady ? "loaded" : "unavailable"}
-                        </span>
-                        <span>
                           {status.httpProxy.activeStreams} active
                           requests/streams · {status.httpProxy.activeTunnels}{" "}
                           opaque tunnels
@@ -723,13 +696,15 @@ function StatusPanel({
             aria-labelledby="system-material-title"
             data-testid="system-status-material"
           >
-            <h3 id="system-material-title">Storage and credentials</h3>
+            <h3 id="system-material-title">Storage and security</h3>
             <dl class="operator-status-grid">
               <div>
                 <dt>Control storage</dt>
                 <dd>
                   <FactStatus
-                    value={status.sqliteState}
+                    value={
+                      status.latched ? "recovery_required" : status.sqliteState
+                    }
                     current={panelStatus === "current"}
                   />
                   <span>
@@ -739,7 +714,7 @@ function StatusPanel({
               </div>
               {status.traffic && (
                 <div>
-                  <dt>Optional history</dt>
+                  <dt>Traffic storage</dt>
                   <dd>
                     <FactStatus
                       value={status.traffic.state}
@@ -810,9 +785,6 @@ function StatusPanel({
                         </span>
                       </>
                     )}
-                    <a href="#/http/grants/test-access">
-                      Preview HTTP policy without execution
-                    </a>
                   </dd>
                 </div>
               )}
@@ -863,7 +835,7 @@ function StatusPanel({
                 </dd>
               </div>
               <div>
-                <dt>Credential storage</dt>
+                <dt>Credentials at startup</dt>
                 <dd>
                   <FactStatus
                     value={status.keyring}
@@ -872,19 +844,90 @@ function StatusPanel({
                 </dd>
               </div>
               <div>
-                <dt>Backup</dt>
+                <dt>Interception CA loaded</dt>
+                <dd>
+                  <StatusLabel
+                    state={panelStatus === "current" ? "neutral" : "stale"}
+                  >
+                    {!status.httpProxy
+                      ? "Not reported"
+                      : status.httpProxy.caReady
+                        ? "Yes"
+                        : "No"}
+                  </StatusLabel>
+                  <span>Client trust is configured separately.</span>
+                </dd>
+              </div>
+              <div>
+                <dt>Backup activity</dt>
                 <dd>
                   <FactStatus
                     value={status.backupState}
                     current={panelStatus === "current"}
                   />
-                  <span>
-                    Last completed{" "}
-                    <UserTime value={status.lastBackupAt} fallback="never" />
-                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>Last backup</dt>
+                <dd>
+                  <UserTime
+                    value={status.lastBackupAt}
+                    fallback="No completion reported"
+                    compact
+                  />
                 </dd>
               </div>
             </dl>
+          </section>
+
+          <section
+            class="detail-section"
+            aria-labelledby="system-activity-title"
+            data-testid="system-request-activity"
+          >
+            <h3 id="system-activity-title">Request activity</h3>
+            {!status.observations ||
+            status.observations.coverage === "unavailable" ? (
+              <p>Tracking unavailable</p>
+            ) : (
+              <>
+                <p class="overview-context">
+                  {status.observations.started_at === status.startedAt ? (
+                    "Since restart"
+                  ) : (
+                    <>
+                      Since{" "}
+                      <UserTime
+                        value={status.observations.started_at}
+                        compact
+                      />
+                    </>
+                  )}
+                  {status.observations.overflow ? " · Counters saturated" : ""}
+                </p>
+                <dl class="technical-details-grid">
+                  {status.observations.protocols.map((p) => (
+                    <div key={p.protocol}>
+                      <dt>
+                        {p.protocol === "http"
+                          ? "HTTP (includes Git)"
+                          : p.protocol === "git"
+                            ? "Git (HTTP subset)"
+                            : p.protocol === "connect"
+                              ? "CONNECT (separate)"
+                              : "MCP"}
+                      </dt>
+                      <dd>
+                        {p.requests} requests · {p.executions} execution
+                        pipelines · {p.results[0]} succeeded · {p.results[1]}{" "}
+                        prestart failures · {p.results[2]} failed ·{" "}
+                        {p.results[3]} unknown · {p.results[4]} nonmutating
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </>
+            )}
           </section>
 
           <section
@@ -910,48 +953,7 @@ function StatusPanel({
                 <dt>Legacy protocol</dt>
                 <dd>{status.legacyProtocol}</dd>
               </div>
-              <div>
-                <dt>Agent authentication</dt>
-                <dd>
-                  {status.agentAuth === "principal_credentials"
-                    ? "Agent credentials"
-                    : sentenceCase(status.agentAuth)}
-                </dd>
-              </div>
             </dl>
-            {status.observations && (
-              <details>
-                <summary>Process observations</summary>
-                <p>
-                  Since {status.observations.started_at}. Observed owner
-                  boundaries only; missing terminals and crash loss remain
-                  unknown. HTTP requests include the Git subset; CONNECT is
-                  separate.
-                </p>
-                <dl class="technical-details-grid">
-                  {status.observations.protocols.map((p) => (
-                    <div key={p.protocol}>
-                      <dt>{p.protocol.toUpperCase()}</dt>
-                      <dd>
-                        {p.requests} requests · {p.executions} execution
-                        pipelines · {p.results[0]} succeeded · {p.results[1]}{" "}
-                        prestart failures · {p.results[2]} failed ·{" "}
-                        {p.results[3]} unknown · {p.results[4]} nonmutating
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                <p>
-                  Git upstream reports (not Gateway-confirmed mutations):{" "}
-                  {status.observations.protocols[3]?.git_reports.join(" / ")}{" "}
-                  success / failure / partial.
-                </p>
-                <p>
-                  Epoch {status.observations.epoch || "Unavailable"}
-                  {status.observations.overflow ? " · Counters saturated" : ""}
-                </p>
-              </details>
-            )}
           </section>
         </div>
       ) : (

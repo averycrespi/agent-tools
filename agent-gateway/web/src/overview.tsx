@@ -19,14 +19,9 @@ import {
   FactStatus,
 } from "./primitives";
 import type { SessionClient } from "./session";
-import { decodeCatalogPage, type CatalogView } from "./server-reads";
-import {
-  decodeRecordedActivity,
-  type RecordedActivity,
-} from "./recorded-activity";
-import { RecordedActivityView } from "./recorded-activity-view";
+
 import { capacityState } from "./resource-utilization";
-import { formatUserTime } from "./time";
+import { formatUserTime, UserTime } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -153,8 +148,6 @@ export interface OverviewSnapshot {
   status?: StatusView;
   servers?: ServerSummary;
   requests?: RequestSummary;
-  catalog?: CatalogView;
-  activity?: RecordedActivity;
 }
 
 type Listener = (snapshot: OverviewSnapshot) => void;
@@ -816,37 +809,6 @@ export class OverviewController {
         this.emit();
       },
     });
-    views.registerPanel({
-      id: "overview-catalog",
-      matches,
-      invalidations: ["catalog"],
-      read: async (context) => {
-        const result = decodeCatalogPage(
-          await responseJSON(await get(context, "/api/v2/mcp/catalog?limit=1")),
-        );
-        if (result.page.items.length > 1)
-          throw new Error("invalid catalog bound");
-        return result.catalog;
-      },
-      publish: (catalog) => {
-        this.value = { ...this.value, catalog };
-        this.emit();
-      },
-    });
-    views.registerPanel({
-      id: "overview-activity",
-      matches,
-      invalidations: [],
-      pollMilliseconds: 30_000,
-      read: async (context) =>
-        decodeRecordedActivity(
-          await responseJSON(await get(context, "/api/v2/recorded-activity")),
-        ),
-      publish: (activity) => {
-        this.value = { ...this.value, activity };
-        this.emit();
-      },
-    });
     session.registerProtectedState(() => {
       this.value = {};
       setStorageLatched(false);
@@ -1007,7 +969,7 @@ export function Overview({
       )
       .map((item) => ({
         ...item,
-        label: item.name === "mcp_work" ? "MCP work" : "Downstream dispatch",
+        label: item.name === "mcp_work" ? "MCP requests" : "Downstream calls",
       })),
     ...(status?.httpProxy
       ? [
@@ -1019,7 +981,7 @@ export function Overview({
           {
             ...status.httpProxy.work,
             name: "http_regular" as const,
-            label: "HTTP work",
+            label: "HTTP requests",
           },
         ]
       : []),
@@ -1040,7 +1002,7 @@ export function Overview({
     <div class="overview" data-testid="overview-grid">
       <Panel
         id="overview-status"
-        title="Gateway readiness"
+        title="Gateway status"
         panel={panel("overview-status")}
       >
         {status !== undefined && (
@@ -1086,34 +1048,31 @@ export function Overview({
                 </p>
               </StateNotice>
             )}
-            <a href="#/system">System readiness</a>
+            <a href="#/system">System status</a>
           </div>
         )}
       </Panel>
       <Panel
         id="overview-material"
-        title="Storage and material"
+        title="Storage and security"
         panel={panel("overview-status")}
       >
         {status !== undefined && (
           <div class="overview-stack">
             <dl class="overview-facts">
               <div>
-                <dt>SQLite</dt>
+                <dt>Control storage</dt>
                 <dd>
                   <FactStatus
-                    value={status.sqliteState}
+                    value={
+                      status.latched ? "recovery_required" : status.sqliteState
+                    }
                     current={current("overview-status")}
                   />
-                  {status.sqliteState === "latched" && status.latched
-                    ? ""
-                    : status.latched
-                      ? " · Latched"
-                      : " · Not latched"}
                 </dd>
               </div>
               <div>
-                <dt>Optional history</dt>
+                <dt>Traffic storage</dt>
                 <dd>
                   <FactStatus
                     value={
@@ -1129,16 +1088,7 @@ export function Overview({
                 </dd>
               </div>
               <div>
-                <dt>Diagnostic delivery</dt>
-                <dd>
-                  <FactStatus
-                    value={status.diagnostics?.state}
-                    current={current("overview-status")}
-                  />
-                </dd>
-              </div>
-              <div>
-                <dt>Keyring startup</dt>
+                <dt>Credentials at startup</dt>
                 <dd>
                   <FactStatus
                     value={status.keyring}
@@ -1147,18 +1097,17 @@ export function Overview({
                 </dd>
               </div>
               <div>
-                <dt>HTTP CA capability</dt>
+                <dt>Interception CA loaded</dt>
                 <dd>
-                  <FactStatus
-                    value={
-                      !status.httpProxy
-                        ? undefined
-                        : status.httpProxy.caReady
-                          ? "ready"
-                          : "not_ready"
-                    }
-                    current={current("overview-status")}
-                  />
+                  <StatusLabel
+                    state={current("overview-status") ? "neutral" : "stale"}
+                  >
+                    {!status.httpProxy
+                      ? "Not reported"
+                      : status.httpProxy.caReady
+                        ? "Yes"
+                        : "No"}
+                  </StatusLabel>
                 </dd>
               </div>
               <div>
@@ -1171,11 +1120,13 @@ export function Overview({
                 </dd>
               </div>
               <div>
-                <dt>Last reported backup</dt>
+                <dt>Last backup</dt>
                 <dd>
-                  {status.lastBackupAt
-                    ? formatUserTime(status.lastBackupAt)
-                    : "No completion reported"}
+                  <UserTime
+                    value={status.lastBackupAt}
+                    fallback="No completion reported"
+                    compact
+                  />
                 </dd>
               </div>
             </dl>
@@ -1184,8 +1135,8 @@ export function Overview({
                 state="error"
                 title={
                   status.latched
-                    ? "SQLite latched · storage mutation is closed"
-                    : `SQLite ${status.sqliteState}`
+                    ? "Recovery required"
+                    : `Control storage ${status.sqliteState}`
                 }
               >
                 <p>
@@ -1199,25 +1150,26 @@ export function Overview({
             {status.keyring !== "ready" && (
               <StateNotice
                 state="warning"
-                title={`Keyring ${sentenceCase(status.keyring).toLowerCase()}`}
+                title={`Credentials at startup: ${sentenceCase(status.keyring).toLowerCase()}`}
               >
                 <p>
-                  Authority operations may fail or require interaction.{" "}
+                  Startup capability is not a live credential check.{" "}
                   <a href="#/system">Inspect keyring status</a>
                 </p>
               </StateNotice>
             )}
-            <a href="#/system">Storage and material status</a>
+            <a href="#/system">System status</a>
           </div>
         )}
       </Panel>
       <Panel
         id="overview-capacity"
-        title="Work capacity"
+        title="Resource usage"
         panel={panel("overview-status")}
       >
         {status !== undefined && (
           <div class="overview-stack">
+            <p class="overview-context">In use / limit</p>
             <dl class="overview-facts overview-pools">
               {pools.map((item) => (
                 <div key={item.label}>
@@ -1408,55 +1360,7 @@ export function Overview({
             </p>
           </>
         )}
-        <div
-          class="overview-catalog"
-          data-testid="overview-catalog"
-          data-panel-status={panel("overview-catalog")?.status ?? "loading"}
-        >
-          {!snapshot.catalog ? (
-            <p>
-              Catalog summary{" "}
-              {panel("overview-catalog")?.status === "error"
-                ? "unavailable"
-                : "loading"}
-              .
-            </p>
-          ) : (
-            <>
-              <p>
-                Catalog:{" "}
-                {sentenceCase(snapshot.catalog.activeState).toLowerCase()} ·{" "}
-                {snapshot.catalog.issueCount} catalog issues
-                {current("overview-catalog")
-                  ? ""
-                  : " · last known; current state unknown"}
-              </p>
-              <details>
-                <summary>Catalog details</summary>
-                <p>Generation {snapshot.catalog.activeGeneration}</p>
-                <p>
-                  {snapshot.catalog.changedAt
-                    ? formatUserTime(snapshot.catalog.changedAt)
-                    : "No change time reported"}
-                </p>
-              </details>
-            </>
-          )}
-          <a href="#/mcp/tools">MCP catalog</a>
-        </div>
       </section>
-      <Panel
-        id="overview-activity"
-        title="Recorded activity"
-        panel={panel("overview-activity")}
-      >
-        {snapshot.activity && (
-          <RecordedActivityView
-            value={snapshot.activity}
-            current={current("overview-activity")}
-          />
-        )}
-      </Panel>
     </div>
   );
 }

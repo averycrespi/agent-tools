@@ -14,7 +14,7 @@
     "main.tsx": "7d2e18f344eda03b3e0906548d83fb35f8a18a5fd9099da829947399c9bfc4d2",
     "matcher-editor.tsx": "8b39daa8cbf95e88699cba49788d1a6603b370f1865bdc141db30ef46300b849",
     "navigation.tsx": "7ea4a9f9657be2ba033e6f98956d4772d7511bf7baef810d64f40231cd68e3b8",
-    "overview.tsx": "afd2181203398f2075c01b4c43bb00927953c3a95e38bf2e1bad3bc4811e9a86",
+    "overview.tsx": "c7a56485598b62202193ee1becb91fc2695563c4c8a4198d65972325fe24502d",
     "primitives.tsx": "e529c27a24120619fae5b511943ace2b28245b267f588ffed4aeeabd47fb73f9",
     "principals.tsx": "2869965304e4790d76a189ed2848db3ecaef34f6a707f972551ab9b5d8db8ac9",
     "recorded-activity-view.tsx": "5db4b29ea4a07a75d1d5e438fc17a743e65708d4fee4d93e05a6f352f0aa718e",
@@ -26,9 +26,9 @@
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
     "server-reads.tsx": "397b1bd49346dd94629510321b440cee7b9ac1cbd1f850b64a090cca59822cb3",
     "sinks-ui.tsx": "441f2fc37576566fe89003f1c951ff740629609384867beb648eccde922ebb65",
-    "styles.css": "99349b4e273efd0a068dd83761053e00b0b39e63e4e03371ff79c571dc87590f",
-    "system.tsx": "2c36e0e77e799fb809f0a9191b1a46eeca86592a2e987a25b7efbed76f64a1dc",
-    "time.tsx": "d7bdf2985dce8c64c48e87640096f284facbbc859335cc4fad3cbe1cd6b4f2be",
+    "styles.css": "38e42dc93697798cebc99d7ff71589b83a1b967af5b85df232fe2da88fb66b13",
+    "system.tsx": "57bfc8381ff186bc0572d9047037ee207e7b216cfa0857bc79d7b0569e95ffd2",
+    "time.tsx": "728539022906dc8e982e3b482bde22d5fad581137ae12f3af8cca4c870ab4fdb",
     "toast.tsx": "29724123c1efd625a7a7e79bfd7917f8a61481b2018736f856ead6ee6d158c2c"
   },
   "matrix": {
@@ -392,8 +392,6 @@
       "validation-detail": "standard"
     },
     "overview": {
-      "overview-activity-catalog-error": "reflow",
-      "overview-activity-reset": "reflow",
       "overview-attention": "reflow",
       "overview-capacity-only-attention": "reflow",
       "overview-empty": "reflow",
@@ -406,8 +404,7 @@
       "overview-quiet": "reflow",
       "overview-reported-pools": "reflow",
       "overview-stale": "reflow",
-      "overview-unavailable": "reflow",
-      "overview-activity-minute-evidence": "reflow"
+      "overview-unavailable": "reflow"
     },
     "principal-credentials": {
       "agent-credential-present": "standard",
@@ -554,7 +551,11 @@
       "system-stale": "standard",
       "system-status-healthy": "standard",
       "observation-health-failed": "standard",
-      "process-observations": "standard",
+      "request-activity": "standard",
+      "request-activity-restart": "standard",
+      "request-activity-overflow": "standard",
+      "status-unavailable-material": "standard",
+      "status-backup-busy": "standard",
       "system-status-latched": "standard",
       "table-gateway-resource-occupancy-and-hard-limits-populated": "standard",
       "fault": "standard",
