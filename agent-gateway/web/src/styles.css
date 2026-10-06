@@ -589,6 +589,11 @@ textarea[readonly] {
   gap: 8px;
 }
 
+.history-export-actions,
+.history-export-status:not(:empty) {
+  margin-bottom: 16px;
+}
+
 .form-section {
   margin-top: 24px;
 }

@@ -87,8 +87,12 @@ The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for
 
 `GET` on `/api/v2/history/export` uses administrator bearer/session authority, bodyless
 `no-store` reads (`HistoryExportQuery` → `HistoryExport`). Singleton query members
-are canonical nonnegative int64 `after_sequence` (default 0) and `limit` (default/max
-256, minimum 1). Unknown, empty, duplicate or noncanonical members refuse.
+are canonical nonnegative int64 `after_sequence` (default 0), optional
+`through_sequence` (inclusive, at least `after_sequence`, default maximum int64),
+and `limit` (default/max 256, minimum 1). Unknown, empty, duplicate or noncanonical
+members refuse. The upper bound restricts returned records, not the response's
+current high-water, pruning or retained-count metadata. Truncation describes only
+the requested sequence range.
 
 Format 1 export returns installation/generation, UTC capture time, decimal-string
 high-water/pruning and after/next sequence, retained count, `truncated`, protocol-tagged

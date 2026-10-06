@@ -179,15 +179,35 @@ System combines the process and endpoint facts under Gateway status, matching Ov
 
 The System status panel reads only on System Status and Resource limits destinations; the independent session-wide mutation-latch read remains active elsewhere. Hidden System panels must not duplicate that read or compete with visible history for bounded traffic readers. System status strictly projects every process, SQLite, keyring, backup, protocol, and closed limit fact, closes global mutation admission from the authoritative latch, and presents stopped-process-only initialize, authority reset, current-integrity verification, and verified-backup restore command boundaries without online execution or commit/rollback inference. Server inventory, per-server tools, and aggregate catalog render one server-selected page of at most 50 rows, with shared accessible Previous/Next controls and no automatic fetch-all or appended inventory. They reuse the location/session/visible-refresh and pagination owners used by principals and grants, but show only the number of rows on the current page, without totals. All filters and sortable columns operate across the full collection. Server fields are name/ID, namespace, and synthesized status, with name/ID/namespace/status/active-tool-count sorting; per-server tools filter by external tool name and available/retired status, with tool/status/last-seen sorting; catalog filters use tool/server names and available/catalog-issue status, with tool/server sorting. Status is evidence, never a permission or callability assertion. Tool behavior chips are visibly grouped as Server hints, and the partial schema renderer is labeled Schema summary without claiming to show all constraints.
 
-System Backups distinguishes **Security backup · history omitted** from legacy
-artifacts. Creation confirmation states that optional traffic history is omitted;
-restore remains stopped-only and invalidates restored authority. The independent
-**Export optional traffic history** disclosure performs one explicit read through the
-shared view/session owner, with no polling or automatic retry. It renders bounded
-inert JSON with generation, retained/returned count and truncation, and reports
-history-only failures separately from backup administration. A loaded export is only
-one rolling snapshot, never a complete traffic audit; late results are fenced on
-navigation/session changes.
+System Backups has a **Control-plane backups** card containing creation and the
+complete inventory, distinguishing **Security backup · history omitted** from legacy
+artifacts without implying inventory verifies integrity. Creation confirmation states
+that optional traffic history is omitted; restore remains stopped-only and invalidates
+restored authority. A separate always-visible **Traffic history export** card follows it.
+**Download JSON** traverses retained MCP/HTTP/Git history through the shared view/session
+read owner, with explicit cancellation, duplicate prevention and no polling or retries.
+Actual records/pages/bytes provide progress without a percentage; backup controls stay
+independent. Session loss and navigation cancel and fence late results before download.
+
+The first response captures generation, installation, pruning, retained count and
+high-water; subsequent requests use that fixed inclusive `through_sequence` boundary.
+Changed generation/pruning, decreasing high-water, duplicate/out-of-range sequences,
+stalled pages, incomplete coverage or failed reads refuse the entire download. The
+browser limits cumulative response bytes to 64 MiB, traversal to 120 seconds and 4,096
+pages, with 5-second/900-KiB response bounds. Limit failures save no partial file and
+refer to the documented bounded CLI procedure. This is a user-requested export,
+not an automatic collection fetch-all.
+
+The downloadable `agent-gateway-retained-traffic-v1` envelope contains unmodified raw
+JSON pages and explicit coverage: initial/final high-water, initial pruning/retained
+count, returned records, page count and page capture times. Lexical JSON numbers,
+redaction and protocol provenance are preserved. Traversal of the initial retained
+boundary is not an atomic snapshot, lifetime activity or a complete traffic audit
+(`complete_traffic_audit` stays false). Later arrivals are excluded; late completions
+on previously read pages are not refreshed or reconstructed. The sink uses a local
+JSON Blob with an identifier-free timestamp filename, removes its temporary anchor
+and revokes its object URL after handoff; no browser storage or external destination
+is added. Names/IDs remain inside the user-requested file, not DOM previews or progress.
 
 All Previous/Next collections follow [collection pagination](#collection-pagination). Backend cursors retain their distinct inventory-watermark/observed-fact, descriptor-revision and active-generation guarantees.
 

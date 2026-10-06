@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,7 +13,7 @@ import (
 )
 
 type HistoryExporter interface {
-	ExportHistory(context.Context, int64, int) (contract.HistoryExport, error)
+	ExportHistoryThrough(context.Context, int64, int64, int) (contract.HistoryExport, error)
 }
 
 func (handler *Handler) historyExport(writer http.ResponseWriter, request *http.Request) {
@@ -26,7 +27,7 @@ func (handler *Handler) historyExport(writer http.ResponseWriter, request *http.
 		return
 	}
 	for key, values := range query {
-		if (key != "after_sequence" && key != "limit") || len(values) != 1 || values[0] == "" {
+		if (key != "after_sequence" && key != "through_sequence" && key != "limit") || len(values) != 1 || values[0] == "" {
 			writeProblem(writer, contract.ProblemMalformedRequest)
 			return
 		}
@@ -47,7 +48,15 @@ func (handler *Handler) historyExport(writer http.ResponseWriter, request *http.
 			return
 		}
 	}
-	value, err := handler.history.ExportHistory(request.Context(), after, limit)
+	through := int64(math.MaxInt64)
+	if text := query.Get("through_sequence"); text != "" {
+		through, err = strconv.ParseInt(text, 10, 64)
+		if err != nil || through < after || strconv.FormatInt(through, 10) != text {
+			writeProblem(writer, contract.ProblemMalformedRequest)
+			return
+		}
+	}
+	value, err := handler.history.ExportHistoryThrough(request.Context(), after, through, limit)
 	if err != nil {
 		switch {
 		case errors.Is(err, invocation.ErrInvalidInput):

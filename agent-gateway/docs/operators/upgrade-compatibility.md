@@ -25,7 +25,7 @@ without claiming their omitted history was verified. History-inclusive legacy re
 still requires every claimed payload and reports `history:"restored"`. Every restore
 invalidates restored agent/HTTP/Git/CA authority and rekeys administration. This differs
 from an ordinary upgrade, which preserves live configuration, grants and credentials.
-Use separate `history export --json` or the browser export disclosure for bounded
+Use separate `history export --json` or the browser Traffic history export card for bounded
 rolling history; no export proves complete traffic coverage or safe replay. See the
 [recovery guide](backup-and-recovery.md) for staging, consent and preservation rules.
 No installed-resource mutation or live qualification is authorized by this source

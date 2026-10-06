@@ -299,11 +299,34 @@ export async function runBackups(
   let backupReadFails = false;
   let recoveryKey: string | undefined;
   let exports = 0;
-  await page.route("**/api/v2/history/export", async (route) => {
+  let exportMode:
+    | "success"
+    | "unavailable"
+    | "pending"
+    | "replaced"
+    | "pruned"
+    | "empty" = "success";
+  let releaseExport: (() => void) | undefined;
+  const settleExport = () => releaseExport?.();
+  await page.route("**/api/v2/history/export**", async (route) => {
     exports += 1;
-    if (route.request().method() !== "GET")
+    const url = new URL(route.request().url());
+    const after = Number(url.searchParams.get("after_sequence") ?? 0);
+    if (
+      route.request().method() !== "GET" ||
+      route.request().postData() !== null
+    )
       fail("history export mutated state");
-    if (exports === 2) {
+    if (after !== 0 && url.searchParams.get("through_sequence") !== "300")
+      fail("export chased new arrivals");
+    if (exportMode === "pending" && after !== 0) {
+      await new Promise<void>((resolve) => {
+        releaseExport = resolve;
+      });
+      await route.abort();
+      return;
+    }
+    if (exportMode === "unavailable") {
       await route.fulfill({
         status: 503,
         contentType: "application/problem+json",
@@ -321,18 +344,39 @@ export async function runBackups(
       body: JSON.stringify({
         format: 1,
         installation_id: ids[0],
-        generation: ids[1],
+        generation: exportMode === "replaced" && after !== 0 ? ids[0] : ids[1],
         captured_at: "2026-08-29T12:00:00Z",
-        high_water: "0",
-        pruning: "0",
-        retained: 0,
-        after_sequence: "0",
-        next_sequence: "0",
-        truncated: false,
+        high_water: exportMode === "empty" ? "0" : after === 0 ? "300" : "301",
+        pruning: exportMode === "pruned" && after !== 0 ? "1" : "0",
+        retained:
+          exportMode === "empty"
+            ? 0
+            : after === 0
+              ? 300
+              : exportMode === "pruned"
+                ? 300
+                : 301,
+        after_sequence: String(after),
+        next_sequence:
+          exportMode === "empty" ? "0" : after === 0 ? "160" : "300",
+        truncated: exportMode !== "empty" && after === 0,
         complete_traffic_audit: false,
         absence:
           "Absent records do not establish nonexecution; missing completion remains unknown. Each response is a new snapshot of rolling best-effort history.",
-        records: [],
+        records:
+          exportMode === "empty"
+            ? []
+            : Array.from({ length: after === 0 ? 160 : 140 }, (_, i) => {
+                const protocol = ["mcp", "http", "git"][(after + i) % 3]!;
+                return {
+                  sequence: String(after + i + 1),
+                  protocol,
+                  [protocol]: {
+                    completion: null,
+                    recognition: "private-export-name",
+                  },
+                };
+              }),
       }),
     });
   });
@@ -475,21 +519,116 @@ export async function runBackups(
   );
   expect(exports).toBe(0);
   const exportPanel = page.getByTestId("history-export");
-  await exportPanel.locator("summary").click();
-  await exportPanel.getByRole("button", { name: "Read export" }).click();
-  await expect(exportPanel.getByLabel("History export JSON")).toContainText(
-    '"complete_traffic_audit": false',
-  );
-  await captureFrontend(page, "backup-history-export");
-  await exportPanel.getByRole("button", { name: "Read export" }).click();
   await expect(
-    exportPanel.getByText("History export unavailable", { exact: true }),
+    inventory.getByRole("heading", { name: "Control-plane backups" }),
   ).toBeVisible();
-  await expect(exportPanel.getByLabel("History export JSON")).toHaveCount(0);
+  await expect(
+    exportPanel.getByRole("heading", { name: "Traffic history export" }),
+  ).toBeVisible();
+  expect(
+    await inventory.evaluate((element) =>
+      element.nextElementSibling?.getAttribute("data-testid"),
+    ),
+  ).toBe("history-export");
+  await expect(exportPanel.locator("summary, pre")).toHaveCount(0);
+  let downloadCount = 0;
+  page.on("download", () => {
+    downloadCount++;
+  });
+  await page.evaluate(() => {
+    const state = { created: 0, revoked: 0 };
+    Object.assign(window, { exportURLCounts: state });
+    const create = URL.createObjectURL.bind(URL),
+      revoke = URL.revokeObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      state.created++;
+      return create(blob);
+    };
+    URL.revokeObjectURL = (url) => {
+      state.revoked++;
+      revoke(url);
+    };
+  });
+  const downloadFile = async () => {
+    const event = page.waitForEvent("download");
+    await exportPanel.getByRole("button", { name: "Download JSON" }).click();
+    const download = await event;
+    expect(download.suggestedFilename()).toMatch(
+      /^agent-gateway-traffic-\d{4}-.*\.json$/,
+    );
+    expect(download.suggestedFilename()).not.toContain(ids[0]!);
+    const stream = await download.createReadStream();
+    if (!stream) fail("download has no readable content");
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+    const value = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    await download.delete();
+    expect(value.complete_traffic_audit).toBe(false);
+    expect(value.coverage.atomic_snapshot).toBe(false);
+    return value;
+  };
+  const file = await downloadFile();
+  expect(
+    file.pages.flatMap((p: { records: unknown[] }) => p.records),
+  ).toHaveLength(300);
+  expect(file.coverage.new_records_excluded).toBe(true);
+  expect(file.coverage.retained_boundary_traversed).toBe(true);
+  await expect(exportPanel).not.toContainText("private-export-name");
+  await captureFrontend(page, "backup-history-export");
+  exportMode = "unavailable";
+  await exportPanel.getByRole("button", { name: "Download JSON" }).click();
+  await expect(
+    exportPanel.getByText("History export stopped", { exact: true }),
+  ).toBeVisible();
   await captureFrontend(page, "backup-history-unavailable");
-  expect(exports).toBe(2);
+  for (const mode of ["replaced", "pruned"] as const) {
+    exportMode = mode;
+    await exportPanel.getByRole("button", { name: "Download JSON" }).click();
+    await expect(exportPanel).toContainText(`was ${mode} during export`);
+  }
+  await captureFrontend(page, "backup-history-changed");
+  exportMode = "pending";
+  await exportPanel.getByRole("button", { name: "Download JSON" }).click();
+  await expect(exportPanel).toContainText("160 records · 1 page");
+  await expect(
+    exportPanel.getByRole("button", { name: "Download JSON" }),
+  ).toBeDisabled();
+  await expect(
+    rows.first().getByRole("button", { name: "Delete" }),
+  ).toBeEnabled();
+  await expect(page.getByTestId("backup-create")).toBeEnabled();
+  await captureFrontend(page, "backup-history-progress");
+  await exportPanel.getByRole("button", { name: "Cancel export" }).click();
+  settleExport();
+  await expect(exportPanel).toContainText(
+    "Export cancelled. No file was downloaded.",
+  );
+  await captureFrontend(page, "backup-history-cancelled");
+  expect(downloadCount).toBe(1);
+  // Navigation cancels the owned read; the late response cannot download.
+  releaseExport = undefined;
+  await exportPanel.getByRole("button", { name: "Download JSON" }).click();
+  await expect(exportPanel).toContainText("160 records · 1 page");
+  await page.getByTestId("backup-create").click();
+  settleExport();
+  await page
+    .getByTestId("backup-create-view")
+    .getByRole("link", { name: "Cancel", exact: true })
+    .click();
+  await expect(
+    exportPanel.getByRole("button", { name: "Download JSON" }),
+  ).toBeEnabled();
+  expect(downloadCount).toBe(1);
+  exportMode = "empty";
+  expect((await downloadFile()).pages[0].records).toHaveLength(0);
+  await captureFrontend(page, "backup-history-empty");
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { exportURLCounts: unknown }).exportURLCounts,
+    ),
+  ).toEqual({ created: 2, revoked: 2 });
+  await expect(page.locator("a[download]")).toHaveCount(0);
   expect(creates).toBe(0);
-  await exportPanel.locator("summary").click();
   await page.locator('[data-testid="backup-create"]').click();
   await captureFrontend(page, "backup-create");
   await page
@@ -585,7 +724,23 @@ export async function runBackups(
   const body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of ["immutable owner-only", "stopped-process operation"])
     if (!body.includes(phrase)) fail(`backup boundary omitted ${phrase}`);
-  await assertSecretAbsent(page, context, baseURL, [bearer], true);
+  await page
+    .getByTestId("backup-create-view")
+    .getByRole("link", { name: "Cancel", exact: true })
+    .click();
+  exportMode = "pending";
+  releaseExport = undefined;
+  await exportPanel.getByRole("button", { name: "Download JSON" }).click();
+  await expect(exportPanel).toContainText("160 records · 1 page");
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Sign out", exact: true })
+    .click();
+  settleExport();
+  await waitForLifecycle(page, "signed_out");
+  expect(downloadCount).toBe(2);
+  await assertSecretAbsent(page, context, baseURL, [bearer], false);
   process.stdout.write(
     `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
   );

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"strconv"
 	"time"
 
@@ -13,8 +14,14 @@ import (
 
 // ExportHistory uses only the existing bounded history reader. No control
 // mutation fence, writer pause, observation queue or filesystem stage is needed.
-func (s *ReadService) ExportHistory(ctx context.Context, after int64, limit int) (result contract.HistoryExport, err error) {
-	if after < 0 || limit < 1 || limit > contract.HistoryExportMaxRecords {
+func (s *ReadService) ExportHistory(ctx context.Context, after int64, limit int) (contract.HistoryExport, error) {
+	return s.ExportHistoryThrough(ctx, after, math.MaxInt64, limit)
+}
+
+// ExportHistoryThrough bounds a rolling read to an earlier high-water mark. It
+// does not pin a snapshot: callers must still compare generation and pruning.
+func (s *ReadService) ExportHistoryThrough(ctx context.Context, after, through int64, limit int) (result contract.HistoryExport, err error) {
+	if after < 0 || through < after || limit < 1 || limit > contract.HistoryExportMaxRecords {
 		return result, ErrInvalidInput
 	}
 	if s.repository.traffic == nil {
@@ -31,10 +38,10 @@ func (s *ReadService) ExportHistory(ctx context.Context, after int64, limit int)
 		// Resolve a bounded cross-protocol sequence window before materializing full
 		// records; all reads remain in this same SQLite transaction.
 		rows, err := tx.QueryContext(ctx, `SELECT insertion_sequence,protocol FROM (
-   SELECT insertion_sequence,'mcp' AS protocol FROM invocations WHERE insertion_sequence>?
-   UNION ALL SELECT insertion_sequence,'http' FROM http_traffic WHERE insertion_sequence>?
-   UNION ALL SELECT insertion_sequence,'git' FROM git_traffic WHERE insertion_sequence>?
-  ) ORDER BY insertion_sequence LIMIT ?`, after, after, after, limit+1)
+   SELECT insertion_sequence,'mcp' AS protocol FROM invocations WHERE insertion_sequence>? AND insertion_sequence<=?
+   UNION ALL SELECT insertion_sequence,'http' FROM http_traffic WHERE insertion_sequence>? AND insertion_sequence<=?
+   UNION ALL SELECT insertion_sequence,'git' FROM git_traffic WHERE insertion_sequence>? AND insertion_sequence<=?
+  ) ORDER BY insertion_sequence LIMIT ?`, after, through, after, through, after, through, limit+1)
 		if err != nil {
 			return err
 		}

@@ -64,9 +64,9 @@ func TestBrowserAccessibility(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 7, event.AxeScans)
+	assert.Equal(t, 15, event.AxeScans)
 	assert.Zero(t, event.SeriousCritical)
-	assert.GreaterOrEqual(t, event.Scripted, 19)
+	assert.GreaterOrEqual(t, event.Scripted, 24)
 
 	harness.Stop(os.Interrupt)
 	assert.Len(t, harness.results, 1, "accessibility proof must own one Gateway lifecycle")

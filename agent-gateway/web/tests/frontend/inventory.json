@@ -26,8 +26,8 @@
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
     "server-reads.tsx": "397b1bd49346dd94629510321b440cee7b9ac1cbd1f850b64a090cca59822cb3",
     "sinks-ui.tsx": "441f2fc37576566fe89003f1c951ff740629609384867beb648eccde922ebb65",
-    "styles.css": "38e42dc93697798cebc99d7ff71589b83a1b967af5b85df232fe2da88fb66b13",
-    "system.tsx": "57bfc8381ff186bc0572d9047037ee207e7b216cfa0857bc79d7b0569e95ffd2",
+    "styles.css": "58a7a1ed6f1f0a5cdd769c8bd9eb2a68c6ec35c77b0cdc4094cb8039085bcf77",
+    "system.tsx": "43d1889474bdcfe378773de9bb9d76242d130001e8863b9fec3b50020c4f746c",
     "time.tsx": "728539022906dc8e982e3b482bde22d5fad581137ae12f3af8cca4c870ab4fdb",
     "toast.tsx": "29724123c1efd625a7a7e79bfd7917f8a61481b2018736f856ead6ee6d158c2c"
   },
@@ -125,6 +125,10 @@
     "backups": {
       "backup-history-export": "standard",
       "backup-history-unavailable": "standard",
+      "backup-history-changed": "standard",
+      "backup-history-progress": "standard",
+      "backup-history-cancelled": "standard",
+      "backup-history-empty": "standard",
       "backup-create": "standard",
       "backup-create-confirmation": "standard",
       "backup-create-uncertain": "standard",
