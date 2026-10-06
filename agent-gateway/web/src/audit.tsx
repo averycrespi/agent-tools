@@ -19,6 +19,7 @@ import {
   type ResolvedLocation,
 } from "./location";
 import {
+  BinaryToggle,
   CollectionTable,
   LoadedHistorySummary,
   TableIdentity,
@@ -91,8 +92,10 @@ function outcomeState(outcome: string): OperationalState {
         : "warning";
 }
 const staleNotice =
-  "The audit cursor expired or history was pruned. The previous traversal was discarded and restarted at the newest matching page.";
+  "Showing the latest entries. Older results could not be continued.";
 export interface AuditSnapshot {
+  live: boolean;
+  paused: boolean;
   viewKey: string;
   items: readonly AuditSummary[];
   nextCursor: string | null;
@@ -108,6 +111,8 @@ export interface AuditSnapshot {
 function empty(viewKey = ""): AuditSnapshot {
   return {
     viewKey,
+    live: true,
+    paused: false,
     items: [],
     nextCursor: null,
     history: undefined,
@@ -191,6 +196,8 @@ function listPath(
 export class AuditController {
   readonly related: RelatedHistory<AuditSummary>;
   private value = empty();
+  private serial = 0;
+  private olderPosition = false;
   private readonly listeners = new Set<(value: AuditSnapshot) => void>();
   private continuation: string | null = null;
   private knownGeneration: string | undefined;
@@ -245,10 +252,17 @@ export class AuditController {
       id: "audit",
       matches: (key) => parseFragment(key)?.destination === "audit",
       invalidations: [],
+      pollMilliseconds: 30000,
+      shouldRefresh: (reason) =>
+        !["invalidation", "reconnect", "poll"].includes(reason) ||
+        parseFragment(this.views.snapshot().viewKey)?.segments.length === 2 ||
+        (this.value.live && !this.value.paused),
       read: async (context) => {
+        const serial = this.serial;
         const cursor = this.continuation;
         try {
-          return await this.read(context);
+          const result = await this.read(context);
+          return { result, serial };
         } catch (error) {
           if (
             cursor !== null &&
@@ -256,11 +270,15 @@ export class AuditController {
             this.value.viewKey === context.viewKey &&
             this.value.nextCursor === cursor
           )
-            return { ...this.value, loadingOlder: false, olderError: true };
+            return {
+              result: { ...this.value, loadingOlder: false, olderError: true },
+              serial,
+            };
           throw error;
         }
       },
-      publish: (result) => {
+      publish: ({ result, serial }) => {
+        if (serial !== this.serial) return;
         if (
           result.history !== undefined &&
           result.history.generation !== this.knownGeneration
@@ -273,6 +291,8 @@ export class AuditController {
       },
     });
     session.registerProtectedState(() => {
+      this.serial++;
+      this.olderPosition = false;
       this.value = empty();
       this.continuation = null;
       this.knownGeneration = undefined;
@@ -306,15 +326,45 @@ export class AuditController {
     listener(this.value);
     return () => this.listeners.delete(listener);
   }
+  setLive(live: boolean): void {
+    this.views.cancelPanelRead("audit");
+    this.serial++;
+    this.continuation = null;
+    this.value = { ...this.value, live, loadingOlder: false };
+    this.emit();
+    if (this.value.history === undefined || (live && !this.value.paused))
+      this.resume();
+  }
+  resume(): void {
+    this.serial++;
+    this.olderPosition = false;
+    this.continuation = null;
+    this.value = {
+      ...this.value,
+      paused: false,
+      loadingOlder: false,
+      notice: undefined,
+    };
+    this.emit();
+    void this.views.refreshPanel("audit");
+  }
   async loadOlder(): Promise<void> {
     if (
       this.value.loadingOlder ||
+      this.value.items.length >= 500 ||
+      this.views.snapshot().panels.audit?.refreshing ||
+      this.views.snapshot().panels.audit?.status === "error" ||
       this.value.nextCursor === null ||
       this.views.snapshot().viewKey !== this.value.viewKey
     )
       return;
     this.continuation = this.value.nextCursor;
-    this.value = { ...this.value, loadingOlder: true, olderError: false };
+    this.value = {
+      ...this.value,
+      paused: true,
+      loadingOlder: true,
+      olderError: false,
+    };
     this.emit();
     const key = this.value.viewKey;
     const pending = this.views.refreshPanel("audit");
@@ -337,7 +387,13 @@ export class AuditController {
       this.views.snapshot().viewKey !== context.viewKey
     )
       return;
-    this.value = { ...empty(context.viewKey), notice };
+    this.olderPosition = false;
+    this.value = {
+      ...empty(context.viewKey),
+      live: this.value.live,
+      paused: this.value.paused,
+      notice,
+    };
     this.emit();
   }
   private async read(context: ViewReadContext): Promise<AuditSnapshot> {
@@ -345,7 +401,11 @@ export class AuditController {
     if (location?.destination !== "audit")
       throw new Error("Invalid audit location");
     if (context.viewKey !== this.value.viewKey) {
-      this.value = empty(context.viewKey);
+      this.value = {
+        ...empty(context.viewKey),
+        live: this.value.live,
+        paused: this.value.paused,
+      };
       this.continuation = null;
       this.emit();
     }
@@ -359,18 +419,35 @@ export class AuditController {
       );
       if (result.problem === "audit_history_replaced") {
         this.discard(context, replacementNotice);
-        return { ...empty(context.viewKey), notice: replacementNotice };
+        return {
+          ...empty(context.viewKey),
+          live: previous.live,
+          paused: previous.paused,
+          notice: replacementNotice,
+        };
       }
       if (result.problem === "not_found")
-        return { ...empty(context.viewKey), missing: true };
+        return {
+          ...empty(context.viewKey),
+          live: previous.live,
+          paused: previous.paused,
+          missing: true,
+        };
       if (result.problem !== undefined)
         throw new Error("Audit item unavailable");
       const item = decodeAuditItem(result.value);
       if (item.event.id !== id) throw new Error("Audit identity mismatch");
       if (expected !== undefined && expected !== item.history.generation)
-        return { ...empty(context.viewKey), notice: replacementNotice };
+        return {
+          ...empty(context.viewKey),
+          live: previous.live,
+          paused: previous.paused,
+          notice: replacementNotice,
+        };
       const evidence = {
         ...empty(context.viewKey),
+        live: previous.live,
+        paused: previous.paused,
         history: item.history,
         item: item.event,
       };
@@ -385,14 +462,14 @@ export class AuditController {
       }
       return { ...evidence, ...(await this.target(context, item.event)) };
     }
-    const cursor = this.continuation;
+    const cursor = context.reason === "panel" ? this.continuation : null;
     this.continuation = null;
     let result = await readResponse(
       context,
       listPath(location.query, cursor, expected),
     );
     let append = cursor !== null;
-    let notice = previous.notice;
+    let notice = !append && this.olderPosition ? staleNotice : previous.notice;
     if (
       result.problem === "audit_history_replaced" ||
       (cursor !== null && result.problem === "stale_cursor")
@@ -416,7 +493,7 @@ export class AuditController {
       (previous.history?.generation !== page.history.generation ||
         previous.history.oldest_retained?.sequence !==
           page.history.oldest_retained?.sequence ||
-        previous.items.length + page.items.length > 65536)
+        previous.items.length + page.items.length > 500)
     )
       throw new Error("Audit continuation mismatch");
     if (
@@ -426,8 +503,15 @@ export class AuditController {
       BigInt(previous.items.at(-1)!.sequence) <= BigInt(page.items[0]!.sequence)
     )
       throw new Error("Audit continuation order mismatch");
+    if (
+      !context.signal.aborted &&
+      this.views.snapshot().viewKey === context.viewKey
+    )
+      this.olderPosition = append;
     return {
       ...empty(context.viewKey),
+      live: previous.live,
+      paused: previous.paused,
       items: append ? [...previous.items, ...page.items] : page.items,
       nextCursor: page.next_cursor,
       history: page.history,
@@ -981,8 +1065,31 @@ export function Audit({
           </header>
         </>
       ) : null}
+      {!detail && (
+        <div class="collection-toolbar live-collection-toolbar">
+          <label for="audit-live-mode">Live mode</label>
+          <BinaryToggle
+            attributes={{ id: "audit-live-mode" }}
+            checked={snapshot.live}
+            showState={false}
+            onChange={(live) => controller.setLive(live)}
+          />
+          {snapshot.paused && (
+            <>
+              {snapshot.live && (
+                <StatusLabel state="warning">
+                  Live paused while viewing older results
+                </StatusLabel>
+              )}
+              <button type="button" onClick={() => controller.resume()}>
+                {snapshot.live ? "Resume live" : "Return to newest"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {snapshot.notice !== undefined && (
-        <StateNotice state="warning" title="Audit traversal changed">
+        <StateNotice state="warning" title="Audit history changed">
           <p>{snapshot.notice}</p>
         </StateNotice>
       )}
@@ -1106,7 +1213,7 @@ export function Audit({
             state="unavailable"
             title="Previous-history detail discarded"
           >
-            <p>Return to audit history to start a new traversal.</p>
+            <p>Return to audit history to view the latest entries.</p>
           </StateNotice>
         ) : panel?.status !== "error" ? (
           <StateNotice state="loading" title="Loading audit event" />
@@ -1207,11 +1314,26 @@ export function Audit({
                   ),
                 },
               ]}
-              hasMore={snapshot.nextCursor !== null}
+              hasMore={
+                snapshot.nextCursor !== null &&
+                snapshot.items.length < 500 &&
+                panel?.status !== "error"
+              }
               loadingMore={snapshot.loadingOlder}
               onLoadMore={() => void controller.loadOlder()}
-              loadMoreLabel="Load older audit events"
+              loadMoreLabel="Load older events"
               historySummary
+              summaryExtra={
+                panel?.status !== "error" && !snapshot.olderError ? (
+                  <span>
+                    {snapshot.nextCursor === null
+                      ? "No older events"
+                      : snapshot.items.length >= 500
+                        ? "Load limit reached. Narrow the filters or return to newest."
+                        : ""}
+                  </span>
+                ) : undefined
+              }
               historyMatching={Object.keys(resolved.location.query).length > 0}
               itemNames={{ singular: "event", plural: "events" }}
               localStale={panel?.status === "error" || snapshot.olderError}
@@ -1229,7 +1351,7 @@ export function Audit({
           {snapshot.olderError && (
             <p role="alert">
               Older audit results unavailable. Loaded rows were retained; use
-              Load older audit events to retry.
+              Load older events to retry.
             </p>
           )}
         </section>

@@ -608,6 +608,14 @@ export class ViewCoordinator {
     }, coalesceMilliseconds);
   }
 
+  cancelPanelRead(id: string): void {
+    this.abortRead(id);
+    this.panelGenerations.set(id, (this.panelGenerations.get(id) ?? 0) + 1);
+    const previous = this.panelState.get(id);
+    if (previous) this.panelState.set(id, { ...previous, refreshing: false });
+    this.emit();
+  }
+
   close(): void {
     this.active = false;
     this.reset();

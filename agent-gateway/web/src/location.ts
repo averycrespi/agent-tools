@@ -1,3 +1,4 @@
+import { validGitTrafficQuery } from "./git-traffic-query.ts";
 import { validAuditQuery } from "./audit-contract.ts";
 import { validInvocationQuery } from "./invocation-query.ts";
 import { validHTTPTrafficQuery } from "./http-traffic-contract.ts";
@@ -391,9 +392,11 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       first === "git-grants" ||
       first === "git-credentials" ||
       first === "git-traffic") &&
-    (first === "git-traffic" || second === "new"
-      ? noQuery
-      : gitCollectionQuery(query, first)) &&
+    (first === "git-traffic"
+      ? validGitTrafficQuery(query)
+      : second === "new"
+        ? noQuery
+        : gitCollectionQuery(query, first)) &&
     (segments.length === 1 ||
       (segments.length === 2 &&
         second !== undefined &&

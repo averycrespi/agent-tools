@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
@@ -34,13 +35,13 @@ func (s *ReadService) GetGit(ctx context.Context, id string) (out contract.GitTr
 }
 
 func (s *ReadService) ListGit(ctx context.Context, q contract.GitTrafficQuery) (page contract.GitTrafficPage, err error) {
-	if q.Limit < 1 || q.Limit > 100 {
+	if q.Limit < 1 || q.Limit > 100 || !validGitTrafficFilters(q.Filters) {
 		return page, ErrInvalidInput
 	}
 	if s.repository.traffic == nil {
 		return page, ErrInvalidState
 	}
-	cursor := invocationCursor{Version: 6, Epoch: s.repository.cursorEpoch()}
+	cursor := invocationCursor{Version: 6, Epoch: s.repository.cursorEpoch(), QueryDigest: searchDigest(q.Filters)}
 	if q.Cursor != "" {
 		if len(q.Cursor) > 512 {
 			return page, ErrInvalidCursor
@@ -49,7 +50,7 @@ func (s *ReadService) ListGit(ctx context.Context, q contract.GitTrafficQuery) (
 		if e != nil || len(q.Cursor) > 512 || base64.RawURLEncoding.EncodeToString(raw) != q.Cursor || strictjson.Decode(raw, &cursor, strictjson.Options{MaxBytes: 512, MaxDepth: 2, RejectUnknownMembers: true}) != nil {
 			return page, ErrInvalidCursor
 		}
-		if cursor.Version != 6 || cursor.Epoch != s.repository.cursorEpoch() {
+		if cursor.Version != 6 || cursor.Epoch != s.repository.cursorEpoch() || cursor.QueryDigest != searchDigest(q.Filters) {
 			return page, ErrStaleCursor
 		}
 		if cursor.UpperSequence <= 0 || cursor.NextSequence <= 0 || cursor.NextSequence > cursor.UpperSequence || !hmac.Equal([]byte(cursor.MAC), []byte(s.repository.cursorMAC(cursor))) {
@@ -70,8 +71,17 @@ func (s *ReadService) ListGit(ctx context.Context, q contract.GitTrafficQuery) (
 		} else if cursor.Generation != generation || cursor.Pruning != pruning || cursor.UpperSequence > high {
 			return ErrStaleCursor
 		}
-		before := cursor.NextSequence
-		rows, e := tx.QueryContext(ctx, gitTrafficSelect+` WHERE insertion_sequence<=? AND (?=0 OR insertion_sequence<?) ORDER BY insertion_sequence DESC LIMIT ?`, cursor.UpperSequence, before, before, q.Limit+1)
+		selected, e := selectGitTraffic(ctx, tx, q, cursor)
+		if e != nil || len(selected) == 0 {
+			return e
+		}
+		args := make([]any, len(selected))
+		for i, sequence := range selected {
+			args[i] = sequence
+		}
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
+		//nolint:gosec // Only placeholder count is composed; selected sequences are bound.
+		rows, e := tx.QueryContext(ctx, gitTrafficSelect+` WHERE insertion_sequence IN (`+placeholders+`) ORDER BY insertion_sequence DESC`, args...)
 		if e != nil {
 			return e
 		}

@@ -345,6 +345,46 @@ export async function assertViewGenerationFoundation(): Promise<void> {
   if (publishedA !== "a-3" || !staleReadAborted)
     fail("superseded view read was not aborted and discarded");
 
+  let cancelSignal: AbortSignal | undefined;
+  let canceledPublished = false;
+  let releaseCanceled!: () => void;
+  let settledCanceled = false;
+  const canceledBarrier = new Promise<void>((resolve) => {
+    releaseCanceled = resolve;
+  });
+  const unregisterCanceled = coordinator.registerPanel({
+    id: "cancel-test",
+    matches: () => true,
+    invalidations: [],
+    read: async ({ signal }) => {
+      cancelSignal = signal;
+      await canceledBarrier;
+      settledCanceled = true;
+      return "late";
+    },
+    publish: () => {
+      canceledPublished = true;
+    },
+  });
+  await eventually(
+    () => cancelSignal !== undefined,
+    "cancel read did not start",
+  );
+  coordinator.cancelPanelRead("cancel-test");
+  if (
+    !cancelSignal?.aborted ||
+    coordinator.snapshot().panels["cancel-test"]?.refreshing
+  )
+    fail("explicit cancellation did not settle the read indicator");
+  releaseCanceled();
+  await eventually(() => settledCanceled, "canceled read did not settle");
+  if (
+    canceledPublished ||
+    coordinator.snapshot().panels["cancel-test"]?.status === "error"
+  )
+    fail("canceled late result escaped its fence");
+  unregisterCanceled();
+
   const generationBeforeEvents = coordinator.snapshot().generation;
   const bCallsBeforeEvents = bCalls;
   const eventFrame = new TextEncoder().encode(

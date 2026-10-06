@@ -38,4 +38,7 @@ func TestGitTrafficRoutesAreReadOnlyBoundedAndBodyless(t *testing.T) {
 	require.Len(t, reader.queries, 1)
 	require.Equal(t, 400, perform(h, http.MethodGet, "/api/v2/git/traffic/01ARZ3NDEKTSV4RRFFQ69G5FAV?secret=x", "", headers).Code)
 	require.Empty(t, reader.ids)
+	response = perform(h, http.MethodGet, "/api/v2/git/traffic?operation=push&repository=Recorded&admission=allowed&transport=complete&report=unknown&search_locale=en-US", "", headers)
+	require.Equal(t, 200, response.Code)
+	require.Equal(t, contract.GitTrafficFilters{Operation: "push", Repository: "Recorded", Admission: "allowed", Transport: "complete", Report: "unknown", SearchLocale: "en-US"}, reader.queries[1].Filters)
 }

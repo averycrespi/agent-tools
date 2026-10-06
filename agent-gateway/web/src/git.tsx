@@ -1,4 +1,6 @@
 import type { RefObject } from "preact";
+import type { GitTrafficController } from "./git-traffic-history";
+import { gitTrafficOptions, validGitTrafficQuery } from "./git-traffic-query";
 import {
   useGitChoices,
   choiceLabel,
@@ -22,6 +24,8 @@ import {
   StateNotice,
   StatusLabel,
   TableIdentity,
+  sentenceCase,
+  useDebouncedInput,
 } from "./primitives";
 import type { SessionClient } from "./session";
 import type { SensitiveSinkCoordinator } from "./sinks";
@@ -36,7 +40,6 @@ import {
   decodeGitResource,
   decodeGitResponse,
   decodeGitTraffic,
-  decodeGitTrafficPage,
   gitETag,
   gitFacts,
   gitID,
@@ -1431,7 +1434,9 @@ function localTime(value: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export function GitTrafficView(props: Props) {
+export function GitTrafficView(
+  props: Props & { controller: GitTrafficController },
+) {
   const selected = props.resolved.location.segments[1];
   const { value, error } = useGitDetail(
     props,
@@ -1460,7 +1465,14 @@ export function GitTrafficView(props: Props) {
   return (
     <div class="domain-view">
       <nav class="detail-navigation" aria-label="Git traffic navigation">
-        <a href="#/git/traffic">Back to Git traffic</a>
+        <a
+          href={serializeLocation({
+            ...props.resolved.location,
+            segments: ["git-traffic"],
+          })}
+        >
+          Back to Git traffic
+        </a>
       </nav>
       <header class="detail-context" data-testid="detail-context">
         <div class="detail-context-heading">
@@ -1636,36 +1648,166 @@ export function GitTrafficView(props: Props) {
     </div>
   );
 }
-function GitTrafficCollection(props: Props) {
+function GitTrafficCollection(
+  props: Props & { controller: GitTrafficController },
+) {
   const navigate = useUnsavedChanges(false);
-  const { items, controls } = useCollectionPage<GitTraffic>(
-    props.session,
-    props.resolved,
-    props.view,
-    (_q, cursor, signal) =>
-      readCollectionPage(
-        props.session,
-        `/api/v2/git/traffic?limit=50${cursor === null ? "" : `&cursor=${encodeURIComponent(cursor)}`}`,
-        undefined,
-        signal,
-        decodeGitTrafficPage,
-      ),
-    navigate,
-    { key: "admitted", direction: "descending" },
-  );
+  const [current, setCurrent] = useState(props.controller.snapshot());
+  useEffect(() => props.controller.subscribe(setCurrent), [props.controller]);
+  const query = props.resolved.location.query;
+  const [draft, setDraft] = useState({ ...query });
+  const [invalid, setInvalid] = useState(false);
+  const apply = (next: Record<string, string>) => {
+    const clean = Object.fromEntries(
+      Object.entries(next).filter(([, value]) => value !== ""),
+    );
+    if (!validGitTrafficQuery(clean)) {
+      setInvalid(true);
+      return;
+    }
+    setInvalid(false);
+    if (JSON.stringify(clean) !== JSON.stringify(query))
+      navigate(
+        serializeLocation({
+          destination: "git-traffic",
+          segments: ["git-traffic"],
+          query: clean,
+        }),
+      );
+  };
+  useDebouncedInput(draft, apply);
+  const items = current.key === props.view.viewKey ? current.items : [];
+  const busy = props.view.panels["git-traffic"]?.refreshing === true;
+  const failed =
+    current.error || props.view.panels["git-traffic"]?.status === "error";
   return (
     <section class="panel domain-panel">
+      <div class="collection-toolbar live-collection-toolbar">
+        <label for="git-traffic-live-mode">Live mode</label>
+        <BinaryToggle
+          attributes={{ id: "git-traffic-live-mode" }}
+          checked={current.live}
+          showState={false}
+          onChange={(live) => props.controller.setLive(live)}
+        />
+      </div>
+      <div
+        class="table-filters collection-query-filters"
+        role="group"
+        aria-label="Git traffic filters"
+      >
+        {Object.entries(gitTrafficOptions).map(([key, values]) => (
+          <>
+            {key === "admission" && (
+              <input
+                type="search"
+                aria-label="Recorded repository name or ID"
+                placeholder="Recorded repository name or ID"
+                value={draft.filter_repository ?? ""}
+                onInput={(event) =>
+                  setDraft({
+                    ...draft,
+                    filter_repository: event.currentTarget.value,
+                  })
+                }
+              />
+            )}
+            <select
+              aria-label={
+                key === "report" ? "Upstream report" : sentenceCase(key)
+              }
+              value={draft[`filter_${key}`] ?? ""}
+              onChange={(event) => {
+                const next = {
+                  ...draft,
+                  [`filter_${key}`]: event.currentTarget.value,
+                };
+                setDraft(next);
+                apply(next);
+              }}
+            >
+              <option value="">
+                {key === "report" ? "Upstream report" : sentenceCase(key)}: any
+              </option>
+              {values.map((value) => (
+                <option value={value}>
+                  {gitLabels[value] ?? sentenceCase(value)}
+                </option>
+              ))}
+            </select>
+          </>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft({});
+            apply({});
+          }}
+        >
+          Reset
+        </button>
+      </div>
+      <p class="table-filter-hint">
+        Search recorded repository names with typo tolerance or literal partial
+        IDs.
+      </p>
+      {invalid && (
+        <StateNotice state="error" title="Invalid repository search" />
+      )}
+      {current.paused && (
+        <div class="inline-actions">
+          {current.live && (
+            <StatusLabel state="warning">
+              Live paused while viewing older results
+            </StatusLabel>
+          )}
+          <button type="button" onClick={() => props.controller.resume()}>
+            {current.live ? "Resume live" : "Return to newest"}
+          </button>
+        </div>
+      )}
+      {current.notice && <StateNotice state="warning" title={current.notice} />}
+      {current.olderError && (
+        <StateNotice state="error" title="Older exchanges unavailable">
+          Loaded exchanges are unchanged. Try Load older exchanges again.
+        </StateNotice>
+      )}
+      {failed && (
+        <StateNotice state="error" title="Git traffic unavailable">
+          Previously loaded exchanges may be stale.
+        </StateNotice>
+      )}
+      {!current.loaded && !failed && (
+        <StateNotice state="loading" title="Loading Git traffic" />
+      )}
       <CollectionTable
         caption="Git traffic"
         rowHeaderKey="exchange"
         layout="activity"
-        remote={controls}
+        localStale={failed}
+        localLoading={!current.loaded && !failed}
+        historySummary
+        historyMatching={Object.keys(query).length > 0}
+        summaryExtra={
+          current.loaded && !failed ? (
+            <span>
+              {current.next === null
+                ? "No older exchanges"
+                : items.length >= 500
+                  ? "Load limit reached. Narrow the filters or return to newest."
+                  : ""}
+            </span>
+          ) : undefined
+        }
+        hasMore={current.next !== null && items.length < 500 && !failed}
+        loadingMore={busy || current.loadingOlder}
+        loadMoreLabel="Load older exchanges"
+        onLoadMore={() => void props.controller.older()}
         itemNames={{ singular: "exchange", plural: "exchanges" }}
         emptyTitle="No Git traffic"
         items={items}
         rowKey={(r) => r.admission.id}
         filters={[]}
-        initialSort={{ key: "admitted", direction: "descending" }}
         columns={[
           {
             key: "admitted",
@@ -1680,7 +1822,12 @@ function GitTrafficCollection(props: Props) {
             render: (r) => (
               <TableIdentity
                 primary={
-                  <a href={`#/git/traffic/${r.admission.id}`}>
+                  <a
+                    href={serializeLocation({
+                      ...props.resolved.location,
+                      segments: ["git-traffic", r.admission.id],
+                    })}
+                  >
                     {gitLabels[r.admission.operation]}
                   </a>
                 }
@@ -1692,9 +1839,17 @@ function GitTrafficCollection(props: Props) {
             key: "repository",
             label: "Repository at admission",
             role: "relation",
-            render: (r) =>
-              r.admission.policy?.repository_name ??
-              (r.admission.repository.id || "Unavailable"),
+            render: (r) => (
+              <TableIdentity
+                primary={
+                  r.admission.policy?.repository_name ??
+                  (r.admission.repository.id || "Unavailable")
+                }
+                secondary={
+                  r.admission.policy ? r.admission.repository.id : undefined
+                }
+              />
+            ),
           },
           {
             key: "admission",

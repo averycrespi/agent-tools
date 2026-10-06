@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -25,12 +26,14 @@ func (h *Handler) gitTrafficCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for key, values := range query {
-		if (key != "cursor" && key != "limit") || len(values) != 1 || values[0] == "" {
+		if !slices.Contains([]string{"cursor", "limit", "operation", "repository", "admission", "transport", "report", "search_locale"}, key) || len(values) != 1 || values[0] == "" {
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
 	}
-	q := contract.GitTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor")}
+	q := contract.GitTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor"), Filters: contract.GitTrafficFilters{
+		Operation: query.Get("operation"), Repository: query.Get("repository"), Admission: query.Get("admission"), Transport: query.Get("transport"), Report: query.Get("report"), SearchLocale: query.Get("search_locale"),
+	}}
 	if raw := query.Get("limit"); raw != "" {
 		q.Limit, err = strconv.Atoi(raw)
 		if err != nil || q.Limit < 1 || q.Limit > limitValue("admin_list_page") || strconv.Itoa(q.Limit) != raw {

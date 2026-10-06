@@ -117,6 +117,10 @@ test("git-traffic", async ({ page, frontend }) => {
   let mode = "populated";
   let current = variants["unknown-completion"]!;
   let release: (() => void) | undefined;
+  const queries: URLSearchParams[] = [];
+  let revision = 1;
+  let stale = false;
+  let failOlder = false;
   await page.route("**/api/v2/git/traffic**", async (route) => {
     expect(route.request().method()).toBe("GET");
     if (mode === "loading")
@@ -125,7 +129,27 @@ test("git-traffic", async ({ page, frontend }) => {
       });
     if (mode === "error")
       return route.fulfill({ status: 503, json: { code: "unavailable" } });
-    const detail = new URL(route.request().url()).pathname.endsWith(`/${id}`);
+    const url = new URL(route.request().url());
+    const detail = url.pathname.endsWith(`/${id}`);
+    if (!detail) queries.push(url.searchParams);
+    if (mode === "history" && !detail) {
+      const cursor = url.searchParams.get("cursor");
+      if (failOlder && cursor)
+        return route.fulfill({ status: 503, json: { code: "unavailable" } });
+      if (stale && cursor)
+        return route.fulfill({
+          status: 409,
+          contentType: "application/problem+json",
+          json: { status: 409, code: "stale_cursor", title: "History changed" },
+        });
+      const item = structuredClone(variants["policy-evidence"]!);
+      item.admission.id = cursor ? "01ARZ3NDEKTSV4RRFFQ69G5FA1" : id;
+      if (revision === 2 && !cursor)
+        item.completion = { ...complete, reported_result: "reported_success" };
+      return route.fulfill({
+        json: { items: [item], next_cursor: cursor ? null : "older" },
+      });
+    }
     return route.fulfill({
       json: detail
         ? current
@@ -161,6 +185,122 @@ test("git-traffic", async ({ page, frontend }) => {
       await expect(page.getByRole("table")).toContainText(id);
     }
   }
+  mode = "history";
+  await nav();
+  const live = page.getByRole("switch", { name: "Live mode", exact: true });
+  await expect(live).toBeChecked();
+  await expect(
+    page.getByText("1 exchange loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("columnheader").getByRole("button")).toHaveCount(
+    0,
+  );
+  await live.focus();
+  await page.keyboard.press("Space");
+  await expect(live).not.toBeChecked();
+  const before = queries.length;
+  revision = 2;
+  frontend.invalidate("system_status", id);
+  await page.waitForTimeout(200);
+  expect(queries.length).toBe(before);
+  await expect(page.getByRole("table")).not.toContainText("Reported success");
+  await capture(page, "live-off", true);
+  failOlder = true;
+  await page
+    .getByRole("button", { name: "Load older exchanges", exact: true })
+    .click();
+  await expect(
+    page.getByText("Older exchanges unavailable", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("1 exchange loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Load older exchanges", exact: true }),
+  ).toBeEnabled();
+  await capture(page, "continuation-error", true);
+  failOlder = false;
+  await page
+    .getByRole("button", { name: "Load older exchanges", exact: true })
+    .click();
+  await expect(
+    page.getByText("2 exchanges loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Return to newest", exact: true }),
+  ).toBeVisible();
+  await capture(page, "older-paused", true);
+  await page
+    .getByRole("table")
+    .getByRole("link", { name: "Push", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("link", { name: "Back to Git traffic", exact: true })
+    .click();
+  await expect(
+    page.getByText("1 exchange loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await capture(page, "detail-return", true);
+  await page
+    .getByRole("button", { name: "Return to newest", exact: true })
+    .click();
+  await expect(page.getByRole("table")).toContainText("Reported success");
+  await expect(live).not.toBeChecked();
+  await page
+    .getByRole("table")
+    .getByRole("link", { name: "Push", exact: true })
+    .click();
+  await page.goBack();
+  await expect(
+    page.getByText("1 exchange loaded", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+  await live.click();
+  await page
+    .getByRole("button", { name: "Load older exchanges", exact: true })
+    .click();
+  await expect(
+    page.getByText("Live paused while viewing older results", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Resume live", exact: true }).click();
+  await expect(
+    page.getByText("1 exchange loaded", { exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("searchbox", { name: "Recorded repository name or ID" })
+    .fill("Recorded libray");
+  await expect(page).toHaveURL(/filter_repository=Recorded%20libray/);
+  await page
+    .getByRole("combobox", { name: "Operation", exact: true })
+    .selectOption("push");
+  await expect.poll(() => queries.at(-1)?.get("operation")).toBe("push");
+  expect(queries.at(-1)?.get("repository")).toBe("Recorded libray");
+  expect(queries.at(-1)?.has("cursor")).toBe(false);
+  await capture(page, "filtered", true);
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(page).toHaveURL(/#\/git\/traffic$/);
+  stale = true;
+  await page
+    .getByRole("button", { name: "Load older exchanges", exact: true })
+    .click();
+  await expect(
+    page.getByText(/Older results could not be continued/),
+  ).toBeVisible();
+  await expect(page.getByRole("table").locator("tbody tr")).toHaveCount(1);
+  await capture(page, "history-changed");
+  stale = false;
   for (const [name, value] of Object.entries(variants)) {
     current = value;
     mode = "populated";

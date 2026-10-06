@@ -473,8 +473,15 @@ function decodeSummary(
 }
 export function decodeInvocationPage(value: unknown): InvocationPageView {
   const page = record(value, ["items", "next_cursor"]);
+  const items = values(page.items).map((item) => decodeSummary(item));
+  if (
+    items.length > 50 ||
+    new Set(items.map((item) => item.id)).size !== items.length ||
+    (items.length === 0 && page.next_cursor !== null)
+  )
+    throw new Error("Invalid invocation page");
   return {
-    items: values(page.items).map((item) => decodeSummary(item)),
+    items,
     nextCursor: cursor(page.next_cursor),
   };
 }
@@ -658,10 +665,12 @@ export class InvocationsController {
     return () => this.listeners.delete(listener);
   }
   setLive(live: boolean): void {
+    this.views.cancelPanelRead("invocations");
     this.serial += 1;
-    this.value = { ...this.value, live };
+    this.continuation = null;
+    this.value = { ...this.value, live, loadingOlder: false };
     this.emit();
-    if (live && !this.value.paused) {
+    if (!this.value.successful || (live && !this.value.paused)) {
       this.continuation = null;
       void this.views.refreshPanel("invocations");
     }
@@ -679,6 +688,8 @@ export class InvocationsController {
   async loadOlder(): Promise<void> {
     if (
       this.continuationPending ||
+      this.value.items.length >= 500 ||
+      this.value.refreshError ||
       this.value.nextCursor === null ||
       this.views.snapshot().viewKey !== this.value.viewKey ||
       this.views.snapshot().panels.invocations?.refreshing === true
@@ -710,9 +721,6 @@ export class InvocationsController {
     if (location?.destination !== "invocations")
       throw new Error("Invalid invocation location");
     if (context.viewKey !== this.value.viewKey) {
-      const returning =
-        parseFragment(this.value.viewKey)?.segments.length === 2 &&
-        location.segments.length === 1;
       this.serial += 1;
       this.continuationSerial += 1;
       this.continuationPending = false;
@@ -724,9 +732,10 @@ export class InvocationsController {
         successful: false,
         refreshError: false,
         olderError: false,
-        notice: returning
-          ? "Returned to the newest matching invocations; the previous traversal was discarded."
-          : undefined,
+        notice:
+          this.value.paused && location.segments.length === 1
+            ? "Showing the latest entries. Older results could not be continued."
+            : undefined,
         updatesAvailable: false,
         items: [],
         nextCursor: null,
@@ -765,15 +774,24 @@ export class InvocationsController {
           nextCursor: null,
           successful: false,
           notice:
-            "The previous traversal expired. Restarted at the newest matching invocations.",
+            "Showing the latest entries. Older results could not be continued.",
         };
         this.emit();
         response = await get(context, listPath(location.query, null));
       }
+      const page = decodeInvocationPage(await json(response));
+      if (
+        append &&
+        (this.value.items.length + page.items.length > 500 ||
+          page.items.some((item) =>
+            this.value.items.some((previous) => previous.id === item.id),
+          ))
+      )
+        throw new Error("Invalid continuation");
       return {
         kind: "list",
         viewKey: context.viewKey,
-        page: decodeInvocationPage(await json(response)),
+        page,
         append,
         automatic,
         serial,
@@ -1177,6 +1195,17 @@ function InvocationList({
         />
       )}
       <div class="history-continuation">
+        {snapshot.successful &&
+          !snapshot.refreshError &&
+          !snapshot.olderError && (
+            <span>
+              {snapshot.nextCursor === null
+                ? "No older invocations"
+                : snapshot.items.length >= 500
+                  ? "Load limit reached. Narrow the filters or return to newest."
+                  : ""}
+            </span>
+          )}
         {snapshot.successful && (
           <LoadedHistorySummary
             count={snapshot.items.length}
@@ -1186,23 +1215,25 @@ function InvocationList({
             stale={snapshot.refreshError}
           />
         )}
-        {snapshot.nextCursor !== null && (
-          <div class="inline-actions">
-            <button
-              type="button"
-              onClick={loadOlder}
-              disabled={snapshot.loadingOlder || panel?.refreshing === true}
-            >
-              Load older invocations
-            </button>
-            {snapshot.olderError && (
-              <span role="alert">
-                Older results unavailable. Loaded rows were retained; use Load
-                older invocations to retry.
-              </span>
-            )}
-          </div>
-        )}
+        {snapshot.nextCursor !== null &&
+          snapshot.items.length < 500 &&
+          !snapshot.refreshError && (
+            <div class="inline-actions">
+              <button
+                type="button"
+                onClick={loadOlder}
+                disabled={snapshot.loadingOlder || panel?.refreshing === true}
+              >
+                Load older invocations
+              </button>
+              {snapshot.olderError && (
+                <span role="alert">
+                  Older results unavailable. Loaded rows were retained; use Load
+                  older invocations to retry.
+                </span>
+              )}
+            </div>
+          )}
       </div>
     </section>
   );

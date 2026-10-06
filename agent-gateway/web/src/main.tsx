@@ -21,6 +21,7 @@ import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
 import { PrincipalDirectory, Principals } from "./principals";
 import { GitConfiguration, GitTrafficView } from "./git";
+import { GitTrafficController } from "./git-traffic-history";
 import { GitRouting } from "./git-routing";
 import { HTTPCredentials } from "./http-credentials";
 import { HTTPGrants } from "./http-grants";
@@ -143,6 +144,10 @@ const httpTrafficController = new HTTPTrafficController(
   sessionClient,
   viewCoordinator,
 );
+const gitTrafficController = new GitTrafficController(
+  sessionClient,
+  viewCoordinator,
+);
 const principalDirectory = new PrincipalDirectory(
   sessionClient,
   viewCoordinator,
@@ -178,9 +183,9 @@ const registerInvalidationTrigger = (
 registerInvalidationTrigger(
   "git-invalidation",
   (key) =>
-    /^#\/git\/(?:routing|repositories|grants|credentials|traffic)(?:[/?]|$)/.test(
+    /^#\/git\/(?:routing|repositories|grants|credentials)(?:[/?]|$)/.test(
       key,
-    ),
+    ) || /^#\/git\/traffic\//.test(key),
   ["authorization", "system_status"],
 );
 registerInvalidationTrigger(
@@ -925,6 +930,7 @@ function App() {
             />
           ) : destination === "git-traffic" ? (
             <GitTrafficView
+              controller={gitTrafficController}
               key={resolved.canonicalFragment}
               session={sessionClient}
               mutations={mutationCoordinator}

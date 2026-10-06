@@ -1758,7 +1758,7 @@ textarea[readonly] {
 }
 
 .table-filter-summary {
-  margin-left: auto;
+  margin-left: 0;
   color: var(--muted);
   font-size: 12px;
   font-weight: 650;
@@ -1775,7 +1775,7 @@ textarea[readonly] {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px 16px;
   margin: 14px 0;
 }
@@ -1786,6 +1786,11 @@ textarea[readonly] {
 
 .collection-pagination .table-filter-summary {
   white-space: normal;
+  text-align: left;
+}
+
+.collection-pagination:has(> nav) .table-filter-summary {
+  margin-left: auto;
   text-align: right;
 }
 
@@ -2501,7 +2506,7 @@ button.sort-button:not(:disabled):hover {
 .history-continuation {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 12px;
   margin-top: 12px;

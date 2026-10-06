@@ -265,11 +265,21 @@ a keyring readiness probe. Item/profile reads remain bodyless and queryless.
 | `DELETE /api/v2/git/credentials/{id}`      | `EmptyObject`         | `Empty` / 204                    | yes            | no            |
 | `POST /api/v2/git/credentials/{id}/rotate` | `GitCredentialRotate` | `GitCredential` / 200            | yes            | yes           |
 
-Traffic reads are `GET /api/v2/git/traffic` (`GitListQuery` → `GitTrafficPage`)
+Traffic reads are `GET /api/v2/git/traffic` (`GitTrafficQuery` → `GitTrafficPage`)
 and `GET /api/v2/git/traffic/{id}` (`None` → `GitTrafficRecord`), both status 200,
-bodyless, without ETags. List accepts only `limit` (50 default, 100 maximum) and
-`cursor`, returning `{items,next_cursor}` in insertion-sequence descending order.
-MAC-bound cursors pin process epoch, traffic generation, pruning and high-water;
+bodyless, without ETags. List accepts `limit` (50 default, 100 maximum), `cursor`,
+`operation` (read_discovery/read/push_discovery/probe/push/invalid), `repository`,
+`admission` (allowed/blocked), `transport`
+(not_dispatched/unknown/prestart_failure/complete/incomplete), `report`
+(not_a_push/unknown/reported_success/reported_failure/reported_partial), and
+`search_locale`. Repository searches recorded configured names with existing
+bounded typo-tolerant normalization, or literal partial recorded IDs; no current
+name lookup changes history. Text and locale use the invocation-search bounds.
+Predicates intersect across retained history, returning `{items,next_cursor}`
+in insertion-sequence descending order. Transport separates blocked admission,
+missing completion, prestart failure and transfer completion; report never infers
+push success from HTTP completion. MAC-bound cursors pin the complete filter query,
+process epoch, traffic generation, pruning and high-water;
 stale/replaced history cannot silently continue. Items contain immutable admission
 and nullable completion. Optional admission policy facts retain configured
 repository identity, bounded grant references and operation counts. Optional

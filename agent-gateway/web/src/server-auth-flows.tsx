@@ -568,8 +568,7 @@ export function ServerAuthFlows({
         {restarted && (
           <StateNotice state="stale" title="Flow history changed">
             <p>
-              The stale traversal was discarded and restarted from an
-              authoritative first page.
+              Showing the first page. Previous results could not be continued.
             </p>
           </StateNotice>
         )}

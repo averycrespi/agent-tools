@@ -295,7 +295,7 @@ export async function assertAuthoritativeHistory(
       } else await route.fallback();
     };
     await page.route("**/api/v2/audit-events?*", auditFailure);
-    await page.getByRole("button", { name: "Load older audit events" }).click();
+    await page.getByRole("button", { name: "Load older events" }).click();
     await expect(
       page.getByText("Older audit results unavailable.", { exact: false }),
     ).toBeVisible();
@@ -304,7 +304,7 @@ export async function assertAuthoritativeHistory(
       page.getByText("Audit read unavailable", { exact: true }),
     ).toHaveCount(0);
     await capture("audit-continuation-error");
-    await page.getByRole("button", { name: "Load older audit events" }).click();
+    await page.getByRole("button", { name: "Load older events" }).click();
     await expect(page.getByTestId("audit-row")).toHaveCount(100);
     await page.unroute("**/api/v2/audit-events?*", auditFailure);
     const auditResponse = page.waitForResponse(
@@ -600,6 +600,37 @@ export async function assertAuthoritativeHistory(
     await expect(
       page.getByRole("button", { name: "Load older invocations" }),
     ).toBeEnabled();
+    let releaseOlderRead: (() => void) | undefined;
+    let markOlderSettled!: () => void;
+    const olderSettled = new Promise<void>((resolve) => {
+      markOlderSettled = resolve;
+    });
+    const holdOlderRead = async (route: import("@playwright/test").Route) => {
+      if (!new URL(route.request().url()).searchParams.has("cursor"))
+        return route.fallback();
+      await new Promise<void>((resolve) => {
+        releaseOlderRead = resolve;
+      });
+      try {
+        await route.abort();
+      } catch {
+        // Live off may already have aborted the held request.
+      } finally {
+        markOlderSettled();
+      }
+    };
+    await page.route("**/api/v2/mcp/invocations?*", holdOlderRead);
+    await page.getByRole("button", { name: "Load older invocations" }).click();
+    await expect.poll(() => releaseOlderRead !== undefined).toBe(true);
+    await live.uncheck();
+    await expect(
+      page.getByRole("button", { name: "Load older invocations" }),
+    ).toBeEnabled();
+    releaseOlderRead!();
+    await olderSettled;
+    await page.unroute("**/api/v2/mcp/invocations?*", holdOlderRead);
+    await expect(page.getByTestId("invocation-row")).toHaveCount(50);
+    await live.check();
     failOlder = true;
     await page
       .getByRole("button", { name: "Load older invocations" })

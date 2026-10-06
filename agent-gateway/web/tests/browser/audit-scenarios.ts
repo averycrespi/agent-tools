@@ -353,7 +353,22 @@ export async function runAudit(
     "Outcome",
   ]);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole("button", { name: "Load older audit events" }).click();
+  await page.clock.install();
+  const live = page.getByRole("switch", { name: "Live mode", exact: true });
+  await expect(live).toBeChecked();
+  await live.focus();
+  await page.keyboard.press("Space");
+  await expect(live).not.toBeChecked();
+  const pausedReads = queries.length;
+  await page.clock.fastForward(31000);
+  expect(queries.length).toBe(pausedReads);
+  await capture("live-off", 390);
+  await live.click();
+  await expect.poll(() => queries.length).toBeGreaterThan(pausedReads);
+  const liveReads = queries.length;
+  await page.clock.fastForward(31000);
+  await expect.poll(() => queries.length).toBeGreaterThan(liveReads);
+  await page.getByRole("button", { name: "Load older events" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(3);
   const continuation = queries.at(-1)!;
   if (
@@ -361,6 +376,37 @@ export async function runAudit(
     continuation.get("generation") !== generation
   )
     fail("Audit pagination transport lost its pin");
+  await expect(
+    page.getByText("Live paused while viewing older results", { exact: true }),
+  ).toBeVisible();
+  const olderReads = queries.length;
+  await page.clock.fastForward(31000);
+  expect(queries.length).toBe(olderReads);
+  await capture("older-paused", 1440);
+  await page.locator(`a[href="#/audit-log/${id(3)}"]`).click();
+  await page
+    .getByRole("link", { name: "Back to Audit Log", exact: true })
+    .click();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await capture("detail-return", 390);
+  await page.getByRole("button", { name: "Resume live", exact: true }).click();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await page.locator(`a[href="#/audit-log/${id(3)}"]`).click();
+  await page.goBack();
+  await expect(page.getByTestId("audit-row")).toHaveCount(2);
+  await expect(
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+  await page.clock.resume();
   await page.getByLabel("Outcome", { exact: true }).selectOption("unknown");
   await expect.poll(() => queries.at(-1)?.get("outcome")).toBe("unknown");
   mode = "target-delayed";
@@ -771,10 +817,13 @@ export async function runAudit(
   await expect(
     page.getByText("Audit read unavailable", { exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("button", { name: "Load older audit events" }).click();
+  await page.getByRole("button", { name: "Load older events" }).click();
   await expect(page.getByTestId("audit-row")).toHaveCount(1);
   await expect(
-    page.getByText(/previous traversal was discarded and restarted/),
+    page.getByText(
+      "Showing the latest entries. Older results could not be continued.",
+      { exact: true },
+    ),
   ).toBeVisible();
   await expect(page.locator(`a[href="#/audit-log/${id(4)}"]`)).toBeVisible();
   mode = "replaced";
