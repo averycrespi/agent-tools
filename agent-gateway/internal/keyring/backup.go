@@ -17,6 +17,39 @@ type BackupCustody struct {
 	Encryptions int64
 }
 
+// VerifyRecoveryKey checks an explicit key against a previously inspected identity.
+func VerifyRecoveryKey(key []byte, keyID string) error {
+	if len(key) != 32 || masterKeyID(key) != keyID {
+		return ErrCustodyUnavailable
+	}
+	return nil
+}
+
+// ReserveRecoveryEncryptions charges the active installation before any staged
+// cross-key encryption. Failed stages and uncertain attempts never refund it.
+func ReserveRecoveryEncryptions(ctx context.Context, store *storage.Store, expected BackupCustody, count int64) (BackupCustody, error) {
+	if count < 0 || expected.Encryptions < 0 || count > 4294967296-expected.Encryptions {
+		return expected, ErrCustodyUnavailable
+	}
+	result := BackupCustody{KeyID: expected.KeyID, Encryptions: expected.Encryptions + count}
+	err := store.Mutate(ctx, func(tx *sql.Tx) error {
+		changed, err := tx.ExecContext(ctx, `UPDATE secret_custody SET encryptions=? WHERE singleton=1 AND version=1 AND key_id=? AND encryptions=?`, result.Encryptions, expected.KeyID, expected.Encryptions)
+		if err != nil {
+			return err
+		}
+		n, err := changed.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrCustodyUnavailable
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE gateway_meta SET revision=revision+1 WHERE singleton=1`)
+		return err
+	})
+	return result, err
+}
+
 // RestoreHighWaterTx reads the established same-installation key lifetime count.
 // The caller must hold stopped ownership and refuse live WAL/journal state.
 func RestoreHighWaterTx(ctx context.Context, tx *sql.Tx) (BackupCustody, error) {
@@ -51,16 +84,22 @@ func InspectBackupCustodyTx(ctx context.Context, tx *sql.Tx) (BackupCustody, err
 // selections. It never consults native storage. The optional domain inspector
 // borrows plaintext only for semantic validation; it must not retain the bytes.
 func VerifyBackupCustodyTx(ctx context.Context, tx *sql.Tx, owner *gatewaypaths.Ownership, inspect func(RecordKind, Handle, []byte) error) (BackupCustody, error) {
+	key, err := gatewaypaths.MasterKey(owner, nil)
+	if err != nil {
+		return BackupCustody{}, ErrCustodyUnavailable
+	}
+	defer clear(key)
+	return VerifyRecoveryCustodyTx(ctx, tx, key, inspect)
+}
+
+// VerifyRecoveryCustodyTx authenticates a closed recovery generation with an
+// explicitly selected decrypt-only key. It never selects that key for writes.
+func VerifyRecoveryCustodyTx(ctx context.Context, tx *sql.Tx, key []byte, inspect func(RecordKind, Handle, []byte) error) (BackupCustody, error) {
 	result, err := InspectBackupCustodyTx(ctx, tx)
 	if err != nil {
 		return result, err
 	}
-	key, err := gatewaypaths.MasterKey(owner, nil)
-	if err != nil {
-		return result, ErrCustodyUnavailable
-	}
-	defer clear(key)
-	if masterKeyID(key) != result.KeyID {
+	if len(key) != 32 || masterKeyID(key) != result.KeyID {
 		return result, ErrCustodyUnavailable
 	}
 	block, err := aes.NewCipher(key)

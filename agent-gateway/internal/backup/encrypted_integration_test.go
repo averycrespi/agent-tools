@@ -88,6 +88,15 @@ func TestIntegrationEncryptedRestoreRefusesSemanticCorruption(t *testing.T) {
 }
 
 func TestIntegrationEncryptedRestoreRecoversCAHTTPAndGit(t *testing.T) {
+	testEncryptedDomainRecovery(t, false)
+}
+
+func TestIntegrationRotatedBackupRecoversExactCAAndAllCredentials(t *testing.T) {
+	testEncryptedDomainRecovery(t, true)
+}
+
+func testEncryptedDomainRecovery(t *testing.T, rotate bool) {
+	t.Helper()
 	ctx := audit.WithSystem(t.Context())
 	manager, store, owner := newBackupManager(t, nil)
 	require.NoError(t, keyring.SetupCustody(ctx, owner, store, manager.clock))
@@ -148,8 +157,26 @@ func TestIntegrationEncryptedRestoreRecoversCAHTTPAndGit(t *testing.T) {
 	require.Empty(t, backend.values)
 	root := owner.Layout().Root
 	require.NoError(t, store.Close())
+	recoveryKey := ""
+	var rotatedKey []byte
+	if rotate {
+		rotation, err := keyring.RotateStoppedMasterKey(ctx, owner, manager.clock, false, nil)
+		require.NoError(t, err)
+		recoveryKey = filepath.Join(root, rotation.Retained, "old-key")
+		rotatedKey, err = gatewaypaths.MasterKey(owner, nil)
+		require.NoError(t, err)
+		defer clear(rotatedKey)
+		_, err = storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
+			inspection, err := httpca.InspectTx(ctx, tx)
+			require.NoError(t, err)
+			require.Equal(t, changed, inspection.Certificate)
+			_, err = verifyEncryptedCustodyTx(ctx, tx, owner)
+			return err
+		})
+		require.NoError(t, err)
+	}
 	require.NoError(t, owner.Close())
-	_, err = Restore(ctx, RestoreOptions{Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: manager.clock, Entropy: rand.Reader})
+	_, err = Restore(ctx, RestoreOptions{Root: root, BackupID: artifact.ID, RecoveryKey: recoveryKey, Sink: new(captureSink), Clock: manager.clock, Entropy: rand.Reader})
 	require.NoError(t, err)
 	restoredOwner, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
@@ -158,6 +185,12 @@ func TestIntegrationEncryptedRestoreRecoversCAHTTPAndGit(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, restored.Close()) }()
 	require.NoError(t, provider.UseDatabaseCustody(ctx, restoredOwner, restored))
+	if rotate {
+		active, err := gatewaypaths.MasterKey(restoredOwner, nil)
+		require.NoError(t, err)
+		require.Equal(t, rotatedKey, active)
+		clear(active)
+	}
 	ca, h, g = services(restored)
 	defer ca.Close()
 	actual, _, err := ca.PublicCertificate(ctx)

@@ -96,7 +96,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:79c47936ea892d83b877374e75627181bfdefbb1da167ff944dd7179867a1559", digest)
+	assert.Equal(t, "sha256:199e7ef97ccc6ab830888c6ea82ad2b1308cb54ad9d989deeaad625fcd90ebae", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -139,7 +139,8 @@ func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {
 		{path: []string{"agent", "credential", "rotate"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
 		{path: []string{"initialize"}, expected: []string{"0600", "cannot be recovered"}},
 		{path: []string{"maintenance", "reset-admin-credentials"}, expected: []string{"0600", "cannot be recovered"}},
-		{path: []string{"maintenance", "restore-backup"}, expected: []string{"0600", "cannot be recovered"}},
+		{path: []string{"maintenance", "restore-backup"}, expected: []string{"0600", "cannot be recovered", "--recovery-key", "nonrefundable", "do not refund", "decryption only"}},
+		{path: []string{"maintenance", "rotate-master-key"}, expected: []string{"stopped ownership", "--retain-recovery-keys", "--recover", "without replaying encryption", "cannot protect stolen copies"}},
 		{path: []string{"maintenance", "verify-and-recover-storage"}, expected: []string{"recognized recovery", "without replacing"}},
 	} {
 		root := newRootCmd()

@@ -47,10 +47,40 @@ func requireBackupCustody(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func requireRestoreCustody(ctx context.Context, owner *gatewaypaths.Ownership, artifact artifactMetadata) (keyring.BackupCustody, error) {
+func rewrapRestore(ctx context.Context, owner *gatewaypaths.Ownership, replacement *storage.Store, recoveryKey, oldID string, target keyring.BackupCustody) error {
+	old, err := gatewaypaths.ReadRecoveryKey(recoveryKey)
+	if err != nil {
+		return keyring.ErrCustodyUnavailable
+	}
+	defer clear(old)
+	if err := keyring.VerifyRecoveryKey(old, oldID); err != nil {
+		return err
+	}
+	active, err := gatewaypaths.MasterKey(owner, nil)
+	if err != nil {
+		return keyring.ErrCustodyUnavailable
+	}
+	defer clear(active)
+	if err := keyring.VerifyRecoveryKey(active, target.KeyID); err != nil {
+		return err
+	}
+	return keyring.RewrapCustody(ctx, replacement, old, active, target.Encryptions, nil)
+}
+
+type restoreCustody struct {
+	Current     keyring.BackupCustody
+	RewrapCount int64
+	CrossKey    bool
+}
+
+func requireRestoreCustody(ctx context.Context, owner *gatewaypaths.Ownership, artifact artifactMetadata, recoveryKey string) (restoreCustody, error) {
+	var result restoreCustody
+	if err := gatewaypaths.RequireNoKeyRotation(owner); err != nil {
+		return result, err
+	}
 	var current keyring.BackupCustody
 	var encrypted bool
-	if _, err := storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
+	snapshot, err := storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
 		var err error
 		encrypted, err = keyring.DatabaseCustodyTx(ctx, tx)
 		if err != nil {
@@ -62,14 +92,23 @@ func requireRestoreCustody(ctx context.Context, owner *gatewaypaths.Ownership, a
 			current, err = keyring.RestoreHighWaterTx(ctx, tx)
 		}
 		return err
-	}); err != nil {
-		return current, err
+	})
+	if err != nil {
+		return result, err
+	}
+	result.Current = current
+	result.CrossKey = artifact.Format == 4 && current.KeyID != artifact.MasterKeyID
+	if result.CrossKey && snapshot.Marked {
+		return result, storage.ErrStorageLatched
+	}
+	if recoveryKey != "" && !result.CrossKey {
+		return result, ErrEncryptedCustodyUnsupported
 	}
 	path := filepath.Join(owner.Layout().Backups, artifact.ID, databaseFile)
 	if err := storage.RequireClosedGeneration(path); err != nil {
-		return current, err
+		return result, err
 	}
-	err := storage.ViewBackup(ctx, path, func(tx *sql.Tx) error {
+	err = storage.ViewBackup(ctx, path, func(tx *sql.Tx) error {
 		selected, err := keyring.DatabaseCustodyTx(ctx, tx)
 		if err != nil {
 			return err
@@ -80,8 +119,44 @@ func requireRestoreCustody(ctx context.Context, owner *gatewaypaths.Ownership, a
 			}
 			return nil
 		}
-		if !encrypted || !selected || current.KeyID != artifact.MasterKeyID {
+		if !encrypted || !selected {
 			return ErrEncryptedCustodyUnsupported
+		}
+		active, err := gatewaypaths.MasterKey(owner, nil)
+		if err != nil {
+			return keyring.ErrCustodyUnavailable
+		}
+		defer clear(active)
+		if err := keyring.VerifyRecoveryKey(active, current.KeyID); err != nil {
+			return err
+		}
+		if result.CrossKey {
+			if recoveryKey == "" {
+				return ErrEncryptedCustodyUnsupported
+			}
+			old, err := gatewaypaths.ReadRecoveryKey(recoveryKey)
+			if err != nil {
+				return keyring.ErrCustodyUnavailable
+			}
+			defer clear(old)
+			if err := keyring.VerifyRecoveryKey(old, artifact.MasterKeyID); err != nil {
+				return err
+			}
+			if _, err := keyring.VerifyRecoveryCustodyTx(ctx, tx, old, func(kind keyring.RecordKind, handle keyring.Handle, payload []byte) error {
+				if kind == keyring.RecordHTTPCA {
+					return httpca.VerifyBackupMaterialTx(ctx, tx, string(handle), payload)
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM secret_generations`).Scan(&result.RewrapCount); err != nil {
+				return err
+			}
+			if result.RewrapCount > 4294967296-current.Encryptions {
+				return keyring.ErrCustodyUnavailable
+			}
+			return nil
 		}
 		recovered, err := verifyEncryptedCustodyTx(ctx, tx, owner)
 		if err != nil {
@@ -90,8 +165,8 @@ func requireRestoreCustody(ctx context.Context, owner *gatewaypaths.Ownership, a
 		if recovered.KeyID != current.KeyID {
 			return keyring.ErrCustodyUnavailable
 		}
-		current.Encryptions = max(current.Encryptions, recovered.Encryptions)
+		result.Current.Encryptions = max(current.Encryptions, recovered.Encryptions)
 		return nil
 	})
-	return current, err
+	return result, err
 }

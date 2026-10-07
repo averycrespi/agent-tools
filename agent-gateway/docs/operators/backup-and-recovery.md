@@ -32,9 +32,54 @@ Preserve the key and database together. Do not delete, replace, chmod, symlink o
 
 Encrypted installations create **format-4** control backups. Safeguard a separate owner-only copy of the matching `master-key` outside the backup artifact and protect it independently. `metadata.json` identifies the required key by its SHA-256 `master_key_id`, never by its value. Losing that key makes its encrypted backups unrecoverable; setup cannot regenerate it. Historical backups retain historical upstream secrets even after online deletion or rotation. Protect their custody and retention accordingly.
 
-Recovery requires the existing installation, its closed current control database and the matching key at `<data-dir>/master-key`. It is not fresh-install import, cloning or host relocation. Do not manually replace the current database with an older copy: its nonrefundable encryption high-water is required for safe continued use of the key. Missing/wrong keys, corruption and incomplete encrypted generations refuse before replacement. Unresolved legacy dependencies or in-progress credential cutovers refuse encrypted backup creation; complete the supported credential operation before trying a new backup. Native migration is a separate operation, not part of backup.
+Recovery requires the existing installation, its closed current control database and the matching current key at `<data-dir>/master-key`. For pre-rotation backups, also supply their original decrypt-only key as described [below](#recover-an-older-backup-after-rotation). It is not fresh-install import, cloning or host relocation. Do not manually replace the current database with an older copy: its nonrefundable encryption high-water is required for safe continued use of the key. Missing/wrong keys, corruption and incomplete encrypted generations refuse before replacement. Unresolved legacy dependencies or in-progress credential cutovers refuse encrypted backup creation; complete the supported credential operation before trying a new backup. Native migration is a separate operation, not part of backup.
 
 Formats 0, 2 and 3 remain legacy-only recovery, not self-contained secret backups. They cannot restore over encrypted custody, even with `--security-only`; an old encrypted database copy without format-4 metadata is also rejected. `encrypted_backup_unsupported` explains this boundary. Preserve old artifacts rather than relabeling them. Unsupported formats fail closed.
+
+## Rotate the master key
+
+Stop Gateway and its launchers. Rotation requires complete encrypted custody; unresolved native/legacy material, credential cutovers and storage recovery evidence refuse without migration or deletion. It preserves credential authority and the exact CA, so rotation alone does not require updating client trust.
+
+```bash
+agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --retain-recovery-keys --dry-run
+agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --retain-recovery-keys --confirm
+```
+
+`--retain-recovery-keys` is required acknowledgement of the superseded key's disposition: retain it, rather than destroy it. Successful output names an owner-only `master-key-retained-<new-key-id>` directory under the data root containing `old-key`, `new-key` and the installation ID. Safeguard historical keys separately from backup artifacts; restrict directory/file permissions to 0700/0600. Do not put keys inside backup directories, reuse abandoned candidates, or reactivate an old key by manually replacing `master-key`. Gateway does not automatically delete retained keys or rewrite older backups. Before any separately authorized key disposal, account for every backup that still needs it; disposal makes those artifacts unrecoverable.
+
+Rotation cannot protect copies already stolen. If an attacker may have obtained both the old key and database/backup, also consider replacing upstream credentials and the CA through their explicit workflows. Account/root compromise defeats file-key custody.
+
+### Interrupted rotation
+
+Preserve every key, database, sidecar and recovery directory. Do not replay rotation after a lost response. A complete `master-key.rotation` bundle blocks startup and ordinary storage changes until explicit reconciliation:
+
+```bash
+agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --retain-recovery-keys --recover --dry-run
+agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --retain-recovery-keys --recover --confirm
+```
+
+| Observed durable boundary                                                                       | Reconciliation                                                                                                                               |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Only `.master-key-preparation-*` exists; no armed bundle                                        | Current key/database remain selected. Preserve incomplete preparations; they are never adopted. Inspect before a fresh deliberate operation. |
+| Armed bundle; database still selects old key                                                    | Verify old key/data, abandon the candidate permanently and retain both keys. No encryption is replayed.                                      |
+| Database selects new key; `master-key` is old or new                                            | Verify all data with the retained new key, finish/seal key-file publication and archive the bundle.                                          |
+| Bundle already renamed to `master-key-retained-*`                                               | Inspect current key/data and retained directory; a missing pending bundle is not permission to rerun rotation.                               |
+| Missing/wrong key, foreign/partial bundle, unknown DB identity or unresolved storage marker/WAL | Fail closed. Preserve evidence and obtain a stopped recovery plan; never copy keys or roll back the database to bypass refusal.              |
+
+A recognized storage-mutation marker must first pass the separately confirmed `maintenance verify-and-recover-storage` procedure; it does not remove the rotation bundle. Nonempty WAL that prevents the read-only plan needs qualified WAL-aware recovery, not file deletion. File/directory sync and atomic rename define the durability protocol; source fault injection does not qualify physical power loss or installed/native resources.
+
+### Recover an older backup after rotation
+
+Keep the current `master-key` and closed current database intact. Select the backup's original key explicitly as a **decrypt-only** input:
+
+```bash
+agent-gateway maintenance restore-backup BACKUP_ID --data-dir /path/to/gateway-data --recovery-key /private/original-key --secret-output /private/new-admin-bearer --dry-run
+agent-gateway maintenance restore-backup BACKUP_ID --data-dir /path/to/gateway-data --recovery-key /private/original-key --secret-output /private/new-admin-bearer --confirm
+```
+
+The key file must be exactly 32 bytes, regular, owner-only, single-link and not a symlink, inside an owner-only directory. Its identity must match the backup. This option is only for a different historical key; same-key restore needs no recovery-key selector. Backup bytes are unchanged. Gateway re-encrypts the private restore stage under the current key; it never makes the historical key active again. Normal restore still revokes administrator/agent authority and publishes the replacement administrator bearer, while restoring upstream secrets and CA as of backup time.
+
+The plan discloses a nonrefundable current-key encryption reservation before staging. Failed or interrupted attempts can consume that budget even when current credential authority remains unchanged. Never refund the count or reconstruct it from an old backup. Exhausted budget or latched storage refuses; use separately confirmed rotation or recognized storage recovery as appropriate before a new deliberate restore. This is not fresh-install import, cloning or host relocation.
 
 ## Choose a recovery task
 

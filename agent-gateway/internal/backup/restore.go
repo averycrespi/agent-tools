@@ -28,6 +28,7 @@ type restoreFaultPoint string
 
 const (
 	restoreFaultAfterCopy         restoreFaultPoint = "after_copy"
+	restoreFaultAfterReservation  restoreFaultPoint = "after_reservation"
 	restoreFaultAfterMigration    restoreFaultPoint = "after_migration"
 	restoreFaultAfterInvalidation restoreFaultPoint = "after_invalidation"
 	restoreFaultAfterRekey        restoreFaultPoint = "after_rekey"
@@ -40,6 +41,7 @@ type RestoreOptions struct {
 	Root         string
 	BackupID     string
 	SecurityOnly bool
+	RecoveryKey  string
 	Sink         admin.SecretSink
 	Clock        admin.Clock
 	Entropy      io.Reader
@@ -84,10 +86,11 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		}
 		return storage.Identity{}, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
 	}
-	custody, err := requireRestoreCustody(ctx, ownership, artifact)
+	custodyPlan, err := requireRestoreCustody(ctx, ownership, artifact, options.RecoveryKey)
 	if err != nil {
 		return storage.Identity{}, err
 	}
+	custody := custodyPlan.Current
 	previousCertificate, certificate, err := inspectRestoreCertificate(ctx, ownership, artifact)
 	if err != nil {
 		return storage.Identity{}, err
@@ -125,7 +128,29 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := requireClosedArtifactScope(filepath.Join(layout.Backups, options.BackupID), securityOnly); err != nil {
 		return storage.Identity{}, err
 	}
-	effect = "staged"
+	if custodyPlan.CrossKey {
+		// Reserve on the current generation before emitting any ciphertext. An
+		// interrupted/failed stage cannot refund this key's lifetime exposure.
+		currentStore, err := storage.Open(ctx, ownership)
+		if err != nil {
+			return storage.Identity{}, err
+		}
+		effect = "uncertain"
+		custody, err = keyring.ReserveRecoveryEncryptions(ctx, currentStore, custodyPlan.Current, custodyPlan.RewrapCount)
+		if err == nil {
+			err = currentStore.Checkpoint(ctx)
+		}
+		err = errors.Join(err, currentStore.Close())
+		if err != nil {
+			return storage.Identity{}, err
+		}
+		effect = "reserved"
+		if err := injectRestoreFault(options.fault, restoreFaultAfterReservation); err != nil {
+			return storage.Identity{}, err
+		}
+	} else {
+		effect = "staged"
+	}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -182,6 +207,11 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		return storage.Identity{}, err
 	}
 	if artifact.Format == 4 {
+		if custodyPlan.CrossKey {
+			if err := rewrapRestore(ctx, ownership, replacement, options.RecoveryKey, artifact.MasterKeyID, custody); err != nil {
+				return storage.Identity{}, err
+			}
+		}
 		if err := keyring.PreserveRestoreBudget(ctx, replacement, custody); err != nil {
 			return storage.Identity{}, err
 		}

@@ -93,6 +93,9 @@ func InitializeWithFaultInjection(
 
 func initializeWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, installationID string, options testOptions) (*Store, error) {
 	ctx = audit.WithOffline(ctx)
+	if err := gatewaypaths.RequireNoKeyRotation(ownership); err != nil {
+		return nil, err
+	}
 	if !installationIDPattern.MatchString(installationID) {
 		return nil, ErrInvalidInstallationID
 	}
@@ -146,6 +149,9 @@ func initializeWithOptions(ctx context.Context, ownership *gatewaypaths.Ownershi
 }
 
 func Open(ctx context.Context, ownership *gatewaypaths.Ownership) (*Store, error) {
+	if err := gatewaypaths.RequireNoKeyRotation(ownership); err != nil {
+		return nil, err
+	}
 	return openWithOptions(ctx, ownership, testOptions{})
 }
 
