@@ -12,6 +12,7 @@ import (
 )
 
 func TestRestoreInspectionAndExecutionRejectArtifactSidecars(t *testing.T) {
+	t.Parallel()
 	for _, file := range []string{databaseFile, "traffic.db"} {
 		for _, suffix := range []string{"-wal", "-journal"} {
 			t.Run(file+suffix, func(t *testing.T) {
