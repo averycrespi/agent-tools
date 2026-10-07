@@ -76,6 +76,7 @@ export const auditActions: Readonly<Record<string, readonly string[]>> = {
   ],
   keyring: [
     "setup",
+    "rotate",
     "stage",
     "write",
     "commit",

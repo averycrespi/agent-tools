@@ -218,35 +218,37 @@ test("audit strict projections preserve attribution, uncertain outcomes and rete
     }),
   );
 });
-test("encrypted custody setup decodes and filters without widening the vocabulary", () => {
-  const setup = {
-    ...event,
-    category: "keyring",
-    action: "setup",
-    outcome: "succeeded",
-    actor: { type: "offline_maintenance", credential: null },
-    initiator: null,
-    target: { type: "installation", id },
-  };
-  const page = { items: [setup], next_cursor: null, history };
-  assert.deepEqual(decodeAuditPage(page), page);
-  assert.equal(
-    validAuditQuery({ filter_category: "keyring", filter_action: "setup" }),
-    true,
-  );
-  assert.equal(
-    validAuditQuery({
-      filter_category: "keyring",
-      filter_action: "setup_unknown",
-    }),
-    false,
-  );
-  assert.throws(() =>
-    decodeAuditPage({
-      ...page,
-      items: [{ ...setup, action: "setup_unknown" }],
-    }),
-  );
+test("encrypted custody maintenance decodes and filters without widening the vocabulary", () => {
+  for (const action of ["setup", "rotate"]) {
+    const maintenance = {
+      ...event,
+      category: "keyring",
+      action,
+      outcome: "succeeded",
+      actor: { type: "offline_maintenance", credential: null },
+      initiator: null,
+      target: { type: "installation", id },
+    };
+    const page = { items: [maintenance], next_cursor: null, history };
+    assert.deepEqual(decodeAuditPage(page), page);
+    assert.equal(
+      validAuditQuery({ filter_category: "keyring", filter_action: action }),
+      true,
+    );
+    assert.equal(
+      validAuditQuery({
+        filter_category: "keyring",
+        filter_action: `${action}_unknown`,
+      }),
+      false,
+    );
+    assert.throws(() =>
+      decodeAuditPage({
+        ...page,
+        items: [{ ...maintenance, action: `${action}_unknown` }],
+      }),
+    );
+  }
 });
 
 test("Git audit events and filters retain the closed shared audit contract", () => {
