@@ -14,7 +14,7 @@
     "main.tsx": "7d2e18f344eda03b3e0906548d83fb35f8a18a5fd9099da829947399c9bfc4d2",
     "matcher-editor.tsx": "8b39daa8cbf95e88699cba49788d1a6603b370f1865bdc141db30ef46300b849",
     "navigation.tsx": "7ea4a9f9657be2ba033e6f98956d4772d7511bf7baef810d64f40231cd68e3b8",
-    "overview.tsx": "c7a56485598b62202193ee1becb91fc2695563c4c8a4198d65972325fe24502d",
+    "overview.tsx": "e47f699d48c089fd4f9ad30a3626776eeb3957f8022018771dfa7984f7770cf5",
     "primitives.tsx": "e529c27a24120619fae5b511943ace2b28245b267f588ffed4aeeabd47fb73f9",
     "principals.tsx": "2869965304e4790d76a189ed2848db3ecaef34f6a707f972551ab9b5d8db8ac9",
     "recorded-activity-view.tsx": "5db4b29ea4a07a75d1d5e438fc17a743e65708d4fee4d93e05a6f352f0aa718e",
@@ -27,7 +27,7 @@
     "server-reads.tsx": "397b1bd49346dd94629510321b440cee7b9ac1cbd1f850b64a090cca59822cb3",
     "sinks-ui.tsx": "441f2fc37576566fe89003f1c951ff740629609384867beb648eccde922ebb65",
     "styles.css": "58a7a1ed6f1f0a5cdd769c8bd9eb2a68c6ec35c77b0cdc4094cb8039085bcf77",
-    "system.tsx": "43d1889474bdcfe378773de9bb9d76242d130001e8863b9fec3b50020c4f746c",
+    "system.tsx": "d17cfd614edcd10858e07a4747771385796217cd661ca6827d3b252a128d3564",
     "time.tsx": "728539022906dc8e982e3b482bde22d5fad581137ae12f3af8cca4c870ab4fdb",
     "toast.tsx": "29724123c1efd625a7a7e79bfd7917f8a61481b2018736f856ead6ee6d158c2c"
   },
@@ -552,6 +552,11 @@
       "active-unavailable": "reflow"
     },
     "system-status": {
+      "traffic-healthy": "standard",
+      "traffic-degraded": "standard",
+      "traffic-recovering": "standard",
+      "traffic-operator-action-required": "standard",
+      "traffic-recovered": "standard",
       "limits-stale": "standard",
       "system-stale": "standard",
       "system-status-healthy": "standard",

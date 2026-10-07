@@ -5,8 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
+
 	"testing"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
+	"github.com/ncruces/go-sqlite3"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
@@ -26,13 +31,14 @@ func TestTrafficLocalUnknownDoesNotInventTerminal(t *testing.T) {
 }
 
 func TestMCPExecutionAndResponseDoNotWaitForOptionalHistory(t *testing.T) {
-	for _, mode := range []string{"stalled", "full", "unavailable", "uncertain", "identity failure"} {
+	for _, mode := range []string{"stalled", "full", "unavailable", "uncertain", "identity failure", "recovering"} {
 		t.Run(mode, func(t *testing.T) {
-			_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+			_, audits, authority, _, credential := newAdmissionCoordinator(t, func(storage.FaultPoint) error { return nil })
 			entered, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
 			var once sync.Once
+			var failed atomic.Bool
 			traffic, _ := trafficFixture(t, func(c *TrafficConfig) {
 				if mode == "full" {
 					c.QueueRecords = 1
@@ -41,6 +47,9 @@ func TestMCPExecutionAndResponseDoNotWaitForOptionalHistory(t *testing.T) {
 			}, func(point string) error {
 				if point == "before_begin" {
 					once.Do(func() { close(entered); <-release })
+					if mode == "recovering" && failed.CompareAndSwap(false, true) {
+						return sqlite3.BUSY
+					}
 				}
 				if point == "acknowledgment" && mode == "uncertain" {
 					return errors.New("uncertain history")
@@ -85,6 +94,22 @@ func TestMCPExecutionAndResponseDoNotWaitForOptionalHistory(t *testing.T) {
 			waitTraffic(t, traffic)
 			if mode == "uncertain" {
 				require.False(t, traffic.Healthy())
+			}
+			if mode == "recovering" {
+				require.False(t, traffic.Healthy())
+				traffic.recoverTraffic(time.Now().Add(time.Minute))
+				nextLease, err := authority.Authenticate(t.Context(), credential.Bearer)
+				require.NoError(t, err)
+				defer nextLease.Release()
+				response := service.Call(t.Context(), nextLease, validCallParams())
+				require.NotNil(t, response.Result)
+				waitTraffic(t, traffic)
+				require.Equal(t, 2, calls, "recovery never replays execution")
+				require.Positive(t, traffic.Status(t.Context()).Delivery.Acknowledged)
+				history, err := traffic.History(t.Context(), 0, 10)
+				require.NoError(t, err)
+				require.Len(t, history.Records, 1)
+				require.NotNil(t, history.Records[0].TerminalClass)
 			}
 		})
 	}

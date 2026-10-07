@@ -9,6 +9,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
 
 const (
@@ -19,7 +20,7 @@ const (
 var (
 	ErrTrafficCapacity = errors.New("traffic capacity refused before mutation")
 	ErrTrafficDeadline = errors.New("traffic deadline refused before mutation")
-	ErrTrafficFault    = errors.New("traffic storage fault; restart validation required")
+	ErrTrafficFault    = errors.New("traffic storage unavailable; safe validation required")
 )
 
 // TrafficConfig bounds optional history, never live execution occupancy.
@@ -78,30 +79,39 @@ type trafficRequest struct {
 // TrafficStore has one bounded nonblocking observation queue and one writer.
 // No caller waits for persistence and an uncertain write never gets replayed.
 type TrafficStore struct {
-	optional               *trafficLifecycle
-	db                     *sql.DB
-	readerDB               *sql.DB
-	path                   string
-	config                 TrafficConfig
-	recorded               *recordedActivity
-	invalidate             func(contract.Invalidation)
-	mu                     sync.Mutex
-	closed, faulted        bool
-	draining               bool
-	queued                 int
-	queuedBytes            int64
-	quotaRefusals          int64
-	accepted, acknowledged uint64
-	completionQueued       int
-	pressureReason         string
-	observations           chan *trafficRequest
-	stop                   chan struct{}
-	done                   chan struct{}
-	readSlots              chan struct{}
-	readGate               sync.RWMutex
-	writerGate             sync.Mutex
-	closeOnce              sync.Once
-	closeErr               error
+	diagnostics              diagnostics.TrafficObserver
+	optional                 *trafficLifecycle
+	db                       *sql.DB
+	readerDB                 *sql.DB
+	path                     string
+	config                   TrafficConfig
+	recorded                 *recordedActivity
+	invalidate               func(contract.Invalidation)
+	mu                       sync.Mutex
+	closed, faulted          bool
+	draining                 bool
+	queued                   int
+	queuedBytes              int64
+	quotaRefusals            int64
+	accepted, acknowledged   uint64
+	completionQueued         int
+	pressureReason           string
+	observations             chan *trafficRequest
+	stop                     chan struct{}
+	done                     chan struct{}
+	readSlots                chan struct{}
+	readGate                 sync.RWMutex
+	writerGate               sync.Mutex
+	closeOnce                sync.Once
+	closeErr                 error
+	installation, generation string
+	incident                 *contract.TrafficIncident
+	lastAcknowledged         string
+	recoverable              bool
+	recoveryAt               time.Time
+	failureRevision          uint64
+	recoveryDelay            time.Duration
+	pendingConnection        *sql.Conn // writer-gate owned; never pooled while unsettled
 	// Tests inject failures/barriers only at the actual owning boundary.
 	fault func(string) error
 }
@@ -118,6 +128,9 @@ func (s *TrafficStore) Healthy() bool {
 }
 func (s *TrafficStore) BeginDrain() {
 	s.mu.Lock()
+	if !s.draining && s.optional != nil {
+		close(s.optional.stop)
+	}
 	s.draining = true
 	var target *TrafficStore
 	if s.optional != nil {
@@ -194,6 +207,14 @@ func (s *TrafficStore) dropLocked() {
 	if s.quotaRefusals < int64(contract.RecordedActivityMaxCount) {
 		s.quotaRefusals++
 	}
+	if s.incident != nil && s.incident.Recovery != "recovered" {
+		if s.incident.Discarded < contract.RecordedActivityMaxCount {
+			s.incident.Discarded++
+		}
+		if s.incident.Affected < contract.RecordedActivityMaxCount {
+			s.incident.Affected++
+		}
+	}
 }
 
 func (s *TrafficStore) ObserveMCPCompletion(observation *TrafficObservation, completion activity.Completion, diagnostic *contract.FailureDiagnostics) error {
@@ -250,8 +271,12 @@ func (s *TrafficStore) Close() error {
 		close(s.stop)
 		s.mu.Unlock()
 		<-s.done
+		if s.pendingConnection != nil {
+			// Close does not assert rollback or clean settlement.
+			s.closeErr = errors.Join(ErrTrafficFault, s.pendingConnection.Close())
+		}
 		s.readGate.Lock()
-		s.closeErr = errors.Join(s.readerDB.Close(), s.db.Close())
+		s.closeErr = errors.Join(s.closeErr, s.readerDB.Close(), s.db.Close())
 		s.readGate.Unlock()
 		trafficOwners.Lock()
 		delete(trafficOwners.paths, filepath.Dir(s.path))

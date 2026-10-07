@@ -367,6 +367,28 @@ authority. Control readiness and latch remain independent; a traffic-only fault
 does not globally disable healthy administrative mutations. History item/list
 representations, routes, IDs, filters and one-shot CLI behavior remain unchanged.
 
+Traffic status also contains `health`, `last_acknowledged` (UTC RFC3339Nano or
+empty when not observed), and nullable `incident`. Health is `healthy`, `degraded`,
+`recovering`, `operator_action_required`, or `recovered`; an unattached facade
+without an incident uses `opening`, `disabled`, or `unavailable`. These facts do
+not change the legacy storage `state` or serving authority. Older producers may
+omit the complete addition; bundled consumers reject partial/malformed additions.
+
+An incident is exactly `first_failure`, `cause`, `stage`, `settlement`, `recovery`,
+`recovery_cause`, `recovery_stage`, `sqlite_code`, `affected`, and `discarded`.
+Causes are `unknown`, `permission`, `ownership`, `missing`, `integrity`, `full`,
+`io`, `locked`, `deadline`, or `capacity`; stages are `opening`, `validation`,
+`reservation`, `begin`, `statement`, `commit`, `rollback`, `acknowledgment`, or
+`read`. Settlement is `not_started`, `rolled_back`, `committed`, or `uncertain`;
+recovery uses the four nonhealthy active/recovered health values. First failure
+is UTC RFC3339Nano. SQLite code is the typed numeric extended code (0 means
+unavailable, maximum 65535); counts saturate at the existing safe-integer bound.
+Initial cause/stage/settlement remain unchanged during an incident; recovery
+cause/stage describe the latest failed validation. Counts describe discarded
+submissions during that incident, not requests or reconstructed rows. A fresh
+acknowledgment marks recovery while preserving loss facts; a new later failure
+replaces the bounded incident. All fields are process-local and authenticated.
+
 ### Independent observation additions
 
 `SystemStatus` adds optional `diagnostics` and `observations` objects, present in

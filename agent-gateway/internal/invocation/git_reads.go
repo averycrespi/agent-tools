@@ -20,7 +20,7 @@ func (s *ReadService) GetGit(ctx context.Context, id string) (out contract.GitTr
 	if s.repository.traffic == nil {
 		return out, ErrInvalidState
 	}
-	err = s.repository.traffic.view(ctx, func(tx *sql.Tx) error {
+	err = s.repository.traffic.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var e error
 		out, _, e = scanGitTraffic(tx.QueryRowContext(ctx, gitTrafficSelect+` WHERE id=?`, id))
 		if errors.Is(e, sql.ErrNoRows) {
@@ -58,7 +58,7 @@ func (s *ReadService) ListGit(ctx context.Context, q contract.GitTrafficQuery) (
 		}
 	}
 	page.Items = []contract.GitTrafficRecord{}
-	err = s.repository.traffic.view(ctx, func(tx *sql.Tx) error {
+	err = s.repository.traffic.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var generation string
 		var high, pruning int64
 		if e := tx.QueryRowContext(ctx, `SELECT generation,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&generation, &high, &pruning); e != nil {

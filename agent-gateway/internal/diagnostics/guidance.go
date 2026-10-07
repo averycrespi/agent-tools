@@ -4,8 +4,16 @@ package diagnostics
 // and never instructs execution replay, including for retry-scheduled work.
 func guidance(f Facts) string {
 	switch f.Event {
-	case UpstreamRecovered:
+	case TrafficRecovered, UpstreamRecovered:
 		return "no_action"
+	case TrafficFailure:
+		if trafficSettlements[f.Settlement] == "uncertain" {
+			return "inspect_settlement_no_replay"
+		}
+		if trafficCauses[f.TrafficCause] == "locked" || trafficCauses[f.TrafficCause] == "deadline" {
+			return "wait_scheduled_retry"
+		}
+		return "inspect_status"
 	case DurabilityFailure, StorageLatch:
 		return "storage_recovery"
 	case ReconciliationSettlementFailure:

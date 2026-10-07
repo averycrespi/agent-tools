@@ -22,7 +22,7 @@ func (repository *Repository) Get(ctx context.Context, invocationID string) (con
 		return contract.Invocation{}, ErrInvalidInput
 	}
 	var item contract.Invocation
-	err := repository.view(ctx, func(transaction *sql.Tx) error {
+	err := repository.view(ctx, func(ctx context.Context, transaction *sql.Tx) error {
 		record, scanErr := scanInvocation(transaction.QueryRowContext(ctx, invocationSelect+` WHERE id = ?`, invocationID))
 		if errors.Is(scanErr, sql.ErrNoRows) {
 			return ErrNotFound
@@ -75,7 +75,7 @@ func (repository *Repository) list(ctx context.Context, query contract.Invocatio
 		}
 	}
 	page := contract.InvocationPage{Items: make([]contract.InvocationSummary, 0, query.Limit)}
-	err := repository.view(ctx, func(transaction *sql.Tx) error {
+	err := repository.view(ctx, func(ctx context.Context, transaction *sql.Tx) error {
 		if repository.traffic != nil {
 			var generation string
 			var pruning int64

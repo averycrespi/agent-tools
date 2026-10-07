@@ -148,6 +148,31 @@ those files for a qualified stopped WAL-aware plan. Do not edit selectors or rem
 sidecars to make history open. Security-only recovery does not inspect these files.
 Existing configuration, grants and credentials survive the lifecycle upgrade.
 
+`status` / `doctor --online` and **System → Status** additionally show recording
+health and the current process-local incident. `recovering` means new capture is
+paused while the original owner settles and bounded storage validation runs;
+`degraded` means validation passed but no fresh observation has been acknowledged.
+`recovered` means a new observation was acknowledged, **not** that discarded history
+was reconstructed. The first cause, stage, settlement and time survive subsequent
+refusals; the recovery cause/stage identify any later validation blocker. Affected
+and discarded counts are submissions, not executions or retained rows. Last
+acknowledged is an observed commit acknowledgment time, not row readability.
+
+Transient lock/deadline and eligible I/O/full failures recover without restart,
+with one-to-30-second backoff and no batch/request replay. For
+`operator_action_required`, preserve history files: inspect ownership/permissions,
+selected generation, integrity or filesystem capacity according to the reported
+cause. Never delete a database/WAL, change permissions online, or infer an outcome
+from a missing row. Stopped recovery or a live-service change requires separate
+authorization. Policy access previews do not diagnose storage incidents.
+
+Default-level `traffic_failure` / `traffic_recovered` records retain safe typed
+facts, at most one of each per minute. They are best effort: full, blocked or broken
+stderr can lose them without blocking live status, serving or recovery. Incident
+status resets with the process; no new durable incident file/database is created.
+The initiating error of an older host incident cannot be reconstructed from a
+fault flag alone, and source tests do not qualify repair of an installed service.
+
 Shutdown may report unconfirmed cleanup while still retaining the opener/writer and
 installation lock. Wait for actual settlement; a timeout does not cancel fsync or
 permit another owner. This is not isolation from shared-filesystem stalls,

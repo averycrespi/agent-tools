@@ -31,7 +31,7 @@ type invocationScanner interface {
 }
 
 func (repository *Repository) ValidateStartup(ctx context.Context) error {
-	return repository.view(ctx, func(transaction *sql.Tx) error {
+	return repository.view(ctx, func(ctx context.Context, transaction *sql.Tx) error {
 		rows, err := transaction.QueryContext(ctx, invocationSelect+` ORDER BY insertion_sequence, id LIMIT ?`, repository.limit+1)
 		if err != nil {
 			return fmt.Errorf("read invocations for validation: %w", err)

@@ -1,4 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
+import {
+  recoveryStates,
+  trafficRecoveryFixture,
+} from "./traffic-recovery-fixture.ts";
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
 import { createHash } from "node:crypto";
@@ -692,6 +696,34 @@ export async function runAccessibilityKeyboardResponsive(
     }
   }
   await page.unroute("**/api/v2/history/export**");
+  let recoveryHealth = "healthy";
+  await page.route("**/api/v2/system-status", async (route) => {
+    const response = await route.fetch();
+    const status = await response.json();
+    status.traffic = {
+      ...status.traffic,
+      ...trafficRecoveryFixture(recoveryHealth),
+    };
+    await route.fulfill({ response, json: status });
+  });
+  await page.evaluate(() => {
+    window.location.hash = "#/system";
+  });
+  for (const health of recoveryStates) {
+    recoveryHealth = health;
+    await page.getByTestId("manual-refresh").click();
+    await expect(
+      page.getByText(
+        `Recording: ${health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " ")}`,
+        { exact: true },
+      ),
+    ).toBeVisible();
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await scan(`traffic-${health}-${width}`);
+    }
+  }
+  await page.unroute("**/api/v2/system-status");
   await page.getByTestId("theme-preference").selectOption(originalTheme);
   await page.evaluate((value) => {
     if (value === null) localStorage.removeItem("agent_gateway_theme");

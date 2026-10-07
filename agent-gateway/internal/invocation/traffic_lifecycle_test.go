@@ -1,12 +1,64 @@
 package invocation
 
 import (
+	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestOptionalTrafficTransientOpeningRecovers(t *testing.T) {
+	target, _ := trafficFixture(t, nil, nil)
+	facade := NewOptionalTraffic(target.config)
+	defer func() { require.NoError(t, facade.Close()) }()
+	var attempts atomic.Int32
+	facade.StartOpening(func() (*TrafficStore, error) {
+		if attempts.Add(1) == 1 {
+			return nil, context.DeadlineExceeded
+		}
+		return target, nil
+	})
+	require.Eventually(t, func() bool { return facade.Status(t.Context()).Incident != nil }, time.Second, time.Millisecond)
+	first := facade.Status(t.Context())
+	require.Equal(t, "recovering", first.Health)
+	require.Equal(t, "opening", first.Incident.Stage)
+	facade.ObserveMCP(trafficPrepared(1))
+	select {
+	case <-facade.optional.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("opening did not recover")
+	}
+	recordMCP(t, target, trafficPrepared(2))
+	status := facade.Status(t.Context())
+	require.Equal(t, "recovered", status.Health)
+	require.EqualValues(t, 1, status.Incident.Discarded)
+	require.Equal(t, first.Incident.FirstFailure, status.Incident.FirstFailure)
+	require.EqualValues(t, 2, attempts.Load())
+}
+
+func TestOptionalTrafficPersistentOpeningAndDrainStopRetry(t *testing.T) {
+	for _, transient := range []bool{false, true} {
+		facade := NewOptionalTraffic(DefaultTrafficConfig())
+		var attempts atomic.Int32
+		facade.StartOpening(func() (*TrafficStore, error) {
+			attempts.Add(1)
+			if transient {
+				return nil, context.DeadlineExceeded
+			}
+			return nil, ErrInvalidState
+		})
+		require.Eventually(t, func() bool { return facade.Status(t.Context()).Incident != nil }, time.Second, time.Millisecond)
+		if !transient {
+			require.Equal(t, "operator_action_required", facade.Status(t.Context()).Health)
+		}
+		facade.BeginDrain()
+		require.NoError(t, facade.Close())
+		require.EqualValues(t, 1, attempts.Load())
+	}
+}
 
 func TestOptionalTrafficOwnsWriterThroughClose(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})

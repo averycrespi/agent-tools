@@ -38,7 +38,7 @@ func (s *ReadService) GetHTTP(ctx context.Context, id string) (result contract.H
 	if s.repository.traffic == nil {
 		return result, ErrInvalidState
 	}
-	err = s.repository.traffic.view(ctx, func(tx *sql.Tx) error {
+	err = s.repository.traffic.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var err error
 		result, _, err = scanHTTPTraffic(tx.QueryRowContext(ctx, httpTrafficSelect+` WHERE id=?`, id))
 		if errors.Is(err, sql.ErrNoRows) {
@@ -104,7 +104,7 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 	}
 	slices.Sort(matchingIDs)
 	page.Items = []contract.HTTPTrafficSummary{}
-	err = s.repository.traffic.view(ctx, func(tx *sql.Tx) error {
+	err = s.repository.traffic.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var generation string
 		var high, pruning int64
 		if err := tx.QueryRowContext(ctx, `SELECT generation,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&generation, &high, &pruning); err != nil {

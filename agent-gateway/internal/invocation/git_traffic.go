@@ -46,7 +46,7 @@ func (s *TrafficStore) GitHistory(ctx context.Context, after int64, limit int) (
 	if after < 0 || limit < 1 || limit > 256 {
 		return out, ErrInvalidInput
 	}
-	err = s.view(ctx, func(tx *sql.Tx) error {
+	err = s.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if e := tx.QueryRowContext(ctx, `SELECT generation,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&out.Generation, &out.HighWater, &out.Pruning); e != nil {
 			return e
 		}

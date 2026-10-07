@@ -218,6 +218,8 @@ func TestDiagnosticExecutableEventManifest(t *testing.T) {
 func validEventExample(event Event) Facts {
 	f := Facts{Event: event}
 	switch {
+	case trafficEvent(event):
+		return TrafficFacts(event == TrafficRecovered, "locked", "begin", "not_started", 5)
 	case upstreamEvent(event):
 		return upstreamExample(event)
 	case event == HTTPProxyRejected:
@@ -267,6 +269,27 @@ func TestDiagnosticPerEventRequiredFieldsAndCauses(t *testing.T) {
 			continue
 		}
 		base := validEventExample(event)
+		if trafficEvent(event) {
+			for cause := range trafficCauses {
+				candidate := base
+				candidate.TrafficCause = uint8(cause)
+				require.Equal(t, cause > 0, validFacts(candidate))
+			}
+			for stage := range trafficStages {
+				candidate := base
+				candidate.TrafficStage = uint8(stage)
+				require.Equal(t, stage > 0, validFacts(candidate))
+			}
+			for settlement := range trafficSettlements {
+				candidate := base
+				candidate.Settlement = uint8(settlement)
+				require.Equal(t, settlement > 0, validFacts(candidate))
+			}
+			candidate := base
+			candidate.InvocationID = "secret"
+			require.False(t, validFacts(candidate))
+			continue
+		}
 		for cause := None; cause <= UnknownOutcome; cause++ {
 			candidate := base
 			candidate.Cause = cause

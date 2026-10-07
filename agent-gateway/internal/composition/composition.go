@@ -637,6 +637,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, err
 	}
 	built.traffic = invocation.NewOptionalTraffic(trafficConfiguration(options.TrafficBudget))
+	built.traffic.SetTrafficDiagnostics(options.Diagnostics)
 	built.invocationRepository, err = invocation.NewTrafficRepository(built.traffic, options.Clock, options.Entropy, options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)

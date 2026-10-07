@@ -28,7 +28,7 @@ func (s *ReadService) ExportHistoryThrough(ctx context.Context, after, through i
 		return result, ErrTrafficFault
 	}
 	result = contract.HistoryExport{Format: 1, AfterSequence: strconv.FormatInt(after, 10), NextSequence: strconv.FormatInt(after, 10), Absence: contract.HistoryExportAbsence, Records: make([]contract.HistoryExportRecord, 0)}
-	err = s.repository.traffic.view(ctx, func(tx *sql.Tx) error {
+	err = s.repository.traffic.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var high, pruning int64
 		if err := tx.QueryRowContext(ctx, `SELECT installation,generation,high_water,pruning,records FROM traffic_meta WHERE singleton=1`).Scan(&result.InstallationID, &result.Generation, &high, &pruning, &result.Retained); err != nil {
 			return err

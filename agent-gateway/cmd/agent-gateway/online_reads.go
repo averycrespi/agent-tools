@@ -414,8 +414,14 @@ func statusTable(body []byte) (controlclient.Table, error) {
 		rows = append(rows, []string{"history", traffic.State, fmt.Sprintf("pressure=%t reason=%s database=%s WAL=%s free=%s; budget=%d", traffic.Pressure, traffic.PressureReason, byteMeasurementText(traffic.DatabaseMeasurement), byteMeasurementText(traffic.WALMeasurement), byteMeasurementText(traffic.FreeSpaceMeasurement), traffic.BudgetBytes)})
 		d := traffic.Delivery
 		rows = append(rows, []string{"history_delivery", "process counters", fmt.Sprintf("accepted=%d acknowledged=%d discarded=%d queue=%d/%d records %d/%d bytes completions=%d", d.Accepted, d.Acknowledged, d.Discarded, d.QueueRecords, d.QueueRecordLimit, d.QueueBytes, d.QueueByteLimit, d.CompletionRecords)})
-		if !traffic.Ready || traffic.Pressure {
-			rows = append(rows, []string{"history_action", "inspect", "Serving is independent. Inspect history state and disk/sink capacity; use http test-access for policy-only preview. Missing records never authorize replay."})
+		if traffic.Health != "" {
+			rows = append(rows, []string{"history_health", traffic.Health, "last_acknowledged=" + traffic.LastAcknowledged})
+		}
+		if incident := traffic.Incident; incident != nil {
+			rows = append(rows, []string{"history_incident", incident.Cause, fmt.Sprintf("first_failure=%s stage=%s settlement=%s sqlite_code=%d affected=%d discarded=%d submissions recovery_cause=%s recovery_stage=%s", incident.FirstFailure, incident.Stage, incident.Settlement, incident.SQLiteCode, incident.Affected, incident.Discarded, incident.RecoveryCause, incident.RecoveryStage)})
+		}
+		if !traffic.Ready || traffic.Pressure || traffic.Incident != nil {
+			rows = append(rows, []string{"history_action", "inspect", historyAction(traffic)})
 		}
 	}
 	if diagnostic := status.Diagnostics; diagnostic != nil {
@@ -442,6 +448,38 @@ func statusTable(body []byte) (controlclient.Table, error) {
 		rows = append(rows, []string{"limit." + limit.name, state, fmt.Sprintf("in_use=%d limit=%d", limit.value.InUse, limit.value.Limit)})
 	}
 	return controlclient.Table{Headers: []string{"AREA", "STATE", "DETAIL"}, Rows: rows}, nil
+}
+
+func historyAction(s *contract.TrafficStatus) string {
+	if i := s.Incident; i != nil {
+		if i.Recovery == "recovered" {
+			return "Recording resumed; discarded history was not reconstructed."
+		}
+		if i.Recovery == "degraded" {
+			return "Validation passed; awaiting a new acknowledged observation. No history replay."
+		}
+		if i.Settlement == "uncertain" && i.Recovery == "recovering" {
+			return "Wait for owned settlement and safe validation; do not replay missing history."
+		}
+		if i.Recovery == "recovering" {
+			return "Wait for bounded storage revalidation; serving remains independent."
+		}
+		cause := i.RecoveryCause
+		if cause == "" {
+			cause = i.Cause
+		}
+		switch cause {
+		case "permission", "ownership":
+			return "Inspect selected history ownership and permissions; do not change them while serving."
+		case "integrity":
+			return "Preserve history files and inspect integrity using a separately qualified stopped recovery plan."
+		case "full", "capacity":
+			return "Inspect disk capacity and the configured traffic budget; do not delete live database or WAL files."
+		case "missing":
+			return "Inspect the selected history generation; do not create a replacement or reconstruct missing history."
+		}
+	}
+	return "Inspect history status and filesystem availability. Serving is independent; missing records never authorize replay."
 }
 
 func byteMeasurementText(m contract.ByteMeasurement) string {

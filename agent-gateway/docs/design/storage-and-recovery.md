@@ -202,11 +202,37 @@ against concurrent noncooperating filesystem consumers. Any later I/O uncertaint
 fails closed. Deterministic tests are not power-loss qualification.
 
 Commit acknowledgment—not row readability or marker cleanup—is the traffic
-evidence boundary. Statement/storage failures, commit errors, lost acknowledgment
-and uncertain rollback fault optional history only, never request-local authority.
-Callers enqueue sanitized observations without waiting for this boundary.
-There is no split, retry, replay, or traffic-only persistent manual-verification
-latch. Restart restores write authority only after exact schema/application/binding,
+evidence boundary. Failures pause optional recording only, never request-local
+authority. Callers enqueue sanitized observations without waiting for this boundary.
+The owning boundary retains a closed cause, stage, SQLite code when known, and
+settlement fact. Pre-transaction deadline/lock failure and statement failure with
+confirmed rollback do not permanently latch recording. Deadline expiry after
+preflight is classified at acquisition or statement settlement, not exempted as a
+generic timeout. The batch is discarded once, never split, retried or replayed.
+
+The single writer pins its actual connection through synchronous commit/rollback.
+Its transaction lifetime is detached from batch cancellation solely to prevent
+`database/sql` from installing an asynchronous rollback owner; statement work still
+uses the finite batch deadline and SQLite retains its 50 ms busy bound. Commit or
+rollback uncertainty never establishes a receipt, even if rows are readable. An
+unresolved non-autocommit connection remains owned and unavailable, not pooled or
+replaced. Recovery observes actual settlement without executing another rollback.
+Shutdown joins the actual writer and reports unresolved settlement as unclean.
+
+The existing writer lifecycle schedules revalidation after one second, doubling
+failed-attempt delay to a 30-second ceiling without an exhausted retry counter.
+Each attempt has a cooperative 30-second deadline, preserves physical budgets and
+performs exact file, schema/application/binding, integrity and every-row semantic
+validation. It never deletes, recreates or repairs files. Known deadline, lock,
+I/O and full conditions are eligible for this bounded validation; unsafe ownership,
+permissions, missing files, integrity failure and unclassified settled errors need
+operator action. A new failure during validation prevents that validation from
+restoring authority. Time, readable status and absent records are never proof.
+A successful validation permits only new independent observations; observed
+`recovered` requires a new successful acknowledgment. Lost history is not rebuilt.
+
+There is no traffic-only persistent manual-verification latch. Restart likewise
+restores write authority only after exact schema/application/binding,
 physical-budget, complete structural and every-row semantic validation, including
 nullable groups, chronology, accounting and sequence/pruning consistency. Validation
 is streaming and has a 30-second cooperative deadline; incomplete validation is
@@ -215,16 +241,41 @@ writer's complete `OpenTraffic` validation; neither is subject to the online rea
 one-second deadline, and neither gates security readiness. Reads may remain available while write authority
 is faulted; readable history grants no authority and cannot resume execution.
 History reports `opening`, `ready`, `unavailable`, `faulted`, or `disabled` independently
-of security readiness. Serving preflight refuses nonempty history WAL/journals and
+of security readiness. Its additional process-local health distinguishes `healthy`,
+`degraded` (validated, awaiting acknowledgment), `recovering`,
+`operator_action_required`, and `recovered`. One bounded incident retains the first
+failure time/cause/stage/settlement, latest recovery cause/stage, first typed SQLite
+code, affected/discarded submission counts and last successful acknowledgment time.
+Subsequent already-faulted refusals increase loss counts without replacing the
+initiating cause. A new failure after observed recovery starts a new incident;
+process delivery totals remain cumulative. No incident is written to SQLite or a
+new file. Default-level failure/recovery diagnostics use the existing best-effort
+bounded adapter, limited to one of each transition per minute; sink loss never
+blocks status, serving or recording recovery. Serving preflight refuses nonempty history WAL/journals and
 fully verifies closed artifacts without mutation before opening a writer. Invalid
 artifacts are never deleted, replaced, chmodded or repaired. Existing unclean history
 requires a separately qualified stopped WAL-aware plan; security-only recovery does
 not repair it. Valid older traffic schemas retain their bounded supported upgrade.
 
-The facade owns one opener for its lifetime, with no reopen loop. Drain prevents
-late attachment; a fully validated late result is closed instead. Close joins the
+The facade owns one opener lifecycle. A settled transient opening/validation
+failure uses the same one-to-30-second bounded backoff; persistent faults and
+uncertain schema migration are not reopened automatically. Every failed attempt
+closes its own handles before another attempt, and no attached writer is replaced.
+Drain interrupts backoff and prevents late attachment; a fully validated late
+result is closed instead. Close joins the
 opener, actual writer and reader settlement before composition releases storage or
-installation ownership. An observation deadline may report unconfirmed cleanup,
+installation ownership. Readers and schema upgrades pin their SQL connection and
+retain synchronous transaction settlement, including its actual result, rather
+than installing a cancellation-driven rollback owner whose error is discarded.
+Every reader callback receives the bounded read context for all statements; the
+transaction lifetime alone is detached. `ErrTxDone` alone is not a settlement
+receipt. Caller-cancelled reads, including SQLite interruption of an executing
+statement, do not fault recording after successful settlement. Independent raw
+storage/integrity errors and typed settlement failures take precedence over any
+joined cancellation or benign domain result. The internal read-lifetime deadline
+remains a recording fault even if the caller subsequently cancels. Schema-upgrade commit and
+acknowledgment uncertainty retain their owning stage and settlement; a subsequent
+validation failure retains the already-committed settlement. An observation deadline may report unconfirmed cleanup,
 never cancellation of fsync or permission to mark clean or start a replacement.
 Process exit releases the OS lock, but an unconfirmed drain never publishes a clean
 marker. Optional history does not isolate shared-filesystem stalls, uninterruptible

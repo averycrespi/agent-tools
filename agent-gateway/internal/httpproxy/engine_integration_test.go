@@ -36,6 +36,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 )
 
@@ -106,11 +107,21 @@ func fixtureWithListener(t *testing.T, completionNow func() time.Time, wrap func
 
 func fixtureWithTrafficConfig(t *testing.T, completionNow func() time.Time, wrap func(net.Listener) net.Listener, configure func(*invocation.TrafficConfig)) *proxyFixture {
 	t.Helper()
+	return fixtureWithStorageInitialization(t, completionNow, wrap, configure, false)
+}
+
+func fixtureWithStorageInitialization(t *testing.T, completionNow func() time.Time, wrap func(net.Listener) net.Listener, configure func(*invocation.TrafficConfig), initialize bool) *proxyFixture {
+	t.Helper()
 	ctx := audit.WithSystem(t.Context())
 	owner, err := gatewaypaths.Acquire(filepath.Join(t.TempDir(), "gateway"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, owner.Close()) })
-	store, err := proxyDatabaseTemplate.Open(ctx, owner)
+	var store *storage.Store
+	if initialize {
+		store, err = storage.Initialize(ctx, owner, installation)
+	} else {
+		store, err = proxyDatabaseTemplate.Open(ctx, owner)
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	clock := fixtureClock{}
