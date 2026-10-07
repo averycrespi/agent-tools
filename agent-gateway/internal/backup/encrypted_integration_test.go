@@ -29,6 +29,7 @@ import (
 )
 
 func TestIntegrationEncryptedRestoreRefusesSemanticCorruption(t *testing.T) {
+	t.Parallel()
 	for _, query := range []string{
 		`UPDATE secret_generations SET ciphertext=zeroblob(length(ciphertext))`,
 		`DELETE FROM secret_generations`,
@@ -88,6 +89,7 @@ func TestIntegrationEncryptedRestoreRefusesSemanticCorruption(t *testing.T) {
 }
 
 func TestIntegrationEncryptedRestoreRecoversCAHTTPAndGit(t *testing.T) {
+	t.Parallel()
 	testEncryptedDomainRecovery(t, false)
 }
 

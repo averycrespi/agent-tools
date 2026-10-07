@@ -19,6 +19,7 @@ import (
 )
 
 func TestEncryptedRestoreRetainsMaterialAndBudgetResetsAccess(t *testing.T) {
+	t.Parallel()
 	for _, point := range []restoreFaultPoint{"", restoreFaultBeforeInstall, restoreFaultAfterInstall} {
 		t.Run(string(point), func(t *testing.T) {
 			ctx := t.Context()
@@ -135,6 +136,7 @@ func TestEncryptedRestoreRetainsMaterialAndBudgetResetsAccess(t *testing.T) {
 }
 
 func TestEncryptedRestoreRefusesWrongKeyAndCorruptionBeforeStage(t *testing.T) {
+	t.Parallel()
 	for _, bad := range []string{"missing-key", "wrong-key", "corrupt-artifact", "legacy-dependency"} {
 		t.Run(bad, func(t *testing.T) {
 			manager, store, owner := newBackupManager(t, nil)
