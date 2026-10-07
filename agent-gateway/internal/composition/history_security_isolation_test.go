@@ -96,7 +96,7 @@ func TestSecurityBackupCompletesBeforeHistoryOpenerSettles(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("opener did not enter")
 	}
-	manager, err := backup.New(backup.Options{Store: options.Store, Layout: options.Ownership.Layout(), Clock: options.Clock, Entropy: options.Entropy})
+	manager, err := backup.New(backup.Options{Ownership: options.Ownership, Store: options.Store, Layout: options.Ownership.Layout(), Clock: options.Clock, Entropy: options.Entropy})
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(audit.WithSystem(t.Context()), 5*time.Second)
 	defer cancel()

@@ -18,6 +18,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -83,7 +84,12 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		}
 		return storage.Identity{}, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
 	}
-	if err := requireRestoreCustody(ctx, ownership, options.BackupID); err != nil {
+	custody, err := requireRestoreCustody(ctx, ownership, artifact)
+	if err != nil {
+		return storage.Identity{}, err
+	}
+	previousCertificate, certificate, err := inspectRestoreCertificate(ctx, ownership, artifact)
+	if err != nil {
 		return storage.Identity{}, err
 	}
 	if options.Before != nil {
@@ -99,7 +105,7 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		return storage.Identity{}, ErrInvalidArtifact
 	}
 
-	securityOnly := options.SecurityOnly || artifact.Format == 3
+	securityOnly := options.SecurityOnly || artifact.Format >= 3
 	budget := artifact.TrafficBudgetBytes
 	if securityOnly {
 		budget = 0
@@ -175,14 +181,26 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := authorization.InvalidateStagedCredentials(ctx, replacement, targets); err != nil {
 		return storage.Identity{}, err
 	}
-	if err := httpcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
-		return storage.Identity{}, err
-	}
-	if err := gitcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
-		return storage.Identity{}, err
-	}
-	if err := httpca.InvalidateStaged(ctx, replacement, options.Clock); err != nil {
-		return storage.Identity{}, err
+	if artifact.Format == 4 {
+		if err := keyring.PreserveRestoreBudget(ctx, replacement, custody); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := httpcredentials.ValidateStartup(ctx, replacement); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := httpca.ValidateStartup(ctx, replacement); err != nil {
+			return storage.Identity{}, err
+		}
+	} else {
+		if err := httpcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := gitcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := httpca.InvalidateStaged(ctx, replacement, options.Clock); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	if err := injectRestoreFault(options.fault, restoreFaultAfterInvalidation); err != nil {
 		return storage.Identity{}, err
@@ -252,6 +270,20 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := verifyReplacementDomains(ctx, ownership, staged, options.Clock, options.Entropy); err != nil {
 		return storage.Identity{}, err
 	}
+	if artifact.Format == 4 {
+		if err := storage.ViewBackup(ctx, staged, func(tx *sql.Tx) error {
+			verified, err := verifyEncryptedCustodyTx(ctx, tx, ownership)
+			if err != nil {
+				return err
+			}
+			if verified != custody {
+				return keyring.ErrCustodyUnavailable
+			}
+			return nil
+		}); err != nil {
+			return storage.Identity{}, err
+		}
+	}
 	if err := injectRestoreFault(options.fault, restoreFaultBeforeInstall); err != nil {
 		return storage.Identity{}, err
 	}
@@ -263,6 +295,11 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	cleanup = false
 	if err := injectRestoreFault(options.fault, restoreFaultAfterInstall); err != nil {
 		return storage.Identity{}, err
+	}
+	if len(certificate) != 0 {
+		if err := gatewaypaths.PublishCertificate(filepath.Join(layout.Root, gatewaypaths.PublicCertificateName), certificate, previousCertificate); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	if err := recordInstalledRestore(ctx, ownership, options.Clock, attempt); err != nil {
 		return storage.Identity{}, err

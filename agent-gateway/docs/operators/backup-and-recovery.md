@@ -30,7 +30,11 @@ This creates or verifies the master key and binds its identity; it does not migr
 
 Preserve the key and database together. Do not delete, replace, chmod, symlink or regenerate a refused key to bypass validation. A missing/wrong established key, partial key file or uncertain setup needs diagnosis and a separately qualified recovery plan; setup never overwrites it. Encryption protects against database-only theft, not theft of both key and database, or compromise of the Gateway account/root.
 
-**Backup creation and restore currently refuse encrypted custody**, including empty encrypted installations, old idempotency keys, dry-run restore and `--security-only`. Restore refuses if either the current installation or selected artifact uses encrypted custody. The `encrypted_backup_unsupported` result does not mean recovery succeeded. Existing inventory and verified legacy artifact reads/deletion remain available. Retain artifacts; a copied ciphertext database without a supported key-recovery contract is not a complete secret backup. The procedures below describe legacy-compatible backup operations only.
+Encrypted installations create **format-4** control backups. Safeguard a separate owner-only copy of the matching `master-key` outside the backup artifact and protect it independently. `metadata.json` identifies the required key by its SHA-256 `master_key_id`, never by its value. Losing that key makes its encrypted backups unrecoverable; setup cannot regenerate it. Historical backups retain historical upstream secrets even after online deletion or rotation. Protect their custody and retention accordingly.
+
+Recovery requires the existing installation, its closed current control database and the matching key at `<data-dir>/master-key`. It is not fresh-install import, cloning or host relocation. Do not manually replace the current database with an older copy: its nonrefundable encryption high-water is required for safe continued use of the key. Missing/wrong keys, corruption and incomplete encrypted generations refuse before replacement. Unresolved legacy dependencies or in-progress credential cutovers refuse encrypted backup creation; complete the supported credential operation before trying a new backup. Native migration is a separate operation, not part of backup.
+
+Formats 0, 2 and 3 remain legacy-only recovery, not self-contained secret backups. They cannot restore over encrypted custody, even with `--security-only`; an old encrypted database copy without format-4 metadata is also rejected. `encrypted_backup_unsupported` explains this boundary. Preserve old artifacts rather than relabeling them. Unsupported formats fail closed.
 
 ## Choose a recovery task
 
@@ -78,15 +82,14 @@ agent-gateway backup get BACKUP_ID
 agent-gateway backup delete BACKUP_ID --yes
 ```
 
-New backups use **format 3**, explicitly reporting `history:"omitted"`. They capture
+New encrypted backups use **format 4** (legacy-only installations still use format 3), explicitly reporting `history:"omitted"`. They capture
 configuration, authority and administrative audit from one control-only SQLite
 snapshot, without pausing or opening optional traffic history. Embedded legacy
 invocation rows are removed from the private copy and the copy is compacted; the
 live installation is not rewritten. Creation has a 30-second cooperative snapshot
 bound and reserves up to 4 GiB for bounded control staging, never the traffic budget.
 Capacity refusal leaves existing authority intact. The closed control copy is
-verified and digested before atomic publication. No raw bearer, keyring value,
-browser/MCP session, runtime handle or in-flight work is included.
+verified and digested before atomic publication. Format 4 includes authenticated encrypted MCP static/OAuth, HTTP/Git credentials and CA signing material, plus the public CA certificate. The master key, raw administrator/agent bearers, plaintext upstream secrets, browser/MCP sessions, runtime handles and in-flight work are excluded.
 
 Existing format-0 single-store and format-2 paired artifacts keep their original
 meaning. Full verification still includes their claimed history. They are never
@@ -178,19 +181,12 @@ agent-gateway maintenance restore-backup BACKUP_ID \
   --secret-output /safe/new/restored-admin-bearer
 ```
 
-Every restore invalidates interception CA authority. Bare `serve` now enables
-HTTP by default and fails before readiness until explicit stopped CA replacement.
-Use `serve --clear-http-proxy-listen` for MCP-only recovery. Managed services retain
-their installed selection, including legacy omission meaning disabled; restore
-never rewrites that selection. Replace the CA, export its public certificate and
-manually update client trust before using interception again. Ordinary restarts
-preserve the CA. Backups contain public certificate metadata, never its protected
-signing key; surviving retired keyring items cannot reactivate a backed-up CA.
-Key loss likewise requires a new CA. See [stopped CA management](#stopped-interception-ca-commands)
-and [proxy activation](http-proxy.md); restore neither selects a proxy nor installs client trust.
+Format-4 restore recovers the exact backed-up CA certificate and signing identity; it never automatically replaces the CA. Existing clients trusting that certificate need no trust change. If trust changed after the backup, explicitly reconcile it against the recovered certificate. The managed `http-ca.pem` export is updated after database replacement only if absent or matching the previously selected certificate; unrelated files refuse before replacement. A crash or publication error can leave the database selected while the derived PEM is stale: inspect `http ca export --stdout` and the reported effect, never assume rollback or replay restore. Client trust and installed proxy settings are never mutated.
+
+Legacy-only restore still invalidates CA and HTTP/Git credential authority. It requires explicit CA replacement and client trust updates before interception; use `serve --clear-http-proxy-listen` for MCP-only recovery. Surviving retired native keys are not restored authority. See [stopped CA management](#stopped-interception-ca-commands) and [proxy activation](http-proxy.md).
 
 Restore verifies artifact ID, installation, supported schema, revision, size, digest,
-SQLite integrity and staged authority. Format 3 restores security only and disables
+SQLite integrity and staged authority. Formats 3 and 4 restore security only and disable
 history capture without selecting any retained traffic file. Current control and
 artifact control must be closed; nonempty control WAL/journals, unknown security
 markers, unsafe mutation targets and conflicting stages refuse. Consent binds the
@@ -198,7 +194,7 @@ actual control state (including selector), markers and selected artifact, not un
 optional history or unrelated retained artifacts. Existing history, links and journals
 are preserved without validation, repair or cleanup.
 
-Schemas 3 through current schema 22 are supported through staged forward migration
+Legacy schemas 3 through current schema 23 are supported through staged forward migration
 and full authorization/grant-request validation. Failure before selection leaves the
 original control authoritative. There is no legacy-schema runtime. Ordinary upgrade
 preserves configuration, grants and credentials; restore deliberately invalidates
@@ -229,16 +225,16 @@ recovery evidence, not permission to delete them or retry blindly.
 
 A successful restore preserves safe agents, grants, requests, request evidence, server configuration and administrative audit; optional history follows the explicit plan. It invalidates every restored agent credential, revokes restored administrator verifiers, and publishes one new administrator bearer to the required `--secret-output` file. Sessions, cursors, runtime state, OAuth transient state, and in-flight work do not resume.
 
-Restore does not rewrite the default `admin-bearer`. Start the verified replacement generation in MCP-only mode, then explicitly select its replacement authority for online recovery:
+Restore does not rewrite or promote into the default `admin-bearer`. That retained file is **invalid**, not usable recovery access: every old administrator and agent bearer is rejected, including credentials issued after the backup. Select `--admin-bearer-file` explicitly for every online recovery command; ordinary default-file authentication must fail. The fresh protected sink is published before installation, so a pre-install failure can leave an output file whose bearer is not active. Start the verified replacement generation (MCP-only if recovering legacy custody), then explicitly select its replacement authority:
 
 ```bash
 agent-gateway serve --clear-http-proxy-listen --data-dir /path/to/gateway-data
 # In another terminal:
 agent-gateway --data-dir /path/to/gateway-data \
-  status --admin-bearer-file /safe/new/restored-admin-bearer
+  doctor --online --admin-bearer-file /safe/new/restored-admin-bearer
 ```
 
-Issue fresh agent credentials after reviewing restored agent and policy state.
+Issue fresh agent credentials after reviewing restored agent and policy state. Format-4 upstream material is restored **as of backup time**, not proven valid upstream: expiration, revocation and refresh-token rotation can require reauthentication. Recovery performs no upstream calls or retries.
 
 ## Reset administrator authority
 
@@ -271,7 +267,7 @@ They do not enable the proxy, install trust, or export a private key.
 agent-gateway init --data-dir /path/to/gateway-data --confirm
 agent-gateway http ca export --data-dir /path/to/gateway-data \
   --output /safe/path/gateway-ca.pem
-# Explicit rotation, key loss, or after EVERY maintenance restore-backup:
+# Explicit rotation, unrecoverable key loss, or after legacy-only restore:
 agent-gateway http ca replace --data-dir /path/to/gateway-data \
   --installation-id ID --confirm
 ```

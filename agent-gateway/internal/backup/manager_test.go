@@ -35,7 +35,7 @@ func newBackupManager(t *testing.T, fault func(FaultPoint) error) (*Manager, *st
 	store, err := storage.Initialize(context.Background(), ownership, backupTestInstallationID)
 	require.NoError(t, err)
 	manager, err := New(Options{
-		Store: store, Layout: ownership.Layout(),
+		Ownership: ownership, Store: store, Layout: ownership.Layout(),
 		Clock:   fixedClock{value: time.Date(2026, 8, 22, 12, 0, 0, 0, time.UTC)},
 		Entropy: bytes.NewReader(bytes.Repeat([]byte{0x42}, 1024)), Fault: fault,
 	})

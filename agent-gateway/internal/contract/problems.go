@@ -109,7 +109,7 @@ var problems = []Problem{
 	{Status: 409, Code: ProblemAuditHistoryReplaced, Title: "The audit history generation has changed."},
 	{Status: 503, Code: ProblemHistoryUnavailable, Title: "Optional history is unavailable; security operations remain independent."},
 	{Status: 503, Code: ProblemHistoryBusy, Title: "Optional history export capacity or deadline was exceeded."},
-	{Status: 409, Code: ProblemEncryptedBackupUnsupported, Title: "Backup creation and restore are not supported with encrypted secret custody. Preserve existing artifacts."},
+	{Status: 409, Code: ProblemEncryptedBackupUnsupported, Title: "This backup format or unresolved legacy dependency cannot recover encrypted custody. Preserve existing artifacts; use complete encrypted custody and a format-4 backup."},
 }
 
 func Problems() []Problem {

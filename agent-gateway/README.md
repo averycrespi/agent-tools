@@ -110,7 +110,7 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 - Gateway is deny by default: only a current credential for an active agent can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
 - One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
-- Legacy native keyring reads may prompt. Encrypted custody uses a private `master-key`; see [setup, threat limits and temporary backup refusal](docs/operators/backup-and-recovery.md#encrypted-secret-storage).
+- Legacy native keyring reads may prompt. Encrypted custody uses a private `master-key`; see [setup, separately safeguarded keys and encrypted backup recovery](docs/operators/backup-and-recovery.md#encrypted-secret-storage).
 
 See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/operators/invocation-evidence.md) for operator interpretation.
 

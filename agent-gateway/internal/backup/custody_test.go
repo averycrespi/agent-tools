@@ -30,14 +30,14 @@ func TestEncryptedCustodyArtifactCannotRestoreIntoLegacyInstallation(t *testing.
 	}
 }
 
-func TestEncryptedCustodyRefusesCreateReplayAndRestoreWithoutEffects(t *testing.T) {
+func TestEncryptedCustodyRefusesLegacyReplayAndRestoreWithoutEffects(t *testing.T) {
 	manager, store, owner := newBackupManager(t, nil)
 	legacy, _, err := manager.Create(t.Context(), "authority", "before-setup")
 	require.NoError(t, err)
 	require.NoError(t, keyring.SetupCustody(t.Context(), owner, store, manager.clock))
 	before, err := os.ReadDir(owner.Layout().Backups)
 	require.NoError(t, err)
-	for _, key := range []string{"before-setup", "new"} {
+	for _, key := range []string{"before-setup"} {
 		_, replay, err := manager.Create(t.Context(), "authority", key)
 		require.ErrorIs(t, err, ErrEncryptedCustodyUnsupported)
 		require.False(t, replay)

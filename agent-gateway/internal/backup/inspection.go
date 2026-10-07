@@ -14,6 +14,7 @@ import (
 // RestoreInspection exposes verified safe metadata, never idempotency authority.
 type RestoreInspection struct {
 	Backup       contract.Backup `json:"backup"`
+	MasterKeyID  string          `json:"master_key_id,omitempty"`
 	History      string          `json:"history"`
 	artifact     artifactMetadata
 	securityOnly bool
@@ -41,14 +42,17 @@ func InspectRestoreScope(ctx context.Context, owner *gatewaypaths.Ownership, id 
 		}
 		return RestoreInspection{}, err
 	}
-	if err := requireRestoreCustody(ctx, owner, id); err != nil {
+	if _, err := requireRestoreCustody(ctx, owner, metadata); err != nil {
+		return RestoreInspection{}, err
+	}
+	if _, _, err := inspectRestoreCertificate(ctx, owner, metadata); err != nil {
 		return RestoreInspection{}, err
 	}
 	history := "restored"
-	if securityOnly || metadata.Format == 3 {
+	if securityOnly || metadata.Format >= 3 {
 		history = "omitted-not-verified"
 	}
-	return RestoreInspection{Backup: metadata.Backup, History: history, artifact: metadata, securityOnly: securityOnly}, nil
+	return RestoreInspection{Backup: metadata.Backup, MasterKeyID: metadata.MasterKeyID, History: history, artifact: metadata, securityOnly: securityOnly}, nil
 }
 
 func requireClosedArtifactScope(directory string, securityOnly bool) error {

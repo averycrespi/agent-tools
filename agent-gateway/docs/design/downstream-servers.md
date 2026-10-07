@@ -50,9 +50,9 @@ Deterministic injected tests cover Darwin and Linux mappings, prompt dismissal, 
 
 The recipe accepts one ASCII token header name (1–128 bytes), a printable ASCII prefix (0–128 bytes, no leading space), and one nonempty printable ASCII secret with no surrounding space. Prefix plus secret is at most 4,096 bytes. Header matching ignores case. Authorization/Bearer and custom API-key names are supported; routing, framing, hop-by-hop, proxy authentication, browser security, conditional/range, forwarding and transport-control overrides are forbidden by `contract.ValidHTTPCredentialRecipe`. CR, LF, controls and non-ASCII material are rejected, never normalized. A request-local material pin carries the exact credential revision and privately owned bytes. The forwarding seam checks the canonical HTTPS request with the policy owner, rejects Connection-nominated injection fields, then returns a cloned header map replacing every case variant of the configured field. It never partially changes the input or injects into HTTP. This is a forwarding seam, not a proxy or permission to execute.
 
-Typed `http_credential` keyring records use the existing opaque-generation coordinator and durable fence/activation protocol. Create reserves safe metadata before one bounded secret ingress; failed publication can leave an unavailable visible record. Rotation preserves identity, fences old authority before external work, verifies the candidate and activates only acknowledged publication. Mutation admission is nonqueueing. A stale ETag is rejected before material work. Failed or uncertain rotation cannot fall back to old bytes; keyring cleanup failure does not reactivate authority. Future acquisitions require the exact current metadata revision and selected handle/material revision; an already admitted material pin retains its own generation until cleared. Raw secrets never enter ordinary reads, events, diagnostics, SQL or backups. Only authenticated ciphertext enters control SQLite; transitional backup operations explicitly refuse encrypted custody.
+Typed `http_credential` keyring records use the existing opaque-generation coordinator and durable fence/activation protocol. Create reserves safe metadata before one bounded secret ingress; failed publication can leave an unavailable visible record. Rotation preserves identity, fences old authority before external work, verifies the candidate and activates only acknowledged publication. Mutation admission is nonqueueing. A stale ETag is rejected before material work. Failed or uncertain rotation cannot fall back to old bytes; keyring cleanup failure does not reactivate authority. Future acquisitions require the exact current metadata revision and selected handle/material revision; an already admitted material pin retains its own generation until cleared. Raw secrets never enter ordinary reads, events, diagnostics, SQL or backups. Only authenticated ciphertext enters control SQLite and format-4 backups; the matching master key stays separate.
 
-Metadata edits and deletion run in the shared control transaction. `ReferenceInspector.ReferencesTx` supplies all referencing grants on that transaction; edits check full containment for every reference and deletion rejects any reference. `CheckReferenceTx` is the grant owner's reciprocal insertion/update seam and checks the exact credential binding. Neither opens nested mutation admission. Schema 20 composition supplies the singular authorization repository as the real reference inspector. Referenced recipe changes reject atomically, as do boundaries that fail whole-grant containment and referenced deletion. `NoHTTPGrants` remains only for isolated credential fixtures with an empty grant store, never production. Restored stages invalidate all HTTP material authority before installation, even when old keyring chunks survive; deliberate new secret ingress is required.
+Metadata edits and deletion run in the shared control transaction. `ReferenceInspector.ReferencesTx` supplies all referencing grants on that transaction; edits check full containment for every reference and deletion rejects any reference. `CheckReferenceTx` is the grant owner's reciprocal insertion/update seam and checks the exact credential binding. Neither opens nested mutation admission. Schema 20 composition supplies the singular authorization repository as the real reference inspector. Referenced recipe changes reject atomically, as do boundaries that fail whole-grant containment and referenced deletion. `NoHTTPGrants` remains only for isolated credential fixtures with an empty grant store, never production. Legacy-only restored stages invalidate all HTTP material authority before installation, even when old keyring chunks survive; deliberate new secret ingress is required. Format-4 restore instead recovers authenticated encrypted material with its matching configuration.
 
 ## Scoped Git credentials
 
@@ -89,10 +89,10 @@ fence and advance shared authorization revision; it cannot inspect principals or
 grants. The source guard admits this exact revision update, not general authorization-domain SQL.
 
 Startup and staged backup validation check complete canonical Git configuration,
-references, capacities and material-selection metadata. Paired restore preserves
+references, capacities and material-selection metadata. Legacy paired restore preserves
 valid policy/repository/profile configuration while invalidating all Git generation
 authority and advancing revisions before installation. Surviving old keyring
-chunks are non-authoritative; restore never reads them or revives backup material.
+chunks are non-authoritative; legacy restore never reads them or revives backup material. Format-4 restore recovers the encrypted Git generation consistently with its configuration.
 These deterministic lifecycle seams establish neither native credential custody
 nor production Git forwarding, live GitHub interoperability or guest isolation.
 
@@ -128,14 +128,10 @@ Schema 21 stores only singleton revision, opaque handle and public certificate.
 The existing sole coordinator registers candidates, fences old authority before
 external work, writes and verifies protected material, atomically publishes matching
 metadata, then activates acknowledged authority. Failed replacement never falls
-back to an old signer. Ordinary backup/read/export surfaces contain no signing key;
+back to an old signer. Ordinary read/export surfaces contain no signing key; format-4 backups contain only its authenticated ciphertext;
 public certificate export attests neither material availability nor installed trust.
 
-Every backup restore removes CA authority and advances its revision, even if retired
-physical keyring items remain. Public metadata may remain as history, but interception
-requires explicit replacement and client trust updates after **every restore**.
-Ordinary restarts preserve selected CA identity. Restore never accesses the keyring
-or revives a backup handle; installation identity alone is not anti-rollback proof.
+Legacy-only backup restore removes CA authority and advances its revision, even if retired physical keyring items remain; it requires explicit replacement and client trust updates. Format-4 restore recovers the exact authenticated encrypted signing identity and matching certificate, without automatic replacement or client trust mutation. Ordinary restarts preserve selected CA identity. Restore never accesses native storage. The [encrypted recovery protocol](storage-and-recovery.md#backup-publication) requires matching key custody and preserves the current key-lifetime high-water; installation identity alone is not anti-rollback proof.
 
 Roots last five years; leaves last at most 24 hours and never outlive the root.
 Canonical DNS/IP SAN issuance rejects invalid hosts, uses fresh P-256 leaf keys and

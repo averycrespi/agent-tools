@@ -22,6 +22,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
@@ -51,14 +52,16 @@ const (
 type Clock interface{ Now() time.Time }
 
 type Options struct {
-	Store   *storage.Store
-	Layout  gatewaypaths.Layout
-	Clock   Clock
-	Entropy io.Reader
-	Fault   func(FaultPoint) error
+	Ownership *gatewaypaths.Ownership
+	Store     *storage.Store
+	Layout    gatewaypaths.Layout
+	Clock     Clock
+	Entropy   io.Reader
+	Fault     func(FaultPoint) error
 }
 
 type Manager struct {
+	ownership    *gatewaypaths.Ownership
 	store        *storage.Store
 	layout       gatewaypaths.Layout
 	clock        Clock
@@ -73,6 +76,7 @@ type Manager struct {
 
 type artifactMetadata struct {
 	Format             int    `json:"format,omitempty"`
+	MasterKeyID        string `json:"master_key_id,omitempty"`
 	TrafficGeneration  string `json:"traffic_generation,omitempty"`
 	TrafficSHA256      string `json:"traffic_sha256,omitempty"`
 	TrafficSizeBytes   int64  `json:"traffic_size_bytes,omitempty"`
@@ -87,7 +91,7 @@ func New(options Options) (*Manager, error) {
 	if options.Store == nil || options.Clock == nil || options.Entropy == nil || options.Layout.Backups == "" {
 		return nil, errors.New("backup manager dependencies are incomplete")
 	}
-	manager := &Manager{store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
+	manager := &Manager{ownership: options.Ownership, store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
 	if err := ensureDirectory(options.Layout.Backups); err != nil {
 		manager.inventoryErr = err
 		return manager, nil
@@ -108,7 +112,7 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	if err := validateIdempotencyKey(idempotencyKey); err != nil {
 		return contract.Backup{}, false, err
 	}
-	if err := manager.store.View(ctx, func(tx *sql.Tx) error { return requireLegacyCustody(ctx, tx) }); err != nil {
+	if err := manager.store.View(ctx, func(tx *sql.Tx) error { return requireBackupCustody(ctx, tx) }); err != nil {
 		return contract.Backup{}, false, err
 	}
 	authorityHash, keyHash := digestText(authorityID), digestText(idempotencyKey)
@@ -124,6 +128,20 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		if metadata[index].AuthorityHash == authorityHash && metadata[index].KeyHash == keyHash && manager.clock.Now().Sub(createdAt) <= contract.IdempotencyRetention {
 			if metadata[index].InputHash != digestText("{}") {
 				return contract.Backup{}, false, ErrInvalidIdempotency
+			}
+			if metadata[index].Format != 4 {
+				if err := manager.store.View(ctx, func(tx *sql.Tx) error {
+					enabled, err := keyring.DatabaseCustodyTx(ctx, tx)
+					if err != nil {
+						return err
+					}
+					if enabled {
+						return ErrEncryptedCustodyUnsupported
+					}
+					return nil
+				}); err != nil {
+					return contract.Backup{}, false, err
+				}
 			}
 			verified, err := manager.Get(ctx, metadata[index].ID)
 			return verified, err == nil, err
@@ -214,6 +232,23 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		AuthorityHash: authorityHash, KeyHash: keyHash, InputHash: digestText("{}"),
 	}
 	artifact.Format, artifact.History = 3, "omitted"
+	if err := storage.ViewBackup(ctx, databasePath, func(tx *sql.Tx) error {
+		encrypted, err := keyring.DatabaseCustodyTx(ctx, tx)
+		if err != nil || !encrypted {
+			return err
+		}
+		if manager.ownership == nil {
+			return keyring.ErrCustodyUnavailable
+		}
+		custody, err := verifyEncryptedCustodyTx(ctx, tx, manager.ownership)
+		if err != nil {
+			return err
+		}
+		artifact.Format, artifact.MasterKeyID = 4, custody.KeyID
+		return verifyEncryptedDomainsTx(ctx, tx)
+	}); err != nil {
+		return contract.Backup{}, false, err
+	}
 	if err := manager.fail(FaultMetadata); err != nil {
 		return contract.Backup{}, false, err
 	}
@@ -371,7 +406,7 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 	if _, err := time.Parse(time.RFC3339Nano, metadata.CreatedAt); err != nil {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
-	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format == 3); err != nil {
+	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format >= 3); err != nil {
 		return artifactMetadata{}, err
 	}
 	databasePath := filepath.Join(directory, databaseFile)
@@ -415,7 +450,21 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 	} else if metadata.Format == 0 && identity.TrafficGeneration != "" {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
-	if metadata.Format == 3 {
+	if metadata.Format == 4 {
+		if err := storage.ViewBackup(ctx, databasePath, func(tx *sql.Tx) error {
+			custody, err := keyring.InspectBackupCustodyTx(ctx, tx)
+			if err != nil {
+				return err
+			}
+			if custody.KeyID != metadata.MasterKeyID {
+				return ErrInvalidArtifact
+			}
+			return verifyEncryptedDomainsTx(ctx, tx)
+		}); err != nil {
+			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+		}
+	}
+	if metadata.Format >= 3 {
 		if err := invocation.VerifyOmittedLegacyTraffic(ctx, databasePath); err != nil {
 			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 		}
@@ -425,7 +474,7 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 		}
 	}
-	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format == 3); err != nil {
+	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format >= 3); err != nil {
 		return artifactMetadata{}, err
 	}
 	return metadata, nil

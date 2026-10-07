@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/spf13/cobra"
@@ -182,7 +183,12 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 				if trafficErr != nil {
 					plan.Actions = append(plan.Actions, "Current traffic integrity is not verified (missing or invalid closed storage). Its bounded file evidence is bound to this plan; any change after consent refuses restore. Live WAL/journal state is never ignored.")
 				}
-				plan.Actions = append(plan.Actions, "Replace current data; revoke restored administrator credentials; invalidate agent, HTTP credential and CA authority; publish one replacement administrator bearer. Sessions and in-flight work do not resume.")
+				if artifact.MasterKeyID != "" {
+					plan.Actions = append(plan.Actions, "Recover encrypted upstream credentials and the original CA with master key "+artifact.MasterKeyID+"; preserve the key lifetime budget and publish the recovered public certificate. Client trust is not changed.")
+				} else {
+					plan.Actions = append(plan.Actions, "Legacy backup: no self-contained secret recovery. Invalidate HTTP/Git credentials and CA authority; upstream reauthentication and explicit CA replacement are required.")
+				}
+				plan.Actions = append(plan.Actions, "Replace current data; revoke every old administrator and agent credential; publish one replacement administrator bearer to --secret-output. The default admin-bearer file is retained but invalid; select the new file explicitly. Sessions and in-flight work do not resume.")
 			}
 			if operation == "verify-and-recover-storage" {
 				plan.Actions = append(plan.Actions, "Write audit attempt/outcome; fully verify control storage; clear only verified security markers and mark maintenance clean. Optional history is not inspected or repaired.")
@@ -334,10 +340,10 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 		code, title = "inspection_unavailable", "Read-only inspection is blocked by uncheckpointed WAL or journal state. No maintenance changes made; retain all files. A qualified WAL-aware recovery plan is required."
 	case errors.Is(err, storage.ErrStorageLatched):
 		code, title = "storage_latched", "Recovery state is unknown or incompatible with this operation. No fallback reset, restore or deletion was attempted."
-	case errors.Is(err, composition.ErrSecretCustody):
+	case errors.Is(err, composition.ErrSecretCustody), errors.Is(err, keyring.ErrCustodyUnavailable), errors.Is(err, keyring.ErrIncompleteGeneration):
 		code, title, exit = "secret_storage_unavailable", "The master-key is missing, unsafe, incomplete or mismatched. Preserve the key and database and obtain a stopped recovery plan; setup never replaces an established key.", 7
 	case errors.Is(err, backup.ErrEncryptedCustodyUnsupported):
-		code, title, exit = "encrypted_backup_unsupported", "Backup creation and restore are not supported with encrypted secret custody. No restore changes made; preserve existing artifacts.", 5
+		code, title, exit = "encrypted_backup_unsupported", "This backup format or unresolved legacy dependency cannot recover encrypted custody. Preserve existing artifacts; select a complete format-4 backup with its matching master key.", 5
 	case errors.Is(err, backup.ErrInvalidArtifact), errors.Is(err, backup.ErrNotFound):
 		code, title, exit = "invalid_backup", "The selected backup is unavailable, foreign or invalid; choose a verified backup from this installation.", 4
 	case errors.Is(err, admin.ErrSecretPublication):

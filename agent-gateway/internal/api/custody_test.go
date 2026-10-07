@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ type custodyClock struct{}
 
 func (custodyClock) Now() time.Time { return time.Now() }
 
-func TestEncryptedBackupRefusalIsExplicitConflict(t *testing.T) {
+func TestMixedCustodyBackupRefusalIsExplicitConflict(t *testing.T) {
 	owner, err := gatewaypaths.AcquireForMaintenance(filepath.Join(t.TempDir(), "gateway"))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, owner.Close()) }()
@@ -28,7 +29,13 @@ func TestEncryptedBackupRefusalIsExplicitConflict(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
 	require.NoError(t, keyring.SetupCustody(t.Context(), owner, store, custodyClock{}))
-	manager, err := backup.New(backup.Options{Store: store, Layout: owner.Layout(), Clock: custodyClock{}, Entropy: rand.Reader})
+	handle, err := keyring.NewHandle(rand.Reader)
+	require.NoError(t, err)
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`INSERT INTO secret_generations(handle,owner,kind,custody) VALUES(?,?,'static_credential','legacy')`, handle, testID)
+		return err
+	}))
+	manager, err := backup.New(backup.Options{Ownership: owner, Store: store, Layout: owner.Layout(), Clock: custodyClock{}, Entropy: rand.Reader})
 	require.NoError(t, err)
 	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Backups: manager, Invalidate: func(contract.Invalidation) { t.Fatal("refusal published success invalidation") }})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})

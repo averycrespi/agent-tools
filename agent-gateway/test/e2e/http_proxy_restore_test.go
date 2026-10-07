@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTPProxyEncryptedCustodyRestartAndRecoveryRefusal(t *testing.T) {
+func TestHTTPProxyEncryptedCustodyRestartBackupAndKeyLoss(t *testing.T) {
 	h := newGatewayHarness(t)
 	binary, material := httpMaterialBinary(t)
 	h.binary = binary
@@ -31,10 +31,13 @@ func TestHTTPProxyEncryptedCustodyRestartAndRecoveryRefusal(t *testing.T) {
 	credential := h.IssueCredential(principal)
 	putProxyTestGrant(t, h, principal.Resource.ID, contract.HTTPPolicy{Version: 1, Type: contract.HTTPBlockDestination, Destination: &contract.HTTPDestinationSelector{Host: "example.invalid", Port: 443}})
 	h.Restart()
-	refusal := h.adminSnapshotWithHeaders("POST", "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "encrypted-custody"})
-	require.Equal(t, http.StatusConflict, refusal.StatusCode)
-	require.Contains(t, string(refusal.Body), `"code":"encrypted_backup_unsupported"`)
-	require.Equal(t, "no-store", refusal.Header.Get("Cache-Control"))
+	created := h.adminSnapshotWithHeaders("POST", "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "encrypted-custody"})
+	require.Equal(t, http.StatusCreated, created.StatusCode)
+	var artifact contract.Backup
+	require.NoError(t, json.Unmarshal(created.Body, &artifact))
+	require.NotEmpty(t, artifact.ID)
+	require.Equal(t, "omitted", artifact.History)
+	require.Equal(t, "no-store", created.Header.Get("Cache-Control"))
 	require.Equal(t, http.StatusOK, h.ModernList(credential.Bearer, json.RawMessage(`"still-current"`), "").StatusCode)
 	h.Stop(syscall.SIGTERM)
 	// The native fixture has no secret material: both stopped CA creation and
