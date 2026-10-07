@@ -28,9 +28,16 @@ func (s *TrafficStore) upgradeTraffic(ctx context.Context) error {
 	if err := s.inject("http_migration_begin"); err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return err
+		return classifyTraffic(err, "begin", "not_started")
+	}
+	// Keep rollback and its result under the opener, not database/sql's
+	// cancellation goroutine. Statements retain the opening deadline.
+	defer func() { _ = conn.Close() }()
+	tx, err := conn.BeginTx(context.WithoutCancel(ctx), nil)
+	if err != nil {
+		return classifyTraffic(err, "begin", "not_started")
 	}
 	if version == 1 {
 		_, err = tx.ExecContext(ctx, storage.TrafficHTTPMigration())
@@ -44,20 +51,32 @@ func (s *TrafficStore) upgradeTraffic(ctx context.Context) error {
 	if err == nil {
 		err = s.inject("http_migration_commit")
 	}
+	if err == nil {
+		err = ctx.Err()
+	}
 	if err != nil {
-		return errors.Join(err, tx.Rollback())
+		if rollback := tx.Rollback(); rollback != nil {
+			return classifyTraffic(errors.Join(err, rollback), "rollback", "uncertain")
+		}
+		return classifyTraffic(err, "statement", "rolled_back")
 	}
 	if err = tx.Commit(); err != nil {
-		return errors.Join(ErrTrafficFault, err)
+		return classifyTraffic(errors.Join(ErrTrafficFault, err), "commit", "uncertain")
 	}
 	if err = s.inject("http_migration_acknowledgment"); err != nil {
-		return errors.Join(ErrTrafficFault, err)
+		return classifyTraffic(errors.Join(ErrTrafficFault, err), "acknowledgment", "uncertain")
+	}
+	if err = conn.Close(); err != nil {
+		return classifyTraffic(err, "acknowledgment", "uncertain")
 	}
 	// No second row scan: nothing in the validated evidence was transformed.
 	if err = s.validateTrafficSchema(ctx, 3); err != nil {
-		return err
+		return classifyTraffic(err, "validation", "committed")
 	}
-	return trafficFiles(s.path, s.config)
+	if err = trafficFiles(s.path, s.config); err != nil {
+		return classifyTraffic(err, "validation", "committed")
+	}
+	return nil
 }
 
 func (s *TrafficStore) validateHTTPTraffic(ctx context.Context, high int64) (count, charged int64, result error) {

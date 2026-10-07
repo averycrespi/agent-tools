@@ -39,6 +39,7 @@ type Adapter struct {
 	now           func() time.Time
 	writeNow      func() time.Time
 	suppression   map[suppressionKey]suppressionState
+	trafficLast   [2]time.Time
 }
 
 func New(sink io.Writer, level Level) *Adapter {
@@ -154,7 +155,7 @@ func (adapter *Adapter) Observe(facts Facts) {
 		increment(&adapter.dropped)
 		return
 	}
-	if adapter.suppress(&facts) || upstreamEvent(facts.Event) && adapter.level < upstreamLevel(facts.Event) {
+	if adapter.suppressTraffic(facts) || adapter.suppress(&facts) || upstreamEvent(facts.Event) && adapter.level < upstreamLevel(facts.Event) {
 		return
 	}
 	select {
@@ -242,6 +243,12 @@ func (adapter *Adapter) Status() contract.DiagnosticDeliveryStatus {
 }
 
 func validFacts(f Facts) bool {
+	if trafficEvent(f.Event) {
+		return validTraffic(f)
+	}
+	if f.TrafficCause != 0 || f.TrafficStage != 0 || f.Settlement != 0 || f.SQLiteCode != 0 {
+		return false
+	}
 	if f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure {
 		base := f
 		base.Event, base.Cause, base.Stage, base.Duration, base.ProxyID = 0, 0, 0, 0, ""
@@ -469,7 +476,7 @@ func (adapter *Adapter) encodeAt(f Facts, dropped, invalid uint64, observedAt ti
 	if f.Event == LifecycleFailure || f.Event == DurabilityFailure || f.Event == StorageLatch {
 		level = slog.LevelError
 	}
-	if f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure {
+	if f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure || trafficEvent(f.Event) {
 		level = slog.LevelWarn
 	}
 	if upstreamEvent(f.Event) {
@@ -503,6 +510,12 @@ func (adapter *Adapter) encodeAt(f Facts, dropped, invalid uint64, observedAt ti
 		}
 		if f.Suppressed != 0 || f.Event == UpstreamRecovered {
 			record.AddAttrs(slog.Uint64("suppressed", f.Suppressed))
+		}
+	}
+	if trafficEvent(f.Event) {
+		record.AddAttrs(slog.String("cause", trafficCauses[f.TrafficCause]), slog.String("stage", trafficStages[f.TrafficStage]), slog.String("settlement", trafficSettlements[f.Settlement]))
+		if f.SQLiteCode != 0 {
+			record.AddAttrs(slog.Int("sqlite_code", f.SQLiteCode))
 		}
 	}
 	if f.Cause != None {

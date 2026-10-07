@@ -306,6 +306,20 @@ class CacheTests(unittest.TestCase):
         harness = (ROOT / "agent-gateway/test/e2e/harness_test.go").read_text()
         self.assertIn("testutil.NewBinaryRunner(30*time.Second, 64*1024)", harness)
 
+    def test_gateway_integration_bounds_package_workers_only(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        profile = "GOFLAGS: ${{ matrix.suite != 'harness' && '-p=2' || '' }}"
+        self.assertIn(profile, jobs["gateway-macos"])
+        self.assertEqual(workflow.count(profile), 1)
+        linux_profile = "GOFLAGS: ${{ matrix.tool == 'agent-gateway' && '-p=2' || '' }}"
+        self.assertIn(linux_profile, jobs["integration-tests"])
+        self.assertEqual(workflow.count(linux_profile), 1)
+        self.assertIn('run: make -C "$TOOL" "test-$SUITE"', jobs["integration-tests"])
+        self.assertIn("timeout-minutes: 30", jobs["integration-tests"])
+        self.assertIn('run: make -C agent-gateway "test-$SUITE"', jobs["gateway-macos"])
+        self.assertIn("timeout-minutes: 30", jobs["gateway-macos"])
+
     def test_gateway_macos_executes_disjoint_platform_owners(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))

@@ -137,11 +137,15 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 	if err != nil {
 		return nil, err
 	}
-	s := &TrafficStore{db: db, path: path, config: config,
+	s := &TrafficStore{db: db, path: path, config: config, installation: installation, generation: generation,
 		observations: make(chan *trafficRequest, config.QueueRecords),
 		stop:         make(chan struct{}), done: make(chan struct{}), readSlots: make(chan struct{}, config.Readers), fault: fault}
 	if err = s.validateTraffic(ctx, installation, generation); err == nil {
-		err = s.upgradeTraffic(ctx)
+		if err = s.upgradeTraffic(ctx); err != nil {
+			err = errors.Join(ErrTrafficFault, err)
+		}
+	} else {
+		err = classifyTraffic(err, "validation", "not_started")
 	}
 	if err != nil {
 		_ = db.Close()

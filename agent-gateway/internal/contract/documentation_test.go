@@ -23,20 +23,20 @@ func TestDocumentationContractDrift(t *testing.T) {
 		},
 		"../../README.md": {
 			"## Why Gateway?", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
-			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Native keyring operations may prompt",
+			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Legacy native keyring reads may prompt", "authenticated encryption", "master-key",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
 		"../../docs/operators/backup-and-recovery.md": {
 			"Gateway must be stopped", "agent-gateway maintenance verify-and-recover-storage", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
-			"Every restore invalidates interception CA authority.",
+			"Format-4 restore recovers the exact backed-up CA certificate and signing identity", "Legacy-only restore still invalidates CA and HTTP/Git credential authority", "master_key_id", "nonrefundable encryption high-water",
 		},
 		"../../DESIGN.md": {
 			"## Documentation authority", "docs/design/public-contract.md", "docs/design/identity-and-authorization.md", "docs/design/storage-and-recovery.md",
 			"docs/design/downstream-servers.md", "docs/design/invocation-and-ingress.md", "docs/design/administrative-control-plane.md",
 		},
-		"../../docs/design/downstream-servers.md":     {"## Installation interception CA", "4,096 bytes", "after **every restore**"},
+		"../../docs/design/downstream-servers.md":     {"## Installation interception CA", "4,096 bytes", "Format-4 restore recovers the exact authenticated encrypted signing identity"},
 		"../../docs/design/invocation-and-ingress.md": {"## HTTP proxy engine", "serve --http-proxy-listen", "username `agent`", "one hour from admission", "no blanket hard lifetime"},
 		"../../docs/design/identity-and-authorization.md": {
 			"grant_requests", "sole online schema-10 DML owner",

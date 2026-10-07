@@ -19,73 +19,32 @@ type TrafficHistory struct {
 }
 
 func (s *TrafficStore) History(ctx context.Context, after int64, limit int) (result TrafficHistory, err error) {
-	if s.optional != nil {
-		target := s.optionalTarget()
-		if target == nil {
-			return result, ErrTrafficFault
-		}
-		return target.History(ctx, after, limit)
-	}
-	defer func() {
-		if err != nil && !errors.Is(err, ErrInvalidInput) && !errors.Is(err, ErrTrafficCapacity) &&
-			!errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			s.mu.Lock()
-			s.faulted = true
-			s.mu.Unlock()
-		}
-	}()
 	if after < 0 || limit < 1 || limit > 256 {
 		return result, ErrInvalidInput
 	}
-	select {
-	case s.readSlots <- struct{}{}:
-		defer func() { <-s.readSlots }()
-	default:
-		return result, ErrTrafficCapacity
-	}
-	ctx, cancel := context.WithTimeout(ctx, s.config.ReadLifetime)
-	defer cancel()
-	// Try rather than queue behind checkpoint maintenance. Readers never leak a
-	// live SQLite snapshot to callers or prolong the writer's pressure window.
-	if !s.readGate.TryRLock() {
-		return result, ErrTrafficCapacity
-	}
-	defer s.readGate.RUnlock()
-	s.mu.Lock()
-	closed := s.closed
-	s.mu.Unlock()
-	if closed {
-		return result, ErrTrafficFault
-	}
-	tx, err := s.readerDB.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return result, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err = tx.QueryRowContext(ctx, `SELECT generation,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&result.Generation, &result.HighWater, &result.Pruning); err != nil {
-		return TrafficHistory{}, err
-	}
-	rows, err := tx.QueryContext(ctx, invocationSelect+` WHERE insertion_sequence>? ORDER BY insertion_sequence LIMIT ?`, after, limit)
-	if err != nil {
-		return TrafficHistory{}, err
-	}
-	for rows.Next() {
-		record, scanErr := scanInvocation(rows)
-		if scanErr != nil {
-			err = scanErr
-			break
+	err = s.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
+		if err := tx.QueryRowContext(ctx, `SELECT generation,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&result.Generation, &result.HighWater, &result.Pruning); err != nil {
+			return err
 		}
-		if !validStoredInvocation(record) {
-			err = ErrInvalidState
-			break
+		rows, err := tx.QueryContext(ctx, invocationSelect+` WHERE insertion_sequence>? ORDER BY insertion_sequence LIMIT ?`, after, limit)
+		if err != nil {
+			return err
 		}
-		result.Records = append(result.Records, record)
-	}
-	err = errors.Join(err, rows.Err(), rows.Close())
+		for rows.Next() {
+			record, scanErr := scanInvocation(rows)
+			if scanErr != nil {
+				err = scanErr
+				break
+			}
+			if !validStoredInvocation(record) {
+				err = ErrInvalidState
+				break
+			}
+			result.Records = append(result.Records, record)
+		}
+		return errors.Join(err, rows.Err(), rows.Close())
+	})
 	if err != nil {
-		return TrafficHistory{}, err
-	}
-	if err = tx.Commit(); err != nil {
 		return TrafficHistory{}, err
 	}
 	return result, nil

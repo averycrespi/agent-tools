@@ -19,6 +19,22 @@ export interface HistoryHealth {
   pressure_reason: string;
   accounting_available: boolean;
 }
+export interface TrafficRecovery {
+  health: string;
+  lastAcknowledged: string;
+  incident: {
+    firstFailure: string;
+    cause: string;
+    stage: string;
+    settlement: string;
+    recovery: string;
+    recoveryCause: string;
+    recoveryStage: string;
+    sqliteCode: number;
+    affected: number;
+    discarded: number;
+  } | null;
+}
 export interface DiagnosticHealth {
   state: string;
   epoch: string;
@@ -136,6 +152,119 @@ export function decodeHistoryHealth(
     ]),
     accounting_available: bool(v.accounting_available),
   };
+}
+export const trafficRecoveryKeys = ["health", "last_acknowledged", "incident"];
+const trafficCauses = [
+  "unknown",
+  "permission",
+  "ownership",
+  "missing",
+  "integrity",
+  "full",
+  "io",
+  "locked",
+  "deadline",
+  "capacity",
+];
+const trafficStages = [
+  "opening",
+  "validation",
+  "reservation",
+  "begin",
+  "statement",
+  "commit",
+  "rollback",
+  "acknowledgment",
+  "read",
+];
+const recoveryStates = [
+  "healthy",
+  "degraded",
+  "recovering",
+  "operator_action_required",
+  "recovered",
+  "disabled",
+  "opening",
+  "unavailable",
+];
+function timestamp(value: unknown, empty = false): string {
+  const v = text(value);
+  if (empty && v === "") return v;
+  if (
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/.test(v) ||
+    !Number.isFinite(Date.parse(v))
+  )
+    throw new Error("invalid incident timestamp");
+  return v;
+}
+export function decodeTrafficRecovery(
+  v: Record<string, unknown>,
+): TrafficRecovery | undefined {
+  if (!trafficRecoveryKeys.some((k) => k in v)) return undefined;
+  const health = closed(v.health, recoveryStates);
+  const lastAcknowledged = timestamp(v.last_acknowledged, true);
+  if (v.incident === null) return { health, lastAcknowledged, incident: null };
+  const i = object(v.incident, [
+    "first_failure",
+    "cause",
+    "stage",
+    "settlement",
+    "recovery",
+    "recovery_cause",
+    "recovery_stage",
+    "sqlite_code",
+    "affected",
+    "discarded",
+  ]);
+  const sqliteCode = count(i.sqlite_code);
+  if (sqliteCode > 65535) throw new Error("invalid SQLite code");
+  return {
+    health,
+    lastAcknowledged,
+    incident: {
+      firstFailure: timestamp(i.first_failure),
+      cause: closed(i.cause, trafficCauses),
+      stage: closed(i.stage, trafficStages),
+      recoveryCause: closed(i.recovery_cause, trafficCauses),
+      recoveryStage: closed(i.recovery_stage, trafficStages),
+      settlement: closed(i.settlement, [
+        "not_started",
+        "rolled_back",
+        "committed",
+        "uncertain",
+      ]),
+      recovery: closed(i.recovery, [
+        "degraded",
+        "recovering",
+        "operator_action_required",
+        "recovered",
+      ]),
+      sqliteCode,
+      affected: count(i.affected),
+      discarded: count(i.discarded),
+    },
+  };
+}
+export function trafficRecoveryAction(r: TrafficRecovery): string {
+  const i = r.incident;
+  if (!i) return "";
+  if (i.recovery === "recovered")
+    return "Recording resumed; discarded history was not reconstructed.";
+  if (i.recovery === "degraded")
+    return "Validation passed; awaiting a new acknowledged observation.";
+  if (i.settlement === "uncertain" && i.recovery === "recovering")
+    return "Wait for owned settlement and safe validation. Do not replay missing history.";
+  if (i.recovery === "recovering")
+    return "Waiting for bounded storage revalidation. Serving remains independent.";
+  if (["permission", "ownership"].includes(i.recoveryCause))
+    return "Inspect history ownership and permissions; do not change them while serving.";
+  if (i.recoveryCause === "integrity")
+    return "Preserve history files; use a separately qualified stopped recovery plan.";
+  if (["full", "capacity"].includes(i.recoveryCause))
+    return "Inspect disk capacity and the traffic budget. Do not delete live database or WAL files.";
+  if (i.recoveryCause === "missing")
+    return "Inspect the selected history generation; do not create a replacement.";
+  return "Inspect filesystem availability. Missing history never authorizes replay.";
 }
 export function decodeDiagnosticHealth(
   value: unknown,

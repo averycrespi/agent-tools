@@ -45,6 +45,9 @@ func InspectBaseIdentity(ctx context.Context, path string) (Identity, error) {
 // OpenMigrationSource never upgrades or repairs the original generation. Full
 // schema/domain validation follows on the independently owned replacement.
 func OpenMigrationSource(ctx context.Context, ownership *gatewaypaths.Ownership) (*Store, error) {
+	if err := gatewaypaths.RequireNoKeyRotation(ownership); err != nil {
+		return nil, err
+	}
 	layout, err := ownership.ActiveLayout()
 	if err != nil {
 		return nil, err
@@ -140,6 +143,9 @@ func ClearVerifiedMarker(ownership *gatewaypaths.Ownership, installationID strin
 
 // InstallReplacement atomically selects a closed staged generation and removes sidecars from both generations.
 func InstallReplacement(ownership *gatewaypaths.Ownership, staged string) error {
+	if err := gatewaypaths.RequireNoKeyRotation(ownership); err != nil {
+		return err
+	}
 	layout, err := ownership.ActiveLayout()
 	if err != nil {
 		return err

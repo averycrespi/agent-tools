@@ -130,7 +130,7 @@ func (r *Repository) Read(ctx context.Context, id string) (contract.InvocationAu
 		return contract.InvocationAuditRecord{}, false, ErrInvalidInput
 	}
 	var record contract.InvocationAuditRecord
-	err := r.view(ctx, func(tx *sql.Tx) error {
+	err := r.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		var err error
 		record, err = scanInvocation(tx.QueryRowContext(ctx, invocationSelect+` WHERE id=?`, id))
 		return err
@@ -142,12 +142,12 @@ func (r *Repository) Read(ctx context.Context, id string) (contract.InvocationAu
 }
 func (r *Repository) Count(ctx context.Context) (int64, error) {
 	var count int64
-	err := r.view(ctx, func(tx *sql.Tx) error {
+	err := r.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count)
 	})
 	return count, err
 }
-func (r *Repository) view(ctx context.Context, read func(*sql.Tx) error) error {
+func (r *Repository) view(ctx context.Context, read func(context.Context, *sql.Tx) error) error {
 	if r.traffic != nil {
 		return r.traffic.view(ctx, read)
 	}
@@ -158,7 +158,7 @@ func (r *Repository) view(ctx context.Context, read func(*sql.Tx) error) error {
 		if r.store.Latched() {
 			return ErrStorageUnavailable
 		}
-		return read(tx)
+		return read(ctx, tx)
 	})
 	if r.store.Latched() {
 		return ErrStorageUnavailable

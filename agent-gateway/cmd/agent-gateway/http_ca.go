@@ -168,6 +168,8 @@ func httpCAProblem(err error) *controlclient.Problem {
 		code, title, exit = "gateway_running", "The installation is in use. Stop its launchers before CA operations.", 5
 	case errors.Is(err, composition.ErrCAIdentity):
 		code, title, exit = "installation_mismatch", "The --installation-id assertion does not match the selected installation.", 5
+	case errors.Is(err, composition.ErrSecretCustody):
+		code, title = "secret_storage_unavailable", "Encrypted secret storage is unavailable. Inspect stopped maintenance setup-secret-storage and recovery guidance; never replace a missing established master-key."
 	case errors.Is(err, composition.ErrCAPublication):
 		code, title = "certificate_output_unavailable", "Public certificate publication failed. Preserve unrelated output files; use http ca export --output NEW_PATH, not another replacement."
 	case errors.Is(err, gatewaypaths.ErrUnsafePath):

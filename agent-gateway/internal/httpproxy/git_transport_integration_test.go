@@ -387,6 +387,19 @@ func TestIntegrationNativeGitInterruptedPushNoReplay(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, count, "Gateway must not replay dispatched receive-pack")
+	// Settled transport work does not drain the asynchronous traffic writer.
+	require.Eventually(t, func() bool {
+		history, err := n.proxy.traffic.GitHistory(t.Context(), beforePush.HighWater, 256)
+		if err != nil {
+			return false
+		}
+		for _, record := range history.Records {
+			if record.Admission.Operation == "push" {
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 10*time.Millisecond)
 	history, err := n.proxy.traffic.GitHistory(t.Context(), beforePush.HighWater, 256)
 	require.NoError(t, err)
 	interruptedRecords := 0

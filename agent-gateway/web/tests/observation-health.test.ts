@@ -2,10 +2,54 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   decodeHistoryHealth,
+  decodeTrafficRecovery,
+  trafficRecoveryAction,
   decodeDiagnosticHealth,
   decodeObservations,
   measurementText,
 } from "../src/observation-health.ts";
+
+import {
+  trafficRecoveryFixture,
+  recoveryStates,
+} from "./browser/traffic-recovery-fixture.ts";
+
+test("traffic recovery retains initiating facts and rejects unsafe incident fields", () => {
+  for (const state of recoveryStates) {
+    const input = trafficRecoveryFixture(state);
+    const decoded = decodeTrafficRecovery(input)!;
+    assert.equal(decoded.health, state);
+    if (state !== "healthy") {
+      assert.equal(decoded.incident!.discarded, 3);
+      assert.notEqual(trafficRecoveryAction(decoded), "");
+      for (const [key, value] of Object.entries({
+        cause: "SECRET",
+        stage: "raw SQL",
+        settlement: "assumed",
+        first_failure: "invalid",
+        sqlite_code: 65536,
+        discarded: -1,
+        recovery_cause: "secret",
+        recovery_stage: "secret",
+      })) {
+        assert.throws(() =>
+          decodeTrafficRecovery({
+            ...input,
+            incident: { ...input.incident, [key]: value },
+          }),
+        );
+      }
+      assert.throws(() =>
+        decodeTrafficRecovery({
+          ...input,
+          incident: { ...input.incident, extra: "secret" },
+        }),
+      );
+    }
+  }
+  assert.equal(decodeTrafficRecovery({}), undefined);
+  assert.throws(() => decodeTrafficRecovery({ health: "healthy" }));
+});
 
 const history = {
   delivery: {

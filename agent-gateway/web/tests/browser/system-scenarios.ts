@@ -1,3 +1,7 @@
+import {
+  recoveryStates,
+  trafficRecoveryFixture,
+} from "./traffic-recovery-fixture.ts";
 import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
@@ -3144,6 +3148,7 @@ export async function runSystemStatus(
       active_tunnels: 1,
     },
     traffic: {
+      ...trafficRecoveryFixture("healthy"),
       state: "ready",
       ready: true,
       faulted: false,
@@ -3530,6 +3535,42 @@ export async function runSystemStatus(
         fullPage: true,
       });
     }
+  }
+  for (const health of recoveryStates) {
+    currentStatus = {
+      ...currentStatus,
+      traffic: {
+        ...currentStatus.traffic,
+        ...trafficRecoveryFixture(health),
+        state:
+          health === "recovering" || health === "operator_action_required"
+            ? "faulted"
+            : "ready",
+        ready: health !== "recovering" && health !== "operator_action_required",
+      },
+    };
+    await page.getByTestId("manual-refresh").click();
+    await expect(
+      statusPanel.getByText(
+        `Recording: ${health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " ")}`,
+        { exact: true },
+      ),
+    ).toBeVisible();
+    if (health !== "healthy")
+      await expect(
+        statusPanel.getByText("3 affected · 3 discarded submissions", {
+          exact: true,
+        }),
+      ).toBeVisible();
+    if (health === "recovering")
+      await expect(statusPanel).toContainText(
+        "Recovery blocker: Locked · Validation",
+      );
+    if (health === "recovered")
+      await expect(statusPanel).toContainText(
+        "discarded history was not reconstructed",
+      );
+    await captureDetailLayout(page, `traffic-${health}`);
   }
   const beforeDiagnosticFailure = currentStatus;
   currentStatus = {

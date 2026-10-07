@@ -1,6 +1,9 @@
 import type { ComponentChildren } from "preact";
 import {
   decodeHistoryHealth,
+  decodeTrafficRecovery,
+  trafficRecoveryKeys,
+  type TrafficRecovery,
   historyHealthKeys,
   decodeDiagnosticHealth,
   decodeObservations,
@@ -72,6 +75,7 @@ export interface LimitView {
   saturated: boolean;
 }
 export interface TrafficView {
+  recovery?: TrafficRecovery | undefined;
   health?: HistoryHealth | undefined;
   state: string;
   ready: boolean;
@@ -255,7 +259,14 @@ export function decodeStatus(value: unknown): StatusView {
       "delivery" in root.traffic
         ? historyHealthKeys
         : [];
+    const recoveryKeys =
+      root.traffic &&
+      typeof root.traffic === "object" &&
+      "health" in root.traffic
+        ? trafficRecoveryKeys
+        : [];
     const item = record(root.traffic, [
+      ...recoveryKeys,
       ...healthKeys,
       "state",
       "ready",
@@ -277,6 +288,7 @@ export function decodeStatus(value: unknown): StatusView {
       throw new Error("invalid traffic history semantics");
     traffic = {
       health: decodeHistoryHealth(item),
+      recovery: decodeTrafficRecovery(item),
       state: closed(item.state, [
         "opening",
         "ready",

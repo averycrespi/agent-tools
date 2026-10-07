@@ -32,7 +32,7 @@ Wait for Vite's `ready` line, open `http://127.0.0.1:5173`, and sign in using th
 
 Use `make -C agent-gateway serve-demo AGENT_GATEWAY_DEMO_LISTEN=127.0.0.1:PORT` when that authority is occupied, and set `AGENT_GATEWAY_UI_GATEWAY` to the matching origin. The script equivalent is `./agent-gateway/scripts/serve-demo.sh --dataset curated --listen 127.0.0.1:8211`; unknown datasets and noncanonical/nonloopback authorities are rejected before launch. Press `Ctrl-C` in the Gateway terminal to stop its Gateway and fixture process groups and remove its binary, data, account home, all credential files, and disposable file-backed material (including the CA). Interruption exits nonzero. Every launch generates fresh credentials/IDs/timestamps; a cleanup failure reports a retained root instead of claiming success. Stop Vite separately.
 
-This path is for isolated feature development. The link-time-only E2E file provider lets the stopped CA command and serving process share disposable material; it adds no production configuration switch. This does not qualify the native operating-system keyring, system trust, or production persistence across Gateway restarts. Use ordinary builds and the release-verification owners when those behaviors are under review.
+This path is for isolated feature development. Fresh demo installations share encrypted CA material through their disposable control database and master key; the link-time-only E2E file provider remains available for explicit legacy fixtures and adds no production configuration switch. This does not qualify the native operating-system keyring, system trust or installed-resource adoption. Use the release-verification owners when those behaviors are under review.
 
 ## Demo dataset and verification
 
@@ -196,7 +196,7 @@ A small set of UI operations reaches most populated states without a downstream 
 2. Issue its agent credential to inspect confirmation and one-time-secret behavior.
 3. Create an exact grant against Gateway self-service tools.
 4. Create a disabled, unauthenticated HTTP server with a syntactically valid non-routable endpoint such as `https://example.invalid/mcp`. This exposes the server detail tabs without initiating downstream work.
-5. Create a backup and an additional administrator credential to populate their System tables. Backups retain their metadata in the table and offer confirmed Delete, without an inspection panel; use `agent-gateway backup get BACKUP_ID` for installation ID and SHA-256.
+5. Exercise the explicit encrypted-backup refusal and create an additional administrator credential. Fresh installations do not yet support backup creation/restore; use the mocked frontend owner for populated backup-table presentation. Supported legacy backups retain metadata and confirmed Delete, without an inspection panel; `agent-gateway backup get BACKUP_ID` exposes installation ID and SHA-256.
 
 Exercise sign-in failure and success, sign-out, dirty-navigation protection, destructive confirmations, filters and reset, empty and populated collections, light and dark themes, and mobile navigation. Inspect at least desktop, narrow mobile, and 320px widths.
 

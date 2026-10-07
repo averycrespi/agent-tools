@@ -13,7 +13,7 @@ import (
 )
 
 func TestGatewayBinaryStatusUsesMetadataOnlyBackupAccounting(t *testing.T) {
-	harness := newGatewayHarness(t)
+	harness := newLegacyGatewayHarness(t)
 	harness.Start()
 	check := func(count int64) {
 		t.Helper()

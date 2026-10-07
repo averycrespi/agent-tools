@@ -110,8 +110,11 @@ func readAccountingMetadata(directory *os.File, id string) (artifactMetadata, er
 	if _, err := strconv.ParseUint(metadata.SourceRevision, 10, 64); err != nil {
 		return artifactMetadata{}, ErrInvalidArtifact
 	}
+	if (metadata.Format == 4 && !accountingDigest(metadata.MasterKeyID)) || (metadata.Format != 4 && metadata.MasterKeyID != "") {
+		return artifactMetadata{}, ErrInvalidArtifact
+	}
 	switch metadata.Format {
-	case 3:
+	case 3, 4:
 		if metadata.History != "omitted" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
 			return artifactMetadata{}, ErrInvalidArtifact
 		}

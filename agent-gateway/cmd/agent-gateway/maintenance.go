@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/spf13/cobra"
@@ -24,7 +25,11 @@ var errDryRun = errors.New("read-only plan completed")
 func newMaintenanceCmd(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{Use: "maintenance", Short: "Inspect and recover stopped installations", Long: "Choose an operation, inspect its --dry-run plan, then use --confirm for noninteractive consent. Running maintenance alone only shows help."}
 	configureNamespaceCommand(command)
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "restore-backup", "migrate-traffic-storage"} {
+	command.AddCommand(newRotateMasterKeyCmd(dependencies))
+	for _, operation := range []string{"migrate-secrets", "verify-secrets", "cleanup-native-secrets"} {
+		command.AddCommand(newSecretMigrationCmd(operation, dependencies))
+	}
+	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "restore-backup", "migrate-traffic-storage", "setup-secret-storage"} {
 		command.AddCommand(newMaintenanceOperation(operation, dependencies))
 	}
 	return command
@@ -43,16 +48,18 @@ type maintenancePlan struct {
 }
 
 func newMaintenanceOperation(operation string, dependencies offlineDependencies) *cobra.Command {
-	var installation, secretOutput string
+	var installation, secretOutput, recoveryKey string
 	var confirm, dryRun, jsonOutput, securityOnly bool
 	var budget int64
-	descriptions := map[string]string{
+	descriptions := map[string]string{ //nolint:gosec // Public command descriptions, not credentials.
+		"setup-secret-storage":       "Initialize encrypted secret storage",
 		"verify-and-recover-storage": "Verify and recover storage",
 		"reset-admin-credentials":    "Reset all administrator credentials",
 		"restore-backup":             "Restore an installation backup",
 		"migrate-traffic-storage":    "Migrate traffic to separate storage",
 	}
 	details := map[string]string{
+		"setup-secret-storage":       "Create or verify the installation master key without reinitializing or migrating legacy credentials",
 		"verify-and-recover-storage": "Validate storage, write audit evidence and apply recognized marker recovery",
 		"reset-admin-credentials":    "Replace all administrator authority, retaining product state",
 		"restore-backup":             "Replace current state from a verified backup and invalidate restored credentials",
@@ -71,7 +78,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 		command.Long += " The replacement bearer is written once to a new 0600 file; it cannot be recovered or displayed again."
 	}
 	if operation == "restore-backup" {
-		command.Long += " Security backups omit history automatically; --security-only imports only control from a legacy artifact without verifying history. When history is omitted, originals are preserved and capture is disabled until explicit initialization."
+		command.Long += " Security backups omit history automatically; --security-only imports only control from a legacy artifact without verifying history. When history is omitted, originals are preserved and capture is disabled until explicit initialization. For a pre-rotation backup, --recovery-key selects its original key for decryption only; restored material is re-encrypted under the current key after a nonrefundable encryption-budget reservation. Failed stages do not refund the reservation or reactivate the old key."
 	}
 	if operation == "verify-and-recover-storage" {
 		command.Long += " Applies only recognized recovery actions without replacing the database or resetting authority."
@@ -125,7 +132,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 			var artifact backup.RestoreInspection
 			if operation == "restore-backup" {
 				var err error
-				artifact, err = backup.InspectRestoreScope(ctx, owner, args[0], securityOnly)
+				artifact, err = backup.InspectRestoreWithKey(ctx, owner, args[0], securityOnly, recoveryKey)
 				if err != nil {
 					return err
 				}
@@ -137,7 +144,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 			if installation != "" && snapshot.Identity.InstallationID != installation {
 				return composition.ErrCAIdentity
 			}
-			if operation != "migrate-traffic-storage" && snapshot.Identity.SchemaVersion != storage.CurrentSchema {
+			if operation != "migrate-traffic-storage" && operation != "setup-secret-storage" && snapshot.Identity.SchemaVersion != storage.CurrentSchema {
 				return storage.ErrInvalidDatabase
 			}
 			if operation != "verify-and-recover-storage" && operation != "restore-backup" && snapshot.Marked {
@@ -180,7 +187,15 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 				if trafficErr != nil {
 					plan.Actions = append(plan.Actions, "Current traffic integrity is not verified (missing or invalid closed storage). Its bounded file evidence is bound to this plan; any change after consent refuses restore. Live WAL/journal state is never ignored.")
 				}
-				plan.Actions = append(plan.Actions, "Replace current data; revoke restored administrator credentials; invalidate agent, HTTP credential and CA authority; publish one replacement administrator bearer. Sessions and in-flight work do not resume.")
+				if artifact.TargetKeyID != "" && artifact.TargetKeyID != artifact.MasterKeyID {
+					plan.Actions = append(plan.Actions, fmt.Sprintf("Use the explicit historical key only for decryption; re-encrypt restored material under current key %s. Durably reserve %d encryptions before staging; failed attempts never refund this budget. The active key is not replaced.", artifact.TargetKeyID, artifact.NewEncryptions))
+				}
+				if artifact.MasterKeyID != "" {
+					plan.Actions = append(plan.Actions, "Recover encrypted upstream credentials and the original CA with master key "+artifact.MasterKeyID+"; preserve the key lifetime budget and publish the recovered public certificate. Client trust is not changed.")
+				} else {
+					plan.Actions = append(plan.Actions, "Legacy backup: no self-contained secret recovery. Invalidate HTTP/Git credentials and CA authority; upstream reauthentication and explicit CA replacement are required.")
+				}
+				plan.Actions = append(plan.Actions, "Replace current data; revoke every old administrator and agent credential; publish one replacement administrator bearer to --secret-output. The default admin-bearer file is retained but invalid; select the new file explicitly. Sessions and in-flight work do not resume.")
 			}
 			if operation == "verify-and-recover-storage" {
 				plan.Actions = append(plan.Actions, "Write audit attempt/outcome; fully verify control storage; clear only verified security markers and mark maintenance clean. Optional history is not inspected or repaired.")
@@ -242,12 +257,14 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 		}
 		var identity storage.Identity
 		switch operation {
+		case "setup-secret-storage":
+			identity, err = composition.SetupStoppedSecrets(ctx, layout.Root, dependencies.clock, approval)
 		case "verify-and-recover-storage":
 			identity, err = composition.VerifyStorageBudget(ctx, layout.Root, budget, approval)
 		case "reset-admin-credentials":
 			identity, err = executeAdminAuthority(ctx, "reset", layout.Root, admin.NewFileSecretSink(secretOutput), dependencies, approval)
 		case "restore-backup":
-			identity, err = backup.Restore(ctx, backup.RestoreOptions{Root: layout.Root, BackupID: args[0], SecurityOnly: securityOnly, Sink: admin.NewFileSecretSink(secretOutput), Clock: dependencies.clock, Entropy: dependencies.entropy, Before: approval})
+			identity, err = backup.Restore(ctx, backup.RestoreOptions{Root: layout.Root, BackupID: args[0], SecurityOnly: securityOnly, RecoveryKey: recoveryKey, Sink: admin.NewFileSecretSink(secretOutput), Clock: dependencies.clock, Entropy: dependencies.entropy, Before: approval})
 		case "migrate-traffic-storage":
 			var generation string
 			generation, err = admin.NewID(dependencies.clock.Now(), dependencies.entropy)
@@ -288,8 +305,12 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	}
 	if operation == "restore-backup" {
 		command.Flags().BoolVar(&securityOnly, "security-only", false, "omit unverified history when importing a legacy backup")
+		command.Flags().StringVar(&recoveryKey, "recovery-key", "", "explicit original key file for a pre-rotation backup (decrypt-only)")
 	}
-	storageSizeFlag(command.Flags(), &budget, composition.DefaultTrafficBudget, "selected traffic database/WAL budget")
+	budget = composition.DefaultTrafficBudget
+	if operation != "setup-secret-storage" {
+		storageSizeFlag(command.Flags(), &budget, composition.DefaultTrafficBudget, "selected traffic database/WAL budget")
+	}
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return fail(offlineFlagMessage(err)) })
 	return command
 }
@@ -309,6 +330,8 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 	switch {
 	case errors.Is(err, controlclient.ErrConfirmationRequired):
 		code, title, exit = "confirmation_required", "No maintenance changes made. Use --confirm for noninteractive consent.", 2
+	case errors.Is(err, gatewaypaths.ErrKeyRotationPending):
+		code, title, exit = "master_key_rotation_pending", "Master-key rotation requires explicit stopped reconciliation. Preserve all key and database files; inspect maintenance rotate-master-key --retain-recovery-keys --recover --dry-run. No encryption was replayed.", 7
 	case errors.Is(err, gatewaypaths.ErrInUse):
 		code, title, exit = "gateway_running", "No maintenance changes made. Stop the selected installation and its launchers first.", 5
 	case errors.Is(err, storage.ErrPlanChanged), errors.Is(err, composition.ErrCAIdentity):
@@ -327,6 +350,12 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 		code, title = "inspection_unavailable", "Read-only inspection is blocked by uncheckpointed WAL or journal state. No maintenance changes made; retain all files. A qualified WAL-aware recovery plan is required."
 	case errors.Is(err, storage.ErrStorageLatched):
 		code, title = "storage_latched", "Recovery state is unknown or incompatible with this operation. No fallback reset, restore or deletion was attempted."
+	case errors.Is(err, composition.ErrSecretCustody), errors.Is(err, keyring.ErrCustodyUnavailable), errors.Is(err, keyring.ErrIncompleteGeneration):
+		code, title, exit = "secret_storage_unavailable", "The master-key is missing, unsafe, incomplete or mismatched. Preserve the key and database and obtain a stopped recovery plan; setup never replaces an established key.", 7
+	case errors.Is(err, keyring.ErrMigrationIncomplete):
+		code, title, exit = "secret_migration_incomplete", "Protected dependencies or native cleanup remain unresolved. Completed copies and cleanup evidence were retained. Inspect missing credentials and stopped verification before another separately confirmed run; never remove legacy tooling without human approval.", 7
+	case errors.Is(err, backup.ErrEncryptedCustodyUnsupported):
+		code, title, exit = "encrypted_backup_unsupported", "This backup format or unresolved legacy dependency cannot recover encrypted custody. Preserve existing artifacts; select a complete format-4 backup with its matching master key.", 5
 	case errors.Is(err, backup.ErrInvalidArtifact), errors.Is(err, backup.ErrNotFound):
 		code, title, exit = "invalid_backup", "The selected backup is unavailable, foreign or invalid; choose a verified backup from this installation.", 4
 	case errors.Is(err, admin.ErrSecretPublication):
@@ -341,6 +370,8 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 	uncertain := false
 	if errors.As(err, &effect) {
 		switch effect.Effect {
+		case "reserved":
+			title += " Current-key encryption budget was permanently reserved; replacement authority was not selected. Do not refund the reservation."
 		case "staged":
 			title += " Staging or replacement output may exist; current installation authority was not selected from it."
 		case "changed":

@@ -75,10 +75,12 @@ const (
 	CatalogPollScheduled
 	HTTPProxyRejected
 	HTTPProxyFailure
+	TrafficFailure
+	TrafficRecovered
 	Loss
 )
 
-var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "http_proxy_failure", "diagnostic_loss"}
+var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "http_proxy_failure", "traffic_failure", "traffic_recovered", "diagnostic_loss"}
 
 type Cause uint8
 
@@ -143,6 +145,10 @@ var writerNames = [...]string{"foreign", "invocation_admission", "terminal_annot
 // Facts has no arbitrary keys, error, payload, or resource identity slots. The
 // adapter validates event-specific subsets before retaining even these fields.
 type Facts struct {
+	TrafficCause uint8
+	TrafficStage uint8
+	Settlement   uint8
+	SQLiteCode   int
 	ProxyID      string
 	Upstream     uint64
 	Attempt      uint64
@@ -186,6 +192,7 @@ type HTTPProxyObserver interface {
 }
 
 type Observer interface {
+	TrafficObserver
 	HTTPProxyObserver
 	ReconciliationObserver
 	StorageObserver

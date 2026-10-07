@@ -279,6 +279,9 @@ type ProtocolStatus struct {
 }
 
 type TrafficStatus struct {
+	Health                    string           `json:"health"`
+	LastAcknowledged          string           `json:"last_acknowledged"`
+	Incident                  *TrafficIncident `json:"incident"`
 	AccountingAvailable       bool             `json:"accounting_available"`
 	Delivery                  DeliveryCounters `json:"delivery"`
 	DatabaseMeasurement       ByteMeasurement  `json:"database_measurement"`

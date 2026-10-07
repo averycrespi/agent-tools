@@ -98,6 +98,47 @@ func TestTrafficHTTPStartupRejectsCorruptEvidence(t *testing.T) {
 	}
 }
 
+func TestTrafficHTTPUpgradePostCommitValidationRetainsSettlement(t *testing.T) {
+	for _, mode := range []string{"schema", "permissions"} {
+		t.Run(mode, func(t *testing.T) {
+			old, reopen := legacyTrafficFixture(t)
+			failed, err := reopen(func(at string) error {
+				if at != "http_migration_acknowledgment" {
+					return nil
+				}
+				if mode == "permissions" {
+					return os.Chmod(old.path, 0o644)
+				}
+				db, err := trafficDatabase(t.Context(), old.path, old.config, false, false)
+				if err != nil {
+					return err
+				}
+				_, err = db.ExecContext(t.Context(), `CREATE TABLE unexpected_schema(value TEXT)`)
+				return errors.Join(err, db.Close())
+			})
+			require.Nil(t, failed)
+			var failure *trafficFailure
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, "validation", failure.stage)
+			require.Equal(t, "committed", failure.settlement)
+			if mode == "permissions" {
+				require.Equal(t, "ownership", failure.cause)
+				require.NoError(t, os.Chmod(old.path, 0o600))
+			} else {
+				require.Equal(t, "integrity", failure.cause)
+			}
+			db, err := trafficDatabase(t.Context(), old.path, old.config, false, false)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, db.Close()) }()
+			var version, count int
+			require.NoError(t, db.QueryRowContext(t.Context(), `PRAGMA user_version`).Scan(&version))
+			require.Equal(t, 3, version, "validation failure must not imply the upgrade did not commit")
+			require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM invocations`).Scan(&count))
+			require.Equal(t, 1, count, "committed preexisting evidence survives")
+		})
+	}
+}
+
 func TestTrafficHTTPUpgradeFailureNeverReadiesPartialSchema(t *testing.T) {
 	for _, point := range []string{"http_migration_begin", "http_migration_commit", "http_migration_acknowledgment"} {
 		t.Run(point, func(t *testing.T) {
@@ -110,6 +151,17 @@ func TestTrafficHTTPUpgradeFailureNeverReadiesPartialSchema(t *testing.T) {
 			})
 			require.Error(t, err)
 			require.Nil(t, failed)
+			if point != "http_migration_begin" {
+				var failure *trafficFailure
+				require.ErrorAs(t, err, &failure)
+				if point == "http_migration_acknowledgment" {
+					require.Equal(t, "acknowledgment", failure.stage)
+					require.Equal(t, "uncertain", failure.settlement)
+				} else {
+					require.Equal(t, "statement", failure.stage)
+					require.Equal(t, "rolled_back", failure.settlement)
+				}
+			}
 			// A fresh startup completely validates whichever atomic version settled.
 			recovered, err := reopen(nil)
 			require.NoError(t, err)

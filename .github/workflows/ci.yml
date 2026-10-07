@@ -177,6 +177,7 @@ jobs:
       - name: Run platform owner
         env:
           SUITE: ${{ matrix.suite }}
+          GOFLAGS: ${{ matrix.suite != 'harness' && '-p=2' || '' }}
           AGENT_GATEWAY_TEST_JSON: "1"
         run: make -C agent-gateway "test-$SUITE"
 
@@ -201,6 +202,7 @@ jobs:
           tool: ${{ matrix.tool }}
       - run: make -C "$TOOL" "test-$SUITE"
         env:
+          GOFLAGS: ${{ matrix.tool == 'agent-gateway' && '-p=2' || '' }}
           AGENT_GATEWAY_TEST_JSON: "1"
 
   e2e-tests:

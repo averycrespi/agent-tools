@@ -20,7 +20,7 @@ import (
 )
 
 func TestCLIBackups(t *testing.T) {
-	harness := newGatewayHarness(t)
+	harness := newLegacyGatewayHarness(t)
 	harness.Start()
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))

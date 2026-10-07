@@ -48,8 +48,8 @@ func createHTTPCA(t *testing.T, h *gatewayHarness) []byte {
 	require.Equal(t, 200, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 	h.Stop(syscall.SIGTERM)
-	// Init used process-local material; deliberately select material owned by
-	// this test's link-time persistent fixture before enabling interception.
+	// Deliberately exercise stopped encrypted CA replacement before enabling
+	// interception; no native fixture material is needed by either process.
 	_, err := h.runner.Run(h.ctx, h.binary, "http", "ca", "replace", "--data-dir", h.root, "--confirm")
 	require.NoError(t, err)
 	exported, err := h.runner.Run(h.ctx, h.binary, "http", "ca", "export", "--data-dir", h.root, "--stdout")
@@ -149,7 +149,7 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 }
 
 func TestHTTPProxyStartupFailureCleansPartialBinds(t *testing.T) {
-	h := newGatewayHarness(t)
+	h := newLegacyGatewayHarness(t)
 	proxy := contract.DefaultHTTPProxyAuthority
 	args := append(append([]string(nil), h.serveArgs...), "--clear-http-proxy-listen=false")
 	result, err := h.runner.Run(context.Background(), h.binary, args...)

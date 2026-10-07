@@ -8,14 +8,20 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
 
 func (s *TrafficStore) runTraffic() {
 	defer close(s.done)
+	recovery := time.NewTicker(time.Second)
+	defer recovery.Stop()
 	for {
 		var first *trafficRequest
 		select {
 		case first = <-s.observations:
+		case now := <-recovery.C:
+			s.recoverTraffic(now)
+			continue
 		case <-s.stop:
 			s.drainTraffic()
 			return
@@ -50,6 +56,7 @@ func (s *TrafficStore) drainTraffic() {
 	}
 }
 func (s *TrafficStore) settleTraffic(r *trafficRequest, err error) {
+	var recovered *contract.TrafficIncident
 	s.mu.Lock()
 	s.queued--
 	s.queuedBytes -= r.bytes
@@ -58,10 +65,21 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, err error) {
 	}
 	if err != nil {
 		s.dropLocked()
-	} else if s.acknowledged < contract.RecordedActivityMaxCount {
-		s.acknowledged++
+	} else {
+		if s.acknowledged < contract.RecordedActivityMaxCount {
+			s.acknowledged++
+		}
+		s.lastAcknowledged = time.Now().UTC().Format(time.RFC3339Nano)
+		if s.incident != nil && !s.faulted && s.incident.Recovery != "recovered" {
+			s.incident.Recovery = "recovered"
+			recovered = s.incidentLocked()
+		}
 	}
+	observer := s.diagnostics
 	s.mu.Unlock()
+	if recovered != nil && observer != nil {
+		observer.Traffic(diagnostics.TrafficFacts(true, recovered.Cause, recovered.Stage, recovered.Settlement, recovered.SQLiteCode))
+	}
 }
 func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	s.writerGate.Lock()
@@ -90,12 +108,11 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	if err == nil {
 		recorded, err = s.writeTraffic(ctx, active)
 	}
-	if err != nil && (errors.Is(err, ErrTrafficFault) ||
-		!errors.Is(err, ErrTrafficCapacity) && !errors.Is(err, ErrTrafficDeadline) && !errors.Is(err, ErrIdentityUnavailable)) {
-		s.mu.Lock()
-		s.faulted = true
-		s.mu.Unlock()
-		err = errors.Join(ErrTrafficFault, err)
+	if s.pendingConnection != nil {
+		err = classifyTraffic(err, "rollback", "uncertain")
+	}
+	if err != nil {
+		s.failTraffic(err, "reservation", "not_started")
 	}
 	if err == nil {
 		for _, event := range recorded {
@@ -117,14 +134,22 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 }
 func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest) ([]recordedEvent, error) {
 	if ctx.Err() != nil {
-		return nil, ErrTrafficDeadline
+		return nil, classifyTraffic(ctx.Err(), "begin", "not_started")
 	}
 	if err := s.inject("before_begin"); err != nil {
-		return nil, err
+		return nil, classifyTraffic(err, "begin", "not_started")
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
-		return nil, err
+		return nil, classifyTraffic(err, "begin", "not_started")
+	}
+	defer s.finishTrafficConnection(conn)
+	// SQL calls still use the batch deadline. Detaching only the transaction
+	// lifetime prevents database/sql's asynchronous rollback from releasing
+	// apparent ownership before the actual rollback owner has settled.
+	tx, err := conn.BeginTx(context.WithoutCancel(ctx), nil)
+	if err != nil {
+		return nil, classifyTraffic(err, "begin", "not_started")
 	}
 	recorded, mutationErr := s.applyTraffic(ctx, tx, batch)
 	if mutationErr == nil {
@@ -133,21 +158,21 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 	if mutationErr != nil {
 		rollbackErr := errors.Join(tx.Rollback(), s.inject("rollback"))
 		if rollbackErr != nil {
-			return nil, errors.Join(ErrTrafficFault, mutationErr, rollbackErr)
+			return nil, classifyTraffic(errors.Join(mutationErr, rollbackErr), "rollback", "uncertain")
 		}
-		return nil, mutationErr
+		return nil, classifyTraffic(mutationErr, "statement", "rolled_back")
 	}
 	if err = s.inject("commit"); err != nil {
-		return nil, errors.Join(ErrTrafficFault, err, tx.Rollback(), s.inject("rollback"))
+		return nil, classifyTraffic(errors.Join(err, tx.Rollback(), s.inject("rollback")), "commit", "uncertain")
 	}
 	if err = tx.Commit(); err != nil {
-		return nil, errors.Join(ErrTrafficFault, err)
+		return nil, classifyTraffic(err, "commit", "uncertain")
 	}
 	if err = s.inject("acknowledgment"); err != nil {
-		return nil, errors.Join(ErrTrafficFault, err)
+		return nil, classifyTraffic(err, "acknowledgment", "uncertain")
 	}
 	if err = trafficFiles(s.path, s.config); err != nil {
-		return nil, err
+		return nil, classifyTraffic(err, "validation", "committed")
 	}
 	return recorded, nil
 }

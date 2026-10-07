@@ -50,7 +50,7 @@ func (s *TrafficStore) HTTPHistory(ctx context.Context, after int64, limit int) 
 	if after < 0 || limit < 1 || limit > 256 {
 		return result, ErrInvalidInput
 	}
-	err = s.view(ctx, func(tx *sql.Tx) error {
+	err = s.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		if err := tx.QueryRowContext(ctx, `SELECT generation,high_water,pruning FROM traffic_meta WHERE singleton=1`).Scan(&result.Generation, &result.HighWater, &result.Pruning); err != nil {
 			return err
 		}

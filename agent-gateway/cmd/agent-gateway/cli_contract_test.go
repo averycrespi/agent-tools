@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:f48581a14a3216755d69573b5c43bcf15ef85699012c1133fa8857b10cc12505", digest)
+	assert.Equal(t, "sha256:556218409320e4da3af1095e80a864ae296a988f5fcaf752b12afc1551fb10ad", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -118,7 +118,11 @@ func TestCLIContract(t *testing.T) {
 		}{
 			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "secret-output"}},
 			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
-			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "security-only", "traffic-budget-bytes"}},
+			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "recovery-key", "secret-output", "security-only", "traffic-budget-bytes"}},
+			{path: []string{"maintenance", "migrate-secrets"}, use: "migrate-secrets", flags: []string{"confirm", "dry-run", "installation-id", "json"}},
+			{path: []string{"maintenance", "verify-secrets"}, use: "verify-secrets", flags: []string{"confirm", "dry-run", "installation-id", "json"}},
+			{path: []string{"maintenance", "cleanup-native-secrets"}, use: "cleanup-native-secrets", flags: []string{"confirm", "dry-run", "installation-id", "json", "operator-verified"}},
+			{path: []string{"maintenance", "rotate-master-key"}, use: "rotate-master-key", flags: []string{"confirm", "dry-run", "installation-id", "json", "recover", "retain-recovery-keys"}},
 			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
 			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "clear-http-proxy-listen", "data-dir", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
 		}

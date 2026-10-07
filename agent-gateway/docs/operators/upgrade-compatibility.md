@@ -14,16 +14,16 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 ## Security backup and history separation
 
 Upgrade CLI/API consumers and reload browser tabs together. New backups use distinct
-format 3 and add `history:"omitted"` to their representation; format 0 and paired
+format 4 for encrypted custody (format 3 for legacy-only custody) and add `history:"omitted"` to their representation; format 0 and paired
 format 2 retain their original verification semantics. Older binaries must reject
-format 3 rather than reinterpret it. Preserve old artifacts for rollback; never edit
+unknown formats rather than reinterpret them. Format 4 requires the separately safeguarded matching master key; old formats cannot restore over encrypted custody. Preserve old artifacts for rollback; never edit
 metadata or rewrite an original to manufacture compatibility.
 
 New security-only restore disables capture, preserves retained traffic files and
 reports `history:"omitted-not-verified"`. Explicit `--security-only` imports old inputs
 without claiming their omitted history was verified. History-inclusive legacy restore
 still requires every claimed payload and reports `history:"restored"`. Every restore
-invalidates restored agent/HTTP/Git/CA authority and rekeys administration. This differs
+invalidates all administrator/agent access and publishes fresh administration. Legacy-only restore also invalidates HTTP/Git/CA authority; format 4 recovers the encrypted upstream material and exact CA identity. This differs
 from an ordinary upgrade, which preserves live configuration, grants and credentials.
 Use separate `history export --json` or the browser Traffic history export card for bounded
 rolling history; no export proves complete traffic coverage or safe replay. See the
@@ -80,7 +80,7 @@ Custom supervisors and foreground scripts that previously omitted HTTP must now
 select `--clear-http-proxy-listen` if they require MCP-only operation.
 
 Missing/invalidated CA keys or occupied/conflicting listeners fail startup without
-readiness, fallback, replacement or TLS bypass. After restore, use explicit
+readiness, fallback, replacement or TLS bypass. After legacy-only restore, use explicit
 MCP-only recovery or deliberately replace the CA while stopped and refresh client
 trust. Listener enablement changes no agent HTTP defaults (new agents remain
 blocked), grants, credentials, private-network/tunnel authority or client trust.

@@ -15,6 +15,7 @@ const (
 	ProblemCSRFFailed                         ProblemCode = "csrf_failed"
 	ProblemNotFound                           ProblemCode = "not_found"
 	ProblemMethodNotAllowed                   ProblemCode = "method_not_allowed"
+	ProblemEncryptedBackupUnsupported         ProblemCode = "encrypted_backup_unsupported"
 	ProblemConflict                           ProblemCode = "conflict"
 	ProblemIdempotencyConflict                ProblemCode = "idempotency_conflict"
 	ProblemBodyTooLarge                       ProblemCode = "body_too_large"
@@ -108,6 +109,7 @@ var problems = []Problem{
 	{Status: 409, Code: ProblemAuditHistoryReplaced, Title: "The audit history generation has changed."},
 	{Status: 503, Code: ProblemHistoryUnavailable, Title: "Optional history is unavailable; security operations remain independent."},
 	{Status: 503, Code: ProblemHistoryBusy, Title: "Optional history export capacity or deadline was exceeded."},
+	{Status: 409, Code: ProblemEncryptedBackupUnsupported, Title: "This backup format or unresolved legacy dependency cannot recover encrypted custody. Preserve existing artifacts; use complete encrypted custody and a format-4 backup."},
 }
 
 func Problems() []Problem {

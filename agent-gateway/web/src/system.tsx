@@ -12,7 +12,7 @@ type HistoryState = HistoryProgress & {
   message?: string;
 };
 import { parseFragment } from "./location";
-import { measurementText } from "./observation-health";
+import { measurementText, trafficRecoveryAction } from "./observation-health";
 import { decodeStatus, type LimitView, type StatusView } from "./overview";
 import type {
   MutationController,
@@ -812,6 +812,83 @@ function StatusPanel({
                         ? status.traffic.prunedRecords.toLocaleString()
                         : "Unavailable"}
                     </span>
+                    {status.traffic.recovery && (
+                      <>
+                        <span>
+                          Recording:{" "}
+                          {sentenceCase(status.traffic.recovery.health)}
+                        </span>
+                        <span>
+                          Last acknowledged:{" "}
+                          {status.traffic.recovery.lastAcknowledged ? (
+                            <UserTime
+                              value={status.traffic.recovery.lastAcknowledged}
+                            />
+                          ) : (
+                            "Not observed"
+                          )}
+                        </span>
+                        {status.traffic.recovery.incident && (
+                          <>
+                            <span>
+                              Incident:{" "}
+                              {sentenceCase(
+                                status.traffic.recovery.incident.cause,
+                              )}{" "}
+                              ·{" "}
+                              {sentenceCase(
+                                status.traffic.recovery.incident.stage,
+                              )}{" "}
+                              ·{" "}
+                              {sentenceCase(
+                                status.traffic.recovery.incident.settlement,
+                              )}
+                            </span>
+                            {(status.traffic.recovery.incident.recoveryCause !==
+                              status.traffic.recovery.incident.cause ||
+                              status.traffic.recovery.incident.recoveryStage !==
+                                status.traffic.recovery.incident.stage) && (
+                              <span>
+                                Recovery blocker:{" "}
+                                {sentenceCase(
+                                  status.traffic.recovery.incident
+                                    .recoveryCause,
+                                )}{" "}
+                                ·{" "}
+                                {sentenceCase(
+                                  status.traffic.recovery.incident
+                                    .recoveryStage,
+                                )}
+                              </span>
+                            )}
+                            <span>
+                              First failure:{" "}
+                              <UserTime
+                                value={
+                                  status.traffic.recovery.incident.firstFailure
+                                }
+                              />
+                            </span>
+                            <span>
+                              {status.traffic.recovery.incident.affected}{" "}
+                              affected ·{" "}
+                              {status.traffic.recovery.incident.discarded}{" "}
+                              discarded submissions
+                            </span>
+                            {status.traffic.recovery.incident.sqliteCode >
+                              0 && (
+                              <span>
+                                SQLite code:{" "}
+                                {status.traffic.recovery.incident.sqliteCode}
+                              </span>
+                            )}
+                            <span>
+                              {trafficRecoveryAction(status.traffic.recovery)}
+                            </span>
+                          </>
+                        )}
+                      </>
+                    )}
                     {status.traffic.health && (
                       <>
                         {status.traffic.health.pressure_reason !== "none" && (

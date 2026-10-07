@@ -100,7 +100,7 @@ func TestIntegrationProxyOutcomesIndependentOfHistory(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			// Each fault retains its own installation/writer. Serial protocols reuse
 			// only setup, after live owners settle; all 25 comparisons still run.
-			f := fixtureWithTrafficConfig(t, nil, nil, func(c *invocation.TrafficConfig) { c.BudgetBytes = 1 << 20 })
+			f := fixtureWithStorageInitialization(t, nil, nil, func(c *invocation.TrafficConfig) { c.BudgetBytes = 1 << 20 }, true)
 			isolateProxyHistory(t, f, mode)
 			for _, protocol := range []string{"http", "connect", "http/1.1", "h2", "git"} {
 				t.Run(protocol, func(t *testing.T) { qualifyProxyHistory(t, f, protocol, mode) })
@@ -109,7 +109,22 @@ func TestIntegrationProxyOutcomesIndependentOfHistory(t *testing.T) {
 	}
 }
 
-func qualifyProxyHistory(t *testing.T, f *proxyFixture, protocol, mode string) {
+func TestIntegrationProxyHistoryRecoversWithoutExecutionReplay(t *testing.T) {
+	for _, protocol := range []string{"http", "git"} {
+		t.Run(protocol, func(t *testing.T) {
+			f := fixtureWithStorageInitialization(t, nil, nil, nil, true)
+			db, err := sql.Open("sqlite3", "file:"+f.trafficPath+"?mode=rw&_txlock=immediate")
+			require.NoError(t, err)
+			defer func() { require.NoError(t, db.Close()) }()
+			tx, err := db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback() }()
+			qualifyProxyHistory(t, f, protocol, "recovering", func() { require.NoError(t, tx.Rollback()) })
+		})
+	}
+}
+
+func qualifyProxyHistory(t *testing.T, f *proxyFixture, protocol, mode string, settle ...func()) {
 	t.Helper()
 	discardedBefore := f.traffic.Status(t.Context()).Delivery.Discarded
 	const bodyCanary = "private-request-body-canary"
@@ -220,9 +235,28 @@ func qualifyProxyHistory(t *testing.T, f *proxyFixture, protocol, mode string) {
 			s := f.engine.Status()
 			return s.Work.InUse == 0 && s.ActiveStreams == 0 && s.ActiveTunnels == 0 && s.Connections.InUse == 0
 		}, 5*time.Second, time.Millisecond)
+		if mode == "recovering" && index == 0 {
+			require.Eventually(t, func() bool { return f.traffic.Status(t.Context()).Faulted }, 2*time.Second, time.Millisecond)
+			_, err := f.authority.CreatePrincipal(audit.WithSystem(t.Context()), authorization.CreatePrincipalRequest{DisplayName: "Independent control mutation", Visibility: contract.VisibilityRequestable})
+			require.NoError(t, err)
+			settle[0]()
+			require.Eventually(t, f.traffic.Healthy, 5*time.Second, time.Millisecond)
+		}
 		if mode == "faulted" {
 			require.Eventually(t, func() bool { return f.traffic.Status(t.Context()).Faulted }, time.Second, time.Millisecond)
 		}
+	}
+	if mode == "recovering" {
+		require.Eventually(t, func() bool { return f.traffic.Status(t.Context()).Health == "recovered" }, 2*time.Second, time.Millisecond)
+		require.Eventually(t, func() bool {
+			if protocol == "git" {
+				h, err := f.traffic.GitHistory(t.Context(), 0, 10)
+				return err == nil && len(h.Records) == 1 && h.Records[0].Completion != nil
+			}
+			h, err := f.traffic.HTTPHistory(t.Context(), 0, 10)
+			return err == nil && len(h.Records) == 1 && h.Records[0].Completion != nil
+		}, 2*time.Second, time.Millisecond)
+
 	}
 	status := f.traffic.Status(t.Context())
 	switch mode {

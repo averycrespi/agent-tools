@@ -637,6 +637,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil, err
 	}
 	built.traffic = invocation.NewOptionalTraffic(trafficConfiguration(options.TrafficBudget))
+	built.traffic.SetTrafficDiagnostics(options.Diagnostics)
 	built.invocationRepository, err = invocation.NewTrafficRepository(built.traffic, options.Clock, options.Entropy, options.Invalidate)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation_repository: %w", err)
@@ -710,6 +711,11 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	built.provider, err = providerFactory(options.InstallationID)
 	if err != nil {
 		return nil, fmt.Errorf("construct provider: %w", err)
+	}
+	if hooks.provider == nil {
+		if err = built.provider.UseDatabaseCustody(context.Background(), options.Ownership, options.Store); err != nil {
+			return nil, err
+		}
 	}
 	if err := check("keyring_coordinator"); err != nil {
 		return nil, err

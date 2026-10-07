@@ -108,6 +108,7 @@ func newWorkLimiter() *workLimiter {
 var globalWorkLimiter = newWorkLimiter()
 
 type Provider struct {
+	custody        *databaseCustody
 	installationID string
 	service        string
 	adapter        adapter
@@ -145,6 +146,9 @@ func newProviderWithAdapterAndLimiter(installationID string, backend adapter, li
 }
 
 func (provider *Provider) Probe(ctx context.Context) Capability {
+	if provider.custody != nil && provider.custody.aead != nil {
+		return provider.custody.capability()
+	}
 	return capabilityForError(provider.adapter.Probe(ctx, provider.service))
 }
 
@@ -232,7 +236,7 @@ func (limiter *workLimiter) status() contract.LimitStatus {
 }
 
 func (provider *Provider) requireReady(ctx context.Context) error {
-	capability := provider.Probe(ctx)
+	capability := capabilityForError(provider.adapter.Probe(ctx, provider.service))
 	if capability.State != contract.KeyringReady {
 		return &CapabilityError{Capability: capability}
 	}

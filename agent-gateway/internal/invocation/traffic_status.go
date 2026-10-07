@@ -24,6 +24,9 @@ func (s *TrafficStore) Status(ctx context.Context) contract.TrafficStatus {
 	} else if s.closed || s.draining {
 		status.State = "disabled"
 	}
+	status.Health = s.healthLocked()
+	status.LastAcknowledged = s.lastAcknowledged
+	status.Incident = s.incidentLocked()
 	status.Delivery = s.deliveryLocked()
 	status.PressureReason = s.pressureReason
 	if status.Pressure {
@@ -53,7 +56,7 @@ func (s *TrafficStore) Status(ctx context.Context) contract.TrafficStatus {
 		status.Pressure = true
 		status.PressureReason = "low_space"
 	}
-	err := s.view(ctx, func(tx *sql.Tx) error {
+	err := s.view(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		return tx.QueryRowContext(ctx, `SELECT generation,pruning FROM traffic_meta WHERE singleton=1`).Scan(&status.Generation, &status.PrunedRecords)
 	})
 	status.AccountingAvailable = err == nil
@@ -64,6 +67,15 @@ func (s *TrafficStore) Status(ctx context.Context) contract.TrafficStatus {
 			status.State = "unavailable"
 		}
 	}
+	// A reachable read can discover a failure after the initial snapshot.
+	s.mu.Lock()
+	status.Health, status.Incident = s.healthLocked(), s.incidentLocked()
+	status.Faulted = s.faulted
+	if s.faulted {
+		status.Ready = false
+		status.State = "faulted"
+	}
+	s.mu.Unlock()
 	return status
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -27,6 +28,7 @@ type restoreFaultPoint string
 
 const (
 	restoreFaultAfterCopy         restoreFaultPoint = "after_copy"
+	restoreFaultAfterReservation  restoreFaultPoint = "after_reservation"
 	restoreFaultAfterMigration    restoreFaultPoint = "after_migration"
 	restoreFaultAfterInvalidation restoreFaultPoint = "after_invalidation"
 	restoreFaultAfterRekey        restoreFaultPoint = "after_rekey"
@@ -39,6 +41,7 @@ type RestoreOptions struct {
 	Root         string
 	BackupID     string
 	SecurityOnly bool
+	RecoveryKey  string
 	Sink         admin.SecretSink
 	Clock        admin.Clock
 	Entropy      io.Reader
@@ -71,11 +74,6 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return storage.Identity{}, err
 	}
-	if options.Before != nil {
-		if err := options.Before(ctx, ownership); err != nil {
-			return storage.Identity{}, err
-		}
-	}
 	layout := ownership.Layout()
 	manager := &Manager{layout: layout}
 	artifact, err := manager.readArtifactScope(ctx, filepath.Join(layout.Backups, options.BackupID), options.BackupID, options.SecurityOnly)
@@ -88,8 +86,19 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		}
 		return storage.Identity{}, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
 	}
-	if _, err := storage.InspectMaintenance(ctx, ownership, nil); err != nil {
+	custodyPlan, err := requireRestoreCustody(ctx, ownership, artifact, options.RecoveryKey)
+	if err != nil {
 		return storage.Identity{}, err
+	}
+	custody := custodyPlan.Current
+	previousCertificate, certificate, err := inspectRestoreCertificate(ctx, ownership, artifact)
+	if err != nil {
+		return storage.Identity{}, err
+	}
+	if options.Before != nil {
+		if err := options.Before(ctx, ownership); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	current, err := storage.InspectBaseIdentity(ctx, layout.Database)
 	if err != nil {
@@ -99,7 +108,7 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 		return storage.Identity{}, ErrInvalidArtifact
 	}
 
-	securityOnly := options.SecurityOnly || artifact.Format == 3
+	securityOnly := options.SecurityOnly || artifact.Format >= 3
 	budget := artifact.TrafficBudgetBytes
 	if securityOnly {
 		budget = 0
@@ -119,7 +128,29 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := requireClosedArtifactScope(filepath.Join(layout.Backups, options.BackupID), securityOnly); err != nil {
 		return storage.Identity{}, err
 	}
-	effect = "staged"
+	if custodyPlan.CrossKey {
+		// Reserve on the current generation before emitting any ciphertext. An
+		// interrupted/failed stage cannot refund this key's lifetime exposure.
+		currentStore, err := storage.Open(ctx, ownership)
+		if err != nil {
+			return storage.Identity{}, err
+		}
+		effect = "uncertain"
+		custody, err = keyring.ReserveRecoveryEncryptions(ctx, currentStore, custodyPlan.Current, custodyPlan.RewrapCount)
+		if err == nil {
+			err = currentStore.Checkpoint(ctx)
+		}
+		err = errors.Join(err, currentStore.Close())
+		if err != nil {
+			return storage.Identity{}, err
+		}
+		effect = "reserved"
+		if err := injectRestoreFault(options.fault, restoreFaultAfterReservation); err != nil {
+			return storage.Identity{}, err
+		}
+	} else {
+		effect = "staged"
+	}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -151,6 +182,11 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 			_ = replacement.Close()
 		}
 	}()
+	if _, err := storage.InspectMaintenance(ctx, ownership, func(tx *sql.Tx) error {
+		return keyring.PreserveCleanupInventory(ctx, tx, replacement)
+	}); err != nil {
+		return storage.Identity{}, err
+	}
 	targets, authority, err := newRestoreValidationOwners(replacement, options.Clock, options.Entropy)
 	if err != nil {
 		return storage.Identity{}, err
@@ -175,14 +211,31 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := authorization.InvalidateStagedCredentials(ctx, replacement, targets); err != nil {
 		return storage.Identity{}, err
 	}
-	if err := httpcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
-		return storage.Identity{}, err
-	}
-	if err := gitcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
-		return storage.Identity{}, err
-	}
-	if err := httpca.InvalidateStaged(ctx, replacement, options.Clock); err != nil {
-		return storage.Identity{}, err
+	if artifact.Format == 4 {
+		if custodyPlan.CrossKey {
+			if err := rewrapRestore(ctx, ownership, replacement, options.RecoveryKey, artifact.MasterKeyID, custody); err != nil {
+				return storage.Identity{}, err
+			}
+		}
+		if err := keyring.PreserveRestoreBudget(ctx, replacement, custody); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := httpcredentials.ValidateStartup(ctx, replacement); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := httpca.ValidateStartup(ctx, replacement); err != nil {
+			return storage.Identity{}, err
+		}
+	} else {
+		if err := httpcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := gitcredentials.InvalidateStagedCredentials(ctx, replacement, options.Clock); err != nil {
+			return storage.Identity{}, err
+		}
+		if err := httpca.InvalidateStaged(ctx, replacement, options.Clock); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	if err := injectRestoreFault(options.fault, restoreFaultAfterInvalidation); err != nil {
 		return storage.Identity{}, err
@@ -252,6 +305,20 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	if err := verifyReplacementDomains(ctx, ownership, staged, options.Clock, options.Entropy); err != nil {
 		return storage.Identity{}, err
 	}
+	if artifact.Format == 4 {
+		if err := storage.ViewBackup(ctx, staged, func(tx *sql.Tx) error {
+			verified, err := verifyEncryptedCustodyTx(ctx, tx, ownership)
+			if err != nil {
+				return err
+			}
+			if verified != custody {
+				return keyring.ErrCustodyUnavailable
+			}
+			return nil
+		}); err != nil {
+			return storage.Identity{}, err
+		}
+	}
 	if err := injectRestoreFault(options.fault, restoreFaultBeforeInstall); err != nil {
 		return storage.Identity{}, err
 	}
@@ -263,6 +330,11 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	cleanup = false
 	if err := injectRestoreFault(options.fault, restoreFaultAfterInstall); err != nil {
 		return storage.Identity{}, err
+	}
+	if len(certificate) != 0 {
+		if err := gatewaypaths.PublishCertificate(filepath.Join(layout.Root, gatewaypaths.PublicCertificateName), certificate, previousCertificate); err != nil {
+			return storage.Identity{}, err
+		}
 	}
 	if err := recordInstalledRestore(ctx, ownership, options.Clock, attempt); err != nil {
 		return storage.Identity{}, err

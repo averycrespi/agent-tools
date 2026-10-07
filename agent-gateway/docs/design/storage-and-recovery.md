@@ -26,16 +26,46 @@ Schema 16 adds `grants.read_only`, `grant_requests.requested_read_only`, and `gr
 
 Schema 17 adds nullable `invocations.failure_diagnostics`, a maximum 512-byte JSON object limited to failed terminal rows. Invocation validates its closed vocabulary at writes and startup. Existing rows retain NULL, with no reconstructed history. Diagnostics commit with the one terminal transition, remain immutable afterward, and are included in backups; raw errors and payloads remain forbidden.
 
-Schema 19 adds secret-free HTTP credential metadata and permanent tombstones, and expands the keyring fence kind to `http_credential` while preserving existing MCP fences. Structural verification checks the replacement fence table and credential DDL; the HTTP credential owner validates canonical metadata and current material bindings before readiness. Backup restore invokes its stopped-stage invalidation seam, removing restored current HTTP authority and advancing affected metadata/material revisions without reading or deleting keyring contents. An older snapshot therefore cannot reactivate retired material.
+Schema 19 adds secret-free HTTP credential metadata and permanent tombstones, and expands the keyring fence kind to `http_credential` while preserving existing MCP fences. Structural verification checks the replacement fence table and credential DDL; the HTTP credential owner validates canonical metadata and current material bindings before readiness. Legacy-only backup restore invokes its stopped-stage invalidation seam, removing restored current HTTP authority and advancing affected metadata/material revisions without reading or deleting keyring contents. An older snapshot therefore cannot reactivate retired material.
 
 Schema 20 adds HTTP default and grant tables without changing MCP rows. Defaults backfill to block and an exact verified principal-insert trigger seeds each new default atomically. Grant rows contain only canonical policy configuration, bounded descriptions, immutable principal/ID, revisions and timestamps. The authorization owner validates all defaults, policies and credential references during startup and staged restore. Restored unavailable credential material remains unavailable without deleting its valid grant references.
 
 Schema 21 adds the installation CA's safe singleton revision, opaque handle and
 public certificate, and expands the closed keyring fence kind to `http_ca`.
 The CA owner validates metadata/bindings; signing bytes remain only in protected
-keyring generations. Every staged restore invalidates CA authority before installation,
-requiring explicit replacement and client trust updates even when old physical keys
-survive. See [CA lifecycle](downstream-servers.md#installation-interception-ca).
+credential generations (encrypted control records for new writes). Legacy-only staged restore invalidates CA authority before installation, requiring explicit replacement and client trust updates even when old physical keys survive. Format-4 restore recovers the encrypted signing identity and matching certificate without replacement. See [CA lifecycle](downstream-servers.md#installation-interception-ca).
+
+Schema 23 adds `secret_custody` (the installation key identity/version and nonrefundable encryption count) and bounded `secret_generations` (explicit legacy selection or authenticated ciphertext). Migration labels only existing keyring handles as legacy and never reads native material. Secret selection still commits atomically with domain metadata through the existing coordinator. Admin and agent tokens remain hash-only; the protected administrator-bearer file is unchanged.
+
+The fixed `master-key` file is a 32-byte random key, not a password. Creation uses exclusive no-follow creation relative to a verified 0700 owner directory, a regular single-link 0600 owner file, file sync and directory sync before recording key identity. Setup retains partial/uncertain files rather than overwriting or replaying creation. A complete unbound key from interrupted initial setup can be adopted explicitly; an established database key identity or encrypted material never permits generating a replacement for a missing/wrong key. Reads check ownership, mode, file type, link count and exact size. Initialization provisions custody before administrator/CA authority. Existing installations use explicit stopped `maintenance setup-secret-storage`, without reinitialization or native migration. Established missing/wrong keys fail startup closed.
+
+### Offline native-secret migration and cleanup
+
+`maintenance migrate-secrets` holds exclusive stopped ownership from immutable inspection and confirmation through storage closure. It enumerates current Gateway authority tuples, never arbitrary native entries. Initial key setup is allowed only under the existing absent-key/no-encrypted-data rules. Each unfenced selected legacy generation is read and authenticated, checked against domain metadata, encrypted with installation/owner/kind/handle/key-bound AAD, and decrypted for comparison before selection. A separate durable nonce reservation precedes encryption and is never refunded. Selection rechecks the exact authority, candidates, fences, domain metadata and database revision; it atomically replaces only the legacy custody row and records cleanup provenance. Domain handles, revisions, OAuth bindings and CA identity are preserved. The existing offline `keyring/commit` audit records each selected copy. A failed or interrupted copy retains completed work, reservation usage and native sources; reruns inspect current selection and never overwrite encrypted records or resurrect invalidated authority. Every return reconciles the remaining legacy/missing-generation count, including unvisited work; failed reconciliation explicitly reports an unknown count, never a known zero.
+
+Schema 24 adds permanent, secret-free `native_cleanup` provenance and per-item disposition. Only successfully copied authoritative generations acquire cleanup ownership. Their installation-scoped opaque generation namespace bounds the inventory to one manifest and every possible chunk slot; unrelated services, owners and arbitrary native entries are never enumerated. Cleanup inventory is not foreign-keyed to mutable credential authority and survives later credential deletion, replacement, backup and restore. Restore merges the current closed installation's inventory into its private stage before installation: ownership tuples must agree, and item states retain the strongest evidence (`reappeared`, then `deleted`, `uncertain`, `retained`). Missing/unreadable current evidence or conflicting ownership refuses rather than erasing it. It is not an automatic cleanup queue.
+
+`maintenance verify-secrets` uses an immutable closed database and the selected master key, never native access. It authenticates all retained encrypted generations and validates every active domain selection in both directions. Completeness includes required MCP static/OAuth dependencies of all nondeleted servers (including disabled servers), every nondeleted HTTP/Git credential, and any established CA identity. Missing required handles, unreadable native dependencies, malformed payloads, candidates, fences and unresolved legacy generations fail completeness. A pristine installation without an established CA has no CA material to migrate; verification neither creates one nor claims proxy readiness. Expired credentials and certificates remain custody material: remote validity, token refresh, interception and client trust require separate operational checks.
+
+`maintenance cleanup-native-secrets --operator-verified` is a separate, confirmed stopped operation after operator verification, operational checks, a new backup and separate key custody. It repeats complete encrypted verification and refuses still-needed legacy/candidate/fenced material. Before each native deletion it reconciles the exact inventory item's presence and durably records uncertainty. One delete is followed by a fresh read: only confirmed absence becomes `deleted`; failures and unknown effects remain visible. A later deliberate invocation rereads native state before any new dispatch, never blindly replays a lost response. Reappeared confirmed-deleted items refuse automatic deletion. Inventory persists even when all items are absent, so later verification can detect reappearance. The existing offline `keyring/cleanup` audit records successful cleanup; per-item durable states retain interrupted progress.
+
+No startup, migration, shutdown or support-removal path invokes cleanup. DB custody never falls back to native sources. Legacy tooling removal requires a separate hard human approval gate after the operator sequence; neither migration nor source tests authorize installed/native execution or promise binary downgrade safety.
+
+### Offline master-key rotation
+
+`maintenance rotate-master-key --retain-recovery-keys` is an explicitly confirmed stopped operation, never startup repair. It requires exclusive installation ownership, a valid existing key, complete authenticated encrypted custody and no pending candidates, authority fences, legacy generations or storage recovery markers. It preserves every generation handle, protected value, domain selection, administrator/agent verifier and exact CA identity. It never consults or migrates native custody. The `keyring/rotate` audit event and revision advance commit with the ciphertext transaction.
+
+The crash protocol has one authority decision: the key identity in the control database. Both keys are retained before that decision:
+
+1. Create a unique private preparation directory. Exclusively write and sync the installation ID, old key and fresh random candidate key; sync that directory. Partial preparations remain unselected and are never adopted or reused.
+2. Atomically rename the complete directory to `master-key.rotation`, then sync the installation directory. Any object at that reserved path fences normal storage opening, migration and restore. No encryption starts before successful durable arming.
+3. In one ordinary latched storage transaction, authenticate every retained generation, re-encrypt it with fresh random nonces and new key-bound AAD, and replace the custody identity/count. The new key's count equals the number of published generations. A failed or uncertain transaction never retries encryption with this candidate. Checkpoint and close the database before key publication.
+4. Exclusively write and sync a private replacement key file, then atomically rename it over the verified old `master-key` and sync the installation directory. The recovery bundle still holds both complete keys. Verify all committed ciphertext with the selected file.
+5. Rename the recovery bundle to `master-key-retained-<new-key-id>` and sync the installation directory. This removes the startup fence without deleting either key. Explicit retention acknowledgement is required; retained keys are not backup artifacts.
+
+`--recover` is separately confirmed reconciliation, not replay. It verifies the complete bundle, installation identity, closed database and every ciphertext. If the database still selects the old key and the active file matches it, abandon the candidate permanently and archive the bundle. If it selects the new key, the active file must match the old or new key; finish/seal only key-file publication, then archive. A third identity, missing/wrong key, incomplete evidence, live WAL or unresolved storage marker refuses. A recognized storage-mutation marker must first pass the existing separately confirmed storage recovery; that operation never clears the rotation bundle. A lost completion response is inspected, not repeated. Atomic rename and successful file/directory sync provide the filesystem durability boundary; injected failures are not physical power-loss qualification.
+
+Rotation starts a new nonce budget, never refunds an old key's usage and never makes an abandoned candidate writable. Retained historical keys are decrypt-only recovery material. Rotation cannot protect database/key copies already stolen; upstream credentials and the CA may also need explicit replacement after compromise. Account/root compromise remains outside file-key protection.
 
 Storage owns only this DDL, seeding, and structural migration boundary. Authorization owns online SQL and validates every bounded principal-authority singleton and row coherently before the rest of the production graph is constructed; server target existence and synthetic collision checks remain delegated to the servers package on that same transaction.
 
@@ -172,11 +202,37 @@ against concurrent noncooperating filesystem consumers. Any later I/O uncertaint
 fails closed. Deterministic tests are not power-loss qualification.
 
 Commit acknowledgment—not row readability or marker cleanup—is the traffic
-evidence boundary. Statement/storage failures, commit errors, lost acknowledgment
-and uncertain rollback fault optional history only, never request-local authority.
-Callers enqueue sanitized observations without waiting for this boundary.
-There is no split, retry, replay, or traffic-only persistent manual-verification
-latch. Restart restores write authority only after exact schema/application/binding,
+evidence boundary. Failures pause optional recording only, never request-local
+authority. Callers enqueue sanitized observations without waiting for this boundary.
+The owning boundary retains a closed cause, stage, SQLite code when known, and
+settlement fact. Pre-transaction deadline/lock failure and statement failure with
+confirmed rollback do not permanently latch recording. Deadline expiry after
+preflight is classified at acquisition or statement settlement, not exempted as a
+generic timeout. The batch is discarded once, never split, retried or replayed.
+
+The single writer pins its actual connection through synchronous commit/rollback.
+Its transaction lifetime is detached from batch cancellation solely to prevent
+`database/sql` from installing an asynchronous rollback owner; statement work still
+uses the finite batch deadline and SQLite retains its 50 ms busy bound. Commit or
+rollback uncertainty never establishes a receipt, even if rows are readable. An
+unresolved non-autocommit connection remains owned and unavailable, not pooled or
+replaced. Recovery observes actual settlement without executing another rollback.
+Shutdown joins the actual writer and reports unresolved settlement as unclean.
+
+The existing writer lifecycle schedules revalidation after one second, doubling
+failed-attempt delay to a 30-second ceiling without an exhausted retry counter.
+Each attempt has a cooperative 30-second deadline, preserves physical budgets and
+performs exact file, schema/application/binding, integrity and every-row semantic
+validation. It never deletes, recreates or repairs files. Known deadline, lock,
+I/O and full conditions are eligible for this bounded validation; unsafe ownership,
+permissions, missing files, integrity failure and unclassified settled errors need
+operator action. A new failure during validation prevents that validation from
+restoring authority. Time, readable status and absent records are never proof.
+A successful validation permits only new independent observations; observed
+`recovered` requires a new successful acknowledgment. Lost history is not rebuilt.
+
+There is no traffic-only persistent manual-verification latch. Restart likewise
+restores write authority only after exact schema/application/binding,
 physical-budget, complete structural and every-row semantic validation, including
 nullable groups, chronology, accounting and sequence/pruning consistency. Validation
 is streaming and has a 30-second cooperative deadline; incomplete validation is
@@ -185,16 +241,41 @@ writer's complete `OpenTraffic` validation; neither is subject to the online rea
 one-second deadline, and neither gates security readiness. Reads may remain available while write authority
 is faulted; readable history grants no authority and cannot resume execution.
 History reports `opening`, `ready`, `unavailable`, `faulted`, or `disabled` independently
-of security readiness. Serving preflight refuses nonempty history WAL/journals and
+of security readiness. Its additional process-local health distinguishes `healthy`,
+`degraded` (validated, awaiting acknowledgment), `recovering`,
+`operator_action_required`, and `recovered`. One bounded incident retains the first
+failure time/cause/stage/settlement, latest recovery cause/stage, first typed SQLite
+code, affected/discarded submission counts and last successful acknowledgment time.
+Subsequent already-faulted refusals increase loss counts without replacing the
+initiating cause. A new failure after observed recovery starts a new incident;
+process delivery totals remain cumulative. No incident is written to SQLite or a
+new file. Default-level failure/recovery diagnostics use the existing best-effort
+bounded adapter, limited to one of each transition per minute; sink loss never
+blocks status, serving or recording recovery. Serving preflight refuses nonempty history WAL/journals and
 fully verifies closed artifacts without mutation before opening a writer. Invalid
 artifacts are never deleted, replaced, chmodded or repaired. Existing unclean history
 requires a separately qualified stopped WAL-aware plan; security-only recovery does
 not repair it. Valid older traffic schemas retain their bounded supported upgrade.
 
-The facade owns one opener for its lifetime, with no reopen loop. Drain prevents
-late attachment; a fully validated late result is closed instead. Close joins the
+The facade owns one opener lifecycle. A settled transient opening/validation
+failure uses the same one-to-30-second bounded backoff; persistent faults and
+uncertain schema migration are not reopened automatically. Every failed attempt
+closes its own handles before another attempt, and no attached writer is replaced.
+Drain interrupts backoff and prevents late attachment; a fully validated late
+result is closed instead. Close joins the
 opener, actual writer and reader settlement before composition releases storage or
-installation ownership. An observation deadline may report unconfirmed cleanup,
+installation ownership. Readers and schema upgrades pin their SQL connection and
+retain synchronous transaction settlement, including its actual result, rather
+than installing a cancellation-driven rollback owner whose error is discarded.
+Every reader callback receives the bounded read context for all statements; the
+transaction lifetime alone is detached. `ErrTxDone` alone is not a settlement
+receipt. Caller-cancelled reads, including SQLite interruption of an executing
+statement, do not fault recording after successful settlement. Independent raw
+storage/integrity errors and typed settlement failures take precedence over any
+joined cancellation or benign domain result. The internal read-lifetime deadline
+remains a recording fault even if the caller subsequently cancels. Schema-upgrade commit and
+acknowledgment uncertainty retain their owning stage and settlement; a subsequent
+validation failure retains the already-committed settlement. An observation deadline may report unconfirmed cleanup,
 never cancellation of fsync or permission to mark clean or start a replacement.
 Process exit releases the OS lock, but an unconfirmed drain never publishes a clean
 marker. Optional history does not isolate shared-filesystem stalls, uninterruptible
@@ -236,7 +317,7 @@ Authorization separately owns general stopped-stage credential surgery on a supp
 
 ### Operator command boundary
 
-The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, and `maintenance migrate-traffic-storage`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
+The canonical executable exposes `maintenance verify-and-recover-storage`, `maintenance reset-admin-credentials`, `maintenance restore-backup BACKUP_ID`, `maintenance migrate-traffic-storage`, `maintenance setup-secret-storage`, `maintenance migrate-secrets`, `maintenance verify-secrets`, and `maintenance cleanup-native-secrets`. Retired `storage`, `admin reset`, `backup restore`, top-level `restore`, and `restore --verify-current` spellings have no execution aliases. Verification is current-schema recovery, not reset, initialization, backup selection, or service startup. Restore requires one explicit valid backup ID and a fresh exclusive owner-only replacement bearer sink. Migration requires an exact installation ID; other operations accept an optional assertion.
 
 Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery. Security-only verification and administrator reset hash the closed control database and marker slots; this also binds the control-owned selector without reading untouched optional history. Explicit migration and history-inclusive restore additionally inspect and bind their history targets. Security-only restore binds only control, security markers and independently verified artifact control; untouched optional history and unrelated retained artifacts do not participate in approval. A changed control-owned selector still invalidates consent. Execution revalidates the inspected plan under uninterrupted stopped ownership before any write. Unknown or inconsistent marker actions and preexisting restore-stage artifacts refuse. Dry runs never write audits, markers, SQLite sidecars, stages or bearer files. Domain owners remain responsible for mutation semantics and report known staging, changed-selection and uncertain effects without replay.
 
@@ -246,7 +327,17 @@ CLI success projections use `operation:"verify-and-recover-storage"` or `operati
 
 ### Backup publication
 
-New artifacts use distinct **format 3**, with `history:"omitted"` in metadata and
+**Encrypted recovery:** format 4 includes authenticated encrypted upstream generations and the CA signing identity in the control snapshot. Metadata binds the required SHA-256 `master_key_id`; the master key remains separately safeguarded and is never included. All retained generations must use the same encrypted key identity, authenticate successfully, and cover selected authorities; unresolved legacy dependencies, candidates and fences refuse creation. Snapshot verification never reads native storage. Raw administrator/agent tokens and all traffic remain excluded.
+
+Stopped format-4 restore requires an existing installation with a structurally verified closed current database, matching installation identity and a safe current `master-key`. Same-key recovery requires matching backup/current key identity. After rotation, an explicit `--recovery-key` may instead select the backup's original safe key, solely for decryption; it never replaces the active key. It authenticates every retained generation before staging, validates domain configuration and authority, preserves upstream selections and the exact CA certificate, invalidates all restored agent slots and resets all administrator verifiers. Both backed-up and post-backup access tokens become invalid. No upstream calls establish remote validity; expiry, revocation or refresh-token rotation can require reauthentication.
+
+The key lifetime encryption count is nonrefundable across restore: under uninterrupted stopped ownership, read the current high-water only after refusing nonempty WAL/journal state. Same-key restore carries `max(current, backup)` into the staged custody singleton, copies ciphertext and performs no encryption. Cross-key restore additionally requires unlatched current storage and the explicit matching historical key. After consent, reserve `N` encryptions in the current database before producing any staged ciphertext, where `N` is every retained backup generation, and refuse when `current + N > 2^32`. Checkpoint and close that reservation, then decrypt/re-encrypt the private stage under the still-current key with count `current + N`. The historical key never encrypts again; its old counter is not merged into a different key's budget. Every failed/interrupted stage keeps its reservation, even if stage cleanup succeeds. Unknown reservation effects stop before encryption, with no refund or replay. Verify the exact target key/count tuple after checkpoint and before installation. Backups themselves remain untouched.
+
+Repeated restores and either side of atomic replacement preserve consumed publications/reservations. This is a single installation lineage, not clone/import/host relocation or manual database rollback; a lost or rolled-back current counter cannot be reconstructed from old artifacts. Rotation candidates are one-attempt keys, and cross-key staged exposures are conservatively charged before use.
+
+Formats 0, 2 and 3 retain their legacy-only semantics. They are not self-contained secret recovery and cannot restore into encrypted custody, including dry run and `--security-only`; an encrypted database copy in an old format also refuses. Old idempotency replay cannot bypass this boundary. `encrypted_backup_unsupported` names incompatible formats or unresolved legacy dependencies; unknown formats are invalid. Existing inventory and verified legacy reads/deletion remain available without weakening source checks.
+
+New encrypted artifacts use **format 4**; legacy-only creation retains **format 3**, with `history:"omitted"` in metadata and
 public backup representations. They contain only the control database and metadata,
 not a traffic database. Creation pins one control-only SQLite snapshot with a
 30-second cooperative lifetime, then removes embedded legacy invocation rows from
@@ -295,7 +386,7 @@ to 4096; excess or malformed inventory is explicit backup-administration
 unavailability, never healthy zero or automatic deletion. Backup-manager construction
 does not fail security startup for an inventory error. Creation/publication,
 selected get/delete, idempotent creation and stopped restore retain full verification.
-A listed artifact establishes inventory presence, not restore integrity. New creation uses the history-independent format 3. Metadata accounting is not
+A listed artifact establishes inventory presence, not restore integrity. New creation uses history-independent format 4 for encrypted custody or format 3 for legacy-only custody. Metadata accounting is not
 restore or mutation authorization; the successful status representation is unchanged.
 
 ### Generation replacement
@@ -312,7 +403,7 @@ bounded semantic evidence validation and stopped extraction; accepted schemas
 before invocation history legitimately extract an empty store. No path restores
 execution pins or falls back to empty history.
 
-Format-3 restore and explicit `--security-only` imports of format 0 or 2 retain
+Format-3/4 restore and explicit `--security-only` imports of format 0 or 2 retain
 stopped-exclusive ownership, current closed-control/marker checks, independently
 verified control metadata, size, digest, schema and staged authority validation.
 They publish a coherent control replacement with a NULL history selector, never an
@@ -325,7 +416,9 @@ claimed history payload. Unknown or conflicting control markers, control WAL/jou
 unsafe mutation targets and preexisting restore stages refuse. Unrelated retained
 artifacts, including unsafe history paths, are neither followed nor removed.
 
-Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete control generation. Accepted schema-3-through-current (currently 22) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events, raw secrets, and keyring values are never restored. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
+Backup restore holds stopped-process ownership, validates the published artifact and current installation binding, and copies one complete control generation. Accepted schema-3-through-current (currently 24) artifacts are forward-migrated as necessary and fully verified while staged before restored agent credentials are invalidated, admin authority is rekeyed, and replacement is published. The staged database resets all restored admin verifiers only after publishing a replacement non-expiring bearer. Before checkpointing, the staged database atomically assigns a fresh audit history generation and appends an offline restore-installation attempt. This preserves the backup's retained history and pruning marker while explicitly breaking consumer continuity. A checkpointed staged database atomically replaces the active generation without prior WAL/SHM sidecars. Only after successful installation does Gateway reopen the installed database, append the correlated successful installation outcome, and checkpoint it. Pre-install failures leave current history authoritative; a crash after installation may expose the new generation with a pending attempt and no outcome. A successful audit outcome establishes installation, not completion of subsequent marker cleanup or readiness. Desired servers and safe server history reconstruct as stopped durable facts; runtime, process/session/route state, OAuth transients, events and raw access tokens are never restored. Only format 4 recovers authenticated encrypted upstream material; legacy-only restore does not recover native values. Marker clearing and readiness still require completed replacement verification and a fresh normal startup.
+
+The default `admin-bearer` file is deliberately retained but invalid after restore. The operator must explicitly select the fresh protected `--secret-output` file; it is never silently promoted. Pre-install failure may leave an inactive fresh bearer file. Format-4 CA authority/certificate selection is atomic inside SQLite. Its derived `http-ca.pem` export is preflighted against the current certificate and published after installation, without replacing unrelated files. Failure after selection is reported as changed/uncertain, never rollback; export inspection and an explicitly qualified recovery plan reconcile a stale derived file. Client trust is not mutated.
 
 ### Independent history export
 

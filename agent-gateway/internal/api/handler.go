@@ -1124,6 +1124,8 @@ func adminAuthorityPrecondition(writer http.ResponseWriter, request *http.Reques
 
 func writeServiceError(writer http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, backup.ErrEncryptedCustodyUnsupported):
+		writeProblem(writer, contract.ProblemEncryptedBackupUnsupported)
 	case errors.Is(err, admin.ErrNotFound), errors.Is(err, backup.ErrNotFound):
 		writeProblem(writer, contract.ProblemNotFound)
 	case errors.Is(err, backup.ErrInvalidIdempotency):

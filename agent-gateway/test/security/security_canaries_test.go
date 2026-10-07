@@ -30,7 +30,7 @@ import (
 
 func TestDiagnosticFactsHaveOnlyClosedScalarSlots(t *testing.T) {
 	shape := reflect.TypeOf(diagnostics.Facts{})
-	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "ProxyID", "Reason", "Retry", "Stage", "Suppressed", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
+	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "ProxyID", "Reason", "Retry", "SQLiteCode", "Settlement", "Stage", "Suppressed", "TrafficCause", "TrafficStage", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
 	for index := range shape.NumField() {
 		field := shape.Field(index)
 		if field.Name == "InvocationID" || field.Name == "ProxyID" {

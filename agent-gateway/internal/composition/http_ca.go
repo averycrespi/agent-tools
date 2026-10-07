@@ -25,14 +25,16 @@ type CAPlan struct {
 }
 
 type CACallbacks struct {
-	Validate func(previous []byte) error
-	Confirm  func(CAPlan) error
-	Publish  func(certificate, previous []byte) error
+	databaseCustody bool
+	Validate        func(previous []byte) error
+	Confirm         func(CAPlan) error
+	Publish         func(certificate, previous []byte) error
 }
 
 // HTTPCAConfirmed keeps target inspection, confirmation, cutover and public
 // publication under one stopped owner. Callbacks cannot change CA authority.
 func HTTPCAConfirmed(ctx context.Context, root, installation, operation string, clock Clock, entropy io.Reader, callbacks CACallbacks) ([]byte, error) {
+	callbacks.databaseCustody = true
 	return httpCA(ctx, root, installation, operation, clock, entropy, productionProvider, callbacks)
 }
 
@@ -48,7 +50,7 @@ func (e *CAEffectError) Unwrap() error { return e.Cause }
 // HTTPCA operates only on a locked, existing stopped installation. It never
 // constructs the serving graph, opens listeners, or changes client trust.
 func HTTPCA(ctx context.Context, root, installation, operation string, clock Clock, entropy io.Reader) ([]byte, error) {
-	return httpCA(ctx, root, installation, operation, clock, entropy, productionProvider)
+	return httpCA(ctx, root, installation, operation, clock, entropy, productionProvider, CACallbacks{databaseCustody: true})
 }
 
 func httpCA(ctx context.Context, root, installation, operation string, clock Clock, entropy io.Reader, providerFactory func(string) (*keyring.Provider, error), callbackOptions ...CACallbacks) (certificate []byte, err error) {
@@ -132,6 +134,11 @@ func httpCA(ctx context.Context, root, installation, operation string, clock Clo
 	provider, err := providerFactory(installation)
 	if err != nil {
 		return nil, err
+	}
+	if callbacks.databaseCustody {
+		if err = provider.UseDatabaseCustody(ctx, owner, store); err != nil {
+			return nil, err
+		}
 	}
 	coordinator := keyring.NewCoordinator(provider, store, clock, entropy)
 	defer coordinator.Drain()

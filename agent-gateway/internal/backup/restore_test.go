@@ -33,6 +33,7 @@ func (sink *captureSink) Publish(value string) error {
 }
 
 func TestRestoreAuditContinuity(t *testing.T) {
+	t.Parallel()
 	for _, point := range []restoreFaultPoint{"", restoreFaultBeforeInstall, "after_install"} {
 		t.Run(string(point), func(t *testing.T) {
 			ctx := t.Context()
@@ -107,6 +108,7 @@ func TestRestoreAuditContinuity(t *testing.T) {
 }
 
 func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -163,6 +165,7 @@ func TestRestoreReplacesCompleteGenerationAndRekeysAdminAuthority(t *testing.T) 
 }
 
 func TestRestoreInvalidatesAgentCredentialsAndAllowsFreshIssuance(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -286,6 +289,7 @@ func restoreTestEntropy(seed byte, size int) []byte {
 }
 
 func TestRestorePreservesServerAuthorityAndInterruptsWorkBeforeReconstruction(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -337,6 +341,7 @@ func TestRestorePreservesServerAuthorityAndInterruptsWorkBeforeReconstruction(t 
 }
 
 func TestRestoreMigratesAcceptedSchemaThreeBackupBeforePublication(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root, originalBearer := installAcceptedS1BackupFixture(t)
 	replacementSink := new(captureSink)
@@ -365,6 +370,7 @@ func TestRestoreMigratesAcceptedSchemaThreeBackupBeforePublication(t *testing.T)
 }
 
 func TestAcceptedSchemaThreeRestoreCrashPointsLeaveCurrentGenerationAuthoritative(t *testing.T) {
+	t.Parallel()
 	for _, point := range []restoreFaultPoint{
 		restoreFaultAfterCopy,
 		restoreFaultAfterMigration,
@@ -402,6 +408,7 @@ func TestAcceptedSchemaThreeRestoreCrashPointsLeaveCurrentGenerationAuthoritativ
 }
 
 func TestRestorePostInvalidationFaultsLeaveCurrentAgentAuthority(t *testing.T) {
+	t.Parallel()
 	for _, point := range []restoreFaultPoint{
 		restoreFaultAfterInvalidation,
 		restoreFaultAfterRekey,
@@ -511,6 +518,7 @@ func TestRestoreOrchestratesAuthorizationAndRequestsWithoutOwningSQL(t *testing.
 }
 
 func TestRestoreRefusesRunningOrTamperedArtifact(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	manager, store, ownership := newBackupManager(t, nil)
 	artifact, _, err := manager.Create(ctx, "authority", "restore-fixture")

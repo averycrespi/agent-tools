@@ -55,8 +55,7 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	initialSecret := filepath.Join(t.TempDir(), "initial")
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	result, err := runner.Run(ctx, binary, "init", "--confirm", "--data-dir", root, "--secret-output", initialSecret)
-	require.NoError(t, err, "initialize: %s", result.Stdout)
+	initializeLegacyGatewayFixture(t, root, initialSecret)
 	initialBearer, err := os.ReadFile(initialSecret)
 	require.NoError(t, err)
 
@@ -79,7 +78,7 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	require.NoError(t, ownership.Close())
 
 	replacementSecret := filepath.Join(t.TempDir(), "replacement")
-	result, err = runner.Run(ctx, binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--secret-output", replacementSecret, "--json")
+	result, err := runner.Run(ctx, binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--secret-output", replacementSecret, "--json")
 	require.NoError(t, err, "restore: %s", result.Stdout)
 	sourceRevision, err := strconv.ParseUint(artifact.SourceRevision, 10, 64)
 	require.NoError(t, err)

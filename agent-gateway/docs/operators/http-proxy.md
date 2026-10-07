@@ -63,8 +63,10 @@ do not run these mutations as a smoke test against a live installation.
 proxy readiness, active request/stream and tunnel counts, connection/work occupancy,
 and the shared traffic pressure, quota and fault facts. Loaded CA means current
 process signing capability, not native-keyring health or installed client trust.
-A traffic persistence fault blocks new MCP dispatch and HTTP forwarding while
-healthy control administration remains available. Shutdown fences admissions and
+A traffic persistence fault pauses optional history, not MCP dispatch, HTTP/Git
+forwarding or healthy control administration. Recording health and its process-local
+incident distinguish bounded recovery from operator-action-required faults; see
+[optional history](backup-and-recovery.md#optional-history-and-serving). Shutdown fences admissions and
 settles connection/completion owners before closing CA material and shared storage.
 Missing completion remains unknown; shutdown and restart never replay traffic.
 

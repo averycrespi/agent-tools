@@ -25,7 +25,7 @@ import (
 
 const (
 	ApplicationID           = 0x4d475731
-	CurrentSchema           = 22
+	CurrentSchema           = 24
 	BusyTimeoutMilliseconds = 2000
 	connectionLimit         = 4
 )
@@ -41,7 +41,7 @@ var (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql", "017_failure_diagnostics.sql", "018_traffic_selection.sql", "019_http_credentials.sql", "020_http_grants.sql", "021_http_ca.sql", "022_git_authority.sql"}
+var migrationNames = [...]string{"001_initial.sql", "002_admin_credentials.sql", "003_keyring_generations.sql", "004_servers.sql", "005_auth_flows.sql", "006_catalogs.sql", "007_retired_catalogs.sql", "008_authorization.sql", "009_invocations.sql", "010_grant_requests.sql", "011_oauth_diagnostics.sql", "012_grant_names.sql", "013_grant_descriptions.sql", "014_matcher_v2.sql", "015_control_audit.sql", "016_read_only_grants.sql", "017_failure_diagnostics.sql", "018_traffic_selection.sql", "019_http_credentials.sql", "020_http_grants.sql", "021_http_ca.sql", "022_git_authority.sql", "023_encrypted_custody.sql", "024_native_cleanup.sql"}
 
 type Identity struct {
 	TrafficGeneration string
@@ -93,6 +93,9 @@ func InitializeWithFaultInjection(
 
 func initializeWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, installationID string, options testOptions) (*Store, error) {
 	ctx = audit.WithOffline(ctx)
+	if err := gatewaypaths.RequireNoKeyRotation(ownership); err != nil {
+		return nil, err
+	}
 	if !installationIDPattern.MatchString(installationID) {
 		return nil, ErrInvalidInstallationID
 	}
@@ -146,6 +149,9 @@ func initializeWithOptions(ctx context.Context, ownership *gatewaypaths.Ownershi
 }
 
 func Open(ctx context.Context, ownership *gatewaypaths.Ownership) (*Store, error) {
+	if err := gatewaypaths.RequireNoKeyRotation(ownership); err != nil {
+		return nil, err
+	}
 	return openWithOptions(ctx, ownership, testOptions{})
 }
 
@@ -410,6 +416,12 @@ func (store *Store) verify(ctx context.Context) error {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
 	if err := store.verifyMigrationStructure(ctx, "022_git_authority.sql"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if err := store.verifyMigrationStructure(ctx, "023_encrypted_custody.sql"); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
+	}
+	if err := store.verifyMigrationStructure(ctx, "024_native_cleanup.sql"); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidDatabase, err)
 	}
 	if _, err := store.SelectedTraffic(ctx); err != nil {

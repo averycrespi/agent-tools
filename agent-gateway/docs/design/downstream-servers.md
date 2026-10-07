@@ -20,15 +20,21 @@ The schema has no runtime ID, PID, session, route capability, external request I
 
 ## Keyring capability and generation cutover
 
-Credential-free transports skip keyring access. Provider capability or keyring admission failures remain isolated to the dependent server.
+New and updated generations use authenticated-encrypted control SQLite custody. Schema 23 records each generation's explicit `legacy` or `encrypted` origin; migration marks only preexisting authoritative/candidate handles legacy. Absent or corrupt encrypted records never consult native storage. Production composition enables this selection before publishing any credential consumer. The legacy native generation implementation remains for transitional reads and deterministic historical fixtures, not new production writes.
+
+`init` provisions a random 256-bit installation key; existing installations explicitly run stopped `maintenance setup-secret-storage`. Without setup, only explicitly legacy material can be read; new writes refuse. AES-256-GCM uses Go's `NewGCMWithRandomNonce`, with a fresh random 96-bit nonce per encryption. The stored blob contains nonce, ciphertext and authentication tag. A durable per-key counter charges every published ciphertext (including later-retired generations) and refuses beyond 2^32 encryptions, the library's random-nonce lifetime bound. Deletion never refunds that budget. Associated data binds a fixed versioned domain, installation, immutable owner, closed kind, opaque generation handle and key identity. The key identity is SHA-256 of the random key; it is not a password verifier. Ciphertext substitution, wrong keys, modified nonces/tags, unknown versions and malformed bounds fail closed.
+
+The owner-only `master-key` file stays outside SQLite and traffic storage. Stealing the database alone does not reveal secrets, but possession of both database and key, or compromise of the Gateway account/root, defeats protection. This is not hardware-backed custody, whole-database integrity protection or rollback resistance against an attacker controlling the installation. Explicit [stopped master-key rotation](storage-and-recovery.md#offline-master-key-rotation) preserves protected values and retains historical keys for decrypt-only backup recovery. Native migration is an explicit [stopped custody transition](storage-and-recovery.md#offline-native-secret-migration-and-cleanup), not a startup action; portable recovery is not implied.
+
+Credential-free transports skip native credential access. A configured database-backed provider reports readiness without a native probe; established missing/wrong master keys refuse graph construction. Explicit legacy reads still depend on the native capability below.
 
 The `go-keyring` process-global functions sit behind instance-local adapters. Gateway's secret-free startup probe invokes no Get/Set/Delete or prompt presentation: Linux inspects the session D-Bus Secret Service, attempts only a nonpresenting unlock and dismisses any returned prompt object; macOS checks default-keychain metadata with bounded, output-discarding `security` commands. The snapshot is one of `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`, with a safe remediation code; it does not predict whether a later operation will interact. Missing items remain distinct from backend absence, and unknown native failures become unavailable without preserving native diagnostics.
 
-Any Get/Set/Delete may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. One process-global nonblocking `keyring_work` permit bounds outstanding operations; saturation rejects immediately and cancellation does not release the slot before the backend call returns. This accepted MVP limitation never permits file/configuration fallback. The MVP is unsuitable for unattended credential access; hardening is required before unattended deployment or after any unexpected dialog, cancellation-surviving call, or keyring-induced service blockage.
+Any Get/Set/Delete may invoke OS-managed interaction, fail, or outlive cancellation because `go-keyring` v0.2.7 is context-free. One process-global nonblocking `keyring_work` permit bounds outstanding operations; saturation rejects immediately and cancellation does not release the slot before the backend call returns. This limitation applies only to explicit legacy reads. It never permits plaintext fallback or automatic native replay. Database-backed restarts need no native credential access; mixed installations retain the legacy interaction risk until separately approved migration.
 
-A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, `oauth_tokens`, `http_credential`, `http_ca`, or `git_credential`. Secret payloads are limited to 256 KiB, base64url encoded into stored values no larger than 3,000 bytes, and identified outside the provider only by random opaque handles. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
+A keyring namespace binds the installation ULID, an immutable Gateway-derived resource-owner ULID, and one closed kind: `static_credential`, `oauth_client`, `oauth_tokens`, `http_credential`, `http_ca`, or `git_credential`. All secret payloads are limited to 256 KiB and identified outside the provider only by random opaque handles. Legacy payloads are base64url encoded into stored values no larger than 3,000 bytes. Chunks are written before a versioned owner/kind/handle/length/SHA-256 manifest, so no partial generation reads. Read verifies every binding, bound, decoded length, and digest; deletion handles complete or interrupted generations.
 
-SQLite registers a non-authoritative candidate before the first keyring write, making crash leftovers discoverable without persisting secret bytes. After writing and reading back a complete generation, one latched transaction advances the Gateway revision, selects its opaque handle as authority, invokes any domain callback, and moves the prior handle to bounded cleanup metadata.
+SQLite registers a non-authoritative candidate before writing its encrypted generation, making crash leftovers discoverable. Only ciphertext enters SQL. After writing and decrypting a complete generation for verification, one latched transaction advances the Gateway revision, selects its opaque handle as authority, invokes any domain callback, and moves the prior handle to bounded cleanup metadata. Thus ciphertext staging cannot grant authority independently of domain metadata. Existing admission, revision, activation, mutation-latch and unknown-write/no-replay fences remain unchanged. Cleanup removes unselected ciphertext and explicit legacy selectors; retired native objects remain untouched for the separately authorized cutover. Their survival never grants fallback authority.
 
 Server callbacks make the candidate handle and one independent credential-kind revision current atomically under captured desired, authority, registration, and drain fences. Invalidation removes current keyring authority and nulls server authority metadata in the same transaction before best-effort deletion; failed deletion leaves only bounded non-authoritative cleanup metadata.
 
@@ -44,9 +50,9 @@ Deterministic injected tests cover Darwin and Linux mappings, prompt dismissal, 
 
 The recipe accepts one ASCII token header name (1–128 bytes), a printable ASCII prefix (0–128 bytes, no leading space), and one nonempty printable ASCII secret with no surrounding space. Prefix plus secret is at most 4,096 bytes. Header matching ignores case. Authorization/Bearer and custom API-key names are supported; routing, framing, hop-by-hop, proxy authentication, browser security, conditional/range, forwarding and transport-control overrides are forbidden by `contract.ValidHTTPCredentialRecipe`. CR, LF, controls and non-ASCII material are rejected, never normalized. A request-local material pin carries the exact credential revision and privately owned bytes. The forwarding seam checks the canonical HTTPS request with the policy owner, rejects Connection-nominated injection fields, then returns a cloned header map replacing every case variant of the configured field. It never partially changes the input or injects into HTTP. This is a forwarding seam, not a proxy or permission to execute.
 
-Typed `http_credential` keyring records use the existing opaque-generation coordinator and durable fence/activation protocol. Create reserves safe metadata before one bounded secret ingress; failed publication can leave an unavailable visible record. Rotation preserves identity, fences old authority before external work, verifies the candidate and activates only acknowledged publication. Mutation admission is nonqueueing. A stale ETag is rejected before material work. Failed or uncertain rotation cannot fall back to old bytes; keyring cleanup failure does not reactivate authority. Future acquisitions require the exact current metadata revision and selected handle/material revision; an already admitted material pin retains its own generation until cleared. Secrets never enter ordinary reads, events, diagnostics, SQLite or backups.
+Typed `http_credential` keyring records use the existing opaque-generation coordinator and durable fence/activation protocol. Create reserves safe metadata before one bounded secret ingress; failed publication can leave an unavailable visible record. Rotation preserves identity, fences old authority before external work, verifies the candidate and activates only acknowledged publication. Mutation admission is nonqueueing. A stale ETag is rejected before material work. Failed or uncertain rotation cannot fall back to old bytes; keyring cleanup failure does not reactivate authority. Future acquisitions require the exact current metadata revision and selected handle/material revision; an already admitted material pin retains its own generation until cleared. Raw secrets never enter ordinary reads, events, diagnostics, SQL or backups. Only authenticated ciphertext enters control SQLite and format-4 backups; the matching master key stays separate.
 
-Metadata edits and deletion run in the shared control transaction. `ReferenceInspector.ReferencesTx` supplies all referencing grants on that transaction; edits check full containment for every reference and deletion rejects any reference. `CheckReferenceTx` is the grant owner's reciprocal insertion/update seam and checks the exact credential binding. Neither opens nested mutation admission. Schema 20 composition supplies the singular authorization repository as the real reference inspector. Referenced recipe changes reject atomically, as do boundaries that fail whole-grant containment and referenced deletion. `NoHTTPGrants` remains only for isolated credential fixtures with an empty grant store, never production. Restored stages invalidate all HTTP material authority before installation, even when old keyring chunks survive; deliberate new secret ingress is required.
+Metadata edits and deletion run in the shared control transaction. `ReferenceInspector.ReferencesTx` supplies all referencing grants on that transaction; edits check full containment for every reference and deletion rejects any reference. `CheckReferenceTx` is the grant owner's reciprocal insertion/update seam and checks the exact credential binding. Neither opens nested mutation admission. Schema 20 composition supplies the singular authorization repository as the real reference inspector. Referenced recipe changes reject atomically, as do boundaries that fail whole-grant containment and referenced deletion. `NoHTTPGrants` remains only for isolated credential fixtures with an empty grant store, never production. Legacy-only restored stages invalidate all HTTP material authority before installation, even when old keyring chunks survive; deliberate new secret ingress is required. Format-4 restore instead recovers authenticated encrypted material with its matching configuration.
 
 ## Scoped Git credentials
 
@@ -68,7 +74,7 @@ the old generation. Selected missing, fenced or unavailable material fails close
 with no alternate credential or public-access fallback. Exact resource revision
 and selected material generation must agree for acquisition and later binding.
 Raw secret ingress is cleared and is absent from ordinary reads, configuration,
-SQLite, paired backups, events, diagnostics and browser storage.
+SQL, paired backups, events, diagnostics and browser storage. Authenticated ciphertext resides only in control SQLite.
 
 The authorization owner supplies every referencing repository on the credential
 owner's supplied SQL transaction, including deleted retained configuration. A
@@ -83,10 +89,10 @@ fence and advance shared authorization revision; it cannot inspect principals or
 grants. The source guard admits this exact revision update, not general authorization-domain SQL.
 
 Startup and staged backup validation check complete canonical Git configuration,
-references, capacities and material-selection metadata. Paired restore preserves
+references, capacities and material-selection metadata. Legacy paired restore preserves
 valid policy/repository/profile configuration while invalidating all Git generation
 authority and advancing revisions before installation. Surviving old keyring
-chunks are non-authoritative; restore never reads them or revives backup material.
+chunks are non-authoritative; legacy restore never reads them or revives backup material. Format-4 restore recovers the encrypted Git generation consistently with its configuration.
 These deterministic lifecycle seams establish neither native credential custody
 nor production Git forwarding, live GitHub interoperability or guest isolation.
 
@@ -108,12 +114,12 @@ unrelated files are never silently overwritten. Authority mutation and later
 certificate-publication failure are reported separately. Commands hold ownership through
 storage closure, never replay uncertain failure, and do not start the serving graph. Startup/load never generates, rotates, scans old handles or
 falls back to plaintext. Missing, mismatched, expired, fenced or unavailable material
-fails interception closed. Key loss requires a new CA, not portable recovery.
+fails interception closed. Legacy signing-key loss requires explicit CA replacement. Installation master-key loss instead requires a separately qualified recovery plan, never implicit regeneration.
 
-Storage investigation preceded selection: the existing provider supports a 256 KiB
+For explicitly legacy generations, the native provider supports a 256 KiB
 decoded generation through 3,000-byte encoded chunks (2,250 raw bytes), followed by
 a binding/digest manifest. The CA-specific JSON envelope is bounded to 4,096 bytes,
-so at most two chunks plus one manifest are needed. It binds installation identity,
+so legacy custody needs at most two chunks plus one manifest. New writes instead encrypt this envelope as one authenticated control record under the installation master key. It binds installation identity,
 private key and matching public certificate. Native maximum-size and noninteractive
 operation remain unqualified; deterministic backend tests are not native evidence.
 The provider returns private bytes in process memory, not a hardware signer.
@@ -122,14 +128,10 @@ Schema 21 stores only singleton revision, opaque handle and public certificate.
 The existing sole coordinator registers candidates, fences old authority before
 external work, writes and verifies protected material, atomically publishes matching
 metadata, then activates acknowledged authority. Failed replacement never falls
-back to an old signer. Ordinary backup/read/export surfaces contain no signing key;
+back to an old signer. Ordinary read/export surfaces contain no signing key; format-4 backups contain only its authenticated ciphertext;
 public certificate export attests neither material availability nor installed trust.
 
-Every backup restore removes CA authority and advances its revision, even if retired
-physical keyring items remain. Public metadata may remain as history, but interception
-requires explicit replacement and client trust updates after **every restore**.
-Ordinary restarts preserve selected CA identity. Restore never accesses the keyring
-or revives a backup handle; installation identity alone is not anti-rollback proof.
+Legacy-only backup restore removes CA authority and advances its revision, even if retired physical keyring items remain; it requires explicit replacement and client trust updates. Format-4 restore recovers the exact authenticated encrypted signing identity and matching certificate, without automatic replacement or client trust mutation. Ordinary restarts preserve selected CA identity. Restore never accesses native storage. The [encrypted recovery protocol](storage-and-recovery.md#backup-publication) requires matching key custody and preserves the current key-lifetime high-water; installation identity alone is not anti-rollback proof.
 
 Roots last five years; leaves last at most 24 hours and never outlive the root.
 Canonical DNS/IP SAN issuance rejects invalid hosts, uses fresh P-256 leaf keys and
@@ -215,7 +217,7 @@ Only the creation response receives the exact canonical authorization URL; durab
 
 New preparation supersedes `preparing`/`awaiting_callback`, `exchanging` conflicts, cancellation is terminally idempotent, exact five-minute expiry excludes exchanging work, behavioral server mutation fences flows, and startup interrupts every nonterminal record. The callback validates one nonempty state before immediate global-eight admission, then consumes it before inspecting code/error/issuer.
 
-The captured RFC 9207 support bit controls exact `iss` presence and byte equality for both code and error branches. A valid code commits `exchanging`, rechecks every captured fence, loads confidential client authority only from keyring when required, and sends one exact form to the bound token endpoint through the hardened factory.
+The captured RFC 9207 support bit controls exact `iss` presence and byte equality for both code and error branches. A valid code commits `exchanging`, rechecks every captured fence, loads confidential client authority only from the selected credential generation when required, and sends one exact form to the bound token endpoint through the hardened factory.
 
 Basic percent-encodes credentials before the sole Authorization header and also sends the nonsecret client ID in form for authorization-server lookup; Post places client ID/secret only in form; None sends client ID only. A strict bounded `200 application/json` Bearer response may narrow but never expand requested scopes; omission preserves requested or unspecified/default semantics.
 

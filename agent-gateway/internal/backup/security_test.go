@@ -15,6 +15,7 @@ import (
 )
 
 func TestSecurityBackupRestoreDoesNotInspectOptionalHistory(t *testing.T) {
+	t.Parallel()
 	for _, selected := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unselected", true: "selected"}[selected], func(t *testing.T) {
 			manager, control, owner := newBackupManager(t, nil)
@@ -44,6 +45,7 @@ func TestSecurityBackupRestoreDoesNotInspectOptionalHistory(t *testing.T) {
 			require.ErrorIs(t, err, os.ErrNotExist)
 			// Unrelated history artifacts and sidecars are not security mutation targets.
 			require.NoError(t, os.WriteFile(filepath.Join(directory, "traffic.db-wal"), []byte("preserve"), 0600))
+			require.NoError(t, control.Checkpoint(t.Context()))
 			inspected, err := InspectRestore(t.Context(), owner, artifact.ID)
 			require.NoError(t, err)
 			require.Equal(t, "omitted-not-verified", inspected.History)
@@ -72,6 +74,7 @@ func TestSecurityBackupRestoreDoesNotInspectOptionalHistory(t *testing.T) {
 }
 
 func TestSecurityBackupOmitsEmbeddedHistoryWithoutChangingSource(t *testing.T) {
+	t.Parallel()
 	manager, control, owner := newBackupManager(t, nil)
 	require.NoError(t, control.Mutate(t.Context(), func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(t.Context(), `INSERT INTO invocations
@@ -91,6 +94,7 @@ func TestSecurityBackupOmitsEmbeddedHistoryWithoutChangingSource(t *testing.T) {
 }
 
 func TestSecurityImportDoesNotClaimDamagedPairValid(t *testing.T) {
+	t.Parallel()
 	manager, control, owner := newBackupManager(t, nil)
 	generation := "01ARZ3NDEKTSV4RRFFQ69G5FA0"
 	traffic, err := invocation.CreateTraffic(t.Context(), owner, backupTestInstallationID, generation, invocation.DefaultTrafficConfig())
@@ -106,6 +110,7 @@ func TestSecurityImportDoesNotClaimDamagedPairValid(t *testing.T) {
 	require.Error(t, err)
 	_, err = InspectRestore(t.Context(), owner, artifact.ID)
 	require.Error(t, err)
+	require.NoError(t, control.Checkpoint(t.Context()))
 	inspection, err := InspectRestoreScope(t.Context(), owner, artifact.ID, true)
 	require.NoError(t, err)
 	require.Equal(t, "omitted-not-verified", inspection.History)

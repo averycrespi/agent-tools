@@ -546,7 +546,7 @@ func onlyInvocationRecord(t *testing.T, repository *Repository) contract.Invocat
 		waitTraffic(t, repository.traffic)
 	}
 	var invocationID string
-	require.NoError(t, repository.view(context.Background(), func(transaction *sql.Tx) error {
+	require.NoError(t, repository.view(context.Background(), func(ctx context.Context, transaction *sql.Tx) error {
 		return transaction.QueryRowContext(context.Background(), `SELECT id FROM invocations`).Scan(&invocationID)
 	}))
 	record, found, err := repository.Read(context.Background(), invocationID)
