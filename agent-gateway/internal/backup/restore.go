@@ -182,6 +182,11 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 			_ = replacement.Close()
 		}
 	}()
+	if _, err := storage.InspectMaintenance(ctx, ownership, func(tx *sql.Tx) error {
+		return keyring.PreserveCleanupInventory(ctx, tx, replacement)
+	}); err != nil {
+		return storage.Identity{}, err
+	}
 	targets, authority, err := newRestoreValidationOwners(replacement, options.Clock, options.Entropy)
 	if err != nil {
 		return storage.Identity{}, err

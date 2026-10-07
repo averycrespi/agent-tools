@@ -26,6 +26,9 @@ func newMaintenanceCmd(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{Use: "maintenance", Short: "Inspect and recover stopped installations", Long: "Choose an operation, inspect its --dry-run plan, then use --confirm for noninteractive consent. Running maintenance alone only shows help."}
 	configureNamespaceCommand(command)
 	command.AddCommand(newRotateMasterKeyCmd(dependencies))
+	for _, operation := range []string{"migrate-secrets", "verify-secrets", "cleanup-native-secrets"} {
+		command.AddCommand(newSecretMigrationCmd(operation, dependencies))
+	}
 	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "restore-backup", "migrate-traffic-storage", "setup-secret-storage"} {
 		command.AddCommand(newMaintenanceOperation(operation, dependencies))
 	}
@@ -349,6 +352,8 @@ func maintenanceProblem(err error, root string) *controlclient.Problem {
 		code, title = "storage_latched", "Recovery state is unknown or incompatible with this operation. No fallback reset, restore or deletion was attempted."
 	case errors.Is(err, composition.ErrSecretCustody), errors.Is(err, keyring.ErrCustodyUnavailable), errors.Is(err, keyring.ErrIncompleteGeneration):
 		code, title, exit = "secret_storage_unavailable", "The master-key is missing, unsafe, incomplete or mismatched. Preserve the key and database and obtain a stopped recovery plan; setup never replaces an established key.", 7
+	case errors.Is(err, keyring.ErrMigrationIncomplete):
+		code, title, exit = "secret_migration_incomplete", "Protected dependencies or native cleanup remain unresolved. Completed copies and cleanup evidence were retained. Inspect missing credentials and stopped verification before another separately confirmed run; never remove legacy tooling without human approval.", 7
 	case errors.Is(err, backup.ErrEncryptedCustodyUnsupported):
 		code, title, exit = "encrypted_backup_unsupported", "This backup format or unresolved legacy dependency cannot recover encrypted custody. Preserve existing artifacts; select a complete format-4 backup with its matching master key.", 5
 	case errors.Is(err, backup.ErrInvalidArtifact), errors.Is(err, backup.ErrNotFound):

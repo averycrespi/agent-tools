@@ -96,7 +96,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:199e7ef97ccc6ab830888c6ea82ad2b1308cb54ad9d989deeaad625fcd90ebae", digest)
+	assert.Equal(t, "sha256:7e2556a7a401856e57e3a9d56200a2a87b8434def8908f8899681363334598f4", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {

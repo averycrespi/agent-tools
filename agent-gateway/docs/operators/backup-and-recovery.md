@@ -36,6 +36,44 @@ Recovery requires the existing installation, its closed current control database
 
 Formats 0, 2 and 3 remain legacy-only recovery, not self-contained secret backups. They cannot restore over encrypted custody, even with `--security-only`; an old encrypted database copy without format-4 metadata is also rejected. `encrypted_backup_unsupported` explains this boundary. Preserve old artifacts rather than relabeling them. Unsupported formats fail closed.
 
+## Migrate native secrets and retire sources
+
+These commands require separate authorization to touch installed resources. Shipping or testing them does not authorize live Keychain access, service changes or legacy-tool removal. Follow this order; migration and cleanup are deliberately separate:
+
+1. **Stop Gateway and all launchers** under your operational authorization. Preserve existing recovery artifacts and the established master key. Inspect the migration plan, then explicitly approve it:
+
+   ```bash
+   agent-gateway maintenance migrate-secrets --data-dir /path/to/gateway-data --dry-run
+   agent-gateway maintenance migrate-secrets --data-dir /path/to/gateway-data --confirm
+   ```
+
+   Migration enumerates Gateway's selected MCP static/OAuth, HTTP/Git and CA references, not arbitrary native entries. It safely provisions an initial key only when no existing encrypted data requires one. It copies and authenticates each current unfenced selection, retaining native sources and completed work. Repeated deliberate runs skip encrypted selections rather than overwriting newer values. Missing/inaccessible native material remains incomplete; repair access or explicitly replace unavailable credentials through their normal domain workflow. Never delete markers or roll back the nonce counter to make migration pass.
+
+2. **Verify complete encrypted custody while stopped**:
+
+   ```bash
+   agent-gateway maintenance verify-secrets --data-dir /path/to/gateway-data --confirm
+   ```
+
+   This is a nonmutating, native-free authentication and dependency check. Its `--dry-run` only previews the plan; it is not completeness evidence. Verification covers all nondeleted servers (including disabled ones), configured HTTP/Git credentials, and established CA identity. Missing required selections, unsettled operations, unreadable generations and any remaining legacy rows refuse success. A pristine absent CA is not a migrated CA and does not establish proxy readiness. DB-backed credentials never fall back to retained native sources.
+
+3. **Perform operational checks**, starting Gateway only with separate service authorization. Check representative MCP static/OAuth calls and refresh, HTTP/Git authentication, interception with the unchanged CA, and client trust. Custody verification does not prove upstream validity or unexpired tokens/certificates. Source tests do not qualify native behavior or live adoption.
+
+4. **Create and verify a new format-4 backup**, using the running [backup commands](#create-and-manage-backups), and safeguard its matching master key separately. Retain any historical keys still needed by older backups. Do not put the key in the backup artifact. Then stop Gateway and its launchers again.
+
+5. **Explicitly clean up retired native sources**, acknowledging the preceding checks and custody work:
+
+   ```bash
+   agent-gateway maintenance cleanup-native-secrets --data-dir /path/to/gateway-data --operator-verified --dry-run
+   agent-gateway maintenance cleanup-native-secrets --data-dir /path/to/gateway-data --operator-verified --confirm
+   ```
+
+   Cleanup repeats completeness verification and removes only the installation-owned generation slots recorded during successful migration. It refuses still-needed legacy material and does not search or delete unrelated native entries. `--operator-verified` is an operator attestation, not an automated operational/backup check. Confirmed native absence, retained items and uncertain effects are reported separately; permanent DB inventory is kept even after deletion. Restore carries current inventory and conservative deletion/reappearance evidence into the restored stage rather than rolling it back to backup time. An interrupted run first reconciles current presence on the next separately confirmed invocation before any new delete. A confirmed-deleted item that reappears is retained and reported unresolved; obtain a qualified manual plan rather than silently deleting it.
+
+6. **Obtain explicit human approval before removing legacy tooling.** Review complete verification, operational checks, backup/key custody and resolved native leftovers together. Neither successful migration nor cleanup grants that approval. Startup, migration, shutdown and support removal never clean up native secrets automatically. Binary downgrade safety is not promised.
+
+Use `--json` for bounded counts: `migrated`, `remaining`, `deleted_items`, `uncertain_items` and `retained_items`. Migration reconciles `remaining` across all legacy or missing authoritative generations, including unvisited work; it is meaningful only when `remaining_known` is true. A failed reconciliation reports unknown rather than a known zero. Missing configured dependencies without any generation still fail completeness independently. `deleted_items` means confirmed absent, including items already absent at reconciliation; it is not a count of native Delete calls. On failure the partial report is written to stderr alongside a typed failure, never a success claim. Counts do not expose handles, native errors or secret values. If a storage effect is uncertain, preserve the DB, key and recovery markers and follow qualified stopped recovery before another migration or cleanup. Completed selection is not rolled back, and failed encryption attempts can permanently consume nonce budget.
+
 ## Rotate the master key
 
 Stop Gateway and its launchers. Rotation requires complete encrypted custody; unresolved native/legacy material, credential cutovers and storage recovery evidence refuse without migration or deletion. It preserves credential authority and the exact CA, so rotation alone does not require updating client trust.

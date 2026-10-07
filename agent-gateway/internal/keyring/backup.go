@@ -151,6 +151,13 @@ func VerifyRecoveryCustodyTx(ctx context.Context, tx *sql.Tx, key []byte, inspec
 	return result, rows.Err()
 }
 
+// SelectedGenerationTx distinguishes active dependencies from retained ciphertext.
+func SelectedGenerationTx(ctx context.Context, tx *sql.Tx, handle Handle) (bool, error) {
+	var selected bool
+	err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM keyring_authorities WHERE handle=?)`, string(handle)).Scan(&selected)
+	return selected, err
+}
+
 // PreserveRestoreBudget carries forward the stopped installation high-water.
 // Copying ciphertext consumes no nonce, but restoring must never refund usage.
 func PreserveRestoreBudget(ctx context.Context, store *storage.Store, current BackupCustody) error {

@@ -144,6 +144,11 @@ func VerifyBackup(ctx context.Context, path string) (Identity, error) {
 			return Identity{}, fmt.Errorf("%w: Git schema mismatch: %w", ErrInvalidDatabase, err)
 		}
 	}
+	if schema >= 24 {
+		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "024_native_cleanup.sql"); err != nil {
+			return Identity{}, err
+		}
+	}
 	if schema >= 23 {
 		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "023_encrypted_custody.sql"); err != nil {
 			return Identity{}, fmt.Errorf("%w: secret custody schema mismatch: %w", ErrInvalidDatabase, err)

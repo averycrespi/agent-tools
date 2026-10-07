@@ -41,32 +41,9 @@ func (repository *Repository) OAuthRegistration(ctx context.Context, serverID st
 	}
 	var registration OAuthRegistrationAuthority
 	err := repository.store.View(ctx, func(transaction *sql.Tx) error {
-		var revision int64
-		var mode, issuer, clientID, callbackURL, resourceURL, method, createdAt, expires sql.NullString
-		if err := transaction.QueryRowContext(ctx, `
-			SELECT revision, mode, issuer, client_id, callback_url, resource_url,
-			       token_endpoint_auth_method, created_at, client_secret_expires_at
-			FROM server_oauth_registrations WHERE server_id = ?`, serverID).Scan(
-			&revision, &mode, &issuer, &clientID, &callbackURL, &resourceURL, &method, &createdAt, &expires,
-		); err != nil {
-			return err
-		}
-		registration.Revision = strconv.FormatInt(revision, 10)
-		if revision == 0 {
-			return nil
-		}
-		registration.Mode = contract.RegistrationMode(mode.String)
-		registration.Issuer = issuer.String
-		registration.ClientID = clientID.String
-		registration.CallbackURL = callbackURL.String
-		registration.ResourceURL = resourceURL.String
-		registration.TokenEndpointAuthMethod = contract.TokenEndpointAuthMethod(method.String)
-		registration.CreatedAt = createdAt.String
-		if expires.Valid {
-			value := expires.String
-			registration.ClientSecretExpiresAt = &value
-		}
-		return validateRegistrationAuthority(registration)
+		var err error
+		registration, err = oauthRegistrationTx(ctx, transaction, serverID)
+		return err
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return OAuthRegistrationAuthority{}, ErrNotFound
