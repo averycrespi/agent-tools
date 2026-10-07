@@ -15,6 +15,7 @@ import (
 )
 
 func TestAccountingTracksCreationDeletionAndRetention(t *testing.T) {
+	t.Parallel()
 	manager, _, owner := newBackupManager(t, nil)
 	check := func(records, retries int64) {
 		t.Helper()
@@ -42,6 +43,7 @@ func TestAccountingTracksCreationDeletionAndRetention(t *testing.T) {
 }
 
 func TestAccountingNeverReadsDatabaseContentsAndRetainsVerification(t *testing.T) {
+	t.Parallel()
 	for _, paired := range []bool{false, true} {
 		name := "legacy"
 		if paired {
@@ -83,6 +85,7 @@ func TestAccountingNeverReadsDatabaseContentsAndRetainsVerification(t *testing.T
 }
 
 func TestAccountingReportsSaturationFromMetadata(t *testing.T) {
+	t.Parallel()
 	manager, _, owner := newBackupManager(t, nil)
 	created, _, err := manager.Create(t.Context(), "authority", "saturation")
 	require.NoError(t, err)
@@ -135,6 +138,7 @@ func TestAccountingReportsSaturationFromMetadata(t *testing.T) {
 }
 
 func TestAccountingRejectsUnsafeRequiredMetadata(t *testing.T) {
+	t.Parallel()
 	manager, _, owner := newBackupManager(t, nil)
 	created, _, err := manager.Create(t.Context(), "authority", "metadata-errors")
 	require.NoError(t, err)

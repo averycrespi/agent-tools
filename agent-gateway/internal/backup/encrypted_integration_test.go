@@ -92,6 +92,7 @@ func TestIntegrationEncryptedRestoreRecoversCAHTTPAndGit(t *testing.T) {
 }
 
 func TestIntegrationRotatedBackupRecoversExactCAAndAllCredentials(t *testing.T) {
+	t.Parallel()
 	testEncryptedDomainRecovery(t, true)
 }
 

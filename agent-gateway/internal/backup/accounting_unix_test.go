@@ -12,6 +12,7 @@ import (
 )
 
 func TestAccountingRejectsUnsafeFilesystem(t *testing.T) {
+	t.Parallel()
 	manager, _, owner := newBackupManager(t, nil)
 	created, _, err := manager.Create(t.Context(), "authority", "unsafe-filesystem")
 	require.NoError(t, err)

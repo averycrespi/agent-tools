@@ -16,6 +16,7 @@ import (
 )
 
 func TestCrossKeyRestoreReservesBudgetBeforeExposure(t *testing.T) {
+	t.Parallel()
 	for _, point := range []restoreFaultPoint{restoreFaultAfterReservation, restoreFaultBeforeInstall, ""} {
 		t.Run(string(point), func(t *testing.T) {
 			ctx := t.Context()
@@ -106,6 +107,7 @@ func TestCrossKeyRestoreReservesBudgetBeforeExposure(t *testing.T) {
 }
 
 func TestCrossKeyRestoreRefusesMissingWrongAndExhaustedKeys(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"missing", "wrong", "exhausted", "pending-rotation"} {
 		t.Run(mode, func(t *testing.T) {
 			manager, store, owner := newBackupManager(t, nil)

@@ -48,6 +48,7 @@ func newBackupManager(t *testing.T, fault func(FaultPoint) error) (*Manager, *st
 }
 
 func TestBackupEffectAuditFencesAttemptsAndDoesNotInventOutcomes(t *testing.T) {
+	t.Parallel()
 	for _, action := range []string{"create", "delete"} {
 		for _, phase := range []string{"attempt", "outcome", "success"} {
 			t.Run(action+"/"+phase, func(t *testing.T) {
@@ -107,6 +108,7 @@ func TestBackupEffectAuditFencesAttemptsAndDoesNotInventOutcomes(t *testing.T) {
 }
 
 func TestCurrentSchemaBackupCompatibility(t *testing.T) {
+	t.Parallel()
 	manager, _, ownership := newBackupManager(t, nil)
 	created, replay, err := manager.Create(context.Background(), "authority", "schema-current")
 	require.NoError(t, err)
@@ -118,6 +120,7 @@ func TestCurrentSchemaBackupCompatibility(t *testing.T) {
 }
 
 func TestCreatePublishesVerifiedOwnerOnlyGeneration(t *testing.T) {
+	t.Parallel()
 	manager, _, ownership := newBackupManager(t, nil)
 	created, replay, err := manager.Create(context.Background(), "authority", "retry-1")
 	require.NoError(t, err)
@@ -145,6 +148,7 @@ func TestCreatePublishesVerifiedOwnerOnlyGeneration(t *testing.T) {
 }
 
 func TestCreateFailureNeverPublishesArtifact(t *testing.T) {
+	t.Parallel()
 	manager, _, ownership := newBackupManager(t, func(point FaultPoint) error {
 		if point == FaultPublish {
 			return assert.AnError
@@ -162,6 +166,7 @@ func TestCreateFailureNeverPublishesArtifact(t *testing.T) {
 }
 
 func TestIdempotencyReplayExpiresAfterFixedRetention(t *testing.T) {
+	t.Parallel()
 	manager, store, ownership := newBackupManager(t, nil)
 	first, replay, err := manager.Create(context.Background(), "authority", "retry-1")
 	require.NoError(t, err)
@@ -184,6 +189,7 @@ func TestIdempotencyReplayExpiresAfterFixedRetention(t *testing.T) {
 }
 
 func TestCreateRejectsConcurrentWorkWithoutStartingIt(t *testing.T) {
+	t.Parallel()
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
@@ -210,6 +216,7 @@ func TestCreateRejectsConcurrentWorkWithoutStartingIt(t *testing.T) {
 }
 
 func TestSelectedGetRejectsTamperedGeneration(t *testing.T) {
+	t.Parallel()
 	manager, _, ownership := newBackupManager(t, nil)
 	created, _, err := manager.Create(context.Background(), "authority", "retry-1")
 	require.NoError(t, err)
