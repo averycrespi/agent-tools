@@ -306,6 +306,16 @@ class CacheTests(unittest.TestCase):
         harness = (ROOT / "agent-gateway/test/e2e/harness_test.go").read_text()
         self.assertIn("testutil.NewBinaryRunner(30*time.Second, 64*1024)", harness)
 
+    def test_macos_integration_bounds_package_workers_only(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        profile = "GOFLAGS: ${{ matrix.suite != 'harness' && '-p=2' || '' }}"
+        self.assertIn(profile, jobs["gateway-macos"])
+        self.assertEqual(workflow.count(profile), 1)
+        self.assertNotIn("GOFLAGS:", jobs["integration-tests"])
+        self.assertIn('run: make -C agent-gateway "test-$SUITE"', jobs["gateway-macos"])
+        self.assertIn("timeout-minutes: 30", jobs["gateway-macos"])
+
     def test_gateway_macos_executes_disjoint_platform_owners(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
