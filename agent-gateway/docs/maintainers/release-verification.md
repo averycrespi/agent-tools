@@ -140,7 +140,7 @@ Run that command from the repository root. It limits the owned verification proc
 
 ## Constrained-memory test scheduling
 
-Hosted Gateway integration jobs on Linux and macOS use the two-package profile below to bound contention between CPU-heavy race-enabled migration and restore owners. Harness and other tools retain their existing scheduling. This does not change the five-minute test-binary deadline, shared twelve-minute integration-owner deadline, test selection, or real initialization required by recovery fixtures; hosted timing still requires exact-head CI evidence.
+Hosted Gateway integration jobs on Linux and macOS use the two-package profile below to bound contention between CPU-heavy race-enabled migration and restore owners. Harness and other tools retain their existing scheduling. This does not change the five-minute test-binary deadline, shared fifteen-minute integration-owner deadline, test selection, or real initialization required by recovery fixtures; hosted timing still requires exact-head CI evidence.
 
 Keep the default Go package concurrency on ordinary development hosts. For lower-memory execution, `GOFLAGS=-p=2 make -C agent-gateway test-integration` bounds package workers without changing race instrumentation, count-one selection, or intentionally concurrent scenarios. Preserve any other required `GOFLAGS` when selecting that profile. Do not blanket-serialize `t.Parallel` or repeat migration/restore matrices as a stress test.
 
