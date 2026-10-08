@@ -223,15 +223,30 @@ func (store *Store) latch(cause error) error {
 	store.faultFence.Lock()
 	store.latched.Store(true)
 	store.faultFence.Unlock()
-	return fmt.Errorf("%w: %w", ErrStorageLatched, cause)
+	return &latchedFailure{cause: cause}
 }
+
+// Retain causes without invoking arbitrary formatters while mutation admission
+// is owned. Error rendering belongs to the caller after admission release.
+type latchedFailure struct{ cause error }
+
+func (e *latchedFailure) Error() string   { return ErrStorageLatched.Error() + ": " + e.cause.Error() }
+func (e *latchedFailure) Unwrap() []error { return []error{ErrStorageLatched, e.cause} }
+
+type faultContext struct {
+	operation string
+	cause     error
+}
+
+func (e *faultContext) Error() string { return e.operation + ": " + e.cause.Error() }
+func (e *faultContext) Unwrap() error { return e.cause }
 
 func (store *Store) inject(point FaultPoint) error {
 	if store.fault == nil {
 		return nil
 	}
 	if err := store.fault(point); err != nil {
-		return fmt.Errorf("injected fault at %s: %w", point, err)
+		return &faultContext{operation: "injected fault at " + string(point), cause: err}
 	}
 	return nil
 }
@@ -679,7 +694,7 @@ func (marker mutationMarker) inject(point FaultPoint) error {
 		return nil
 	}
 	if err := marker.fault(point); err != nil {
-		return fmt.Errorf("injected marker fault at %s: %w", point, err)
+		return &faultContext{operation: "injected marker fault at " + string(point), cause: err}
 	}
 	return nil
 }

@@ -156,9 +156,17 @@ func Snapshot(component, operation, resource string, err error, secrets ...strin
 			if secret == "" {
 				continue
 			}
-			for _, field := range []*string{&d.Explanation, &d.Native, &d.Effect, &d.Excerpt, &d.Stack} {
+			escaped := strconv.QuoteToASCII(secret)
+			escaped = strings.NewReplacer("<", `\x3c`, ">", `\x3e`, "&", `\x26`).Replace(escaped[1 : len(escaped)-1])
+			for _, field := range []*string{&d.Resource, &d.Explanation, &d.Native, &d.Effect, &d.Excerpt, &d.Stack} {
+				// An earlier bounded snapshot may contain only a secret prefix.
+				// Complete-value replacement cannot establish safety in that case.
+				if strings.Contains(*field, "...[truncated]") {
+					*field = "detail withheld: truncated before source masking"
+					continue
+				}
 				*field = strings.ReplaceAll(*field, secret, "[withheld]")
-				*field = strings.ReplaceAll(*field, Text(secret, detailInputLimit), "[withheld]")
+				*field = strings.ReplaceAll(*field, escaped, "[withheld]")
 			}
 		}
 		return d.bounded()

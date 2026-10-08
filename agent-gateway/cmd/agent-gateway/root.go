@@ -187,7 +187,7 @@ func selectedDataDir(command *cobra.Command, local string) string {
 	return local
 }
 
-func executeServe(command *cobra.Command, dataDir, authority string, allowedHosts []string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
+func executeServe(command *cobra.Command, dataDir, authority string, allowedHosts []string, dependencies offlineDependencies, phases *controlclient.ServePhases) (_ bool, resultErr error) {
 	budget := composition.DefaultTrafficBudget
 	if command.Flags().Lookup("traffic-budget-bytes") != nil {
 		budget, _ = command.Flags().GetInt64("traffic-budget-bytes")
@@ -225,7 +225,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = store.Close() }()
+	closeStore := onceServeCleanup("control storage", ownership.Layout().Database, store.Close, dependencies.diagnostics)
+	defer func() { resultErr = errors.Join(resultErr, closeStore()) }()
 	store.SetDiagnostics(dependencies.diagnostics)
 	identity, err := store.Identity(ctx)
 	if err != nil {
@@ -407,6 +408,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		},
 	})
 	boundary, err = httpboundary.New(httpboundary.Options{
+		Diagnostics:          dependencies.diagnostics,
 		AuthenticatedProblem: apiHandler.RecordAuthenticatedProblem,
 		AllowedHosts:         allowedHosts,
 		Authority:            authority,
@@ -550,7 +552,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		}
 		eventHub.Shutdown()
 	}
-	if err := store.Close(); err != nil {
+	if err := closeStore(); err != nil {
 		return true, err
 	}
 	if runtimeClean {
@@ -559,6 +561,25 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		}
 	}
 	return true, nil
+}
+
+// Each root-owned cleanup runs once. A deferred failure joins, rather than
+// replaces, the primary failure before finishServe performs local observation.
+func onceServeCleanup(owner, resource string, close func() error, observer diagnostics.HTTPProxyObserver) func() error {
+	closed := false
+	return func() error {
+		if closed {
+			return nil
+		}
+		closed = true
+		if err := close(); err != nil {
+			if observer != nil {
+				observer.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: diagnostics.Snapshot(owner, "close", resource, err)})
+			}
+			return fmt.Errorf("close %s %s: %w", owner, resource, err)
+		}
+		return nil
+	}
 }
 
 func baseSystemStatus(

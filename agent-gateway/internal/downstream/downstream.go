@@ -231,12 +231,12 @@ func NewStdioTransport(runtime StdioRuntime) (*StdioTransport, error) {
 
 func (*StdioTransport) Kind() TransportKind { return TransportStdio }
 
-func (transport *StdioTransport) Exchange(ctx context.Context, message Message) (WireResponse, error) {
+func (transport *StdioTransport) Exchange(ctx context.Context, message Message) (_ WireResponse, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return WireResponse{}, err
 	}
 	transport.exchangeMu.Lock()
-	defer transport.exchangeMu.Unlock()
+	defer func() { transport.exchangeMu.Unlock(); resultErr = snapshotStdioWrite(resultErr) }()
 	if err := ctx.Err(); err != nil {
 		return WireResponse{}, err
 	}
@@ -254,12 +254,12 @@ func (transport *StdioTransport) Exchange(ctx context.Context, message Message) 
 	}
 }
 
-func (transport *StdioTransport) Notify(ctx context.Context, message Message) (WireResponse, error) {
+func (transport *StdioTransport) Notify(ctx context.Context, message Message) (_ WireResponse, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return WireResponse{}, err
 	}
 	transport.exchangeMu.Lock()
-	defer transport.exchangeMu.Unlock()
+	defer func() { transport.exchangeMu.Unlock(); resultErr = snapshotStdioWrite(resultErr) }()
 	if err := ctx.Err(); err != nil {
 		return WireResponse{}, err
 	}
@@ -267,6 +267,18 @@ func (transport *StdioTransport) Notify(ctx context.Context, message Message) (W
 		return WireResponse{}, err
 	}
 	return WireResponse{}, nil
+}
+
+type stdioWriteFailure struct{ cause error }
+
+func (*stdioWriteFailure) Error() string { return "stdio write failed" }
+
+func snapshotStdioWrite(err error) error {
+	var failure *stdioWriteFailure
+	if errors.As(err, &failure) {
+		return diagnostics.WithDetail(ErrTransportClosed, diagnostics.Snapshot("downstream", "write stdin", "", failure.cause))
+	}
+	return err
 }
 
 func (transport *StdioTransport) writeMessage(message Message) error {
@@ -285,7 +297,7 @@ func (transport *StdioTransport) writeMessage(message Message) error {
 		if err == nil {
 			err = io.ErrShortWrite
 		}
-		return diagnostics.WithDetail(ErrTransportClosed, diagnostics.Snapshot("downstream", "write stdin", "", err))
+		return &stdioWriteFailure{cause: err}
 	}
 	return nil
 }

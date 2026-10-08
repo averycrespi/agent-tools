@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
@@ -95,7 +96,7 @@ func newResolver(fetch fetcher) *Resolver {
 func (fetch remoteFetcher) Fetch(ctx context.Context, rawURL string, trusted bool) (int, http.Header, []byte, error) {
 	endpoint, err := remote.Parse(rawURL, remote.Policy{AllowRestricted: trusted, AllowQuery: true})
 	if err != nil {
-		return 0, nil, nil, newDiagnosticFailure(ErrTrustRejected, contract.ReasonConfigurationInvalid, 0)
+		return 0, nil, nil, newDiagnosticFailure(diagnostics.WithDetail(ErrTrustRejected, diagnostics.Snapshot("oauth", "parse metadata endpoint", rawURL, err)), contract.ReasonConfigurationInvalid, 0)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, contract.OAuthRequestDeadline)
 	defer cancel()
@@ -106,7 +107,7 @@ func (fetch remoteFetcher) Fetch(ctx context.Context, rawURL string, trusted boo
 		MaxBody:  limit("oauth_metadata_body_bytes"),
 	})
 	if err != nil {
-		return 0, nil, nil, newDiagnosticFailure(ErrTrustRejected, contract.ReasonConnectivity, 0)
+		return 0, nil, nil, newDiagnosticFailure(diagnostics.WithDetail(ErrTrustRejected, diagnostics.Snapshot("oauth", "fetch metadata", rawURL, err)), contract.ReasonConnectivity, 0)
 	}
 	return response.StatusCode, response.Header, response.Body, nil
 }

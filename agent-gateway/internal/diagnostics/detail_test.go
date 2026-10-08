@@ -24,6 +24,16 @@ func TestLocalDetailPreservesCausesWithoutSecrets(t *testing.T) {
 	require.Equal(t, d.Explanation, Snapshot("proxy", "exchange", "inventory.example:443", local).Explanation)
 }
 
+func TestLocalDetailWithholdsInheritedTruncatedSecret(t *testing.T) {
+	secret := strings.Repeat("sensitive-argument-", 80)
+	first := WithDetail(errors.New("transport closed"), Snapshot("downstream", "write stdin", "", errors.New("write failed: "+secret)))
+	d := Snapshot("mcp", "execute", "inventory/tool", first, secret)
+	require.NotContains(t, d.Explanation, "sensitive-argument-")
+	require.Contains(t, d.Explanation, "withheld")
+	require.Equal(t, "inventory/tool", d.Resource)
+	require.Equal(t, "execute", d.Operation)
+}
+
 func TestLocalDetailBoundsAndEscapes(t *testing.T) {
 	d := Snapshot("filesystem", "open", "/tmp/benign.sqlite", errors.New("permission denied\n\x1b[31m"+strings.Repeat("x", 100000)))
 	require.Contains(t, d.Explanation, "permission denied")

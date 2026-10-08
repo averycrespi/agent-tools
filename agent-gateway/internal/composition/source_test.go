@@ -146,10 +146,10 @@ func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	for _, prohibited := range []string{"runtimes.New(", "unavailableDriver", "absentCatalog", "newMemoryPublisher", "Routes().Resolve(", "mcpingress.DenyAllAuthenticator{}", "AgentAuth: contract.AgentAuthDenyAll"} {
 		assert.NotContains(t, rootSource, prohibited, "cmd/agent-gateway/root.go: prohibited production symbol %s", prohibited)
 	}
-	for _, required := range []string{"runtimeClean = result.Unconfirmed == 0", "if err := store.Close(); err != nil", "if runtimeClean {", "ownership.MarkClean()"} {
+	for _, required := range []string{"runtimeClean = result.Unconfirmed == 0", "if err := closeStore(); err != nil", "onceServeCleanup(\"control storage\"", "if runtimeClean {", "ownership.MarkClean()"} {
 		assert.Contains(t, rootSource, required, "cmd/agent-gateway/root.go: missing clean-shutdown symbol %s", required)
 	}
-	assert.Less(t, strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)"), strings.Index(rootSource, "if err := store.Close(); err != nil"), "cmd/agent-gateway/root.go: storage closed before composition drain")
+	assert.Less(t, strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)"), strings.Index(rootSource, "if err := closeStore(); err != nil"), "cmd/agent-gateway/root.go: storage closed before composition drain")
 	assert.Equal(t, 1, strings.Count(rootSource, "Authenticator:"), "cmd/agent-gateway/root.go: production authenticator must have one owner")
 	listener := strings.Index(rootSource, "httpboundary.OpenListener(")
 	assert.True(t, listener > strings.Index(rootSource, "runtime.AgentIngress()") && listener > strings.Index(rootSource, "runtime.ControlAPI()") && listener > strings.Index(rootSource, "api.New(api.Options{") && listener > strings.Index(rootSource, "mcpingress.New(mcpingress.Options{"), "cmd/agent-gateway/root.go: complete S5 bundles must bind before listener open")
@@ -178,7 +178,7 @@ func TestDrainRootKeepsEventsAndStorageUntilCompositionSettles(t *testing.T) {
 	joined := strings.Index(rootSource, "case result := <-runtimeDrain:")
 	eventsClosed := strings.LastIndex(rootSource, "eventHub.Shutdown()")
 	unconfirmed := strings.Index(rootSource, "if !runtimeClean {")
-	storageClosed := strings.Index(rootSource, "if err := store.Close(); err != nil")
+	storageClosed := strings.Index(rootSource, "if err := closeStore(); err != nil")
 	assert.True(t, branch >= 0 && branch < joined && joined < eventsClosed && eventsClosed < storageClosed,
 		"cmd/agent-gateway/root.go: events and storage must remain open until the composition drain settles")
 	assert.True(t, joined < unconfirmed && unconfirmed < storageClosed,

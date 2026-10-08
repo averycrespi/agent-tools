@@ -94,14 +94,10 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 		return constructErr
 	})
 	if err != nil {
-		if key != (CandidateKey{}) {
-			driver.cleanupConstruction(ctx, key)
-		}
-		return constructionFailure(err)
+		return driver.failedConstruction(ctx, key, err)
 	}
 	if !driver.owner.Transition(key, RuntimeNegotiating) {
-		driver.cleanupConstruction(ctx, key)
-		return constructionFailure(errors.New("candidate ownership changed during construction"))
+		return driver.failedConstruction(ctx, key, errors.New("candidate ownership changed during construction"))
 	}
 	opened := false
 	negotiator, err := driver.newNegotiator(func(context.Context) (*downstream.Coordinator, error) {
@@ -115,8 +111,7 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 		return driver.construct(ctx, candidate, desired)
 	})
 	if err != nil {
-		driver.cleanupConstruction(ctx, key)
-		return constructionFailure(err)
+		return driver.failedConstruction(ctx, key, err)
 	}
 	phase = diagnostics.PhaseInitialization
 	selected, err := negotiator.Negotiate(ctx, replayNegotiationMode(desired, candidate.OAuthReplayStage))
@@ -127,13 +122,12 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 		}
 		var challenge *downstream.OAuthChallengeDisposition
 		if !errors.As(err, &challenge) {
-			driver.cleanupConstruction(ctx, key)
+			return driver.failedConstruction(ctx, key, err)
 		}
 		return constructionFailure(err)
 	}
 	if !driver.attachRuntime(key, selected) || !driver.owner.Transition(key, RuntimeCataloging) {
-		driver.cleanupConstruction(ctx, key)
-		return constructionFailure(errors.New("candidate ownership changed during negotiation"))
+		return driver.failedConstruction(ctx, key, errors.New("candidate ownership changed during negotiation"))
 	}
 	driver.watchFailures(candidate, key, selected)
 	return Outcome{State: contract.RuntimeActive, CredentialState: contract.ServerCredentialReady, CatalogState: contract.ActiveCatalogAbsent}
@@ -363,6 +357,41 @@ func (driver *ConcreteDriver) storeHandle(key CandidateKey, handle *concreteHand
 	}
 	driver.handles[key] = handle
 	return true
+}
+
+func (driver *ConcreteDriver) failedConstruction(ctx context.Context, key CandidateKey, cause error) Outcome {
+	outcome := constructionFailure(cause)
+	if key == (CandidateKey{}) {
+		return outcome
+	}
+	driver.mu.Lock()
+	handle := driver.handles[key]
+	driver.mu.Unlock()
+	driver.cleanupConstruction(ctx, key)
+	if handle == nil {
+		return outcome
+	}
+	handle.mu.Lock()
+	done, cleanupDetail := handle.stdioDone, handle.failureDetail
+	handle.mu.Unlock()
+	// The construction path owns this channel until watchFailures is installed.
+	// Verified process cleanup joins exit publication; never wait on an unconfirmed owner.
+	select {
+	case exit, ok := <-done:
+		if ok {
+			detail := exit.Detail
+			detail.Explanation = diagnostics.Text("initialization: "+outcome.DiagnosticDetail.Explanation+"; child: "+detail.Explanation, 512)
+			if cleanupDetail != (diagnostics.Detail{}) {
+				detail.Effect += "; cleanup unconfirmed"
+			}
+			outcome.DiagnosticDetail = detail
+		}
+	default:
+		if cleanupDetail != (diagnostics.Detail{}) {
+			outcome.DiagnosticDetail = cleanupDetail
+		}
+	}
+	return outcome
 }
 
 func (driver *ConcreteDriver) cleanupConstruction(ctx context.Context, key CandidateKey) {

@@ -311,10 +311,10 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), target.Destination(), e.options.Listeners)
 	if err != nil {
+		e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), err, w)
 		if git {
 			e.rejectGit(w, r, lease, "destination_unavailable", upstreamStatus(err))
 		} else {
-			e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), err, w)
 			reject(w, upstreamStatus(err))
 		}
 		return

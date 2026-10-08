@@ -96,6 +96,45 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 		})
 	}
 }
+
+type admissionFormattingError struct {
+	store                  *Store
+	called, underAdmission bool
+}
+
+func (e *admissionFormattingError) Error() string {
+	owned, _ := e.store.MutationOccupancy()
+	e.called = true
+	e.underAdmission = e.underAdmission || owned
+	return "native storage device refused write"
+}
+
+func TestStorageFailureFormattingAfterAdmissionRelease(t *testing.T) {
+	for _, point := range []FaultPoint{FaultArmWrite, FaultAfterCommit, FaultDisarmDelete} {
+		var armed bool
+		cause := &admissionFormattingError{}
+		store, err := InitializeWithFaultInjection(t.Context(), newOwnership(t), testInstallationID, func(p FaultPoint) error {
+			if armed && p == point {
+				return cause
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		cause.store = store
+		var output bytes.Buffer
+		adapter := diagnostics.New(&output, diagnostics.Warn)
+		store.SetDiagnostics(adapter)
+		armed = true
+		err = store.Mutate(t.Context(), func(*sql.Tx) error { return nil })
+		require.ErrorIs(t, err, ErrStorageLatched)
+		require.True(t, cause.called)
+		require.False(t, cause.underAdmission)
+		require.True(t, adapter.Finish(nil))
+		require.Contains(t, output.String(), "native storage device refused write")
+		require.NoError(t, store.Close())
+	}
+}
+
 func TestStorageDiagnosticDisabledObserverAvoidsConstruction(t *testing.T) {
 	var output bytes.Buffer
 	adapter := diagnostics.New(&output, diagnostics.Warn)
