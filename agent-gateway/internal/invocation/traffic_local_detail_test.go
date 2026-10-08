@@ -47,7 +47,8 @@ func TestTrafficLocalCauseFormattedAfterWriterUnlock(t *testing.T) {
 	var record map[string]any
 	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 	wantResource := store.path
-	if len(wantResource) > 160 {
+	// The final encoder reserves space for the truncation marker.
+	if len(wantResource) > 160-len("...[truncated]") {
 		wantResource = wantResource[:160-len("...[truncated]")] + "...[truncated]"
 	}
 	require.Equal(t, wantResource, record["resource"])

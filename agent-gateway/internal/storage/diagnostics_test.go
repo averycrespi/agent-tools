@@ -90,7 +90,8 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 			require.Contains(t, output.String(), "device permission denied")
 			require.Contains(t, output.String(), "storage.example")
 			wantResource := store.path
-			if len(wantResource) > 160 {
+			// The final encoder reserves space for the truncation marker.
+			if len(wantResource) > 160-len("...[truncated]") {
 				wantResource = wantResource[:160-len("...[truncated]")] + "...[truncated]"
 			}
 			require.Equal(t, wantResource, got[0]["resource"])
