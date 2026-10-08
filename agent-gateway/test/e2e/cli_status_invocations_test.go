@@ -18,6 +18,40 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// idleStatusSnapshot validates the volatile measurements individually before
+// comparing sequential snapshots. An absent WAL and an existing empty WAL are
+// distinct valid observations; operation-scoped handles can change that state.
+func idleStatusSnapshot(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+	var document map[string]any
+	require.NoError(t, json.Unmarshal(body, &document))
+	system := document
+	if nested, ok := document["system"].(map[string]any); ok {
+		system = nested
+	}
+	traffic, ok := system["traffic"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, traffic["ready"])
+	free, ok := traffic["free_space_measurement"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "available", free["state"])
+	bytes, ok := free["bytes"].(float64)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, bytes, float64(0))
+	free["bytes"] = float64(0)
+	wal, ok := traffic["wal_measurement"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, float64(0), traffic["wal_bytes"], "these idle fixtures have no traffic writes")
+	if wal["state"] == "available" {
+		require.Equal(t, float64(0), wal["bytes"])
+	} else {
+		require.Equal(t, "absent", wal["state"])
+		require.Nil(t, wal["bytes"])
+	}
+	wal["state"], wal["bytes"] = "absent", nil
+	return document
+}
+
 func TestCLIStatusInvocations(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
@@ -30,7 +64,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 		System json.RawMessage `json:"system"`
 	}
 	require.NoError(t, json.Unmarshal(statusJSON.Stdout, &checklist))
-	assert.JSONEq(t, string(statusAPI.Body), string(checklist.System), "Doctor must preserve the public API projection inside its checklist")
+	assert.Equal(t, idleStatusSnapshot(t, statusAPI.Body), idleStatusSnapshot(t, checklist.System), "Doctor must preserve the public API projection apart from independently sampled filesystem measurements")
 	var status contract.SystemStatus
 	require.NoError(t, json.Unmarshal(checklist.System, &status))
 	assert.Equal(t, contract.ProcessReady, status.Process.State)

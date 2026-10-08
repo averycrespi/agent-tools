@@ -103,11 +103,7 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.WriteLifetime)
 	defer cancel()
-	err := s.reserveTraffic(ctx)
-	var recorded []recordedEvent
-	if err == nil {
-		recorded, err = s.writeTraffic(ctx, active)
-	}
+	recorded, err := s.writeTraffic(ctx, active)
 	if s.pendingConnection != nil {
 		err = classifyTraffic(err, "rollback", "uncertain")
 	}
@@ -144,6 +140,9 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 		return nil, classifyTraffic(err, "begin", "not_started")
 	}
 	defer s.finishTrafficConnection(conn)
+	if err := s.reserveTraffic(ctx); err != nil {
+		return nil, classifyTraffic(err, "reservation", "not_started")
+	}
 	// SQL calls still use the batch deadline. Detaching only the transaction
 	// lifetime prevents database/sql's asynchronous rollback from releasing
 	// apparent ownership before the actual rollback owner has settled.

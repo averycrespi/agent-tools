@@ -142,10 +142,17 @@ selected generation. Status reports history as `opening`, `ready`, `unavailable`
 capture and preserves legacy rows until explicit stopped migration. Control database,
 mandatory audit, security markers and malformed selectors still fail closed.
 
-Unavailable artifacts are retained without replacement or permission repair. Serving
-refuses nonempty history WAL/journals rather than silently repairing them; preserve
-those files for a qualified stopped WAL-aware plan. Do not edit selectors or remove
-sidecars to make history open. Security-only recovery does not inspect these files.
+Valid committed traffic WAL opens normally under exclusive installation ownership;
+ordinary restart and interrupted shutdown need no manual WAL repair. SQLite uses its
+default autocheckpointing, while bounded operation-scoped connections permit ordinary
+close-time cleanup even at small traffic budgets. Readers can delay that cleanup:
+a nonempty WAL or a confirmed service stop alone proves neither corruption nor a
+clean checkpoint. Startup validates the WAL-aware identity, schema and retained history
+before recording resumes. Unavailable artifacts are retained without replacement or
+permission repair. Do not edit selectors or remove sidecars to make history open.
+Unsafe paths, foreign bindings, corruption and unresolved journals still require action.
+Closed maintenance previews and backup verification retain their separate closed-artifact
+requirements. Security-only recovery does not inspect these optional files.
 Existing configuration, grants and credentials survive the lifecycle upgrade.
 
 `status` / `doctor --online` and **System → Status** additionally show recording
@@ -159,7 +166,11 @@ and discarded counts are submissions, not executions or retained rows. Last
 acknowledged is an observed commit acknowledgment time, not row readability.
 
 Transient lock/deadline and eligible I/O/full failures recover without restart,
-with one-to-30-second backoff and no batch/request replay. For
+with one-to-30-second backoff and no batch/request replay. `budget_reservation`
+pressure discards optional batches before mutation while preserving the configured
+physical limit. After a pinned reader releases, fresh independent traffic can resume;
+a refused batch is never retried, and only a fresh acknowledgment establishes recovery.
+For
 `operator_action_required`, preserve history files: inspect ownership/permissions,
 selected generation, integrity or filesystem capacity according to the reported
 cause. Never delete a database/WAL, change permissions online, or infer an outcome

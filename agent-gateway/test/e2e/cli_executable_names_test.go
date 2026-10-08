@@ -182,7 +182,7 @@ func TestCLIExecutableNames(t *testing.T) {
 				if statusJSON == nil {
 					statusJSON = status.Stdout
 				} else {
-					assert.JSONEq(t, string(statusJSON), string(status.Stdout))
+					assert.Equal(t, idleStatusSnapshot(t, statusJSON), idleStatusSnapshot(t, status.Stdout))
 				}
 			}
 			blocked, blockedErr := runner.Run(t.Context(), names[1], "maintenance", "verify-and-recover-storage", "--confirm", "--json")

@@ -63,7 +63,7 @@ func TestOptionalHistoryReadinessBeforeOpenAndLateDrain(t *testing.T) {
 }
 
 func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
-	for _, kind := range []string{"missing", "corrupt", "foreign-binding", "unsafe-link", "permission", "wal"} {
+	for _, kind := range []string{"missing", "corrupt", "foreign-binding", "unsafe-link", "permission", "unsafe-wal", "journal"} {
 		t.Run(kind, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
 			defer cleanup()
@@ -92,9 +92,13 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 				require.NoError(t, os.Symlink(path+".retained", path))
 			case "permission":
 				require.NoError(t, os.Chmod(path, 0o644))
-			case "wal":
-				expected = []byte("untouched WAL")
-				require.NoError(t, os.WriteFile(path+"-wal", expected, 0o600))
+			case "unsafe-wal":
+				expected = []byte("untouched unsafe WAL")
+				require.NoError(t, os.WriteFile(path+"-wal", expected, 0o666))
+				require.NoError(t, os.Chmod(path+"-wal", 0o666))
+			case "journal":
+				expected = []byte("unresolved journal")
+				require.NoError(t, os.WriteFile(path+"-journal", expected, 0o600))
 			}
 			built, err := New(options)
 			require.NoError(t, err)
@@ -102,6 +106,11 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 			require.NoError(t, built.Start(t.Context()))
 			require.Eventually(t, func() bool { return built.Traffic().Status(t.Context()).State == "unavailable" }, 5*time.Second, time.Millisecond)
 			require.True(t, built.accepting.Load())
+			status := built.Traffic().Status(t.Context())
+			require.Equal(t, "operator_action_required", status.Health)
+			require.NotNil(t, status.Incident)
+			expectedCause := map[string]string{"missing": "missing", "corrupt": "integrity", "foreign-binding": "integrity", "unsafe-link": "ownership", "permission": "ownership", "unsafe-wal": "ownership", "journal": "integrity"}[kind]
+			require.Equal(t, expectedCause, status.Incident.Cause)
 			switch kind {
 			case "missing":
 				_, err = os.Lstat(path)
@@ -118,8 +127,12 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 				info, err := os.Stat(path)
 				require.NoError(t, err)
 				require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
-			case "wal":
-				actual, err := os.ReadFile(path + "-wal")
+			case "unsafe-wal", "journal":
+				suffix := "-wal"
+				if kind == "journal" {
+					suffix = "-journal"
+				}
+				actual, err := os.ReadFile(path + suffix)
 				require.NoError(t, err)
 				require.Equal(t, expected, actual)
 			}

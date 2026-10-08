@@ -194,9 +194,11 @@ or executions. Disabled/opening history retains facade discards across attachmen
 Database, WAL and filesystem free-space measurements carry explicit availability;
 absent WAL is not a failed measurement or an observed zero-byte WAL. Failed metadata
 reads mark pruning/generation accounting unavailable. Fixed pressure reasons separate
-queue capacity, history absence, checkpoint readers/failure, budget reservation,
-low space and unavailable measurements; checkpoint reasons retain the last observed
-reservation refusal until a subsequent reservation clears them.
+queue capacity, history absence, budget reservation, low space and unavailable
+measurements. Budget pressure retains the last observed reservation refusal until
+a subsequent reservation clears it. Historical checkpoint-reader/failure values
+remain readable for compatibility; default SQLite checkpointing does not emit an
+application checkpoint outcome.
 
 Diagnostic status is an independent in-memory snapshot: accepted ordinary facts,
 written ordinary facts, cumulative drops/invalid facts/write failures, queued fixed
@@ -223,4 +225,4 @@ Event streams release authenticated-admin admission after authentication because
 
 ### Drain and shutdown
 
-The first `SIGINT` or `SIGTERM` atomically enters drain, makes readiness false, and invokes the composition's one-shot drain before storage closure. Its synchronous prefix first fences new invocation pipelines, then fences authentication, removes and cancels every registered pre-admission lease, marks the active catalog draining so old discovery generations are non-current, and withdraws active routes. It then cancels catalog work, fences OAuth and keyring producers, snapshots every runtime-owner phase, launches independent stops concurrently, and waits outside authority/catalog locks for invocation pipelines through terminal annotation plus authority-gate and owner quiescence within the fixed ten-second bound while events, MCP compatibility state, admin sessions, and HTTP are closed. A second signal invokes immediate forced exit rather than waiting for context-free work. Graceful completion removes the durable run marker only when every owned runtime stop is verified; forced, expired, or blocked cleanup leaves it for the next startup's full storage verification. Runtime registries are never serialized, so no session or in-flight work resumes.
+The first `SIGINT` or `SIGTERM` atomically enters drain, makes readiness false, and invokes the composition's one-shot drain before storage closure. Its synchronous prefix first fences new invocation pipelines, then fences authentication, removes and cancels every registered pre-admission lease, marks the active catalog draining so old discovery generations are non-current, and withdraws active routes. It then cancels catalog work, fences OAuth and keyring producers, snapshots every runtime-owner phase, launches independent stops concurrently, and waits outside authority/catalog locks for invocation pipelines through terminal annotation plus authority-gate and owner quiescence within the fixed ten-second bound while events, MCP compatibility state, admin sessions, and HTTP are closed. A second signal invokes immediate forced exit rather than waiting for context-free work. Graceful completion removes the durable run marker only when every owned runtime stop is verified; forced, expired, or blocked cleanup leaves it for the next startup's full storage verification. Runtime registries are never serialized, so no session or in-flight work resumes. Traffic shutdown joins actual writer/reader settlement; it does not require WAL truncation. A retained committed traffic WAL is authenticated through normal WAL-aware startup, without replaying upstream work. Service-wrapper exit observation cannot certify clean storage shutdown or checkpoint completion.

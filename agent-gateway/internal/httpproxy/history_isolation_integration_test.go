@@ -271,7 +271,7 @@ func qualifyProxyHistory(t *testing.T, f *proxyFixture, protocol, mode string, s
 		}, 2*time.Second, time.Millisecond)
 		// Status reads can themselves occupy the read gate. Both reasons are
 		// bounded capacity refusals while the independently pinned WAL survives.
-		require.Contains(t, []string{"checkpoint_reader", "checkpoint_unavailable"}, f.traffic.Status(t.Context()).PressureReason)
+		require.Equal(t, "budget_reservation", f.traffic.Status(t.Context()).PressureReason)
 		require.True(t, f.traffic.Healthy())
 	}
 	if mode != "healthy" {

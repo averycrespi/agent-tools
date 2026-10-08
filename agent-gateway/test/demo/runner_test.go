@@ -359,6 +359,13 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.True(t, contentIs(c.call(reader, "demo_library.lookup", object{"document": "welcome"}), documents["welcome"]))
 		require.NoError(t, c.err)
 		verifyDemoRequestApprovals(t, c, root)
+		// Scan after the last submitted history work actually settles. Scoped
+		// SQLite handles may remove WAL/SHM between directory enumeration and
+		// file reading while a batch is still active; do not skip those files.
+		require.Eventually(t, func() bool {
+			return value(c.get("system-status"), "traffic", "delivery", "queue_records") == float64(0)
+		}, 3*time.Second, 10*time.Millisecond)
+		require.NoError(t, c.err)
 		info, err := os.Stat(root)
 		require.NoError(t, err)
 		require.Equal(t, os.FileMode(0700), info.Mode().Perm())

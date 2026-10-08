@@ -135,6 +135,8 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 	require.Equal(t, 200, request(replacementText, upstream.URL))
 	h.RevokeCredential(replacement.Principal)
 	require.Equal(t, 407, request(replacementText, upstream.URL))
+	// Proxy serving above remains independent of optional history readiness.
+	waitTrafficStatus(t, h, func(s *contract.TrafficStatus) bool { return s.Ready })
 	history := h.adminSnapshot("GET", "/api/v2/http/traffic", nil)
 	require.Equal(t, 200, history.StatusCode)
 	require.NotContains(t, string(history.Body), "private-path")

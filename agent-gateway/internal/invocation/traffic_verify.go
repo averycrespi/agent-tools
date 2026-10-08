@@ -71,16 +71,23 @@ func VerifyTrafficFile(ctx context.Context, path, installation, generation strin
 		return err
 	}
 	defer func() { result = errors.Join(result, db.Close()) }()
-	var app, version int
+	return (&TrafficStore{db: db, path: path, config: config}).validateTrafficContents(ctx, installation, generation)
+}
+
+// validateTrafficContents has no writer-setting or mutation requirement. Serving
+// authenticates through WAL-aware read-only connections; immutable artifact
+// callers remain separately responsible for their closed/digest-bound boundary.
+func (s *TrafficStore) validateTrafficContents(ctx context.Context, installation, generation string) error {
+	var app, version, pageSize int64
 	var integrity string
-	if err = db.QueryRowContext(ctx, `SELECT (SELECT application_id FROM pragma_application_id),(SELECT user_version FROM pragma_user_version)`).Scan(&app, &version); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT application_id FROM pragma_application_id),(SELECT user_version FROM pragma_user_version),(SELECT page_size FROM pragma_page_size)`).Scan(&app, &version, &pageSize); err != nil {
 		return err
 	}
-	if err = db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
+	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || (version < 1 || version > 3) || integrity != "ok" {
+	if app != trafficApplicationID || (version < 1 || version > 3) || pageSize != trafficPageSize || integrity != "ok" {
 		return ErrInvalidState
 	}
-	return (&TrafficStore{db: db, path: path, config: config}).validateTrafficEvidence(ctx, installation, generation)
+	return s.validateTrafficEvidence(ctx, installation, generation)
 }

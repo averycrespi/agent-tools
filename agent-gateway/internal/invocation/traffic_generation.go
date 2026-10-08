@@ -133,14 +133,34 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 	if err = trafficFiles(path, config); err != nil {
 		return nil, err
 	}
-	db, err := trafficDatabase(ctx, path, config, false, false)
+	// Authenticate the WAL-aware state using read-only handles before opening
+	// any writable handle: last-writer close can checkpoint even rejected WAL.
+	readers, err := trafficDatabase(ctx, path, config, true, false)
 	if err != nil {
 		return nil, err
 	}
-	s := &TrafficStore{db: db, path: path, config: config, installation: installation, generation: generation,
+	s := &TrafficStore{db: readers, path: path, config: config, installation: installation, generation: generation,
 		observations: make(chan *trafficRequest, config.QueueRecords),
 		stop:         make(chan struct{}), done: make(chan struct{}), readSlots: make(chan struct{}, config.Readers), fault: fault}
-	if err = s.validateTraffic(ctx, installation, generation); err == nil {
+	var journal string
+	err = readers.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&journal)
+	if err == nil && journal != "wal" {
+		err = ErrInvalidState
+	}
+	if err == nil {
+		err = s.validateTrafficContents(ctx, installation, generation)
+	}
+	if err != nil {
+		return nil, classifyTraffic(errors.Join(err, readers.Close()), "validation", "not_started")
+	}
+	db, err := trafficDatabase(ctx, path, config, false, false)
+	if err != nil {
+		return nil, errors.Join(err, readers.Close())
+	}
+	s.db = db
+	// Uninterrupted exclusive ownership preserves the authenticated contents;
+	// the writer still verifies its own connection-local durability settings.
+	if err = s.validateTrafficSettings(ctx); err == nil {
 		if err = s.upgradeTraffic(ctx); err != nil {
 			err = errors.Join(ErrTrafficFault, err)
 		}
@@ -148,13 +168,7 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 		err = classifyTraffic(err, "validation", "not_started")
 	}
 	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	readers, err := trafficDatabase(ctx, path, config, true, false)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
+		return nil, errors.Join(err, db.Close(), readers.Close())
 	}
 	s.readerDB = readers
 	s.recorded = newRecordedActivity()
@@ -192,7 +206,7 @@ func trafficDatabase(ctx context.Context, path string, c TrafficConfig, read, cr
 	q := uri.Query()
 	q.Set("mode", "rw")
 	q.Set("_txlock", "immediate")
-	settings := []string{"busy_timeout(50)", "foreign_keys(1)", "synchronous(full)", "cache_spill(0)", "wal_autocheckpoint(0)", "journal_size_limit(0)", "temp_store(memory)"}
+	settings := []string{"busy_timeout(50)", "foreign_keys(1)", "synchronous(full)", "cache_spill(0)", "journal_size_limit(0)", "temp_store(memory)"}
 	if read {
 		q.Set("mode", "ro")
 		q.Set("_txlock", "deferred")
@@ -216,7 +230,10 @@ func trafficDatabase(ctx context.Context, path string, c TrafficConfig, read, cr
 		connections = c.Readers
 	}
 	db.SetMaxOpenConns(connections)
-	db.SetMaxIdleConns(connections)
+	// Handles belong to bounded operations, not to the process lifetime. SQLite
+	// retains its default autocheckpoint and last-connection-close behavior.
+	// Installation and transaction settlement ownership are independent of pooling.
+	db.SetMaxIdleConns(0)
 	if err = db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -225,6 +242,18 @@ func trafficDatabase(ctx context.Context, path string, c TrafficConfig, read, cr
 }
 
 func trafficFiles(path string, c TrafficConfig) error {
+	// WAL is ordinary SQLite recovery state, not an application intent marker.
+	// A rollback journal is not part of the verified WAL-mode traffic format.
+	if info, err := os.Lstat(path + "-journal"); err == nil {
+		if err := gatewaypaths.ValidateOwnerOnlyFile(path + "-journal"); err != nil {
+			return err
+		}
+		if info.Size() != 0 {
+			return ErrInvalidState
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	var total int64
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		candidate := path + suffix
@@ -273,6 +302,9 @@ func trafficCheckpoint(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
+	if ctx.Err() != nil {
+		return ErrTrafficDeadline
+	}
 	s.setPressureReason("none")
 	if err := trafficFiles(s.path, s.config); err != nil {
 		return err
@@ -295,29 +327,8 @@ func (s *TrafficStore) reserveTraffic(ctx context.Context) error {
 	if wal+trafficReservation(s.config) <= maximum {
 		return nil
 	}
-	// A pinned backup may outlive the write deadline. Refuse before mutation
-	// rather than waiting for its snapshot or faulting otherwise healthy traffic.
-	if !s.readGate.TryLock() {
-		s.setPressureReason("checkpoint_reader")
-		return ErrTrafficCapacity
-	}
-	defer s.readGate.Unlock()
-	if ctx.Err() != nil {
-		return ErrTrafficDeadline
-	}
-	if err = trafficCheckpoint(ctx, s.db); err != nil {
-		s.setPressureReason("checkpoint_unavailable")
-		return err
-	}
-	wal, err = size()
-	if err != nil {
-		return err
-	}
-	if wal+trafficReservation(s.config) > maximum {
-		s.setPressureReason("budget_reservation")
-		return ErrTrafficCapacity
-	}
-	return nil
+	s.setPressureReason("budget_reservation")
+	return ErrTrafficCapacity
 }
 
 func (s *TrafficStore) setPressureReason(reason string) {
@@ -327,8 +338,15 @@ func (s *TrafficStore) setPressureReason(reason string) {
 }
 
 func (s *TrafficStore) validateTraffic(ctx context.Context, installation, generation string) error {
+	if err := s.validateTrafficSettings(ctx); err != nil {
+		return err
+	}
+	return s.validateTrafficContents(ctx, installation, generation)
+}
+
+func (s *TrafficStore) validateTrafficSettings(ctx context.Context) error {
 	var app, version, pageSize, maxPages, syncMode, busy, spill, auto, foreign int64
-	var journal, integrity string
+	var journal string
 	if err := s.db.QueryRowContext(ctx, `SELECT (SELECT application_id FROM pragma_application_id),
  (SELECT user_version FROM pragma_user_version),(SELECT page_size FROM pragma_page_size),
  (SELECT max_page_count FROM pragma_max_page_count),(SELECT synchronous FROM pragma_synchronous),
@@ -340,16 +358,10 @@ func (s *TrafficStore) validateTraffic(ctx context.Context, installation, genera
 	if err := s.db.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&auto); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || (version < 1 || version > 3) || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto != 0 || foreign != 1 || journal != "wal" {
+	if app != trafficApplicationID || (version < 1 || version > 3) || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto <= 0 || foreign != 1 || journal != "wal" {
 		return ErrInvalidState
 	}
-	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
-		return err
-	}
-	if integrity != "ok" {
-		return ErrInvalidState
-	}
-	return s.validateTrafficEvidence(ctx, installation, generation)
+	return nil
 }
 
 func (s *TrafficStore) validateTrafficSchema(ctx context.Context, version int) error {
