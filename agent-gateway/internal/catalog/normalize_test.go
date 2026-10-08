@@ -60,6 +60,55 @@ func TestNormalizeSchemaCompilesDraft2020AndAllowsOnlyLocalReferences(t *testing
 	}
 }
 
+func TestNormalizeOutputSchemaPreservesGeneralJSONSchemas(t *testing.T) {
+	for _, schema := range []string{
+		`{}`,
+		`{"type":"object"}`,
+		`{"oneOf":[{"type":"null"},{"type":"object","properties":{"diff":{"type":"string"}},"required":["diff"],"additionalProperties":false},{"type":"array","items":{"type":"object"}}]}`,
+		`{"type":["null","object"],"properties":{"id":{"type":"string"}}}`,
+		`{"type":["null","array"],"items":{"type":"string"}}`,
+		`{"type":"string"}`,
+		`{"type":"number"}`,
+		`{"type":"boolean"}`,
+		`{"type":"null"}`,
+		`{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"result":{"type":"array","items":{"type":"integer"}}},"$ref":"#/$defs/result"}`,
+	} {
+		t.Run(schema, func(t *testing.T) {
+			tool := rawTool(`{"name":"echo","inputSchema":{"type":"object"},"outputSchema":` + schema + `}`)
+			normalized, err := NormalizeTool(tool, NormalizeOptions{ServerID: "server"})
+			require.NoError(t, err)
+			assert.JSONEq(t, schema, string(normalized.Descriptor.OutputSchema))
+			repeated, err := NormalizeTool(rawTool(string(normalized.Canonical)), NormalizeOptions{ServerID: "server"})
+			require.NoError(t, err)
+			assert.Equal(t, normalized.Fingerprint, repeated.Fingerprint)
+			assert.Empty(t, normalized.HeaderBindings)
+		})
+	}
+}
+
+func TestNormalizeOutputSchemaRetainsValidationBoundaries(t *testing.T) {
+	for _, schema := range []string{
+		`null`, `true`, `[]`, `"object"`,
+		`{"type":"invalid"}`,
+		`{"type":"string","pattern":"["}`,
+		`{"$schema":"http://json-schema.org/draft-07/schema#"}`,
+		`{"$ref":"https://attacker.example/schema"}`,
+		`{"$dynamicRef":"#node"}`,
+		`{"$recursiveRef":"#"}`,
+		`{"oneOf":[{"type":"object","properties":{"x":{"type":"string","x-mcp-header":"X-Output"}}}]}`,
+		`{"type":"string","type":"number"}`,
+	} {
+		_, err := NormalizeTool(rawTool(`{"name":"echo","inputSchema":{"type":"object"},"outputSchema":`+schema+`}`), NormalizeOptions{ServerID: "server", AllowHeaderBindings: true})
+		assert.ErrorIs(t, err, ErrDescriptorInvalid, schema)
+	}
+	for _, schema := range []string{`{}`, `{"oneOf":[{"type":"object"}]}`, `{"type":["null","object"]}`, `{"type":"array"}`} {
+		_, err := NormalizeTool(rawTool(`{"name":"echo","inputSchema":`+schema+`,"outputSchema":{"type":"object"}}`), NormalizeOptions{ServerID: "server"})
+		assert.ErrorIs(t, err, ErrDescriptorInvalid, schema)
+	}
+	_, err := NormalizeTool(rawTool(`{"name":"echo","inputSchema":{"type":"object"},"outputSchema":`+sizedSchema(t, int(fixedLimit("tool_schema_bytes")))+`}`), NormalizeOptions{ServerID: "server"})
+	assert.ErrorIs(t, err, ErrDescriptorInvalid)
+}
+
 func TestModernHTTPHeaderBindingsAreNestedTypedUniqueAndSorted(t *testing.T) {
 	tool := rawTool(`{"name":"echo","inputSchema":{"type":"object","properties":{"region":{"type":"string","x-mcp-header":"X-Region"},"nested":{"type":"object","properties":{"count":{"type":"integer","x-mcp-header":"X-Count"},"enabled":{"type":"boolean","x-mcp-header":"X-Enabled"}}}}}}`)
 	normalized, err := NormalizeTool(tool, NormalizeOptions{ServerID: "server", AllowHeaderBindings: true})
