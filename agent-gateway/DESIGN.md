@@ -92,4 +92,4 @@ Product compatibility includes public HTTP and MCP JSON, CLI domain command spel
 
 Gateway does not provide audit mutation or replay, held calls, automatic grant-request creation, automatic invocation replay, direct agent grant mutation, grant renewal, request notification, reviewer identity, pre-Streamable HTTP+SSE, or MCP list-change notifications.
 
-It does not promise exactly-once downstream effects, infer rollback from missing evidence, persist runtime capabilities or sessions, expose raw secrets or dependency errors, or provide a plaintext credential fallback.
+It does not promise exactly-once downstream effects, infer rollback from missing evidence, persist runtime capabilities or sessions, expose raw secrets, export unrestricted dependency errors through public responses, or provide a plaintext credential fallback. Local operator stderr retains useful dependency causes under the separate diagnostic disclosure policy.
