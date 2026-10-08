@@ -2,6 +2,7 @@ package invocation
 
 import (
 	"bytes"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -43,7 +44,13 @@ func TestTrafficLocalCauseFormattedAfterWriterUnlock(t *testing.T) {
 	require.Eventually(t, func() bool { return observer.Status().Accepted > 0 }, 5*time.Second, time.Millisecond)
 	require.True(t, observer.Finish(nil))
 	require.Contains(t, output.String(), "native I/O refused")
-	require.Contains(t, output.String(), store.path)
+	var record map[string]any
+	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
+	wantResource := store.path
+	if len(wantResource) > 160 {
+		wantResource = wantResource[:160-len("...[truncated]")] + "...[truncated]"
+	}
+	require.Equal(t, wantResource, record["resource"])
 	require.Contains(t, output.String(), `"settlement":"rolled_back"`)
 	require.Equal(t, "unknown", store.Status(t.Context()).Incident.Cause)
 }

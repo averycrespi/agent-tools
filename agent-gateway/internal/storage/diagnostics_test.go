@@ -89,7 +89,11 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 			}
 			require.Contains(t, output.String(), "device permission denied")
 			require.Contains(t, output.String(), "storage.example")
-			require.Contains(t, output.String(), store.path)
+			wantResource := store.path
+			if len(wantResource) > 160 {
+				wantResource = wantResource[:160-len("...[truncated]")] + "...[truncated]"
+			}
+			require.Equal(t, wantResource, got[0]["resource"])
 			require.NotContains(t, output.String(), "actual-storage-secret")
 			require.NotContains(t, output.String(), "actual-query-secret")
 			require.NotContains(t, output.String(), "\nforged-event")
