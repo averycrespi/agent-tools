@@ -57,7 +57,7 @@ Exact authorities, limits, states, and failure vocabularies are owned by the rel
 
 `cmd/agent-gateway` constructs one `composition` graph before opening the listener. Domain packages own their SQL, process-local state, transport, protocol, and lifecycle behavior behind narrow interfaces. The command root composes those owners but does not become an alternate authority.
 
-Serve diagnostics use one startup-owned typed `log/slog` adapter, independently of mandatory durable audit writes. Narrow injected observers supply only the closed privacy-safe process/upstream lifecycle, OAuth, invocation, authority and storage inventory; [serve diagnostics](docs/design/administrative-control-plane.md#serve-diagnostics) owns bounded buffering and best-effort stderr shutdown.
+Serve diagnostics use one startup-owned typed `log/slog` adapter, independently of mandatory durable audit writes. Narrow injected observers preserve useful underlying failure causes and operational context for local operators, separately from public responses and durable audit/history. [Serve diagnostics](docs/design/administrative-control-plane.md#serve-diagnostics) owns disclosure, bounded buffering and best-effort stderr shutdown, including the current scalar-only implementation gaps. Default-level failures must explain what failed and why; actual secrets remain excluded.
 
 Durable desired state remains separate from process-local runtime and active publication. Administrator authority remains separate from agent authority. Authentication remains separate from authorization; discovery remains separate from capability acquisition; request-local confirmation completes before execution; and one-time secret ingress and output remain separate from reusable state.
 
@@ -92,4 +92,4 @@ Product compatibility includes public HTTP and MCP JSON, CLI domain command spel
 
 Gateway does not provide audit mutation or replay, held calls, automatic grant-request creation, automatic invocation replay, direct agent grant mutation, grant renewal, request notification, reviewer identity, pre-Streamable HTTP+SSE, or MCP list-change notifications.
 
-It does not promise exactly-once downstream effects, infer rollback from missing evidence, persist runtime capabilities or sessions, expose raw secrets or dependency errors, or provide a plaintext credential fallback.
+It does not promise exactly-once downstream effects, infer rollback from missing evidence, persist runtime capabilities or sessions, expose raw secrets, export unrestricted dependency errors through public responses, or provide a plaintext credential fallback. Local operator stderr retains useful dependency causes under the separate diagnostic disclosure policy.

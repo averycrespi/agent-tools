@@ -145,7 +145,7 @@ unbounded work. Closing the signer withdraws issuance and drops cached reference
 
 Stdout is one bounded NDJSON frame stream: the 4 MiB ceiling excludes the newline delimiter, and an incomplete final frame is protocol-invalid. Stdout and concurrently drained stderr have independent token buckets with the compiled 8 MiB/s rate and 8 MiB burst; excess fails only that runtime with the safe `output_limit` class.
 
-At most 64 KiB of stderr is retained privately in memory and no raw process output, exit detail, or secret is exported to status, events, logs, or persistence. The supervisor admits 32 processes without waiters and exposes only safe process-exit classifications.
+At most 64 KiB of stderr is retained privately in memory. Public status, events and persistence expose only their defined process-exit classifications; no raw process output or secrets cross those boundaries. Local operator stderr follows the separate [diagnostic disclosure policy](administrative-control-plane.md#operator-diagnostic-disclosure-policy): unexpected failures should include executable/operation context, native causes, exit status/signal and a bounded source-aware failure excerpt. Never forward whole streams or dump argv/environment secret slots. The current supervisor loses exit/cause detail and does not expose the retained excerpt; implementation must be aligned with this intended policy. The supervisor admits 32 processes without waiters.
 
 Normal stop closes protocol input, signals only the captured and reverified process group, waits three seconds, then permits a forced group kill and two-second reap window. Ownership mismatch or an unverified reap fails closed and can be retried against the same process-local handle.
 
