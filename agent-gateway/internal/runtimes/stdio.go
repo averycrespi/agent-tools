@@ -209,8 +209,15 @@ func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
 			runtime.mu.Unlock()
 		}
 	}()
+	joinPublication := func() bool {
+		if runtime.waitForExit(ctx, contract.StdioForcedStopDeadline) {
+			return true
+		}
+		failure = errors.Join(errors.New("process exit detail settlement unconfirmed"), ctx.Err())
+		return false
+	}
 	if runtime.hasExited() {
-		return true
+		return joinPublication()
 	}
 	runtime.mu.Lock()
 	if runtime.failure == nil {
@@ -221,7 +228,7 @@ func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
 	_ = runtime.stdin.Close()
 	if err := runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, false); err != nil {
 		if runtime.hasExited() {
-			return true
+			return joinPublication()
 		}
 		failure = err
 		return false
@@ -231,7 +238,7 @@ func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
 	}
 	if err := runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, true); err != nil {
 		if runtime.hasExited() {
-			return true
+			return joinPublication()
 		}
 		failure = err
 		return false

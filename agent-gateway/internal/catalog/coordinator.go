@@ -281,7 +281,8 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	normalized := NormalizeCandidate(raw, NormalizeOptions{ServerID: candidate.Server.ID, AllowHeaderBindings: allowsHeaderBindings(candidate, runtime)})
 	durable, err := coordinator.repository.Status(ctx, candidate.Server.ID)
 	if err != nil {
-		return coordinator.failure(candidate, intent, servers.ErrStorageUnavailable, nil)
+		cause := diagnostics.WithDetail(servers.ErrStorageUnavailable, diagnostics.Snapshot("catalog", "read status", candidate.Server.ID, err))
+		return coordinator.failure(candidate, intent, cause, nil)
 	}
 	revision := "0"
 	if durable.Revision != nil {

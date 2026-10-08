@@ -176,8 +176,11 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, MaxResponseBytes+1))
-	if err != nil || len(body) > MaxResponseBytes {
-		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible}
+	if err != nil {
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, err, request.Header.Get("Authorization"), strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))}
+	}
+	if len(body) > MaxResponseBytes {
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, errors.New("response exceeds size limit"))}
 	}
 	if len(body) > 0 {
 		if _, err := strictjson.ParseValue(body, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth}); err != nil {

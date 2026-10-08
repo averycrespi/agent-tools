@@ -3,6 +3,7 @@ package diagnostics
 import (
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -283,18 +284,28 @@ func Panic(component, operation, resource string, value any, secrets ...string) 
 		err = fmt.Errorf("panic value of type %T (detail withheld)", value)
 	}
 	d := Snapshot(component, operation, resource, err, secrets...)
-	var pcs [8]uintptr
+	var pcs [24]uintptr
 	n := runtime.Callers(2, pcs[:])
 	frames := runtime.CallersFrames(pcs[:n])
-	var stack strings.Builder
+	var collected []runtime.Frame
 	for {
 		f, more := frames.Next()
-		fmt.Fprintf(&stack, "%s %s:%d; ", f.Function, f.File, f.Line)
+		if f.Function == "runtime.gopanic" {
+			// Recovery machinery precedes gopanic; the failure site follows it.
+			collected = collected[:0]
+		} else if !strings.HasPrefix(f.Function, "runtime.") {
+			collected = append(collected, f)
+		}
 		if !more {
 			break
 		}
 	}
-	d.Stack = Text(stack.String(), 256, secrets...)
+	var stack strings.Builder
+	for _, f := range collected {
+		function := f.Function[strings.LastIndex(f.Function, "/")+1:]
+		fmt.Fprintf(&stack, "%s:%d %s; ", filepath.Base(f.File), f.Line, function)
+	}
+	d.Stack = Text(stack.String(), 192, secrets...)
 	return d
 }
 

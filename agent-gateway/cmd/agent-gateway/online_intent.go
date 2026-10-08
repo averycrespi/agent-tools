@@ -81,7 +81,7 @@ func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options
 		}
 		body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: intentSpec.fileMembers})
 		if err != nil {
-			return onlineIntent{}, controlclient.NewInputError("The command file input is invalid.")
+			return onlineIntent{}, controlclient.NewInputError("The command file input is invalid.", err)
 		}
 		var object map[string]json.RawMessage
 		if json.Unmarshal(body, &object) != nil {

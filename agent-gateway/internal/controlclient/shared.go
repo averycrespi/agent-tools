@@ -52,14 +52,17 @@ func ReadJSONInput(options InputOptions) ([]byte, error) {
 	} else {
 		file, err = os.Open(options.Path)
 		if err != nil {
-			return nil, ErrInvalidInput
+			return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "open input", options.Path, err)}
 		}
 		defer func() { _ = file.Close() }()
 		reader = file
 	}
 	contents, err := io.ReadAll(io.LimitReader(reader, MaxInputBytes+1))
-	if err != nil || len(contents) > MaxInputBytes {
-		return nil, ErrInvalidInput
+	if err != nil {
+		return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "read input", options.Path, err)}
+	}
+	if len(contents) > MaxInputBytes {
+		return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "read input", options.Path, errors.New("input exceeds size limit"))}
 	}
 	value, err := strictjson.ParseValue(contents, strictjson.Options{MaxBytes: MaxInputBytes, MaxDepth: MaxJSONDepth})
 	if err != nil || value.Type != strictjson.ValueObject {
@@ -434,11 +437,15 @@ func NewServerConfigurationInputError(field, rule string) *OnlineError {
 	return &OnlineError{Code: "invalid_server_configuration", Title: "The server configuration is invalid.", Context: context, Exit: 2}
 }
 
-func NewInputError(title string) *OnlineError {
+func NewInputError(title string, causes ...error) *OnlineError {
 	if !validProblemTitle(title) {
 		title = "The command input is invalid."
 	}
-	return &OnlineError{Code: "client_invalid_input", Title: title, Exit: 2}
+	problem := &OnlineError{Code: "client_invalid_input", Title: title, Exit: 2}
+	if len(causes) != 0 {
+		problem.Local = diagnostics.Snapshot("control-client", "read input", "", errors.Join(causes...))
+	}
+	return problem
 }
 
 func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error {
