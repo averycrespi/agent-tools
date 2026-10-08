@@ -2,6 +2,7 @@ package composition
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -11,12 +12,14 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/oauth"
 )
 
 var errCallbackListener = oauth.ErrCallbackUnavailable
 
 type oauthCallbackListeners struct {
+	diagnostics diagnostics.Observer
 	mu          sync.Mutex
 	closed      bool
 	leases      map[string]*oauthCallbackListener
@@ -37,7 +40,7 @@ type oauthCallbackListener struct {
 
 func newOAuthCallbackListeners(built *Composition, options Options) *oauthCallbackListeners {
 	bound, _ := contract.FixedLimitByName("oauth_flows")
-	return &oauthCallbackListeners{leases: make(map[string]*oauthCallbackListener), changed: make(chan struct{}), connections: make(chan struct{}, int(bound.Maximum)), now: options.Clock.Now,
+	return &oauthCallbackListeners{diagnostics: options.Diagnostics, leases: make(map[string]*oauthCallbackListener), changed: make(chan struct{}), connections: make(chan struct{}, int(bound.Maximum)), now: options.Clock.Now,
 		handle: func(ctx context.Context, query, uri, id string) oauth.CallbackResult {
 			return built.flows.HandleCallbackAt(ctx, query, uri, id)
 		},
@@ -80,16 +83,32 @@ func (owner *oauthCallbackListeners) AcquireCallback(ctx context.Context, id, ur
 		delete(owner.leases, id)
 		owner.signal()
 		owner.mu.Unlock()
-		return nil, errCallbackListener
+		return nil, diagnostics.WithDetail(errCallbackListener, diagnostics.Snapshot("oauth", "bind callback", address, err))
 	}
 	lease.listener = &callbackBoundListener{Listener: listener, slots: owner.connections}
 	lease.server = &http.Server{
+		ErrorLog:          diagnostics.HTTPErrorLog(owner.diagnostics),
 		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 16 * 1024,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
-				if recover() != nil {
+				if recovered := recover(); recovered != nil {
 					owner.release(id, lease)
-					// net/http's default panic logger must never receive callback secrets.
+					recoveredErr, _ := recovered.(error)
+					if errors.Is(recoveredErr, http.ErrAbortHandler) {
+						panic(http.ErrAbortHandler)
+					}
+					if owner.diagnostics != nil {
+						secrets := diagnostics.HTTPSecrets(r.Header)
+						if len(r.URL.RawQuery) > 8192 {
+							secrets = make([]string, 129)
+						} else {
+							secrets = append(secrets, id, r.URL.RawQuery)
+							for _, values := range r.URL.Query() {
+								secrets = append(secrets, values...)
+							}
+						}
+						owner.diagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: diagnostics.Panic("oauth", "callback", address, recovered, secrets...)})
+					}
 					oauth.WriteCallbackResponse(w, oauth.CallbackTransient)
 				}
 			}()
@@ -122,7 +141,11 @@ func (owner *oauthCallbackListeners) AcquireCallback(ctx context.Context, id, ur
 		return nil, errCallbackListener
 	}
 	lease.timer = time.AfterFunc(expires.Sub(owner.now()), release)
-	go func() { _ = lease.server.Serve(lease.listener); release() }()
+	go func() {
+		err := lease.server.Serve(lease.listener)
+		owner.observeCallbackFailure("serve callback", address, err)
+		release()
+	}()
 	owner.mu.Unlock()
 	return release, nil
 }
@@ -134,12 +157,13 @@ func (owner *oauthCallbackListeners) release(id string, lease *oauthCallbackList
 			lease.timer.Stop()
 		}
 		owner.mu.Unlock()
-		_ = lease.listener.Close()
+		owner.observeCallbackFailure("close callback listener", lease.address.String(), lease.listener.Close())
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			if lease.server.Shutdown(ctx) != nil {
-				_ = lease.server.Close()
+			if err := lease.server.Shutdown(ctx); err != nil {
+				owner.observeCallbackFailure("shutdown callback", lease.address.String(), err)
+				owner.observeCallbackFailure("force close callback", lease.address.String(), lease.server.Close())
 			}
 			owner.mu.Lock()
 			delete(owner.leases, id)
@@ -147,6 +171,13 @@ func (owner *oauthCallbackListeners) release(id string, lease *oauthCallbackList
 			owner.mu.Unlock()
 		}()
 	})
+}
+
+func (owner *oauthCallbackListeners) observeCallbackFailure(operation, address string, err error) {
+	if owner.diagnostics == nil || err == nil || errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed) {
+		return
+	}
+	owner.diagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: diagnostics.Snapshot("oauth", operation, address, err)})
 }
 
 func (owner *oauthCallbackListeners) signal() {

@@ -96,7 +96,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	}
 	address, err := e.options.Remote.ResolveProxy(r.Context(), destination, e.options.Listeners)
 	if err != nil {
-		e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), w)
+		e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), err, w)
 		reject(w, upstreamStatus(err))
 		return
 	}
@@ -104,7 +104,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID, Connect: &contract.HTTPDestinationSelector{Host: destination.Host(), Port: destination.Port()}}, address.Facts(), e.options.Materials)
 	if err != nil || !result.Evaluated || result.Execution.Transport == "" {
 		if err != nil {
-			e.observeRejection(started, result.FailureStage, result.FailureCause, w)
+			e.observeRejection(started, result.FailureStage, result.FailureCause, err, w)
 			if result.FailureCause == diagnostics.Capacity {
 				rejectCapacity(w, http.StatusServiceUnavailable)
 			} else {
@@ -218,7 +218,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { e.handle(w, r, inside) })
 	if state.NegotiatedProtocol == "h2" {
 		server := &http2.Server{MaxConcurrentStreams: contract.HTTPProxyH2Streams, MaxReadFrameSize: 16 * 1024, IdleTimeout: contract.HTTPProxyIdleTimeout, ReadIdleTimeout: contract.HTTPProxyIdleTimeout, PingTimeout: contract.HTTPProxyDialTimeout, WriteByteTimeout: contract.HTTPProxyIdleTimeout, MaxUploadBufferPerConnection: contract.HTTPProxyBufferBytes * contract.HTTPProxyH2Streams, MaxUploadBufferPerStream: contract.HTTPProxyBufferBytes}
-		server.ServeConn(newH2BoundConn(tlsConn), &http2.ServeConnOpts{Context: r.Context(), Handler: handler, BaseConfig: &http.Server{MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, ErrorLog: diagnostics.HTTPErrorLog()}})
+		server.ServeConn(newH2BoundConn(tlsConn), &http2.ServeConnOpts{Context: r.Context(), Handler: handler, BaseConfig: &http.Server{MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, ErrorLog: diagnostics.HTTPErrorLog(e.options.Diagnostics)}})
 		return
 	}
 	bound, ok := client.(*boundConn)

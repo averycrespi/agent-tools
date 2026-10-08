@@ -46,8 +46,10 @@ func TestRefreshDiagnosticsKeepSuccessDebugAndReauthorizationActionable(t *testi
 				require.Contains(t, output.String(), `"event":"oauth_refresh_failed"`)
 				require.Contains(t, output.String(), `"level":"WARN"`)
 				require.Contains(t, output.String(), `"disposition":"operator_authentication_required"`)
+				require.Contains(t, output.String(), refreshServerID)
+				require.Contains(t, output.String(), "OAuth token refresh requires reauthorization")
 			}
-			for _, canary := range []string{"PRIVATE-new-access", "PRIVATE-new-refresh", "PRIVATE-provider-response-canary", "old-access", "old-refresh", refreshServerID, "https://"} {
+			for _, canary := range []string{"PRIVATE-new-access", "PRIVATE-new-refresh", "PRIVATE-provider-response-canary", "old-access", "old-refresh"} {
 				require.NotContains(t, output.String(), canary)
 			}
 		}

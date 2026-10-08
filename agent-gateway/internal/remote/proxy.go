@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 )
 
@@ -122,9 +123,11 @@ func (p *ProxyAddress) dialCandidates(ctx context.Context, private bool) (net.Co
 		if attemptErr != nil {
 			err = attemptErr
 		}
-		if errors.Is(proxyTransportFailure(err), ErrProxyTimeout) {
-			failure = ErrProxyTimeout
+		category := ErrProxyConnection
+		if errors.Is(proxyTransportFailure(err), ErrProxyTimeout) || errors.Is(failure, ErrProxyTimeout) {
+			category = ErrProxyTimeout
 		}
+		failure = diagnostics.WithDetail(category, diagnostics.Snapshot("remote", "dial", p.destination.Authority(), err))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, proxyTransportFailure(err)
@@ -191,10 +194,11 @@ func (p *ProxyAddress) ProxyExchange(ctx context.Context, target httppolicy.Requ
 		if errors.Is(err, ErrAddressPolicy) {
 			return nil, ErrAddressPolicy
 		}
+		category := proxyTransportFailure(err)
 		if errors.Is(err, ErrProxyTimeout) {
-			return nil, ErrProxyTimeout
+			category = ErrProxyTimeout
 		}
-		return nil, proxyTransportFailure(err)
+		return nil, diagnostics.WithDetail(category, diagnostics.Snapshot("remote", "exchange", p.destination.Authority(), err, diagnostics.HTTPSecrets(header)...))
 	}
 	if response.StatusCode == http.StatusSwitchingProtocols || ValidateProxyHeaders(response.Header) != nil {
 		cancel()

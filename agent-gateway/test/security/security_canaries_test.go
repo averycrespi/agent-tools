@@ -28,11 +28,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDiagnosticFactsHaveOnlyClosedScalarSlots(t *testing.T) {
+func TestDiagnosticFactsHaveOnlyScalarValuesAndLocalSnapshot(t *testing.T) {
 	shape := reflect.TypeOf(diagnostics.Facts{})
-	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "ProxyID", "Reason", "Retry", "SQLiteCode", "Settlement", "Stage", "Suppressed", "TrafficCause", "TrafficStage", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
+	require.Equal(t, []string{"Attempt", "Call", "Cause", "Delay", "Detail", "Disposition", "Duration", "Event", "InvocationID", "Limit", "Mutation", "Owned", "Phase", "ProxyID", "Reason", "Retry", "SQLiteCode", "Settlement", "Stage", "Suppressed", "TrafficCause", "TrafficStage", "Upstream", "Waiting", "Writer"}, exportedFields(shape))
 	for index := range shape.NumField() {
 		field := shape.Field(index)
+		if field.Name == "Detail" {
+			require.Equal(t, reflect.TypeOf(diagnostics.Detail{}), field.Type)
+			require.Equal(t, []string{"Component", "Effect", "Excerpt", "Explanation", "Native", "Operation", "Resource", "Stack"}, exportedFields(field.Type))
+			for i := range field.Type.NumField() {
+				require.Equal(t, reflect.String, field.Type.Field(i).Type.Kind(), "no retained errors, requests, payload objects or graphs")
+			}
+			continue
+		}
 		if field.Name == "InvocationID" || field.Name == "ProxyID" {
 			require.Equal(t, reflect.String, field.Type.Kind())
 			continue

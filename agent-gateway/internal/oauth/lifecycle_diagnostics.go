@@ -11,19 +11,24 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 )
 
-// SetDiagnostics is composition-time only. Resource identity is used only by
-// the private reference resolver and is never passed to the typed observer.
+// SetDiagnostics is composition-time only. Local detail remains independent
+// of optional correlation and of public OAuth diagnostic projection.
 func (service *FlowService) SetDiagnostics(observer diagnostics.ReconciliationObserver, reference func(string) uint64) {
 	service.diagnostics, service.diagnosticReference = observer, reference
 }
 func (service *RefreshService) SetDiagnostics(observer diagnostics.ReconciliationObserver, reference func(string) uint64) {
 	service.diagnostics, service.diagnosticReference = observer, reference
 }
-func (service *FlowService) observeFlow(serverID string, attempt uint64, event diagnostics.Event, phase diagnostics.Phase, reason diagnostics.Reason) {
+func (service *FlowService) observeFlow(serverID string, attempt uint64, event diagnostics.Event, phase diagnostics.Phase, reason diagnostics.Reason, details ...diagnostics.Detail) {
 	if service.diagnostics == nil {
 		return
 	}
-	facts := diagnostics.Facts{Event: event, Attempt: attempt, Phase: phase, Reason: reason, Disposition: diagnostics.DispositionUnknown}
+	var detail diagnostics.Detail
+	if len(details) != 0 {
+		detail = details[0]
+		detail.Resource = diagnostics.Text(serverID, 160)
+	}
+	facts := diagnostics.Facts{Detail: detail, Event: event, Attempt: attempt, Phase: phase, Reason: reason, Disposition: diagnostics.DispositionUnknown}
 	if event == diagnostics.OAuthRequired || event == diagnostics.OAuthExpired {
 		facts.Disposition = diagnostics.DispositionOperatorAuthentication
 	}
@@ -66,6 +71,7 @@ func (service *RefreshService) observeRefresh(serverID string, start time.Time, 
 		}
 		facts.Event, facts.Reason = diagnostics.OAuthRefreshComplete, diagnostics.ReasonNone
 	} else {
+		facts.Detail = diagnostics.Snapshot("oauth", "refresh", serverID, err)
 		facts.Event, facts.Reason = diagnostics.OAuthRefreshFailed, diagnostics.ReasonUnknown
 		switch {
 		case errors.Is(err, ErrRefreshReauthorization):

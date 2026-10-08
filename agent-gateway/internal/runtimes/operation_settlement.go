@@ -14,14 +14,31 @@ import (
 // finishWork runs after the worker and its candidate defers have returned. The
 // lifecycle lock covers terminal persistence, including mutation cleanup.
 func (manager *Manager) finishWork(serverID string, work *reconciliationWork) {
+	var settlement *diagnostics.Facts
+	var settlementErr error
+	resource := serverID
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	defer func() {
+		work.failureErr = nil
+		manager.mu.Unlock()
+		if settlement != nil && manager.diagnostics != nil {
+			settlement.Detail = diagnostics.Snapshot("reconciliation", "persist settlement", resource, settlementErr)
+			if settlement.Detail.Explanation == "" {
+				settlement.Detail.Explanation = "settlement unconfirmed"
+			}
+			manager.diagnostics.Reconciliation(*settlement)
+		}
+	}()
 	current := manager.entries[serverID]
 	if current == nil || current.work != work {
 		return
 	}
 	work.returned = true
 	displaced := work.displaced || work.cleanupOnly || current.generation != work.generation
+	settlementErr = work.failureErr
+	if work.operationID != nil {
+		resource += "/" + *work.operationID
+	}
 	failureCause := work.failureCause
 	if failureCause == diagnostics.None {
 		failureCause = diagnostics.Unavailable
@@ -30,6 +47,7 @@ func (manager *Manager) finishWork(serverID string, work *reconciliationWork) {
 		if current.blockedStop != nil {
 			work.failed = true
 		} else if err := manager.settleDisplaced(work); err != nil {
+			settlementErr = err
 			work.failed = true
 			if errors.Is(err, storage.ErrMutationBusy) {
 				failureCause = diagnostics.Capacity
@@ -50,7 +68,7 @@ func (manager *Manager) finishWork(serverID string, work *reconciliationWork) {
 		current.status.Reason = &reason
 		current.status.RuntimeID = nil
 		current.status.CatalogState = contract.ActiveCatalogUnavailable
-		manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.ReconciliationSettlementFailure, Cause: failureCause})
+		settlement = &diagnostics.Facts{Event: diagnostics.ReconciliationSettlementFailure, Cause: failureCause, Upstream: current.diagnosticReference, Attempt: work.diagnosticAttempt}
 	} else if work.cleanupOnly && !manager.draining {
 		current.pending = true
 	}

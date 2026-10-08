@@ -64,7 +64,7 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 		if result.Outcome == CallbackSucceeded {
 			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthCompleted, diagnostics.PhaseAuthorization, diagnostics.ReasonNone)
 		} else {
-			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthFailed, bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason)
+			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthFailed, bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason, bundle.diagnosticFailure.detail)
 		}
 	}()
 	workCtx = audit.WithSystem(audit.WithCause(workCtx, bundle.cause))
@@ -152,6 +152,7 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 	)
 	clear(body)
 	if err != nil {
+		err = diagnostics.WithDetail(err, diagnostics.Snapshot("oauth", "token exchange", bundle.graph.TokenEndpoint, err, string(clientSecret), codes[0], bundle.verifier, bundle.state))
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, err)
 		return result
 	}
@@ -212,6 +213,7 @@ func (service *FlowService) acquireCallback(ctx context.Context) (context.Contex
 func (service *FlowService) failConsumed(ctx context.Context, bundle flowBundle, stage contract.OAuthDiagnosticStage, cause error) {
 	diagnostic := oauthDiagnostic(bundle.flowID, stage, cause)
 	if bundle.diagnosticFailure != nil {
+		bundle.diagnosticFailure.detail = diagnostics.Snapshot("oauth", "callback", bundle.serverID, cause, bundle.state, bundle.verifier)
 		bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason = oauthPhase(stage), diagnostics.PublicReason(&diagnostic.Reason)
 		if errors.Is(cause, context.DeadlineExceeded) {
 			bundle.diagnosticFailure.reason = diagnostics.ReasonTimeout

@@ -65,7 +65,7 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 			var armed atomic.Bool
 			store, err := InitializeWithFaultInjection(t.Context(), newOwnership(t), testInstallationID, func(point FaultPoint) error {
 				if armed.Load() && point == test.point {
-					return errors.New("secret-token https://sensitive.example/?key=SECRET\nforged-event")
+					return errors.New("device permission denied Authorization: Bearer actual-storage-secret https://storage.example/?key=actual-query-secret\nforged-event")
 				}
 				return nil
 			})
@@ -87,9 +87,12 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 				require.Equal(t, test.stage, record["stage"])
 				require.Equal(t, "ERROR", record["level"])
 			}
-			require.NotContains(t, output.String(), "secret")
-			require.NotContains(t, output.String(), "sensitive")
-			require.NotContains(t, output.String(), "forged-event")
+			require.Contains(t, output.String(), "device permission denied")
+			require.Contains(t, output.String(), "storage.example")
+			require.Contains(t, output.String(), store.path)
+			require.NotContains(t, output.String(), "actual-storage-secret")
+			require.NotContains(t, output.String(), "actual-query-secret")
+			require.NotContains(t, output.String(), "\nforged-event")
 		})
 	}
 }

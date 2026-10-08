@@ -306,6 +306,7 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 
 func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) (outcome runtimes.CatalogOutcome) {
 	defer func() {
+		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "reconcile", candidate.Server.DisplayName+" ("+candidate.Server.ID+")", err)
 		outcome.DiagnosticReason = diagnostics.PublicReason(outcome.Reason)
 		if outcome.Reason != nil && *outcome.Reason == contract.ReasonConnectivity {
 			outcome.DiagnosticReason = diagnostics.ReasonUnknown

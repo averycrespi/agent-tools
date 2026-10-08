@@ -168,7 +168,7 @@ func finishServe(diagnostic *diagnostics.Adapter, phases *controlclient.ServePha
 		diagnostic.Finish(nil)
 		return nil
 	}
-	diagnostic.Observe(diagnostics.Facts{Event: diagnostics.LifecycleFailure, Cause: diagnostics.Unavailable})
+	diagnostic.Observe(diagnostics.Facts{Event: diagnostics.LifecycleFailure, Cause: diagnostics.Unavailable, Detail: diagnostics.Snapshot("lifecycle", "serve", root, err)})
 	problem := serveCommandProblem(err, acknowledged, root)
 	diagnostic.Finish(func(io.Writer) { _ = phases.WriteProblem(problem) })
 	return problem
@@ -441,12 +441,12 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	if proxyAuthority != "" {
 		proxyListener, _, bindErr := httpboundary.OpenListener(ctx, proxyAuthority, nil)
 		if bindErr != nil {
-			return false, &controlclient.Problem{Code: "http_proxy_unavailable", Title: "The HTTP proxy listener at " + proxyAuthority + " could not be bound. Stop the conflicting listener, choose --http-proxy-listen, or use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
+			return false, &controlclient.Problem{Local: diagnostics.Snapshot("startup", "bind proxy listener", proxyAuthority, bindErr), Code: "http_proxy_unavailable", Title: "The HTTP proxy listener at " + proxyAuthority + " could not be bound. Stop the conflicting listener, choose --http-proxy-listen, or use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
 		}
 		defer func() { _ = proxyListener.Close() }()
 		proxy, prepareErr := runtime.PrepareHTTPProxy(ctx, netip.MustParseAddrPort(authority), netip.MustParseAddrPort(proxyAuthority))
 		if prepareErr != nil {
-			return false, &controlclient.Problem{Code: "http_proxy_unavailable", Title: "The HTTP proxy could not load usable CA signing material or prepare safely. Inspect agent-gateway doctor and stopped CA recovery guidance; after restore or key loss, replace the CA explicitly and refresh client trust. Use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
+			return false, &controlclient.Problem{Local: diagnostics.Snapshot("startup", "prepare proxy", ownership.Layout().Root, prepareErr), Code: "http_proxy_unavailable", Title: "The HTTP proxy could not load usable CA signing material or prepare safely. Inspect agent-gateway doctor and stopped CA recovery guidance; after restore or key loss, replace the CA explicitly and refresh client trust. Use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
 		}
 		proxyDone = make(chan error, 1)
 		go func() { proxyDone <- proxy.Serve(proxyListener) }()
@@ -456,7 +456,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		}()
 	}
 	server := &http.Server{
-		ErrorLog:          diagnostics.HTTPErrorLog(),
+		ErrorLog:          diagnostics.HTTPErrorLog(dependencies.diagnostics),
 		Handler:           boundary,
 		ReadHeaderTimeout: contract.HeaderReadDeadline,
 		ReadTimeout:       contract.APIHandlerDeadline,

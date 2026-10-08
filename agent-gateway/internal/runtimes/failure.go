@@ -7,12 +7,14 @@ import (
 	"errors"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 )
 
 type FailureDisposition struct {
+	Detail      diagnostics.Detail `json:"-"`
 	State       contract.RuntimeState
 	Reason      contract.PublicReason
 	Retryable   bool

@@ -58,13 +58,16 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 			if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK[source.path] {
 				t.Errorf("%s: prohibited SDK import %s", source.path, imported)
 			}
-			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/paths" && (source.path != "internal/controlclient/controlclient.go" || imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/contract") {
+			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics" && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/paths" && (source.path != "internal/controlclient/controlclient.go" || imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/contract") {
 				t.Errorf("%s: prohibited local-control import %s", source.path, imported)
 			}
 		}
 		ast.Inspect(source.file, func(node ast.Node) bool {
 			switch value := node.(type) {
 			case *ast.SelectorExpr:
+				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics" {
+					assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, value.Sel.Name, "local control consumes only finite diagnostic values, not the serve writer")
+				}
 				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/agent-gateway/internal/contract" {
 					assert.Equal(t, "NormalizeHostname", value.Sel.Name, "controlclient may consume only the hostname grammar")
 				}
@@ -154,7 +157,7 @@ func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	release := strings.Index(compositionSource, "defer release()")
 	call := strings.Index(compositionSource, "response := adapter.service.Call(")
 	assert.True(t, enter >= 0 && enter < release && release < call, "internal/composition/composition.go: call pipeline fence must enclose the complete invocation service")
-	for _, required := range []string{"built.invocationPipelines.BeginDrain()", "built.invocationPipelines.Drain(ctx) == nil"} {
+	for _, required := range []string{"built.invocationPipelines.BeginDrain()", "return built.invocationPipelines.Drain(ctx)"} {
 		assert.Contains(t, compositionSource, required, "internal/composition/composition.go: missing invocation drain symbol %s", required)
 	}
 	assert.Contains(t, compositionSource, "providerFactory = productionProvider", "internal/composition/composition.go: ordinary build must use the build-selected provider")

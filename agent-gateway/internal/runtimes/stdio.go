@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -16,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
 
 var (
@@ -37,6 +39,8 @@ type StdioDefinition struct {
 }
 
 type StdioExit struct {
+	Detail    diagnostics.Detail `json:"-"`
+	Requested bool
 	Reason    contract.PublicReason
 	Retryable bool
 }
@@ -47,27 +51,31 @@ type StdioSupervisor struct {
 	now          func() time.Time
 	after        func(time.Duration) <-chan time.Time
 	captureGroup func(*os.Process) (int, bool)
-	signalGroup  func(*os.Process, int, bool) bool
+	signalGroup  func(*os.Process, int, bool) error
 	limit        int64
 }
 
 type StdioRuntime struct {
-	mu           sync.Mutex
-	supervisor   *StdioSupervisor
-	id           string
-	command      *exec.Cmd
-	processGroup int
-	stdin        io.WriteCloser
-	stdout       io.ReadCloser
-	stderr       io.ReadCloser
-	frames       chan []byte
-	done         chan StdioExit
-	finished     chan struct{}
-	cancel       context.CancelFunc
-	failure      *contract.PublicReason
-	diagnostics  []byte
-	exited       bool
-	stopMu       sync.Mutex
+	mu              sync.Mutex
+	supervisor      *StdioSupervisor
+	id              string
+	command         *exec.Cmd
+	processGroup    int
+	stdin           io.WriteCloser
+	stdout          io.ReadCloser
+	stderr          io.ReadCloser
+	frames          chan []byte
+	done            chan StdioExit
+	finished        chan struct{}
+	cancel          context.CancelFunc
+	failure         *contract.PublicReason
+	diagnostics     []byte
+	stderrTruncated bool
+	requested       bool
+	secretValues    []string
+	stopDetail      diagnostics.Detail
+	exited          bool
+	stopMu          sync.Mutex
 }
 
 type byteRateLimiter struct {
@@ -88,11 +96,22 @@ func NewStdioSupervisor(now func() time.Time) *StdioSupervisor {
 }
 
 func (supervisor *StdioSupervisor) Start(ctx context.Context, definition StdioDefinition) (*StdioRuntime, error) {
+	secrets := make([]string, 0, len(definition.Secrets))
+	for _, value := range definition.Secrets {
+		secrets = append(secrets, value)
+	}
+	startFailure := func(err error) error {
+		detail := diagnostics.Snapshot("stdio", "spawn", definition.Executable, err, secrets...)
+		return diagnostics.WithDetail(ErrStdioStartFailed, detail)
+	}
 	if err := validateStdioDefinition(definition); err != nil {
 		return nil, err
 	}
-	if err := ctx.Err(); err != nil || !stdioProcessGroupsSupported() {
-		return nil, ErrStdioStartFailed
+	if err := ctx.Err(); err != nil {
+		return nil, startFailure(err)
+	}
+	if !stdioProcessGroupsSupported() {
+		return nil, startFailure(errors.New("process groups unsupported"))
 	}
 	supervisor.mu.Lock()
 	if _, exists := supervisor.runtimes[definition.RuntimeID]; exists || int64(len(supervisor.runtimes)) >= supervisor.limit {
@@ -109,27 +128,26 @@ func (supervisor *StdioSupervisor) Start(ctx context.Context, definition StdioDe
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		supervisor.release(definition.RuntimeID, nil)
-		return nil, ErrStdioStartFailed
+		return nil, startFailure(err)
 	}
 	stdout, err := command.StdoutPipe()
 	if err != nil {
-		_ = stdin.Close()
+		cleanup := stdin.Close()
 		supervisor.release(definition.RuntimeID, nil)
-		return nil, ErrStdioStartFailed
+		return nil, startFailure(errors.Join(err, cleanup))
 	}
 	stderr, err := command.StderrPipe()
 	if err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
+		cleanup := errors.Join(stdin.Close(), stdout.Close())
 		supervisor.release(definition.RuntimeID, nil)
-		return nil, ErrStdioStartFailed
+		return nil, startFailure(errors.Join(err, cleanup))
 	}
 	if err := command.Start(); err != nil {
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = stderr.Close()
 		supervisor.release(definition.RuntimeID, nil)
-		return nil, ErrStdioStartFailed
+		return nil, startFailure(err)
 	}
 
 	groupID, verified := supervisor.captureGroup(command.Process)
@@ -143,7 +161,7 @@ func (supervisor *StdioSupervisor) Start(ctx context.Context, definition StdioDe
 		return nil, ErrStdioStartFailed
 	}
 	runtimeCtx, cancel := context.WithCancel(context.Background())
-	runtime := &StdioRuntime{supervisor: supervisor, id: definition.RuntimeID, command: command, processGroup: groupID, stdin: stdin, stdout: stdout, stderr: stderr, frames: make(chan []byte, 16), done: make(chan StdioExit, 1), finished: make(chan struct{}), cancel: cancel}
+	runtime := &StdioRuntime{secretValues: secrets, supervisor: supervisor, id: definition.RuntimeID, command: command, processGroup: groupID, stdin: stdin, stdout: stdout, stderr: stderr, frames: make(chan []byte, 16), done: make(chan StdioExit, 1), finished: make(chan struct{}), cancel: cancel}
 	supervisor.mu.Lock()
 	supervisor.runtimes[definition.RuntimeID] = runtime
 	supervisor.mu.Unlock()
@@ -181,22 +199,54 @@ func (runtime *StdioRuntime) CloseInput() error { return runtime.stdin.Close() }
 
 func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
 	runtime.stopMu.Lock()
-	defer runtime.stopMu.Unlock()
+	var failure error
+	defer func() {
+		runtime.stopMu.Unlock()
+		if failure != nil {
+			detail := diagnostics.Snapshot("stdio", "stop process group", runtime.command.Path, failure)
+			runtime.mu.Lock()
+			runtime.stopDetail = detail
+			runtime.mu.Unlock()
+		}
+	}()
 	if runtime.hasExited() {
 		return true
 	}
+	runtime.mu.Lock()
+	if runtime.failure == nil {
+		runtime.requested = true
+	}
+	runtime.mu.Unlock()
 	runtime.cancel()
 	_ = runtime.stdin.Close()
-	if !runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, false) {
-		return runtime.hasExited()
+	if err := runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, false); err != nil {
+		if runtime.hasExited() {
+			return true
+		}
+		failure = err
+		return false
 	}
 	if runtime.waitForExit(ctx, contract.StdioGracefulStopDeadline) {
 		return true
 	}
-	if !runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, true) {
-		return runtime.hasExited()
+	if err := runtime.supervisor.signalGroup(runtime.command.Process, runtime.processGroup, true); err != nil {
+		if runtime.hasExited() {
+			return true
+		}
+		failure = err
+		return false
 	}
-	return runtime.waitForExit(ctx, contract.StdioForcedStopDeadline)
+	if runtime.waitForExit(ctx, contract.StdioForcedStopDeadline) {
+		return true
+	}
+	failure = errors.Join(errors.New("process stop settlement unconfirmed"), ctx.Err())
+	return false
+}
+
+func (runtime *StdioRuntime) StopDetail() diagnostics.Detail {
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	return runtime.stopDetail
 }
 
 func (runtime *StdioRuntime) StopNow() {
@@ -239,7 +289,7 @@ func (runtime *StdioRuntime) supervise(ctx context.Context) {
 		runtime.readStderr(ctx, stderrRate)
 	}()
 	go func() {
-		_, _ = runtime.command.Process.Wait()
+		state, waitErr := runtime.command.Process.Wait()
 		_ = runtime.stdin.Close()
 		runtime.mu.Lock()
 		runtime.exited = true
@@ -254,9 +304,27 @@ func (runtime *StdioRuntime) supervise(ctx context.Context) {
 		if runtime.failure != nil {
 			reason = *runtime.failure
 		}
+		stderr := string(runtime.diagnostics)
+		truncated, requested := runtime.stderrTruncated, runtime.requested
 		runtime.mu.Unlock()
+		detail := diagnostics.Snapshot("stdio", "wait", runtime.command.Path, waitErr, runtime.secretValues...)
+		if state != nil {
+			detail.Native = diagnostics.Text(state.String(), 64)
+		}
+		detail.Effect = "unexpected termination"
+		if requested {
+			detail.Effect = "requested termination"
+		}
+		detail.Excerpt = diagnostics.Text(stderr, 256, runtime.secretValues...)
+		if truncated {
+			detail.Excerpt = diagnostics.Text(stderr, 220, runtime.secretValues...) + "...[truncated]"
+		}
+		if detail.Explanation == "" {
+			detail.Explanation = fmt.Sprintf("process ended: %s", detail.Native)
+		}
+		clear(runtime.secretValues)
 		runtime.supervisor.release(runtime.id, runtime)
-		runtime.done <- StdioExit{Reason: reason, Retryable: true}
+		runtime.done <- StdioExit{Detail: detail, Requested: requested, Reason: reason, Retryable: true}
 		close(runtime.done)
 		close(runtime.frames)
 		close(runtime.finished)
@@ -316,6 +384,9 @@ func (runtime *StdioRuntime) readStderr(ctx context.Context, limiter *byteRateLi
 			}
 			runtime.mu.Lock()
 			remaining := maximum - len(runtime.diagnostics)
+			if count > remaining {
+				runtime.stderrTruncated = true
+			}
 			if remaining > count {
 				remaining = count
 			}

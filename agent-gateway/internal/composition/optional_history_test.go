@@ -1,6 +1,7 @@
 package composition
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -18,6 +20,10 @@ import (
 func TestOptionalHistoryReadinessBeforeOpenAndLateDrain(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
+	var output bytes.Buffer
+	observer := diagnostics.New(&output, diagnostics.Warn)
+	defer observer.Finish(nil)
+	options.Diagnostics = observer
 	entered, release, settled := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	built, err := newWithHooks(options, constructorHooks{openTraffic: func(ctx context.Context, owner *gatewaypaths.Ownership, installation, generation string, config invocation.TrafficConfig) (*invocation.TrafficStore, error) {
 		close(entered)
@@ -60,6 +66,10 @@ func TestOptionalHistoryReadinessBeforeOpenAndLateDrain(t *testing.T) {
 	traffic, err := invocation.OpenTraffic(t.Context(), options.Ownership, options.InstallationID, generation, invocation.DefaultTrafficConfig())
 	require.NoError(t, err)
 	require.NoError(t, traffic.Close())
+	require.True(t, observer.Finish(nil))
+	require.Contains(t, output.String(), "traffic close")
+	require.Contains(t, output.String(), "context canceled")
+	require.Contains(t, output.String(), "settlement unconfirmed")
 }
 
 func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {

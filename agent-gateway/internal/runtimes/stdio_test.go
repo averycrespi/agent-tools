@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,6 +71,9 @@ func TestStdioFixtureProcess(t *testing.T) {
 		size, _ := strconv.Atoi(arguments[1])
 		_, _ = fmt.Fprint(os.Stderr, strings.Repeat("d", size))
 		_, _ = fmt.Fprintln(os.Stdout, `{}`)
+	case "diagnostic-failure":
+		_, _ = fmt.Fprint(os.Stderr, "inventory.example: permission denied\n\x1b[31m credential="+os.Getenv("RUNTIME_SECRET")+strings.Repeat(" detail", 50000))
+		os.Exit(23)
 	case "partial":
 		_, _ = fmt.Fprint(os.Stdout, `{}`)
 	case "cooperative":
@@ -297,6 +301,9 @@ func TestStdioStopUsesGracefulInputAndVerifiedProcessGroup(t *testing.T) {
 	runtime, err := NewStdioSupervisor(nil).Start(context.Background(), fixtureDefinition(executable, "cooperative"))
 	require.NoError(t, err)
 	assert.True(t, runtime.Stop(context.Background()))
+	exit := receiveExit(t, runtime.Done())
+	assert.True(t, exit.Requested)
+	assert.Equal(t, "requested termination", exit.Detail.Effect)
 	assert.Zero(t, runtime.supervisor.Status().InUse)
 }
 
@@ -319,10 +326,10 @@ func TestStdioStopForcesReapAfterExactGraceWindow(t *testing.T) {
 	assert.Equal(t, []byte(`{}`), receiveFrame(t, runtime.Frames()))
 	actualSignal := supervisor.signalGroup
 	var forcedSignals []bool
-	supervisor.signalGroup = func(process *os.Process, group int, force bool) bool {
+	supervisor.signalGroup = func(process *os.Process, group int, force bool) error {
 		forcedSignals = append(forcedSignals, force)
 		sent := actualSignal(process, group, force)
-		if sent && force {
+		if sent == nil && force {
 			// Force the schedule where reaping wins before the forced wait begins.
 			select {
 			case <-runtime.finished:
@@ -346,23 +353,54 @@ func TestStdioStopRejectsChangedProcessGroupAndAllowsCleanupRetry(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, []byte(`{}`), receiveFrame(t, runtime.Frames()))
 	actualSignal := supervisor.signalGroup
-	supervisor.signalGroup = func(*os.Process, int, bool) bool { return false }
+	supervisor.signalGroup = func(*os.Process, int, bool) error { return syscall.EPERM }
 	assert.False(t, runtime.Stop(context.Background()))
+	assert.Contains(t, runtime.StopDetail().Explanation, "operation not permitted")
 	assert.Equal(t, int64(1), supervisor.Status().InUse)
 	supervisor.signalGroup = actualSignal
 	assert.True(t, runtime.Stop(context.Background()))
 	assert.Zero(t, supervisor.Status().InUse)
 }
 
-func TestStdioSupervisorClassifiesExitWithoutRawDetails(t *testing.T) {
+func TestStdioSupervisorPreservesNativeExitDetails(t *testing.T) {
 	executable, err := os.Executable()
 	require.NoError(t, err)
 	for _, code := range []string{"0", "23"} {
 		runtime, startErr := NewStdioSupervisor(nil).Start(context.Background(), fixtureDefinition(executable, "exit", code))
 		require.NoError(t, startErr)
 		exit := receiveExit(t, runtime.Done())
-		assert.Equal(t, StdioExit{Reason: contract.ReasonProcessExited, Retryable: true}, exit)
+		assert.Equal(t, contract.ReasonProcessExited, exit.Reason)
+		assert.True(t, exit.Retryable)
+		assert.False(t, exit.Requested)
+		assert.Equal(t, "exit status "+code, exit.Detail.Native)
+		assert.Equal(t, executable, exit.Detail.Resource)
 	}
+}
+
+func TestStdioLocalFailureUsefulnessAndSecretMasking(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	definition := fixtureDefinition(executable, "diagnostic-failure")
+	definition.SecretEnvironment["RUNTIME_SECRET"] = "credential"
+	secret := "actual-child-secret-123456"
+	definition.Secrets["credential"] = secret
+	runtime, err := NewStdioSupervisor(nil).Start(t.Context(), definition)
+	require.NoError(t, err)
+	exit := receiveExit(t, runtime.Done())
+	<-runtime.finished
+	require.Equal(t, "exit status 23", exit.Detail.Native)
+	require.Contains(t, exit.Detail.Excerpt, "inventory.example: permission denied")
+	require.Contains(t, exit.Detail.Excerpt, "truncated")
+	require.NotContains(t, exit.Detail.Excerpt, secret)
+	require.NotContains(t, exit.Detail.Excerpt, "\x1b")
+	require.NotContains(t, exit.Detail.Excerpt, "\n")
+	require.LessOrEqual(t, len(exit.Detail.Excerpt), 256)
+	missing := fixtureDefinition(filepath.Join(t.TempDir(), "missing-child"), "exit", "0")
+	_, err = NewStdioSupervisor(nil).Start(t.Context(), missing)
+	require.ErrorIs(t, err, ErrStdioStartFailed)
+	detail := diagnostics.Snapshot("runtime", "spawn", "", err)
+	require.Contains(t, detail.Explanation, "no such file")
+	require.Contains(t, detail.Resource, "missing-child")
 }
 
 func fixtureDefinition(executable, mode string, arguments ...string) StdioDefinition {

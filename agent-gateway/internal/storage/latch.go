@@ -128,17 +128,33 @@ func (store *Store) mutate(ctx context.Context, recovery *recoveryAction, mutate
 	if err := store.observedAcquire(ctx); err != nil {
 		return err
 	}
-	defer store.observedRelease(ctx, store.diagnosticStart())
-	return store.mutateOwned(ctx, recovery, mutate)
+	result := func() error {
+		defer store.observedRelease(ctx, store.diagnosticStart())
+		return store.mutateOwned(ctx, recovery, mutate)
+	}()
+	var failure *mutationFailure
+	if errors.As(result, &failure) && store.diagnostics != nil {
+		detail := diagnostics.Snapshot("control-storage", "mutate", store.path, failure.err)
+		store.mutationEvent(ctx, diagnostics.DurabilityFailure, diagnostics.Latched, failure.stage, 0, detail)
+		store.mutationEvent(ctx, diagnostics.StorageLatch, diagnostics.Latched, failure.stage, 0)
+	}
+	return result
 }
+
+type mutationFailure struct {
+	err   error
+	stage diagnostics.Stage
+}
+
+func (f *mutationFailure) Error() string { return f.err.Error() }
+func (f *mutationFailure) Unwrap() error { return f.err }
 
 func (store *Store) mutateOwned(ctx context.Context, recovery *recoveryAction, mutate func(*sql.Tx) error) (result error) {
 	stage := diagnostics.SizeCheck
 	wasLatched := store.Latched()
 	defer func() {
 		if result != nil && !wasLatched && store.Latched() {
-			store.mutationEvent(ctx, diagnostics.DurabilityFailure, diagnostics.Latched, stage, 0)
-			store.mutationEvent(ctx, diagnostics.StorageLatch, diagnostics.Latched, stage, 0)
+			result = &mutationFailure{err: result, stage: stage}
 		}
 	}()
 	if store.Latched() {

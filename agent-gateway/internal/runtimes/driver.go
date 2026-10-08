@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
@@ -41,18 +42,20 @@ type ConcreteDriver struct {
 }
 
 type concreteHandle struct {
-	mu             sync.Mutex
-	transport      downstream.Transport
-	coordinator    *downstream.Coordinator
-	runtime        *downstream.Runtime
-	stop           func(context.Context) bool
-	closeAttempted bool
-	stopping       bool
-	released       bool
-	failureOnce    sync.Once
-	failureCancel  context.CancelFunc
-	stdioDone      <-chan StdioExit
-	authorization  string
+	mu               sync.Mutex
+	transport        downstream.Transport
+	coordinator      *downstream.Coordinator
+	runtime          *downstream.Runtime
+	stop             func(context.Context) bool
+	stopDetailSource func() diagnostics.Detail
+	failureDetail    diagnostics.Detail
+	closeAttempted   bool
+	stopping         bool
+	released         bool
+	failureOnce      sync.Once
+	failureCancel    context.CancelFunc
+	stdioDone        <-chan StdioExit
+	authorization    string
 }
 
 func NewConcreteDriver(options ConcreteDriverOptions) (*ConcreteDriver, error) {
@@ -73,7 +76,12 @@ func NewConcreteDriver(options ConcreteDriverOptions) (*ConcreteDriver, error) {
 
 func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate, lease *MaterialLease) (outcome Outcome) {
 	phase := diagnostics.PhaseConnection
-	defer func() { outcome.DiagnosticPhase = phase }()
+	defer func() {
+		outcome.DiagnosticPhase = phase
+		if outcome.DiagnosticDetail != (diagnostics.Detail{}) {
+			outcome.DiagnosticDetail.Resource = diagnostics.Text(candidate.Server.DisplayName+" ("+candidate.Server.ID+")", 160)
+		}
+	}()
 	var desired contract.Transport
 	var initial *downstream.Coordinator
 	key, err := driver.owner.Admit(candidate, lease, func(OwnedRuntime) error {
@@ -177,7 +185,11 @@ func (driver *ConcreteDriver) constructStdio(ctx context.Context, candidate Cand
 	if source, ok := process.(interface{ Done() <-chan StdioExit }); ok {
 		done = source.Done()
 	}
-	return driver.installTransport(candidate.Key(), transport, "", process.Stop, done)
+	var stopDetail func() diagnostics.Detail
+	if source, ok := process.(interface{ StopDetail() diagnostics.Detail }); ok {
+		stopDetail = source.StopDetail
+	}
+	return driver.installTransport(candidate.Key(), transport, "", process.Stop, done, stopDetail)
 }
 
 func (driver *ConcreteDriver) constructHTTP(candidate Candidate, desired contract.StreamableHTTPTransport) (*downstream.Coordinator, error) {
@@ -216,8 +228,11 @@ func (driver *ConcreteDriver) constructHTTP(candidate Candidate, desired contrac
 	return driver.installTransport(candidate.Key(), transport, authorization, func(ctx context.Context) bool { return transport.Close(ctx) == nil }, nil)
 }
 
-func (driver *ConcreteDriver) installTransport(key CandidateKey, transport downstream.Transport, authorization string, stop func(context.Context) bool, stdioDone <-chan StdioExit) (*downstream.Coordinator, error) {
+func (driver *ConcreteDriver) installTransport(key CandidateKey, transport downstream.Transport, authorization string, stop func(context.Context) bool, stdioDone <-chan StdioExit, details ...func() diagnostics.Detail) (*downstream.Coordinator, error) {
 	handle := &concreteHandle{transport: transport, stop: stop, stdioDone: stdioDone, authorization: authorization}
+	if len(details) != 0 {
+		handle.stopDetailSource = details[0]
+	}
 	if !driver.storeHandle(key, handle) {
 		_ = transport.Close(context.Background())
 		return nil, ErrCandidateOwned
@@ -296,7 +311,7 @@ func (driver *ConcreteDriver) watchFailures(candidate Candidate, key CandidateKe
 			return
 		case exit, ok := <-stdioDone:
 			if ok {
-				driver.reportHandleFailure(candidate, key, handle, FailureDisposition{State: contract.RuntimeDegraded, Reason: exit.Reason, Retryable: exit.Retryable, RuntimeLost: true})
+				driver.reportHandleFailure(candidate, key, handle, FailureDisposition{Detail: exit.Detail, State: contract.RuntimeDegraded, Reason: exit.Reason, Retryable: exit.Retryable, RuntimeLost: true})
 			}
 		}
 	}()
@@ -377,7 +392,7 @@ func (driver *ConcreteDriver) Stop(ctx context.Context, candidate Candidate) boo
 	return driver.owner.Release(key, true)
 }
 
-func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
+func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) (verified bool) {
 	driver.mu.Lock()
 	handle := driver.handles[key]
 	driver.mu.Unlock()
@@ -385,7 +400,25 @@ func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
 		return false
 	}
 	handle.mu.Lock()
-	defer handle.mu.Unlock()
+	var closeErr error
+	authorization, source := handle.authorization, handle.stopDetailSource
+	defer func() {
+		handle.mu.Unlock()
+		if !verified {
+			if closeErr == nil {
+				closeErr = errors.New("runtime cleanup verification failed")
+			}
+			detail := diagnostics.Snapshot("runtime", "close", key.ServerID, closeErr, authorization, strings.TrimPrefix(authorization, "Bearer "))
+			if source != nil {
+				if native := source(); native != (diagnostics.Detail{}) {
+					detail = native
+				}
+			}
+			handle.mu.Lock()
+			handle.failureDetail = detail
+			handle.mu.Unlock()
+		}
+	}()
 	if handle.released {
 		return false
 	}
@@ -393,15 +426,17 @@ func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
 	if handle.failureCancel != nil {
 		handle.failureCancel()
 	}
-	verified := false
+	verified = false
 	switch {
 	case !handle.closeAttempted && handle.runtime != nil:
 		handle.closeAttempted = true
-		verified = handle.runtime.Close(ctx) == nil
+		closeErr = handle.runtime.Close(ctx)
+		verified = closeErr == nil
 	case handle.stop != nil:
 		verified = handle.stop(ctx)
 	case handle.transport != nil:
-		verified = handle.transport.Close(ctx) == nil
+		closeErr = handle.transport.Close(ctx)
+		verified = closeErr == nil
 	}
 	if !verified {
 		return false
@@ -413,6 +448,18 @@ func (driver *ConcreteDriver) stop(ctx context.Context, key CandidateKey) bool {
 	}
 	driver.mu.Unlock()
 	return true
+}
+
+func (driver *ConcreteDriver) StopDetail(candidate Candidate) diagnostics.Detail {
+	driver.mu.Lock()
+	handle := driver.handles[candidate.Key()]
+	driver.mu.Unlock()
+	if handle == nil {
+		return diagnostics.Detail{}
+	}
+	handle.mu.Lock()
+	defer handle.mu.Unlock()
+	return handle.failureDetail
 }
 
 func (driver *ConcreteDriver) Owned(candidate Candidate) bool {
@@ -444,7 +491,8 @@ func (driver *ConcreteDriver) Coordinator(candidate Candidate) (*downstream.Coor
 	return handle.coordinator, handle.coordinator != nil
 }
 
-func constructionFailure(err error) Outcome {
+func constructionFailure(err error) (outcome Outcome) {
+	defer func() { outcome.DiagnosticDetail = diagnostics.Snapshot("runtime", "reconcile", "", err) }()
 	var challenge *downstream.OAuthChallengeDisposition
 	if errors.As(err, &challenge) {
 		reason := contract.ReasonAuthenticationRejected

@@ -21,7 +21,7 @@ func (store *Store) mutationContext(ctx context.Context) context.Context {
 	}
 	return context.WithValue(ctx, mutationDiagnosticKey{}, diagnostics.NextID(&store.diagnosticIDs))
 }
-func (store *Store) mutationEvent(ctx context.Context, event diagnostics.Event, cause diagnostics.Cause, stage diagnostics.Stage, duration time.Duration) {
+func (store *Store) mutationEvent(ctx context.Context, event diagnostics.Event, cause diagnostics.Cause, stage diagnostics.Stage, duration time.Duration, details ...diagnostics.Detail) {
 	if store.diagnostics == nil {
 		return
 	}
@@ -30,7 +30,11 @@ func (store *Store) mutationEvent(ctx context.Context, event diagnostics.Event, 
 	}
 	correlation := diagnostics.FromContext(ctx)
 	mutation, _ := ctx.Value(mutationDiagnosticKey{}).(uint64)
-	facts := diagnostics.Facts{Event: event, Cause: cause, Stage: stage, Call: correlation.Call, Mutation: mutation, Writer: correlation.Writer, Duration: duration}
+	var detail diagnostics.Detail
+	if len(details) != 0 {
+		detail = details[0]
+	}
+	facts := diagnostics.Facts{Detail: detail, Event: event, Cause: cause, Stage: stage, Call: correlation.Call, Mutation: mutation, Writer: correlation.Writer, Duration: duration}
 	if event <= diagnostics.StorageReject {
 		owned, waiting := store.MutationOccupancy()
 		if owned {

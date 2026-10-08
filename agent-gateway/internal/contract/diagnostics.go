@@ -23,7 +23,7 @@ type DiagnosticEvent struct {
 	Conditions     []string
 }
 
-// DiagnosticEvents is the closed version-one field inventory. Common required
+// DiagnosticEvents is the version-two local diagnostic field inventory. Common required
 // fields are schema_version, time, level, event and process_id. An empty cause
 // means the cause field must be absent. Returned definitions have no global
 // mutable state. The adapter tests enforce agreement with these declarations.
@@ -93,10 +93,12 @@ func DiagnosticEvents() []DiagnosticEvent {
 	events = append(events, DiagnosticEvent{Name: "http_proxy_rejected", Level: "warn", RequiredFields: []string{"cause", "stage"}, OptionalFields: []string{"duration_ms", "proxy_id"}, Causes: rejection, Stages: []string{"routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation"}, Conditions: []string{"pre-dispatch infrastructure refusal, not a policy denial", "proxy_id is optional independent 128-bit lowercase hex; no request or resource identity"}})
 	events = append(events, DiagnosticEvent{Name: "http_proxy_failure", Level: "warn", RequiredFields: []string{"cause", "stage"}, OptionalFields: []string{"duration_ms", "proxy_id"}, Causes: rejection, Stages: []string{"connection_capacity", "intercept_handshake", "exchange", "upstream_read", "downstream_write", "downstream_flush", "deadline", "internal_panic", "downstream_read", "upstream_write", "connect"}, Conditions: []string{"observed transport or internal failure; no delivery or nonexecution claim", "proxy_id is optional independent 128-bit lowercase hex"}})
 	for _, name := range []string{"traffic_failure", "traffic_recovered"} {
-		events = append(events, DiagnosticEvent{Name: name, Level: "warn", RequiredFields: []string{"cause", "stage", "settlement"}, OptionalFields: []string{"sqlite_code"}, Causes: []string{"unknown", "permission", "missing", "integrity", "full", "io", "locked", "deadline", "capacity", "ownership"}, Stages: []string{"opening", "validation", "reservation", "begin", "statement", "commit", "rollback", "acknowledgment", "read"}, Conditions: []string{"closed settlement: not_started, rolled_back, committed, uncertain", "SQLite extended code is numeric and bounded; zero omitted", "at most one failure and one recovery record per minute"}})
+		events = append(events, DiagnosticEvent{Name: name, Level: "warn", RequiredFields: []string{"cause", "stage", "settlement"}, OptionalFields: []string{"sqlite_code", "suppressed"}, Causes: []string{"unknown", "permission", "missing", "integrity", "full", "io", "locked", "deadline", "capacity", "ownership"}, Stages: []string{"opening", "validation", "reservation", "begin", "statement", "commit", "rollback", "acknowledgment", "read"}, Conditions: []string{"closed settlement: not_started, rolled_back, committed, uncertain", "SQLite extended code is numeric and bounded; zero omitted", "identical repeats coalesce for one minute; 32 bounded histories, distinct details remain observable"}})
 	}
+	events = append(events, DiagnosticEvent{Name: "operator_failure", Level: "warn", Causes: []string{""}})
 	events = append(events, DiagnosticEvent{Name: "diagnostic_loss", Level: "warn", RequiredFields: []string{"dropped", "invalid"}, Causes: []string{""}})
 	for index := range events {
+		events[index].OptionalFields = append(events[index].OptionalFields, "component", "operation", "resource", "explanation", "native", "effect", "untrusted_excerpt", "stack")
 		if events[index].Level == "warn" || events[index].Level == "error" {
 			events[index].RequiredFields = append(events[index].RequiredFields, "action")
 		}

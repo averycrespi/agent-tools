@@ -25,8 +25,10 @@ func proxyID() string {
 
 type failureWriter struct {
 	http.ResponseWriter
-	id      string
-	started bool
+	id       string
+	resource string
+	secrets  []string
+	started  bool
 }
 
 func (w *failureWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -86,10 +88,17 @@ func (e *Engine) observeTransfer(w http.ResponseWriter, stage string, err error)
 }
 
 func (e *Engine) observeFailure(w http.ResponseWriter, stage diagnostics.Stage, err error) {
-	id := ""
+	id, resource := "", ""
+	var secrets []string
 	if tracked, ok := w.(*failureWriter); ok {
-		id = tracked.id
+		id, resource, secrets = tracked.id, tracked.resource, tracked.secrets
 	}
 	cause := proxyFailureCause(err)
-	e.observeProxy(time.Now(), diagnostics.HTTPProxyFailure, stage, cause, id)
+	localErr := err
+	var transfer *transferError
+	if errors.As(err, &transfer) {
+		localErr = transfer.err
+	}
+	detail := diagnostics.Snapshot("proxy", "forward", resource, localErr, secrets...)
+	e.observeProxy(time.Now(), diagnostics.HTTPProxyFailure, stage, cause, id, detail)
 }

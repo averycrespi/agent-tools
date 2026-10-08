@@ -75,7 +75,7 @@ func TestIntegrationFailureContractPlainWire(t *testing.T) {
 				f.engine.options.Remote = remote.New(remote.Options{DialContext: func(context.Context, string, string) (net.Conn, error) { return nil, context.DeadlineExceeded }})
 			case "panic":
 				expected = 503
-				f.engine.options.Ready = func() bool { panic("private-panic-canary") }
+				f.engine.options.Ready = func() bool { panic("readiness check panicked Authorization: Bearer " + f.credential.Bearer) }
 			}
 			request, err := http.NewRequestWithContext(t.Context(), "GET", target, nil)
 			require.NoError(t, err)
@@ -95,6 +95,10 @@ func TestIntegrationFailureContractPlainWire(t *testing.T) {
 				var record map[string]any
 				require.NoError(t, json.Unmarshal(output.Bytes(), &record))
 				require.Equal(t, id, record["proxy_id"])
+			}
+			if mode == "panic" {
+				require.Contains(t, output.String(), "readiness check panicked")
+				require.Contains(t, output.String(), `"stack":`)
 			}
 			require.NotContains(t, output.String(), "canary")
 			require.NotContains(t, output.String(), f.credential.Bearer)
@@ -195,7 +199,7 @@ func TestIntegrationConnectFailureAndHandshakeWire(t *testing.T) {
 				if mode == "timeout" {
 					return nil, context.DeadlineExceeded
 				}
-				return nil, errors.New("private-dial-canary")
+				return nil, errors.New("connect: network unreachable Authorization: Bearer " + f.credential.Bearer)
 			}})
 			if mode != "handshake" {
 				f.allow(t, "http://"+target, "allow_tunnel", "", "")
@@ -233,6 +237,11 @@ func TestIntegrationConnectFailureAndHandshakeWire(t *testing.T) {
 			require.Eventually(t, func() bool { f.engine.mu.Lock(); defer f.engine.mu.Unlock(); return f.engine.work == 0 }, time.Second, time.Millisecond)
 			require.True(t, observer.Finish(nil))
 			require.NotContains(t, output.String(), "canary")
+			require.NotContains(t, output.String(), f.credential.Bearer)
+			if mode == "dial" {
+				require.Contains(t, output.String(), "connect: network unreachable")
+				require.Contains(t, output.String(), target)
+			}
 			if mode == "handshake" {
 				require.Contains(t, output.String(), `"stage":"intercept_handshake"`)
 				require.Contains(t, output.String(), response.Header.Get(contract.HTTPProxyConnectionHeader))

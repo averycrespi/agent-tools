@@ -25,6 +25,7 @@ var ErrFlowRejected = errors.New("OAuth flow preparation was rejected")
 var ErrCallbackUnavailable = errors.New("OAuth callback listener is unavailable")
 
 type flowDiagnostic struct {
+	detail diagnostics.Detail
 	phase  diagnostics.Phase
 	reason diagnostics.Reason
 }
@@ -35,8 +36,9 @@ type FlowFailure struct {
 	cause         error
 }
 
-func (failure *FlowFailure) Error() string { return failure.cause.Error() }
-func (failure *FlowFailure) Unwrap() error { return failure.cause }
+func (failure *FlowFailure) Error() string                      { return failure.cause.Error() }
+func (failure *FlowFailure) Unwrap() error                      { return failure.cause }
+func (failure *FlowFailure) OperatorDetail() diagnostics.Detail { return failure.diagnostic.detail }
 
 func NewFlowFailure(correlationID string, cause error) error {
 	if cause == nil {
@@ -268,7 +270,7 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 			if errors.As(resultErr, &failure) && failure.diagnostic.phase != diagnostics.PhaseUnknown {
 				phase, reason = failure.diagnostic.phase, failure.diagnostic.reason
 			}
-			service.observeFlow(request.ServerID, diagnosticAttempt, diagnostics.OAuthFailed, phase, reason)
+			service.observeFlow(request.ServerID, diagnosticAttempt, diagnostics.OAuthFailed, phase, reason, diagnostics.Snapshot("oauth", "authorize", request.ServerID, resultErr))
 		}
 	}()
 	service.removeFlowIDs(prepared.SupersededIDs)
@@ -500,7 +502,7 @@ func (service *FlowService) fail(ctx context.Context, flowID string, cause error
 	if errors.Is(cause, context.DeadlineExceeded) {
 		reason = diagnostics.ReasonTimeout
 	}
-	return contract.AuthFlowCreation{}, &FlowFailure{CorrelationID: flowID, cause: rejected, diagnostic: flowDiagnostic{phase: oauthPhase(stage), reason: reason}}
+	return contract.AuthFlowCreation{}, &FlowFailure{CorrelationID: flowID, cause: rejected, diagnostic: flowDiagnostic{detail: diagnostics.Snapshot("oauth", "authorize", flowID, cause), phase: oauthPhase(stage), reason: reason}}
 }
 
 func (service *FlowService) removeFlowIDs(flowIDs []string) {

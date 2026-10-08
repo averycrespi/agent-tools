@@ -17,29 +17,29 @@ import (
 // Adapter is the sole diagnostic encoder and sink writer. Callers retain it
 // until Done closes, even if Finish's bounded wait expires.
 type Adapter struct {
-	level         Level
-	sink          io.Writer
-	queue         chan queuedFact
-	done          chan struct{}
-	abort         chan struct{}
-	mu            sync.Mutex
-	stopped       bool
-	finish        sync.Once
-	terminal      boundedBytes
-	dropped       atomic.Uint64
-	invalid       atomic.Uint64
-	failed        atomic.Bool
-	accepted      atomic.Uint64
-	written       atomic.Uint64
-	writeFailures atomic.Uint64
-	writing       atomic.Bool
-	lastWrite     atomic.Pointer[time.Time]
-	calls         atomic.Uint64
-	process       string
-	now           func() time.Time
-	writeNow      func() time.Time
-	suppression   map[suppressionKey]suppressionState
-	trafficLast   [2]time.Time
+	level          Level
+	sink           io.Writer
+	queue          chan queuedFact
+	done           chan struct{}
+	abort          chan struct{}
+	mu             sync.Mutex
+	stopped        bool
+	finish         sync.Once
+	terminal       boundedBytes
+	dropped        atomic.Uint64
+	invalid        atomic.Uint64
+	failed         atomic.Bool
+	accepted       atomic.Uint64
+	written        atomic.Uint64
+	writeFailures  atomic.Uint64
+	writing        atomic.Bool
+	lastWrite      atomic.Pointer[time.Time]
+	calls          atomic.Uint64
+	process        string
+	now            func() time.Time
+	writeNow       func() time.Time
+	suppression    map[suppressionKey]suppressionState
+	trafficHistory map[Facts]trafficRepeat
 }
 
 func New(sink io.Writer, level Level) *Adapter {
@@ -99,7 +99,7 @@ func (adapter *Adapter) Invocation(facts Facts) {
 	if adapter == nil {
 		return
 	}
-	if facts.Event < InvocationAdmission || facts.Event > TerminalAnnotation {
+	if facts.Event != OperatorFailure && (facts.Event < InvocationAdmission || facts.Event > TerminalAnnotation) {
 		increment(&adapter.invalid)
 		return
 	}
@@ -110,7 +110,7 @@ func (adapter *Adapter) Reconciliation(facts Facts) {
 	if adapter == nil {
 		return
 	}
-	if facts.Event != ReconciliationDisplaced && facts.Event != ReconciliationSettlementFailure && !upstreamEvent(facts.Event) {
+	if facts.Event != OperatorFailure && facts.Event != ReconciliationDisplaced && facts.Event != ReconciliationSettlementFailure && !upstreamEvent(facts.Event) {
 		increment(&adapter.invalid)
 		return
 	}
@@ -121,7 +121,7 @@ func (adapter *Adapter) HTTPProxy(facts Facts) {
 	if adapter == nil {
 		return
 	}
-	if facts.Event != HTTPProxyRejected && facts.Event != HTTPProxyFailure {
+	if facts.Event != OperatorFailure && facts.Event != HTTPProxyRejected && facts.Event != HTTPProxyFailure {
 		increment(&adapter.invalid)
 		return
 	}
@@ -132,11 +132,12 @@ func (adapter *Adapter) Observe(facts Facts) {
 	if adapter == nil {
 		return
 	}
+	facts.Detail = facts.Detail.bounded()
 	if !validFacts(facts) {
 		increment(&adapter.invalid)
 		return
 	}
-	if facts.Event >= InvocationAdmission && facts.Event <= StorageReject && adapter.level != Debug {
+	if facts.Event >= InvocationAdmission && facts.Event <= StorageReject && adapter.level != Debug && facts.Detail == (Detail{}) {
 		return
 	}
 	if (facts.Event <= Shutdown || facts.Event == ReconciliationDisplaced) && adapter.level < Info {
@@ -155,7 +156,7 @@ func (adapter *Adapter) Observe(facts Facts) {
 		increment(&adapter.dropped)
 		return
 	}
-	if adapter.suppressTraffic(facts) || adapter.suppress(&facts) || upstreamEvent(facts.Event) && adapter.level < upstreamLevel(facts.Event) {
+	if adapter.suppressTraffic(&facts) || adapter.suppress(&facts) || upstreamEvent(facts.Event) && adapter.level < upstreamLevel(facts.Event) {
 		return
 	}
 	select {
@@ -177,6 +178,7 @@ func (adapter *Adapter) Finish(terminal func(io.Writer)) bool {
 		adapter.mu.Lock()
 		adapter.stopped = true
 		clear(adapter.suppression)
+		clear(adapter.trafficHistory)
 		adapter.mu.Unlock()
 		if terminal != nil {
 			terminal(&adapter.terminal)
@@ -197,9 +199,24 @@ func (adapter *Adapter) Finish(terminal func(io.Writer)) bool {
 	}
 }
 
-// HTTPErrorLog suppresses the standard server's arbitrary request/error text.
-// HTTP diagnostics must use fixed typed events, never raw logger messages.
-func HTTPErrorLog() *log.Logger { return log.New(io.Discard, "", 0) }
+// HTTPErrorLog routes bounded untrusted library explanations to the sole writer.
+// It never retains a request, logger buffer, or an arbitrary error graph.
+func HTTPErrorLog(observers ...HTTPProxyObserver) *log.Logger {
+	var adapter HTTPProxyObserver
+	if len(observers) != 0 {
+		adapter = observers[0]
+	}
+	return log.New(httpErrorWriter{adapter}, "", 0)
+}
+
+type httpErrorWriter struct{ adapter HTTPProxyObserver }
+
+func (w httpErrorWriter) Write(p []byte) (int, error) {
+	if w.adapter != nil {
+		w.adapter.HTTPProxy(Facts{Event: OperatorFailure, Detail: Detail{Component: "http", Operation: "library", Excerpt: Text(string(p), 256)}})
+	}
+	return len(p), nil
+}
 
 const maxCount = uint64(1<<53 - 1)
 
@@ -243,6 +260,10 @@ func (adapter *Adapter) Status() contract.DiagnosticDeliveryStatus {
 }
 
 func validFacts(f Facts) bool {
+	f.Detail = Detail{}
+	if f.Event == OperatorFailure {
+		return f == (Facts{Event: OperatorFailure})
+	}
 	if trafficEvent(f.Event) {
 		return validTraffic(f)
 	}
@@ -476,7 +497,10 @@ func (adapter *Adapter) encodeAt(f Facts, dropped, invalid uint64, observedAt ti
 	if f.Event == LifecycleFailure || f.Event == DurabilityFailure || f.Event == StorageLatch {
 		level = slog.LevelError
 	}
-	if f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure || trafficEvent(f.Event) {
+	if f.Event == OperatorFailure || f.Event == Loss || f.Event == ReconciliationSettlementFailure || f.Event == HTTPProxyRejected || f.Event == HTTPProxyFailure || trafficEvent(f.Event) {
+		level = slog.LevelWarn
+	}
+	if f.Detail != (Detail{}) && level < slog.LevelWarn && !upstreamEvent(f.Event) {
 		level = slog.LevelWarn
 	}
 	if upstreamEvent(f.Event) {
@@ -490,7 +514,19 @@ func (adapter *Adapter) encodeAt(f Facts, dropped, invalid uint64, observedAt ti
 		}
 	}
 	record := slog.NewRecord(observedAt, level, eventNames[f.Event], 0)
-	record.AddAttrs(slog.Int("schema_version", 1), slog.String("process_id", adapter.process))
+	record.AddAttrs(slog.Int("schema_version", 2), slog.String("process_id", adapter.process))
+	for _, field := range []struct{ key, value string }{
+		{"component", f.Detail.Component}, {"operation", f.Detail.Operation}, {"resource", f.Detail.Resource},
+		{"explanation", f.Detail.Explanation}, {"native", f.Detail.Native}, {"effect", f.Detail.Effect},
+		{"untrusted_excerpt", f.Detail.Excerpt}, {"stack", f.Detail.Stack},
+	} {
+		if field.value != "" {
+			record.AddAttrs(slog.String(field.key, field.value))
+		}
+	}
+	if trafficEvent(f.Event) && f.Suppressed != 0 {
+		record.AddAttrs(slog.Uint64("suppressed", f.Suppressed))
+	}
 	if level >= slog.LevelWarn {
 		record.AddAttrs(slog.String("action", guidance(f)))
 	}

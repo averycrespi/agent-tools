@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	oskeyring "github.com/zalando/go-keyring"
 )
 
@@ -170,7 +171,7 @@ func (provider *Provider) set(ctx context.Context, namespace Namespace, item, va
 	if err := ctx.Err(); err != nil {
 		return &CapabilityError{Capability: capabilityForError(err)}
 	}
-	return classifyOperationError(provider.adapter.Set(provider.service, item, value))
+	return classifyOperationError(provider.adapter.Set(provider.service, item, value), value)
 }
 
 func (provider *Provider) get(ctx context.Context, namespace Namespace, item string) (string, error) {
@@ -270,10 +271,13 @@ func capabilityForError(err error) Capability {
 	}
 }
 
-func classifyOperationError(err error) error {
+func classifyOperationError(err error, secrets ...string) (result error) {
 	if err == nil {
 		return nil
 	}
+	defer func() {
+		result = diagnostics.WithDetail(result, diagnostics.Snapshot("keyring", "native operation", "", err, secrets...))
+	}()
 	if errors.Is(err, ErrNotFound) || errors.Is(err, oskeyring.ErrNotFound) {
 		return ErrNotFound
 	}

@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -281,6 +282,7 @@ type ServerConfigurationContext struct {
 }
 
 type OnlineError struct {
+	Local     diagnostics.Detail          `json:"-"`
 	Status    *int                        `json:"status"`
 	Code      string                      `json:"code"`
 	Title     string                      `json:"title"`
@@ -291,8 +293,9 @@ type OnlineError struct {
 
 type Problem = OnlineError
 
-func (failure *OnlineError) Error() string { return failure.Title }
-func (failure *OnlineError) ExitCode() int { return failure.Exit }
+func (failure *OnlineError) Error() string                      { return failure.Title }
+func (failure *OnlineError) OperatorDetail() diagnostics.Detail { return failure.Local }
+func (failure *OnlineError) ExitCode() int                      { return failure.Exit }
 
 type problemEnvelope struct {
 	Status  int                         `json:"status"`
@@ -386,7 +389,12 @@ func ClassifyClientError(err error) *OnlineError {
 	return ClassifyRequestError(err, RequestPhaseMutation)
 }
 
-func ClassifyRequestError(err error, phase RequestPhase) *OnlineError {
+func ClassifyRequestError(err error, phase RequestPhase) (problem *OnlineError) {
+	defer func() {
+		if problem != nil {
+			problem.Local = diagnostics.Snapshot("control-client", "request", "", err)
+		}
+	}()
 	switch {
 	case errors.Is(err, ErrTransport):
 		if FailureRefused(err) {
@@ -434,6 +442,11 @@ func NewInputError(title string) *OnlineError {
 }
 
 func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error {
+	if failure != nil && len(failure.Title) > maxProblemTitleBytes {
+		copy := *failure
+		copy.Title = diagnostics.Text(failure.Title, maxProblemTitleBytes)
+		failure = &copy
+	}
 	if failure == nil || failure.Exit < 2 || failure.Exit > 10 || !validProblemCode(failure.Code) || !validProblemTitle(failure.Title) || !validServerConfigurationContext(failure.Code, failure.Context) {
 		return ErrInvalidInput
 	}
@@ -450,6 +463,19 @@ func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error
 		message := terminalSafe(failure.Title)
 		if failure.Context != nil {
 			message += " [" + failure.Context.Field + ": " + failure.Context.Rule + "]"
+		}
+		if failure.Local.Explanation != "" {
+			message += "\n  " + failure.Local.Operation
+			if failure.Local.Resource != "" {
+				message += " " + failure.Local.Resource
+			}
+			message += ": " + failure.Local.Explanation
+			if failure.Local.Native != "" {
+				message += " (" + failure.Local.Native + ")"
+			}
+			if failure.Local.Excerpt != "" {
+				message += "\n  untrusted stderr: " + failure.Local.Excerpt
+			}
 		}
 		_, err := io.WriteString(writer, message+"\n")
 		return err

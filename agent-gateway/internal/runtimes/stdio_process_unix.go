@@ -3,6 +3,7 @@
 package runtimes
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -22,14 +23,20 @@ func captureStdioProcessGroup(process *os.Process) (int, bool) {
 	return groupID, err == nil && groupID == process.Pid
 }
 
-func signalStdioProcessGroup(process *os.Process, expectedGroupID int, force bool) bool {
-	groupID, verified := captureStdioProcessGroup(process)
-	if !verified || groupID != expectedGroupID {
-		return false
+func signalStdioProcessGroup(process *os.Process, expectedGroupID int, force bool) error {
+	if process == nil {
+		return fmt.Errorf("process identity unavailable")
+	}
+	groupID, err := syscall.Getpgid(process.Pid)
+	if err != nil {
+		return fmt.Errorf("inspect process group %d: %w", process.Pid, err)
+	}
+	if groupID != process.Pid || groupID != expectedGroupID {
+		return fmt.Errorf("process group identity mismatch for %d; signal not sent", process.Pid)
 	}
 	signal := syscall.SIGTERM
 	if force {
 		signal = syscall.SIGKILL
 	}
-	return syscall.Kill(-groupID, signal) == nil
+	return syscall.Kill(-groupID, signal)
 }

@@ -3,6 +3,7 @@
 package runtimes
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 )
@@ -13,4 +14,6 @@ func configureStdioProcess(*exec.Cmd) {}
 
 func captureStdioProcessGroup(*os.Process) (int, bool) { return 0, false }
 
-func signalStdioProcessGroup(*os.Process, int, bool) bool { return false }
+func signalStdioProcessGroup(*os.Process, int, bool) error {
+	return errors.New("process group signals unsupported")
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -103,7 +104,7 @@ func newServiceOperation(verb string) *cobra.Command {
 		result, err := service.Execute(c.Context(), verb, changes)
 		if err != nil {
 			title := fmt.Sprintf("Service %s failed: %s. Launchd: %s; readiness: %s. %s Logs: %s, %s. Run agent-gateway doctor and agent-gateway service status before another operation.", verb, controlclient.TerminalSafePath(err.Error()), result.Launchd, result.Readiness, controlclient.TerminalSafePath(result.Message), controlclient.TerminalSafePath(result.Stdout), controlclient.TerminalSafePath(result.Stderr))
-			return writeOfflineProblem(c, options.Output, &controlclient.Problem{Code: "service_unavailable", Title: title, Exit: 7})
+			return writeOfflineProblem(c, options.Output, &controlclient.Problem{Local: diagnostics.Snapshot("service", verb, "", err), Code: "service_unavailable", Title: title, Exit: 7})
 		}
 		return writeServiceResult(c, options.Output, verb, result)
 	}

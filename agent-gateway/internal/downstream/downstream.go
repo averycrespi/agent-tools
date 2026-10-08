@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
@@ -281,7 +282,10 @@ func (transport *StdioTransport) writeMessage(message Message) error {
 	frame := append(append([]byte(nil), message.Payload...), '\n')
 	written, err := transport.runtime.Input().Write(frame)
 	if err != nil || written != len(frame) {
-		return ErrTransportClosed
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return diagnostics.WithDetail(ErrTransportClosed, diagnostics.Snapshot("downstream", "write stdin", "", err))
 	}
 	return nil
 }
@@ -454,7 +458,10 @@ func parseSSEReader(reader io.Reader) ([]byte, error) {
 			return nil, ErrInvalidMessage
 		}
 	}
-	if scanner.Err() != nil || len(data) == 0 {
+	if err := scanner.Err(); err != nil {
+		return nil, diagnostics.WithDetail(ErrInvalidMessage, diagnostics.Snapshot("downstream", "read SSE", "", err))
+	}
+	if len(data) == 0 {
 		return nil, ErrInvalidMessage
 	}
 	result := []byte(strings.Join(data, "\n"))
@@ -466,8 +473,11 @@ func parseSSEReader(reader io.Reader) ([]byte, error) {
 
 func readBounded(reader io.Reader, maximum int64) ([]byte, error) {
 	contents, err := io.ReadAll(io.LimitReader(reader, maximum+1))
-	if err != nil || int64(len(contents)) > maximum {
-		return nil, ErrInvalidMessage
+	if err != nil {
+		return nil, diagnostics.WithDetail(ErrInvalidMessage, diagnostics.Snapshot("downstream", "read response", "", err))
+	}
+	if int64(len(contents)) > maximum {
+		return nil, diagnostics.WithDetail(ErrInvalidMessage, diagnostics.Snapshot("downstream", "read response", "", errors.New("response exceeds byte limit")))
 	}
 	return contents, nil
 }

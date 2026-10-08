@@ -66,7 +66,7 @@ internal/mcpingress/         Auth-first modern and legacy MCP adapters
 internal/admin/              Administrator bearer and in-memory browser sessions
 internal/api/                Strict control resources and embedded static allowlist
 internal/httpboundary/       Listener, route classification, and early validation
-internal/diagnostics/        Typed, bounded serve-only stderr diagnostics and sole slog adapter
+internal/diagnostics/        Bounded local detail values and sole serve slog adapter
 internal/events/             Bounded invalidation-only delivery
 internal/keyring/            Typed provider capability and opaque generations
 internal/backup/             Verified backup and stopped restore
@@ -105,7 +105,7 @@ Production files must not import `internal/testutil`; it is test-only. Fixed adm
 
 ### Diagnostic ownership
 
-Follow the [operator diagnostic disclosure policy](docs/design/administrative-control-plane.md#operator-diagnostic-disclosure-policy) throughout startup, serving, shutdown, CLI, maintenance and service management. Preserve wrapped/joined causes before public projection; default-level failures must explain the operation, affected resource and underlying cause, including when classification or correlation is unavailable. Local stderr is distinct from public responses and durable audit/history. The current scalar-only implementation is a documented gap, not a restriction to perpetuate. Retain the exact-path logging import guard and sole `diagnostics.New` AST guard in `newServeCmd`. Blocked fixtures must release their owned sink and join `Done`; never close inherited stderr or replace an outstanding writer.
+Follow the [operator diagnostic disclosure policy](docs/design/administrative-control-plane.md#operator-diagnostic-disclosure-policy) throughout startup, serving, shutdown, CLI, maintenance and service management. Preserve wrapped/joined causes before public projection; default-level failures must explain the operation, affected resource and underlying cause, including when classification or correlation is unavailable. Local stderr is distinct from public responses and durable audit/history. Schema-2 local detail is separate from public classification; maintain the [source-to-stderr coverage matrix](docs/maintainers/operator-diagnostics.md) and paired usefulness/actual-secret fixtures. Snapshot causes outside owner locks before queueing; never retain error graphs in diagnostic facts. Finite `controlclient` code may consume only `diagnostics.Detail`, `Snapshot` and `Text`, not serve adapters or private authority; source guards enforce that slice. Retain the exact-path logging import guard and sole `diagnostics.New` AST guard in `newServeCmd`. Blocked fixtures must release their owned sink and join `Done`; never close inherited stderr or replace an outstanding writer.
 
 ### Runtime, transport, and cleanup
 

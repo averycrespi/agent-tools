@@ -71,7 +71,7 @@ func New(options Options) (*Engine, error) {
 }
 
 func (e *Engine) newServer(handler http.Handler) *http.Server {
-	return &http.Server{Handler: handler, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, IdleTimeout: contract.HTTPProxyIdleTimeout, MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ErrorLog: diagnostics.HTTPErrorLog()}
+	return &http.Server{Handler: handler, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, IdleTimeout: contract.HTTPProxyIdleTimeout, MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ErrorLog: diagnostics.HTTPErrorLog(e.options.Diagnostics)}
 }
 
 // Serve consumes an already bound composition-owned listener; New never binds a socket.
@@ -175,14 +175,15 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	}
 	e.options.Observations.Request(protocol)
 	defer func() { e.options.Observations.Latency(protocol, diagnostics.RequestStage, time.Since(started)) }()
-	tracked := &failureWriter{ResponseWriter: w, id: proxyID()}
+	tracked := &failureWriter{ResponseWriter: w, id: proxyID(), resource: diagnostics.Text(r.Host, 160), secrets: diagnostics.HTTPSecrets(r.Header)}
 	w = tracked
 	// Never allow net/http's default panic logger to receive request material.
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			recoveredErr, _ := recovered.(error)
 			if !errors.Is(recoveredErr, http.ErrAbortHandler) {
-				e.observeFailure(w, diagnostics.ProxyPanic, ErrUnavailable)
+				detail := diagnostics.Panic("proxy", "handle", r.Host, recovered, tracked.secrets...)
+				e.observeFailure(w, diagnostics.ProxyPanic, diagnostics.WithDetail(ErrUnavailable, detail))
 				if !tracked.started {
 					reject(w, http.StatusServiceUnavailable)
 					return
@@ -303,7 +304,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 			}
 			e.rejectGit(w, r, lease, reason)
 		} else {
-			e.observeRejection(started, diagnostics.ProxyRouting, proxyFailureCause(err), w)
+			e.observeRejection(started, diagnostics.ProxyRouting, proxyFailureCause(err), err, w)
 			reject(w, http.StatusServiceUnavailable)
 		}
 		return
@@ -313,7 +314,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		if git {
 			e.rejectGit(w, r, lease, "destination_unavailable", upstreamStatus(err))
 		} else {
-			e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), w)
+			e.observeRejection(started, diagnostics.ProxyResolution, proxyFailureCause(err), err, w)
 			reject(w, upstreamStatus(err))
 		}
 		return
@@ -326,7 +327,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials, admissionContext(inside))
 	if err != nil || !result.DispatchAuthorized {
 		if err != nil {
-			e.observeRejection(started, result.FailureStage, result.FailureCause, w)
+			e.observeRejection(started, result.FailureStage, result.FailureCause, err, w)
 			if result.FailureCause == diagnostics.Capacity {
 				rejectCapacity(w, http.StatusServiceUnavailable)
 			} else {

@@ -189,7 +189,8 @@ func TestTrafficRecoveryIgnoresDiagnosticSinkFailure(t *testing.T) {
 	require.Contains(t, sink.String(), "traffic_failure")
 	require.Contains(t, sink.String(), "traffic_recovered")
 	require.Contains(t, sink.String(), `"sqlite_code":5`)
-	require.NotContains(t, sink.String(), s.path)
+	require.Contains(t, sink.String(), s.path)
+	require.Contains(t, sink.String(), "database is locked")
 	// A permanently failed adapter is not a recovery gate.
 	broken := diagnostics.New(trafficBrokenSink{}, diagnostics.Warn)
 	s.SetTrafficDiagnostics(broken)

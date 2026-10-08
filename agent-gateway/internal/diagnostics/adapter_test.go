@@ -53,7 +53,7 @@ func TestDiagnosticLevelsAndClosedSchema(t *testing.T) {
 			got := records(t, sink.Bytes())
 			require.Len(t, got, test.events)
 			for _, record := range got {
-				require.EqualValues(t, 1, record["schema_version"])
+				require.EqualValues(t, 2, record["schema_version"])
 				require.NotEmpty(t, record["process_id"])
 			}
 		})
@@ -226,7 +226,7 @@ func validEventExample(event Event) Facts {
 		f.Cause, f.Stage = Unavailable, ProxyResolution
 	case event == HTTPProxyFailure:
 		f.Cause, f.Stage = Unavailable, ProxyHandshake
-	case event == Startup || event == Readiness || event == Drain || event == Loss || event == ReconciliationDisplaced:
+	case event == Startup || event == Readiness || event == Drain || event == Loss || event == OperatorFailure || event == ReconciliationDisplaced:
 	case event == Shutdown:
 		f.Cause = Success
 	case event == LifecycleFailure || event == ReconciliationSettlementFailure:

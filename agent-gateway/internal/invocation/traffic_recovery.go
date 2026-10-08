@@ -91,20 +91,28 @@ func (s *TrafficStore) finishTrafficConnection(conn *sql.Conn) {
 }
 
 func (s *TrafficStore) failTraffic(err error, stage, settlement string) {
+	if observe := s.failTrafficState(err, stage, settlement); observe != nil {
+		observe()
+	}
+}
+
+// Return an observation to the current owner, not the queue. Writer-gate callers
+// invoke it after unlocking; arbitrary dependency formatters never run locked.
+func (s *TrafficStore) failTrafficState(err error, stage, settlement string) func() {
 	if err == nil {
-		return
+		return nil
 	}
 	var f *trafficFailure
 	if !errors.As(err, &f) {
 		f = classifyTraffic(err, stage, settlement)
 	}
 	if f.settlement != "uncertain" && (errors.Is(err, ErrIdentityUnavailable) || errors.Is(err, ErrTrafficCapacity)) {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	if s.closed || s.draining || s.faulted && !s.recoverable {
 		s.mu.Unlock()
-		return
+		return nil
 	}
 	if s.incident == nil || s.incident.Recovery == "recovered" {
 		s.incident = &contract.TrafficIncident{FirstFailure: time.Now().UTC().Format(time.RFC3339Nano), Cause: f.cause, Stage: f.stage, Settlement: f.settlement, SQLiteCode: f.code}
@@ -124,8 +132,11 @@ func (s *TrafficStore) failTraffic(err error, stage, settlement string) {
 	observer := s.diagnostics
 	facts := diagnostics.TrafficFacts(false, f.cause, f.stage, f.settlement, f.code)
 	s.mu.Unlock()
-	if observer != nil {
-		observer.Traffic(facts)
+	return func() {
+		if observer != nil {
+			facts.Detail = diagnostics.Snapshot("traffic", f.stage, s.path, f.err)
+			observer.Traffic(facts)
+		}
 	}
 }
 
@@ -133,7 +144,13 @@ func (s *TrafficStore) failTraffic(err error, stage, settlement string) {
 // writer. The caller's timer schedules bounded attempts, not batch retries.
 func (s *TrafficStore) recoverTraffic(now time.Time) {
 	s.writerGate.Lock()
-	defer s.writerGate.Unlock()
+	var observe func()
+	defer func() {
+		s.writerGate.Unlock()
+		if observe != nil {
+			observe()
+		}
+	}()
 	s.mu.Lock()
 	if s.closed || s.draining || !s.faulted || !s.recoverable || now.Before(s.recoveryAt) {
 		s.mu.Unlock()
@@ -159,7 +176,7 @@ func (s *TrafficStore) recoverTraffic(now time.Time) {
 		err = s.validateTraffic(ctx, s.installation, s.generation)
 	}
 	if err != nil {
-		s.failTraffic(err, "validation", "not_started")
+		observe = s.failTrafficState(err, "validation", "not_started")
 		s.deferRecovery()
 		return
 	}

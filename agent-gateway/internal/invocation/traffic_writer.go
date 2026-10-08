@@ -83,7 +83,13 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, err error) {
 }
 func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	s.writerGate.Lock()
-	defer s.writerGate.Unlock()
+	var observe func()
+	defer func() {
+		s.writerGate.Unlock()
+		if observe != nil {
+			observe()
+		}
+	}()
 	active := make([]*trafficRequest, 0, len(batch))
 	for _, r := range batch {
 		s.mu.Lock()
@@ -108,7 +114,7 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 		err = classifyTraffic(err, "rollback", "uncertain")
 	}
 	if err != nil {
-		s.failTraffic(err, "reservation", "not_started")
+		observe = s.failTrafficState(err, "reservation", "not_started")
 	}
 	if err == nil {
 		for _, event := range recorded {

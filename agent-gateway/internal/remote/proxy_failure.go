@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"net"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
 
-// Proxy failures retain only a closed transport category, never resolver,
-// destination, TLS, or protocol error text. They do not authorize another dial.
+// Public categories stay closed; bounded local causes survive classification.
+// Neither representation authorizes another dial.
 var (
 	ErrProxyConnection = errors.New("proxy connection failed")
 	ErrProxyTimeout    = errors.New("proxy upstream timeout")
@@ -17,10 +19,10 @@ var (
 func proxyTransportFailure(err error) error {
 	var timeout net.Error
 	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &timeout) && timeout.Timeout() {
-		return ErrProxyTimeout
+		return diagnostics.WithDetail(ErrProxyTimeout, diagnostics.Snapshot("remote", "connect", "", err))
 	}
 	if errors.Is(err, context.Canceled) {
 		return context.Canceled
 	}
-	return ErrProxyConnection
+	return diagnostics.WithDetail(ErrProxyConnection, diagnostics.Snapshot("remote", "connect", "", err))
 }

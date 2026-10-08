@@ -38,6 +38,7 @@ func (manager *Manager) persistCompletionLocked(serverID string, original entry,
 	}
 	if original.work != nil {
 		original.work.settled, original.work.failed = err == nil, err != nil
+		original.work.failureErr = err
 		if errors.Is(err, storage.ErrMutationBusy) && !errors.Is(err, storage.ErrStorageLatched) {
 			original.work.failureCause = diagnostics.Capacity
 		}
