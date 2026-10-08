@@ -123,10 +123,17 @@ func TestTrafficFailureDiagnosticsReadAndRestartValidation(t *testing.T) {
 
 func TestTrafficAcceptsPrivateDirectorySidecarsAcrossReopen(t *testing.T) {
 	s, owner := trafficFixture(t, nil, nil)
+	// Sidecars belong to active SQLite handles, not an idle store facade.
+	first, err := s.db.Conn(t.Context())
+	require.NoError(t, err)
+	defer func() { _ = first.Close() }()
+	_, err = first.ExecContext(t.Context(), `UPDATE traffic_meta SET generation=generation`)
+	require.NoError(t, err)
 	for _, suffix := range []string{"-wal", "-shm"} {
 		require.NoError(t, os.Chmod(s.path+suffix, 0644))
 	}
 	require.NoError(t, trafficFiles(s.path, s.config))
+	require.NoError(t, first.Close())
 	require.NoError(t, s.Close())
 	// SQLite may remove sidecars on close. Retained empty files model restart
 	// without changing the selected database or broadening database permissions.
@@ -137,6 +144,11 @@ func TestTrafficAcceptsPrivateDirectorySidecarsAcrossReopen(t *testing.T) {
 	reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), s.config)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reopened.Close()) }()
+	second, err := reopened.db.Conn(t.Context())
+	require.NoError(t, err)
+	defer func() { _ = second.Close() }()
+	_, err = second.ExecContext(t.Context(), `UPDATE traffic_meta SET generation=generation`)
+	require.NoError(t, err)
 	require.NoError(t, trafficFiles(s.path, s.config))
 	require.NoError(t, os.Chmod(s.path+"-wal", 0666))
 	require.Error(t, trafficFiles(s.path, s.config))

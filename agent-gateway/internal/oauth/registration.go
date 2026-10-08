@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
@@ -99,13 +100,13 @@ func newRegistrar(requester machineRequester, store registrationStore, secrets s
 func (requester hardenedRequester) Request(ctx context.Context, rawURL string, trusted bool, method string, header http.Header, body []byte, maximum int64) (int, http.Header, []byte, error) {
 	endpoint, err := remote.Parse(rawURL, remote.Policy{AllowRestricted: trusted, AllowQuery: true})
 	if err != nil {
-		return 0, nil, nil, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonConfigurationInvalid, 0)
+		return 0, nil, nil, newDiagnosticFailure(diagnostics.WithDetail(ErrRegistrationRejected, diagnostics.Snapshot("oauth", "parse registration endpoint", rawURL, err, diagnostics.HTTPSecrets(header)...)), contract.ReasonConfigurationInvalid, 0)
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, contract.OAuthRequestDeadline)
 	defer cancel()
 	response, err := requester.factory.Exchange(requestCtx, remote.Request{Endpoint: endpoint, Method: method, Header: header, Body: body, MaxBody: maximum})
 	if err != nil {
-		return 0, nil, nil, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonConnectivity, 0)
+		return 0, nil, nil, newDiagnosticFailure(diagnostics.WithDetail(ErrRegistrationRejected, diagnostics.Snapshot("oauth", "registration exchange", rawURL, err, diagnostics.HTTPSecrets(header)...)), contract.ReasonConnectivity, 0)
 	}
 	return response.StatusCode, response.Header, response.Body, nil
 }

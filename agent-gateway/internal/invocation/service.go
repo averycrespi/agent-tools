@@ -262,9 +262,70 @@ func (service *Service) Call(ctx context.Context, lease *authorization.Lease, re
 		if err == nil {
 			err = errors.New("downstream capability returned no lease")
 		}
+		service.observeCallFailure(target, downstream.CallResult{Failure: downstream.FailurePreStart, Err: err}, nil)
 		return service.finish(ctx, identity.InvocationID, admission.observation, SanitizeCallResult(downstream.CallResult{Failure: downstream.FailurePreStart, Err: err}))
 	}
-	return service.finish(ctx, identity.InvocationID, admission.observation, SanitizeCallResult(dispatch.Execute(ctx, json.RawMessage(arguments))))
+	callResult := dispatch.Execute(ctx, json.RawMessage(arguments))
+	service.observeCallFailure(target, callResult, classified.arguments)
+	return service.finish(ctx, identity.InvocationID, admission.observation, SanitizeCallResult(callResult))
+}
+
+// Observe the original one-shot execution result before public projection. The
+// resource is routing metadata, never tool arguments or returned content.
+func (service *Service) observeCallFailure(target callTarget, result downstream.CallResult, arguments *strictjson.Value) {
+	if service.diagnostics == nil || result.Err == nil || errors.Is(result.Err, context.Canceled) {
+		return
+	}
+	detail := diagnostics.Snapshot("mcp", "execute", target.evidence.Target.ServerID+"/"+target.evidence.Target.ToolName(), result.Err, argumentSecrets(arguments)...)
+	detail.Effect = diagnostics.Text(string(result.Failure), 64)
+	service.diagnostics.Invocation(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
+}
+
+// Mask echoed argument values, not the payload itself. Extraction has a smaller
+// bound than accepted calls; exceeding it withholds detail rather than executing
+// an unbounded traversal or publishing a partial masking set.
+func argumentSecrets(arguments *strictjson.Value) []string {
+	if arguments == nil {
+		return nil
+	}
+	var values []string
+	nodes, bytes := 0, 0
+	var visit func(strictjson.Value) bool
+	visit = func(value strictjson.Value) bool {
+		nodes++
+		if nodes > 128 {
+			return false
+		}
+		switch value.Type {
+		case strictjson.ValueString, strictjson.ValueNumber:
+			text := value.String
+			if value.Type == strictjson.ValueNumber {
+				text = value.Number
+			}
+			bytes += len(text)
+			if bytes > 64*1024 {
+				return false
+			}
+			values = append(values, text)
+		case strictjson.ValueObject:
+			for _, member := range value.Object {
+				if !visit(member.Value) {
+					return false
+				}
+			}
+		case strictjson.ValueArray:
+			for _, item := range value.Array {
+				if !visit(item) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	if !visit(*arguments) {
+		return make([]string, 129)
+	}
+	return values
 }
 
 type executionDiagnosticKey struct{}

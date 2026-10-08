@@ -26,6 +26,7 @@ Human maintainers and coding agents should begin with [maintainer and agent guid
 - [Mocked frontend browser tests](maintainers/frontend-browser-tests.md) — source/state inventory, synthetic API fixtures, screenshot gallery, CI artifacts and real-Gateway ownership boundaries.
 - [Table conventions](design/browser-control-plane.md#table-conventions) — activity/resource column order, names, sizing, identity, status, and responsive behavior.
 - [Release verification](maintainers/release-verification.md) — exact-revision acceptance evidence and report adoption for release owners.
+- [Operator diagnostic coverage](maintainers/operator-diagnostics.md) — source-to-stderr owners, disclosure boundaries and regression mapping.
 - [Implementation evidence](maintainers/implementation-evidence.md) — producer-test provenance and historical measurements, not current-candidate qualification.
 
 `AGENTS.md` links to `CLAUDE.md` so compatible coding agents discover the same repository-local constraints. Maintainer guides explain development procedures; product behavior remains owned by the design documentation.

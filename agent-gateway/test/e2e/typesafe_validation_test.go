@@ -98,6 +98,8 @@ func TestTypeSafeValidationEvidence(t *testing.T) {
 	require.GreaterOrEqual(t, len(details.Violations), 2)
 	harness.WaitForAuditObservations(1, 0)
 	harness.Restart()
+	// Security readiness does not imply the asynchronous history opener settled.
+	waitTrafficStatus(t, harness, func(s *contract.TrafficStatus) bool { return s.Ready })
 	item := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations/"+id, nil)
 	require.Equal(t, http.StatusOK, item.StatusCode)
 	var retained contract.Invocation

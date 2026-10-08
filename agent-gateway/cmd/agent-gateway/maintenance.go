@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -325,7 +326,12 @@ func checkNewSecretDestination(path string) error {
 	return nil
 }
 
-func maintenanceProblem(err error, root string) *controlclient.Problem {
+func maintenanceProblem(err error, root string) (problem *controlclient.Problem) {
+	defer func() {
+		if problem != nil {
+			problem.Local = diagnostics.Snapshot("maintenance", "stopped operation", root, err)
+		}
+	}()
 	code, title, exit := "maintenance_unavailable", "Maintenance did not complete. Preserve all retained generations and output files; no operation was replayed.", 7
 	switch {
 	case errors.Is(err, controlclient.ErrConfirmationRequired):

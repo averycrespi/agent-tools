@@ -254,9 +254,18 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			}
 			defer clear(clientSecret)
 		}
+		defer func() {
+			if effectErr != nil {
+				effectErr = diagnostics.WithDetail(effectErr, diagnostics.Snapshot("oauth", "refresh", request.ServerID, effectErr, old.AccessToken, *old.RefreshToken, string(clientSecret)))
+			}
+		}()
 		state(request.ServerID, contract.ServerCredentialRefreshing, false)
 		graph, err := service.resolver.Discover(ctx, Input{Resource: prepared.Configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: &prepared.Registration.Issuer, TrustedOrigins: prepared.Configuration.Authentication.TrustedOrigins, AuthServerMetadataURL: prepared.Configuration.Authentication.AuthServerMetadataURL})
-		if err != nil || graph.Issuer != old.Issuer || graph.Resource != old.Resource || !slices.Contains(graph.TokenEndpointAuthMethodsSupported, string(prepared.Registration.TokenEndpointAuthMethod)) {
+		if err != nil {
+			state(request.ServerID, contract.ServerCredentialReady, false)
+			return diagnostics.WithDetail(ErrTokenRejected, diagnostics.Snapshot("oauth", "refresh discovery", request.ServerID, err, old.AccessToken, *old.RefreshToken, string(clientSecret)))
+		}
+		if graph.Issuer != old.Issuer || graph.Resource != old.Resource || !slices.Contains(graph.TokenEndpointAuthMethodsSupported, string(prepared.Registration.TokenEndpointAuthMethod)) {
 			state(request.ServerID, contract.ServerCredentialReady, false)
 			return ErrTokenRejected
 		}

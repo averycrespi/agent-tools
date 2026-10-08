@@ -58,13 +58,16 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 			if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK[source.path] {
 				t.Errorf("%s: prohibited SDK import %s", source.path, imported)
 			}
-			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/paths" && (source.path != "internal/controlclient/controlclient.go" || imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/contract") {
+			if strings.HasPrefix(source.path, "internal/controlclient/") && strings.Contains(imported, "/internal/") && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics" && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson" && imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/paths" && (source.path != "internal/controlclient/controlclient.go" || imported != "github.com/averycrespi/agent-tools/agent-gateway/internal/contract") {
 				t.Errorf("%s: prohibited local-control import %s", source.path, imported)
 			}
 		}
 		ast.Inspect(source.file, func(node ast.Node) bool {
 			switch value := node.(type) {
 			case *ast.SelectorExpr:
+				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics" {
+					assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, value.Sel.Name, "local control consumes only finite diagnostic values, not the serve writer")
+				}
 				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/agent-gateway/internal/contract" {
 					assert.Equal(t, "NormalizeHostname", value.Sel.Name, "controlclient may consume only the hostname grammar")
 				}
@@ -143,10 +146,10 @@ func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	for _, prohibited := range []string{"runtimes.New(", "unavailableDriver", "absentCatalog", "newMemoryPublisher", "Routes().Resolve(", "mcpingress.DenyAllAuthenticator{}", "AgentAuth: contract.AgentAuthDenyAll"} {
 		assert.NotContains(t, rootSource, prohibited, "cmd/agent-gateway/root.go: prohibited production symbol %s", prohibited)
 	}
-	for _, required := range []string{"runtimeClean = result.Unconfirmed == 0", "if err := store.Close(); err != nil", "if runtimeClean {", "ownership.MarkClean()"} {
+	for _, required := range []string{"runtimeClean = result.Unconfirmed == 0", "if err := closeStore(); err != nil", "onceServeCleanup(\"control storage\"", "if runtimeClean {", "ownership.MarkClean()"} {
 		assert.Contains(t, rootSource, required, "cmd/agent-gateway/root.go: missing clean-shutdown symbol %s", required)
 	}
-	assert.Less(t, strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)"), strings.Index(rootSource, "if err := store.Close(); err != nil"), "cmd/agent-gateway/root.go: storage closed before composition drain")
+	assert.Less(t, strings.Index(rootSource, "runtimeDrain := runtime.Drain(shutdownCtx)"), strings.Index(rootSource, "if err := closeStore(); err != nil"), "cmd/agent-gateway/root.go: storage closed before composition drain")
 	assert.Equal(t, 1, strings.Count(rootSource, "Authenticator:"), "cmd/agent-gateway/root.go: production authenticator must have one owner")
 	listener := strings.Index(rootSource, "httpboundary.OpenListener(")
 	assert.True(t, listener > strings.Index(rootSource, "runtime.AgentIngress()") && listener > strings.Index(rootSource, "runtime.ControlAPI()") && listener > strings.Index(rootSource, "api.New(api.Options{") && listener > strings.Index(rootSource, "mcpingress.New(mcpingress.Options{"), "cmd/agent-gateway/root.go: complete S5 bundles must bind before listener open")
@@ -154,7 +157,7 @@ func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	release := strings.Index(compositionSource, "defer release()")
 	call := strings.Index(compositionSource, "response := adapter.service.Call(")
 	assert.True(t, enter >= 0 && enter < release && release < call, "internal/composition/composition.go: call pipeline fence must enclose the complete invocation service")
-	for _, required := range []string{"built.invocationPipelines.BeginDrain()", "built.invocationPipelines.Drain(ctx) == nil"} {
+	for _, required := range []string{"built.invocationPipelines.BeginDrain()", "return built.invocationPipelines.Drain(ctx)"} {
 		assert.Contains(t, compositionSource, required, "internal/composition/composition.go: missing invocation drain symbol %s", required)
 	}
 	assert.Contains(t, compositionSource, "providerFactory = productionProvider", "internal/composition/composition.go: ordinary build must use the build-selected provider")
@@ -175,7 +178,7 @@ func TestDrainRootKeepsEventsAndStorageUntilCompositionSettles(t *testing.T) {
 	joined := strings.Index(rootSource, "case result := <-runtimeDrain:")
 	eventsClosed := strings.LastIndex(rootSource, "eventHub.Shutdown()")
 	unconfirmed := strings.Index(rootSource, "if !runtimeClean {")
-	storageClosed := strings.Index(rootSource, "if err := store.Close(); err != nil")
+	storageClosed := strings.Index(rootSource, "if err := closeStore(); err != nil")
 	assert.True(t, branch >= 0 && branch < joined && joined < eventsClosed && eventsClosed < storageClosed,
 		"cmd/agent-gateway/root.go: events and storage must remain open until the composition drain settles")
 	assert.True(t, joined < unconfirmed && unconfirmed < storageClosed,

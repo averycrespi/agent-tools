@@ -190,7 +190,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	for _, line := range bytes.Split(bytes.TrimSpace(result.Stderr), []byte{'\n'}) {
 		var record map[string]any
 		require.NoError(t, json.Unmarshal(line, &record))
-		require.EqualValues(t, 1, record["schema_version"])
+		require.EqualValues(t, 2, record["schema_version"])
 	}
 	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixturePrivateSuccessText, fixtureToolErrorText}, evidence, result)

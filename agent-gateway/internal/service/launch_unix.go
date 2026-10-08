@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"golang.org/x/sys/unix"
 )
 
@@ -31,15 +32,16 @@ type processIdentity struct {
 func (m *manager) target() string { return "gui/" + strconv.Itoa(m.uid) + "/" + Label }
 func (m *manager) observe(ctx context.Context, d definition) (job, error) {
 	data, code, err := m.run(ctx, "/bin/launchctl", "print", m.target())
+	detail := diagnostics.Snapshot("service", "launchctl print", m.target(), err)
+	absent := "Could not find service " + `\"` + Label + `\"` + " in domain"
+	if code != 0 && (err == nil || errors.Is(err, errUtilityExit)) && (strings.Contains(string(data), strings.ReplaceAll(absent, `\"`, `"`)) || strings.Contains(detail.Excerpt, absent)) {
+		return job{State: "unloaded"}, nil
+	}
 	if err != nil {
 		return job{}, fmt.Errorf("launchd inspection unknown; no mutation is safe: %w", err)
 	}
 	if code != 0 {
-		expected := "Could not find service \"" + Label + "\" in domain"
-		if strings.Contains(string(data), expected) {
-			return job{State: "unloaded"}, nil
-		}
-		return job{}, errors.New("launchd inspection unsupported or unknown; check the logged-in GUI domain")
+		return job{}, utilityFailure("launchctl print", m.target(), code, err, "launchd inspection unsupported or unknown; check the logged-in GUI domain")
 	}
 	if d.Binary == "" {
 		return job{Loaded: true}, nil
@@ -190,7 +192,7 @@ func (m *manager) process(ctx context.Context, pid, binary string) (processIdent
 func (m *manager) inspectProcess(ctx context.Context, pid string) (processIdentity, error) {
 	data, code, err := m.run(ctx, "/bin/ps", "-ww", "-p", pid, "-o", "uid=,lstart=,state=,comm=")
 	if err != nil {
-		return processIdentity{}, errors.New("process inspection unknown")
+		return processIdentity{}, utilityFailure("ps inspect", pid, code, err, "process inspection unknown")
 	}
 	if code == 1 && len(strings.TrimSpace(string(data))) == 0 {
 		return processIdentity{}, nil
@@ -232,7 +234,7 @@ func (m *manager) residual(ctx context.Context, d definition) ([]processIdentity
 func (m *manager) residualExcept(ctx context.Context, d definition, remaining []processIdentity) ([]processIdentity, error) {
 	data, code, err := m.run(ctx, "/bin/ps", "-axwwo", "uid=,pid=,comm=")
 	if err != nil || code != 0 || strings.TrimSpace(string(data)) == "" {
-		return nil, errors.New("process inventory unknown")
+		return nil, utilityFailure("ps inventory", "owned user", code, err, "process inventory unknown")
 	}
 	var result []processIdentity
 	for _, line := range strings.Split(string(data), "\n") {
@@ -258,7 +260,7 @@ func (m *manager) residualExcept(ctx context.Context, d definition, remaining []
 		}
 		args, status, e := m.run(ctx, "/bin/ps", "-ww", "-p", fields[1], "-o", "command=")
 		if e != nil {
-			return nil, errors.New("candidate process arguments unknown")
+			return nil, utilityFailure("ps inspect", fields[1], status, e, "candidate process arguments unknown")
 		}
 		if status == 1 && strings.TrimSpace(string(args)) == "" {
 			continue
@@ -347,9 +349,19 @@ func (m *manager) stopped(ctx context.Context, d definition, initial job) error 
 func (m *manager) mutation(ctx context.Context, verb string, args ...string) (int, error) {
 	_, code, err := m.run(ctx, "/bin/launchctl", append([]string{verb}, args...)...)
 	if err != nil || code != 0 {
-		return code, errors.New("launchctl " + verb + " failed or is uncertain; not retried")
+		return code, utilityFailure("launchctl "+verb, m.target(), code, err, "launchctl "+verb+" failed or is uncertain; not retried")
 	}
 	return code, nil
+}
+
+func utilityFailure(operation, resource string, code int, err error, public string) error {
+	detail := diagnostics.Snapshot("service", operation, resource, err)
+	if detail.Explanation == "" {
+		detail.Explanation = "service utility failed"
+	}
+	detail.Native = fmt.Sprintf("exit status %d", code)
+	detail.Effect = "not retried; inspect settlement"
+	return diagnostics.WithDetail(errors.New(public), detail)
 }
 
 func existingLockFree(root string, uid int) error {

@@ -227,6 +227,7 @@ type suppressionKey struct {
 	event    Event
 }
 type suppressionState struct {
+	detail      Detail
 	phase       Phase
 	reason      Reason
 	disposition Disposition
@@ -279,7 +280,7 @@ func (adapter *Adapter) suppress(f *Facts) bool {
 	key := suppressionKey{f.Upstream, f.Event}
 	now := adapter.now()
 	prior, exists := adapter.suppression[key]
-	if exists && !prior.reset && prior.phase == f.Phase && prior.reason == f.Reason && prior.disposition == f.Disposition {
+	if exists && !prior.reset && prior.phase == f.Phase && prior.reason == f.Reason && prior.disposition == f.Disposition && prior.detail == f.Detail {
 		if now.Sub(prior.last) < contract.DiagnosticSummaryInterval {
 			if prior.count != ^uint64(0) {
 				prior.count++
@@ -307,6 +308,6 @@ func (adapter *Adapter) suppress(f *Facts) bool {
 	if exists {
 		started = prior.started
 	}
-	adapter.suppression[key] = suppressionState{phase: f.Phase, reason: f.Reason, disposition: f.Disposition, last: now, started: started, total: prior.total}
+	adapter.suppression[key] = suppressionState{detail: f.Detail, phase: f.Phase, reason: f.Reason, disposition: f.Disposition, last: now, started: started, total: prior.total}
 	return false
 }

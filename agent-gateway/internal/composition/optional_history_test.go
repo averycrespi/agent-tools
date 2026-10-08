@@ -1,6 +1,7 @@
 package composition
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -18,6 +20,10 @@ import (
 func TestOptionalHistoryReadinessBeforeOpenAndLateDrain(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
+	var output bytes.Buffer
+	observer := diagnostics.New(&output, diagnostics.Warn)
+	defer observer.Finish(nil)
+	options.Diagnostics = observer
 	entered, release, settled := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	built, err := newWithHooks(options, constructorHooks{openTraffic: func(ctx context.Context, owner *gatewaypaths.Ownership, installation, generation string, config invocation.TrafficConfig) (*invocation.TrafficStore, error) {
 		close(entered)
@@ -60,10 +66,14 @@ func TestOptionalHistoryReadinessBeforeOpenAndLateDrain(t *testing.T) {
 	traffic, err := invocation.OpenTraffic(t.Context(), options.Ownership, options.InstallationID, generation, invocation.DefaultTrafficConfig())
 	require.NoError(t, err)
 	require.NoError(t, traffic.Close())
+	require.True(t, observer.Finish(nil))
+	require.Contains(t, output.String(), "traffic close")
+	require.Contains(t, output.String(), "context canceled")
+	require.Contains(t, output.String(), "settlement unconfirmed")
 }
 
 func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
-	for _, kind := range []string{"missing", "corrupt", "foreign-binding", "unsafe-link", "permission", "wal"} {
+	for _, kind := range []string{"missing", "corrupt", "foreign-binding", "unsafe-link", "permission", "unsafe-wal", "journal"} {
 		t.Run(kind, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
 			defer cleanup()
@@ -92,9 +102,13 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 				require.NoError(t, os.Symlink(path+".retained", path))
 			case "permission":
 				require.NoError(t, os.Chmod(path, 0o644))
-			case "wal":
-				expected = []byte("untouched WAL")
-				require.NoError(t, os.WriteFile(path+"-wal", expected, 0o600))
+			case "unsafe-wal":
+				expected = []byte("untouched unsafe WAL")
+				require.NoError(t, os.WriteFile(path+"-wal", expected, 0o666))
+				require.NoError(t, os.Chmod(path+"-wal", 0o666))
+			case "journal":
+				expected = []byte("unresolved journal")
+				require.NoError(t, os.WriteFile(path+"-journal", expected, 0o600))
 			}
 			built, err := New(options)
 			require.NoError(t, err)
@@ -102,6 +116,11 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 			require.NoError(t, built.Start(t.Context()))
 			require.Eventually(t, func() bool { return built.Traffic().Status(t.Context()).State == "unavailable" }, 5*time.Second, time.Millisecond)
 			require.True(t, built.accepting.Load())
+			status := built.Traffic().Status(t.Context())
+			require.Equal(t, "operator_action_required", status.Health)
+			require.NotNil(t, status.Incident)
+			expectedCause := map[string]string{"missing": "missing", "corrupt": "integrity", "foreign-binding": "integrity", "unsafe-link": "ownership", "permission": "ownership", "unsafe-wal": "ownership", "journal": "integrity"}[kind]
+			require.Equal(t, expectedCause, status.Incident.Cause)
 			switch kind {
 			case "missing":
 				_, err = os.Lstat(path)
@@ -118,8 +137,12 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 				info, err := os.Stat(path)
 				require.NoError(t, err)
 				require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
-			case "wal":
-				actual, err := os.ReadFile(path + "-wal")
+			case "unsafe-wal", "journal":
+				suffix := "-wal"
+				if kind == "journal" {
+					suffix = "-journal"
+				}
+				actual, err := os.ReadFile(path + suffix)
 				require.NoError(t, err)
 				require.Equal(t, expected, actual)
 			}

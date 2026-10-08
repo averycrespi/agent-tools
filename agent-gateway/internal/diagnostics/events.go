@@ -77,10 +77,11 @@ const (
 	HTTPProxyFailure
 	TrafficFailure
 	TrafficRecovered
+	OperatorFailure
 	Loss
 )
 
-var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "http_proxy_failure", "traffic_failure", "traffic_recovered", "diagnostic_loss"}
+var eventNames = [...]string{"", "startup", "readiness", "drain", "shutdown", "lifecycle_failure", "invocation_admission", "execution_start", "execution_result", "terminal_annotation", "authority_wait", "authority_acquire", "authority_release", "authority_reject", "storage_wait", "storage_acquire", "storage_release", "storage_reject", "durability_failure", "storage_latch", "reconciliation_displaced", "reconciliation_settlement_failure", "upstream_attempt_start", "upstream_attempt_complete", "upstream_retry_scheduled", "upstream_retry_reset", "upstream_unhealthy", "upstream_recovered", "oauth_required", "oauth_completed", "oauth_expired", "oauth_failed", "oauth_refresh_complete", "oauth_refresh_failed", "oauth_stage", "catalog_poll_scheduled", "http_proxy_rejected", "http_proxy_failure", "traffic_failure", "traffic_recovered", "operator_failure", "diagnostic_loss"}
 
 type Cause uint8
 
@@ -142,9 +143,10 @@ const (
 
 var writerNames = [...]string{"foreign", "invocation_admission", "terminal_annotation"}
 
-// Facts has no arbitrary keys, error, payload, or resource identity slots. The
-// adapter validates event-specific subsets before retaining even these fields.
+// Facts carries fixed classification and a bounded local-only detail snapshot.
+// Producers never retain error graphs or payloads in the diagnostic queue.
 type Facts struct {
+	Detail       Detail
 	TrafficCause uint8
 	TrafficStage uint8
 	Settlement   uint8

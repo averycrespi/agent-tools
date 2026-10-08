@@ -209,6 +209,10 @@ func TestTrafficPhysicalBudgetWALReaderPressure(t *testing.T) {
 
 func TestTrafficSQLiteFullFaultsOnlyOptionalHistory(t *testing.T) {
 	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.BatchRecords = 1 }, nil)
+	// Keep the fixture's deliberately lowered connection-local page ceiling;
+	// ordinary replacement handles reapply the configured production ceiling.
+	s.db.SetMaxIdleConns(1)
+	defer s.db.SetMaxIdleConns(0)
 	var pages, maximum int64
 	require.NoError(t, s.db.QueryRowContext(t.Context(), `PRAGMA page_count`).Scan(&pages))
 	require.NoError(t, s.db.QueryRowContext(t.Context(), `PRAGMA max_page_count=`+strconv.FormatInt(pages, 10)).Scan(&maximum))

@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/stretchr/testify/require"
 )
 
@@ -310,6 +311,19 @@ func TestServiceOwnedUtilityBounds(t *testing.T) {
 	require.Error(t, err)
 	_, _, err = runOwned(t.Context(), "/bin/sh", "-c", "head -c 1100000 /dev/zero")
 	require.ErrorContains(t, err, "output exceeds bound")
+}
+
+func TestServiceUtilityKeepsStderrSeparateAndBounded(t *testing.T) {
+	data, code, err := runOwned(t.Context(), "/bin/sh", "-c", "printf identity; printf 'permission denied\\n\\033[31m token=actual-utility-secret-123456' >&2; exit 7")
+	require.Equal(t, "identity", string(data))
+	require.Equal(t, 7, code)
+	require.Error(t, err)
+	detail := diagnostics.Snapshot("service", "utility", "fixture", err)
+	require.Contains(t, detail.Excerpt, "permission denied")
+	require.Contains(t, detail.Native, "exit status 7")
+	require.NotContains(t, detail.Excerpt, "actual-utility-secret-123456")
+	require.NotContains(t, detail.Excerpt, "\n")
+	require.NotContains(t, detail.Excerpt, "\x1b")
 }
 
 func TestServiceInspectionReportsUtilityErrorWithoutOutputOrReplay(t *testing.T) {

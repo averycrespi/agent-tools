@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/oauth"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/runtimes"
@@ -42,7 +43,12 @@ func New(repository Repository, coordinator Coordinator, installationID string, 
 	return &Resolver{repository: repository, coordinator: coordinator, installationID: installationID, now: now}, nil
 }
 
-func (resolver *Resolver) Resolve(ctx context.Context, candidate runtimes.Candidate) runtimes.AuthorityOutcome {
+func (resolver *Resolver) Resolve(ctx context.Context, candidate runtimes.Candidate) (outcome runtimes.AuthorityOutcome) {
+	defer func() {
+		if outcome.DiagnosticDetail != (diagnostics.Detail{}) {
+			outcome.DiagnosticDetail.Resource = diagnostics.Text(candidate.Server.DisplayName+" ("+candidate.Server.ID+")", 160)
+		}
+	}()
 	configuration, err := parseRequirements(candidate.Server.Transport)
 	if err != nil {
 		return rejected(contract.ServerCredentialUnavailable, contract.ReasonConfigurationInvalid, false)
@@ -271,7 +277,8 @@ func rejected(state contract.ServerCredentialState, reason contract.PublicReason
 	return runtimes.AuthorityOutcome{State: contract.RuntimeAuthenticationRequired, CredentialState: state, Reason: &reason, Retryable: retry}
 }
 
-func mapReadError(err error) runtimes.AuthorityOutcome {
+func mapReadError(err error) (outcome runtimes.AuthorityOutcome) {
+	defer func() { outcome.DiagnosticDetail = diagnostics.Snapshot("credentials", "read active", "", err) }()
 	if errors.Is(err, keyring.ErrWorkLimit) {
 		return rejected(contract.ServerCredentialUnavailable, contract.ReasonResourceLimit, true)
 	}

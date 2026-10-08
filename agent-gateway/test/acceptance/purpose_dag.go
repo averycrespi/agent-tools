@@ -66,7 +66,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 
 	leaves := map[string]purposeEvidenceLeaf{
 		"test-unit":        leaf("test-unit", []string{"tier.unit.contract"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
-		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 12*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
+		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 15*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
 		"test-harness":     leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
 		"test-material":    leaf("test-material", []string{"tier.native.keyring"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
 		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, demoDefinitions...),

@@ -120,7 +120,7 @@ even a complete HTTP 200 push remains outcome_unknown, not Git success. Git rows
 share sequence allocation, cross-domain identity uniqueness, retention and
 physical budgets with MCP and HTTP. Every retained row is semantically validated.
 
-Before history attachment, under existing installation ownership and before constructing
+Before history attachment, under existing installation ownership and before exposing
 readers or starting the writer, a schema-1 or schema-2 selected generation receives
 one complete schema/binding/evidence/accounting validation. A bounded transaction
 adds only the missing empty HTTP/Git tables/indexes/triggers and advances
@@ -150,13 +150,19 @@ adds traffic selection after schema 17 diagnostics; stopped migration and restor
 preserve diagnostics, while older schema-9-through-16 history has none. Unsupported experimental traffic schemas are rejected, not silently recreated.
 
 The writer has one connection, WAL, `synchronous=FULL`, a 50 ms busy bound,
-foreign keys, disabled cache spilling and automatic checkpointing, and a verified
-page ceiling. Every physical connection receives its settings; read connections
+foreign keys, disabled cache spilling, SQLite's supported-build default WAL
+autocheckpointing, and a verified page ceiling. Every physical connection receives its settings; read connections
 are read-only/query-only. At most two readers (configurable 1–4) return at most 256
 materialized records per call, with a one-second maximum lifetime and immediate
-capacity refusal. No live SQL rows or snapshots escape. Checkpoint pressure fences
-new readers and makes one bounded TRUNCATE attempt when no snapshot is pinned; a
-busy checkpoint drops optional observations rather than growing the WAL indefinitely.
+capacity refusal. No live SQL rows or snapshots escape. Physical SQL handles are
+operation-scoped: neither reader nor writer pools retain idle connections. Each
+new physical connection reapplies the durability, busy, page and read-only settings.
+SQLite alone owns ordinary autocheckpointing and last-connection-close cleanup;
+there is no application checkpoint scheduler, tuned threshold or capacity-triggered
+checkpoint/reopen. The installation owner and unresolved transactions remain held
+independently of connection pooling. This supports budgets below SQLite's default
+autocheckpoint threshold without retaining an ever-growing idle WAL. A reader may
+still delay cleanup; a retained WAL is valid restart state, not shutdown failure.
 
 The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
 `serve` and persisted service configuration accept 1 MiB–16 GiB through
@@ -164,8 +170,13 @@ The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
 blocks or logical SQLite page counts alone, are measured. For 4096-byte pages,
 64 KiB is safety headroom; at most one third of the remainder is database pages.
 Before each transaction the writer reserves `32 + (maximum_pages + 2) * 4120`
-additional WAL bytes against the remaining WAL partition, checkpointing only when
-that reservation cannot fit. With cache spilling disabled, fixed-schema DML can
+additional WAL bytes against the remaining WAL partition. If that reservation
+cannot fit, the batch is discarded before mutation with `budget_reservation`
+pressure. The ordinary batch-scoped handle is released after actual settlement,
+including admission refusal; no discarded batch is retried. Once a pinned reader
+releases, SQLite's normal connection cleanup permits subsequent independently
+submitted observations to persist. A first fresh batch can still be refused before
+its handle closes; refusal is not a permanent fault or a recording acknowledgment. With cache spilling disabled, fixed-schema DML can
 write each dirty page once at commit; the reservation covers the entire possible
 database plus commit padding for the pinned default VFS. No arbitrary SQL,
 attachments, online VACUUM, cache flush, or alternate VFS is exposed. Eviction
@@ -218,6 +229,10 @@ rollback uncertainty never establishes a receipt, even if rows are readable. An
 unresolved non-autocommit connection remains owned and unavailable, not pooled or
 replaced. Recovery observes actual settlement without executing another rollback.
 Shutdown joins the actual writer and reports unresolved settlement as unclean.
+Successful checkpoint truncation or WAL absence is not a shutdown/restart correctness
+prerequisite: acknowledged commits survive through WAL-aware validation. Process
+absence, including service-wrapper stop confirmation, does not prove clean storage
+settlement or a completed checkpoint.
 
 The existing writer lifecycle schedules revalidation after one second, doubling
 failed-attempt delay to a 30-second ceiling without an exhausted retry counter.
@@ -236,9 +251,15 @@ restores write authority only after exact schema/application/binding,
 physical-budget, complete structural and every-row semantic validation, including
 nullable groups, chronology, accounting and sequence/pruning consistency. Validation
 is streaming and has a 30-second cooperative deadline; incomplete validation is
-failure, never partial history readiness. Closed nonmutating preflight precedes the
-writer's complete `OpenTraffic` validation; neither is subject to the online reader's
-one-second deadline, and neither gates security readiness. Reads may remain available while write authority
+failure, never partial history readiness. Under exclusive installation and generation
+ownership, `OpenTraffic` verifies path safety before SQLite opening, then authenticates
+application/schema/installation/generation and all retained evidence through WAL-aware
+read-only connections before opening a writable handle. This preserves rejected DB/WAL
+bytes even when the prior process died and no connection survives to prevent close-time
+checkpointing. After authentication, writer connection settings are verified before
+exposing readers or admitting writes. It never uses
+immutable reads for serving startup. Validation is not subject to the online reader's
+one-second deadline and does not gate security readiness. Reads may remain available while write authority
 is faulted; readable history grants no authority and cannot resume execution.
 History reports `opening`, `ready`, `unavailable`, `faulted`, or `disabled` independently
 of security readiness. Its additional process-local health distinguishes `healthy`,
@@ -251,11 +272,14 @@ initiating cause. A new failure after observed recovery starts a new incident;
 process delivery totals remain cumulative. No incident is written to SQLite or a
 new file. Default-level failure/recovery diagnostics use the existing best-effort
 bounded adapter, limited to one of each transition per minute; sink loss never
-blocks status, serving or recording recovery. Serving preflight refuses nonempty history WAL/journals and
-fully verifies closed artifacts without mutation before opening a writer. Invalid
-artifacts are never deleted, replaced, chmodded or repaired. Existing unclean history
-requires a separately qualified stopped WAL-aware plan; security-only recovery does
-not repair it. Valid older traffic schemas retain their bounded supported upgrade.
+blocks status, serving or recording recovery. Valid committed traffic WAL is recovered
+by ordinary SQLite opening, without manual repair, sidecar deletion, selector changes
+or history reset. Unsafe paths, verified corruption, foreign bindings and unresolved
+rollback journals remain typed failures; application/security recovery markers retain
+their separate fail-closed boundaries. Invalid artifacts are never deleted, replaced
+or chmodded by application recovery. Closed immutable inspection and digest-bound
+backup verification still require closed artifacts and retain their explicit checkpoints.
+Valid older traffic schemas retain their bounded supported upgrade.
 
 The facade owns one opener lifecycle. A settled transient opening/validation
 failure uses the same one-to-30-second bounded backoff; persistent faults and
@@ -305,7 +329,7 @@ Before a transaction begins, Gateway writes an installation-bound owner-only int
 
 The startup-bound storage observer reports actual mutation acquire/release/reject facts, hold durations and process-local mutation-attempt correlation. Occupancy is one actual writer with no waiting slots. Control work uses the coarse `foreign` writer class without tracing its resource or workflow; runtime traffic no longer enters this control mutation path. Facts are sampled under short owner locks where needed, but encoding and output run only on the separate diagnostic worker, outside storage/authority/catalog locks.
 
-Durability failure and latch events classify size check, identity check, intent arm, transaction begin/body/commit/rollback, and intent cleanup. Local diagnostics must also preserve useful underlying and joined cleanup causes, affected paths and native codes under the [operator disclosure policy](administrative-control-plane.md#operator-diagnostic-disclosure-policy), without dumping secret-bearing SQL values or marker contents. Current scalar-only observations omit those causes and require implementation alignment. The closed diagnostic queue is not an audit queue and cannot change intent settlement, latch/recovery, actual slot ownership, or mandatory audit-before-dispatch. Sink loss or flush expiry never marks otherwise settled storage unclean. See [serve diagnostics](administrative-control-plane.md#serve-diagnostics) for bounds and output failure semantics.
+Durability failure and latch events classify size check, identity check, intent arm, transaction begin/body/commit/rollback, and intent cleanup. Local diagnostics must also preserve useful underlying and joined cleanup causes, affected paths and native codes under the [operator disclosure policy](administrative-control-plane.md#operator-diagnostic-disclosure-policy), without dumping secret-bearing SQL values or marker contents. The source owner snapshots local explanations after storage admission release; traffic writers also release their writer gate before formatting details. Public incidents retain their existing closed projection. The closed diagnostic queue is not an audit queue and cannot change intent settlement, latch/recovery, actual slot ownership, or mandatory audit-before-dispatch. Sink loss or flush expiry never marks otherwise settled storage unclean. See [serve diagnostics](administrative-control-plane.md#serve-diagnostics) for bounds and output failure semantics.
 
 ### Agent-candidate recovery
 

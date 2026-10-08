@@ -1,7 +1,9 @@
 package composition
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -9,13 +11,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/oauth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOAuthCallbackListenerPanicCannotReflectSecrets(t *testing.T) {
-	owner := &oauthCallbackListeners{leases: make(map[string]*oauthCallbackListener), changed: make(chan struct{}), connections: make(chan struct{}, 16), now: time.Now, handle: func(_ context.Context, query, _, _ string) oauth.CallbackResult { panic(query) }, notify: func(context.Context, oauth.CallbackResult) {}}
+	var output bytes.Buffer
+	adapter := diagnostics.New(&output, diagnostics.Warn)
+	t.Cleanup(func() { adapter.Finish(nil); <-adapter.Done() })
+	owner := &oauthCallbackListeners{diagnostics: adapter, leases: make(map[string]*oauthCallbackListener), changed: make(chan struct{}), connections: make(chan struct{}, 16), now: time.Now, handle: func(_ context.Context, query, _, _ string) oauth.CallbackResult {
+		panic("callback exchange panic: " + query)
+	}, notify: func(context.Context, oauth.CallbackResult) {}}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	defer func() { require.True(t, owner.Wait(ctx)) }()
@@ -34,9 +42,43 @@ func TestOAuthCallbackListenerPanicCannotReflectSecrets(t *testing.T) {
 	assert.NotContains(t, string(body), "secret-canary")
 	assert.Equal(t, "no-store", response.Header.Get("Cache-Control"))
 	require.True(t, owner.Wait(ctx))
+	require.True(t, adapter.Finish(nil))
+	require.NotContains(t, output.String(), "secret-canary")
+	require.Contains(t, output.String(), "callback exchange panic")
+	require.Contains(t, output.String(), `"stack":`)
+	require.Contains(t, output.String(), "127.0.0.1:3118")
 	listener, err := net.Listen("tcp4", "127.0.0.1:3118")
 	require.NoError(t, err)
 	require.NoError(t, listener.Close())
+}
+
+func TestOAuthCallbackAbortIsNotPanicDiagnostic(t *testing.T) {
+	var output bytes.Buffer
+	adapter := diagnostics.New(&output, diagnostics.Warn)
+	t.Cleanup(func() { adapter.Finish(nil); <-adapter.Done() })
+	owner := &oauthCallbackListeners{diagnostics: adapter, leases: make(map[string]*oauthCallbackListener), changed: make(chan struct{}), connections: make(chan struct{}, 16), now: time.Now, handle: func(context.Context, string, string, string) oauth.CallbackResult {
+		panic(fmt.Errorf("cancelled callback: %w", http.ErrAbortHandler))
+	}, notify: func(context.Context, oauth.CallbackResult) {}}
+	reserved, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	uri := "http://" + reserved.Addr().String() + "/callback"
+	require.NoError(t, reserved.Close())
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	release, err := owner.AcquireCallback(ctx, "abort-flow", uri, time.Now().Add(time.Minute))
+	require.NoError(t, err)
+	defer release()
+	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: time.Second}
+	response, err := client.Get(uri)
+	if response != nil {
+		_ = response.Body.Close()
+	}
+	require.Error(t, err)
+	require.True(t, owner.Wait(ctx))
+	require.True(t, adapter.Finish(nil))
+	require.Empty(t, output.String(), "ordinary abort must not reach the HTTP library panic logger")
 }
 
 func TestOAuthCallbackListenerExpiresWithoutPolling(t *testing.T) {
@@ -88,6 +130,9 @@ func TestOAuthCallbackListenerAdmissionCollisionAndCleanup(t *testing.T) {
 	defer release()
 	_, err = owner.AcquireCallback(ctx, "conflicting-flow", "http://localhost:3118/callback", time.Now().Add(time.Minute))
 	require.ErrorIs(t, err, errCallbackListener)
+	detail := diagnostics.Snapshot("oauth", "bind callback", "", err)
+	require.Contains(t, detail.Explanation, "address already in use")
+	require.Contains(t, detail.Resource, "3118")
 	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

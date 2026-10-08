@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -189,7 +190,16 @@ func TestTrafficRecoveryIgnoresDiagnosticSinkFailure(t *testing.T) {
 	require.Contains(t, sink.String(), "traffic_failure")
 	require.Contains(t, sink.String(), "traffic_recovered")
 	require.Contains(t, sink.String(), `"sqlite_code":5`)
-	require.NotContains(t, sink.String(), s.path)
+	var failure map[string]any
+	require.NoError(t, json.NewDecoder(bytes.NewReader(sink.Bytes())).Decode(&failure))
+	require.Equal(t, "traffic_failure", failure["event"])
+	wantResource := s.path
+	// The final encoder reserves space for the truncation marker.
+	if len(wantResource) > 160-len("...[truncated]") {
+		wantResource = wantResource[:160-len("...[truncated]")] + "...[truncated]"
+	}
+	require.Equal(t, wantResource, failure["resource"])
+	require.Contains(t, sink.String(), "database is locked")
 	// A permanently failed adapter is not a recovery gate.
 	broken := diagnostics.New(trafficBrokenSink{}, diagnostics.Warn)
 	s.SetTrafficDiagnostics(broken)

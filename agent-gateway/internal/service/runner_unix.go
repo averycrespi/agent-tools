@@ -12,7 +12,11 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
+
+var errUtilityExit = errors.New("service utility exited unsuccessfully")
 
 type commandRunner func(context.Context, string, ...string) ([]byte, int, error)
 
@@ -60,7 +64,8 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 	command.Env = []string{"PATH=" + utilityPath, "LC_ALL=C"}
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.Stdout = writer
-	command.Stderr = writer
+	var stderr capture
+	command.Stderr = &stderr
 	if err = command.Start(); err != nil {
 		_ = reader.Close()
 		_ = writer.Close()
@@ -82,7 +87,7 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 		if exited {
 			break
 		}
-		if output.exceeded() {
+		if output.exceeded() || stderr.exceeded() {
 			cause = errors.New("utility output exceeds bound")
 			break
 		}
@@ -105,10 +110,12 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 	reaped := make(chan error, 1)
 	go func() { reaped <- command.Wait() }()
 	code := -1
+	native := "exit unconfirmed"
 	select {
 	case e := <-reaped:
 		if command.ProcessState != nil {
 			code = command.ProcessState.ExitCode()
+			native = command.ProcessState.String()
 		}
 		var exit *exec.ExitError
 		if e != nil && !errors.As(e, &exit) {
@@ -127,12 +134,25 @@ func runOwned(ctx context.Context, name string, args ...string) ([]byte, int, er
 	}
 	_ = reader.Close()
 	output.mu.Lock()
-	defer output.mu.Unlock()
-	if output.overflow {
+	data, overflow := append([]byte(nil), output.data...), output.overflow
+	output.mu.Unlock()
+	stderr.mu.Lock()
+	excerpt, stderrOverflow := string(stderr.data), stderr.overflow
+	stderr.mu.Unlock()
+	if overflow || stderrOverflow {
 		cause = errors.Join(cause, errors.New("utility output exceeds bound"))
 	}
-	if cause != nil {
-		return nil, -1, cause
+	if cause != nil || code != 0 && excerpt != "" {
+		if cause == nil {
+			cause = errUtilityExit
+		}
+		detail := diagnostics.Snapshot("service", "utility", name, cause)
+		detail.Native = diagnostics.Text(native, 64)
+		detail.Excerpt = diagnostics.Text(excerpt, 256)
+		if stderrOverflow {
+			detail.Excerpt = diagnostics.Text(excerpt, 220) + "...[truncated]"
+		}
+		return data, code, diagnostics.WithDetail(cause, detail)
 	}
-	return append([]byte(nil), output.data...), code, nil
+	return data, code, nil
 }

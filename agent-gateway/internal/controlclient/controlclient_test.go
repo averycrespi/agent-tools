@@ -2,6 +2,7 @@ package controlclient
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -235,6 +236,15 @@ func TestControlTransport(t *testing.T) {
 	})
 }
 
+func assertProblemProjection(t *testing.T, want, got *OnlineError) {
+	t.Helper()
+	w, err := json.Marshal(want)
+	require.NoError(t, err)
+	g, err := json.Marshal(got)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(w), string(g))
+}
+
 func TestControlTransportStageClassification(t *testing.T) {
 	refusedClient := newTestClient(t, DefaultAddress, TransportOptions{
 		DialContext: func(context.Context, string, string) (net.Conn, error) {
@@ -244,18 +254,18 @@ func TestControlTransportStageClassification(t *testing.T) {
 	_, err := refusedClient.Do(context.Background(), Request{Method: http.MethodGet, Path: "/api/v2/status"})
 	require.Error(t, err)
 	assert.True(t, FailureRefused(err))
-	assert.Equal(t, &OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9}, ClassifyRequestError(err, RequestPhaseRead))
+	assertProblemProjection(t, &OnlineError{Code: "gateway_not_running", Title: "Agent Gateway is not running.", Exit: 9}, ClassifyRequestError(err, RequestPhaseRead))
 
 	preHandoff := &Failure{kind: ErrTransport, handoff: HandoffNone}
-	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The Gateway could not be reached before request handoff.", Exit: 9}, ClassifyRequestError(preHandoff, RequestPhaseMutation))
+	assertProblemProjection(t, &OnlineError{Code: "client_transport_failure", Title: "The Gateway could not be reached before request handoff.", Exit: 9}, ClassifyRequestError(preHandoff, RequestPhaseMutation))
 
 	postHandoff := &Failure{kind: ErrTransport, handoff: HandoffPossible}
-	assert.Equal(t, &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}, ClassifyRequestError(postHandoff, RequestPhaseMutation))
-	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The read did not complete. This read is safe to repeat after checking Gateway availability.", Exit: 9}, ClassifyRequestError(postHandoff, RequestPhaseRead))
-	assert.Equal(t, &OnlineError{Code: "client_transport_failure", Title: "The ETag preflight did not complete. The intended mutation was not submitted.", Exit: 9}, ClassifyRequestError(postHandoff, RequestPhasePreflight))
+	assertProblemProjection(t, &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}, ClassifyRequestError(postHandoff, RequestPhaseMutation))
+	assertProblemProjection(t, &OnlineError{Code: "client_transport_failure", Title: "The read did not complete. This read is safe to repeat after checking Gateway availability.", Exit: 9}, ClassifyRequestError(postHandoff, RequestPhaseRead))
+	assertProblemProjection(t, &OnlineError{Code: "client_transport_failure", Title: "The ETag preflight did not complete. The intended mutation was not submitted.", Exit: 9}, ClassifyRequestError(postHandoff, RequestPhasePreflight))
 
 	truncated := &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible}
-	assert.Equal(t, &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}, ClassifyRequestError(truncated, RequestPhaseMutation))
+	assertProblemProjection(t, &OnlineError{Code: "client_outcome_uncertain", Title: "The request outcome is uncertain.", Exit: 8, Uncertain: true}, ClassifyRequestError(truncated, RequestPhaseMutation))
 	assert.Equal(t, "client_response_invalid", ClassifyRequestError(truncated, RequestPhaseRead).Code)
 	assert.False(t, ClassifyRequestError(truncated, RequestPhaseRead).Uncertain)
 

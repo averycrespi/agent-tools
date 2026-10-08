@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	oskeyring "github.com/zalando/go-keyring"
 )
 
@@ -152,7 +153,13 @@ func (provider *Provider) Probe(ctx context.Context) Capability {
 	return capabilityForError(provider.adapter.Probe(ctx, provider.service))
 }
 
-func (provider *Provider) set(ctx context.Context, namespace Namespace, item, value string) error {
+func (provider *Provider) set(ctx context.Context, namespace Namespace, item, value string) (result error) {
+	var native error
+	defer func() {
+		if native != nil {
+			result = classifyOperationError(native, value)
+		}
+	}()
 	if err := provider.validate(namespace, item); err != nil {
 		return err
 	}
@@ -170,10 +177,17 @@ func (provider *Provider) set(ctx context.Context, namespace Namespace, item, va
 	if err := ctx.Err(); err != nil {
 		return &CapabilityError{Capability: capabilityForError(err)}
 	}
-	return classifyOperationError(provider.adapter.Set(provider.service, item, value))
+	native = provider.adapter.Set(provider.service, item, value)
+	return native
 }
 
-func (provider *Provider) get(ctx context.Context, namespace Namespace, item string) (string, error) {
+func (provider *Provider) get(ctx context.Context, namespace Namespace, item string) (_ string, result error) {
+	var native error
+	defer func() {
+		if native != nil {
+			result = classifyOperationError(native)
+		}
+	}()
 	if err := provider.validate(namespace, item); err != nil {
 		return "", err
 	}
@@ -190,7 +204,8 @@ func (provider *Provider) get(ctx context.Context, namespace Namespace, item str
 	}
 	value, err := provider.adapter.Get(provider.service, item)
 	if err != nil {
-		return "", classifyOperationError(err)
+		native = err
+		return "", err
 	}
 	if value == "" {
 		return "", &CapabilityError{Capability: capabilityForError(errors.New("empty keyring value"))}
@@ -198,7 +213,13 @@ func (provider *Provider) get(ctx context.Context, namespace Namespace, item str
 	return value, nil
 }
 
-func (provider *Provider) delete(ctx context.Context, namespace Namespace, item string) error {
+func (provider *Provider) delete(ctx context.Context, namespace Namespace, item string) (result error) {
+	var native error
+	defer func() {
+		if native != nil {
+			result = classifyOperationError(native)
+		}
+	}()
 	if err := provider.validate(namespace, item); err != nil {
 		return err
 	}
@@ -213,7 +234,8 @@ func (provider *Provider) delete(ctx context.Context, namespace Namespace, item 
 	if err := ctx.Err(); err != nil {
 		return &CapabilityError{Capability: capabilityForError(err)}
 	}
-	return classifyOperationError(provider.adapter.Delete(provider.service, item))
+	native = provider.adapter.Delete(provider.service, item)
+	return native
 }
 
 func (provider *Provider) WorkStatus() contract.LimitStatus {
@@ -270,10 +292,13 @@ func capabilityForError(err error) Capability {
 	}
 }
 
-func classifyOperationError(err error) error {
+func classifyOperationError(err error, secrets ...string) (result error) {
 	if err == nil {
 		return nil
 	}
+	defer func() {
+		result = diagnostics.WithDetail(result, diagnostics.Snapshot("keyring", "native operation", "", err, secrets...))
+	}()
 	if errors.Is(err, ErrNotFound) || errors.Is(err, oskeyring.ErrNotFound) {
 		return ErrNotFound
 	}

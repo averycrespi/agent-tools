@@ -168,7 +168,7 @@ func finishServe(diagnostic *diagnostics.Adapter, phases *controlclient.ServePha
 		diagnostic.Finish(nil)
 		return nil
 	}
-	diagnostic.Observe(diagnostics.Facts{Event: diagnostics.LifecycleFailure, Cause: diagnostics.Unavailable})
+	diagnostic.Observe(diagnostics.Facts{Event: diagnostics.LifecycleFailure, Cause: diagnostics.Unavailable, Detail: diagnostics.Snapshot("lifecycle", "serve", root, err)})
 	problem := serveCommandProblem(err, acknowledged, root)
 	diagnostic.Finish(func(io.Writer) { _ = phases.WriteProblem(problem) })
 	return problem
@@ -187,7 +187,7 @@ func selectedDataDir(command *cobra.Command, local string) string {
 	return local
 }
 
-func executeServe(command *cobra.Command, dataDir, authority string, allowedHosts []string, dependencies offlineDependencies, phases *controlclient.ServePhases) (bool, error) {
+func executeServe(command *cobra.Command, dataDir, authority string, allowedHosts []string, dependencies offlineDependencies, phases *controlclient.ServePhases) (_ bool, resultErr error) {
 	budget := composition.DefaultTrafficBudget
 	if command.Flags().Lookup("traffic-budget-bytes") != nil {
 		budget, _ = command.Flags().GetInt64("traffic-budget-bytes")
@@ -225,7 +225,8 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	if err != nil {
 		return false, err
 	}
-	defer func() { _ = store.Close() }()
+	closeStore := onceServeCleanup("control storage", ownership.Layout().Database, store.Close, dependencies.diagnostics)
+	defer func() { resultErr = errors.Join(resultErr, closeStore()) }()
 	store.SetDiagnostics(dependencies.diagnostics)
 	identity, err := store.Identity(ctx)
 	if err != nil {
@@ -407,6 +408,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		},
 	})
 	boundary, err = httpboundary.New(httpboundary.Options{
+		Diagnostics:          dependencies.diagnostics,
 		AuthenticatedProblem: apiHandler.RecordAuthenticatedProblem,
 		AllowedHosts:         allowedHosts,
 		Authority:            authority,
@@ -441,12 +443,12 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	if proxyAuthority != "" {
 		proxyListener, _, bindErr := httpboundary.OpenListener(ctx, proxyAuthority, nil)
 		if bindErr != nil {
-			return false, &controlclient.Problem{Code: "http_proxy_unavailable", Title: "The HTTP proxy listener at " + proxyAuthority + " could not be bound. Stop the conflicting listener, choose --http-proxy-listen, or use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
+			return false, &controlclient.Problem{Local: diagnostics.Snapshot("startup", "bind proxy listener", proxyAuthority, bindErr), Code: "http_proxy_unavailable", Title: "The HTTP proxy listener at " + proxyAuthority + " could not be bound. Stop the conflicting listener, choose --http-proxy-listen, or use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
 		}
 		defer func() { _ = proxyListener.Close() }()
 		proxy, prepareErr := runtime.PrepareHTTPProxy(ctx, netip.MustParseAddrPort(authority), netip.MustParseAddrPort(proxyAuthority))
 		if prepareErr != nil {
-			return false, &controlclient.Problem{Code: "http_proxy_unavailable", Title: "The HTTP proxy could not load usable CA signing material or prepare safely. Inspect agent-gateway doctor and stopped CA recovery guidance; after restore or key loss, replace the CA explicitly and refresh client trust. Use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
+			return false, &controlclient.Problem{Local: diagnostics.Snapshot("startup", "prepare proxy", ownership.Layout().Root, prepareErr), Code: "http_proxy_unavailable", Title: "The HTTP proxy could not load usable CA signing material or prepare safely. Inspect agent-gateway doctor and stopped CA recovery guidance; after restore or key loss, replace the CA explicitly and refresh client trust. Use --clear-http-proxy-listen for MCP-only startup.", Exit: 7}
 		}
 		proxyDone = make(chan error, 1)
 		go func() { proxyDone <- proxy.Serve(proxyListener) }()
@@ -456,7 +458,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		}()
 	}
 	server := &http.Server{
-		ErrorLog:          diagnostics.HTTPErrorLog(),
+		ErrorLog:          diagnostics.HTTPErrorLog(dependencies.diagnostics),
 		Handler:           boundary,
 		ReadHeaderTimeout: contract.HeaderReadDeadline,
 		ReadTimeout:       contract.APIHandlerDeadline,
@@ -550,7 +552,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		}
 		eventHub.Shutdown()
 	}
-	if err := store.Close(); err != nil {
+	if err := closeStore(); err != nil {
 		return true, err
 	}
 	if runtimeClean {
@@ -559,6 +561,25 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		}
 	}
 	return true, nil
+}
+
+// Each root-owned cleanup runs once. A deferred failure joins, rather than
+// replaces, the primary failure before finishServe performs local observation.
+func onceServeCleanup(owner, resource string, close func() error, observer diagnostics.HTTPProxyObserver) func() error {
+	closed := false
+	return func() error {
+		if closed {
+			return nil
+		}
+		closed = true
+		if err := close(); err != nil {
+			if observer != nil {
+				observer.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: diagnostics.Snapshot(owner, "close", resource, err)})
+			}
+			return fmt.Errorf("close %s %s: %w", owner, resource, err)
+		}
+		return nil
+	}
 }
 
 func baseSystemStatus(

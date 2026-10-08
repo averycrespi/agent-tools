@@ -238,9 +238,13 @@ func TestSlackShapedOAuthCompatibility(t *testing.T) {
 	for _, event := range []string{"oauth_required", "oauth_failed", "oauth_completed"} {
 		require.Contains(t, string(result.Stderr), `"event":"`+event+`"`)
 	}
-	for _, canary := range []string{issuer, "fixture-access-1", "fixture-refresh-1", "fixture-code", "fixture-client", created.Server.ID, flow.Flow.ID, redirect.Query().Get("state"), flow.AuthorizationURL} {
+	for _, canary := range []string{issuer, "fixture-access-1", "fixture-refresh-1", "fixture-code", "fixture-client", flow.Flow.ID, redirect.Query().Get("state"), flow.AuthorizationURL} {
 		require.NotEmpty(t, canary)
 		require.NotContains(t, string(result.Stderr), canary)
 	}
+	require.Contains(t, string(result.Stderr), created.Server.ID)
+	require.Contains(t, string(result.Stderr), "OAuth trust graph is invalid")
+	require.Contains(t, string(result.Stderr), "HTTP status 404")
+	require.Contains(t, string(result.Stderr), "address already in use")
 	assertOAuthDiagnosticSequence(t, result.Stderr)
 }

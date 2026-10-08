@@ -13,6 +13,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/spf13/cobra"
@@ -154,7 +155,12 @@ func certificateFingerprint(certificate []byte) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 
-func httpCAProblem(err error) *controlclient.Problem {
+func httpCAProblem(err error) (problem *controlclient.Problem) {
+	defer func() {
+		if problem != nil {
+			problem.Local = diagnostics.Snapshot("ca", "stopped operation", "", err)
+		}
+	}()
 	effect := "unchanged"
 	var mutation *composition.CAEffectError
 	if errors.As(err, &mutation) {

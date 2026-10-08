@@ -101,6 +101,7 @@ func measureFreeSpace(path string) contract.ByteMeasurement {
 }
 
 func measureBytes(path string, absent bool) contract.ByteMeasurement {
+	// #nosec G703 -- Only the store's validated owner-only generation path (or its fixed -wal suffix) reaches this metadata-only sink; process fixtures pass their private root through the environment.
 	info, err := os.Stat(path)
 	if absent && errors.Is(err, os.ErrNotExist) {
 		return contract.ByteMeasurement{State: "absent"}

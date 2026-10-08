@@ -162,7 +162,10 @@ func TestUpstreamDiagnosticsRealBinaryRetryAndRecovery(t *testing.T) {
 	require.NotNil(t, restarted.Runtime.DiagnosticCorrelation)
 	require.NotEqual(t, correlation.ProcessID, restarted.Runtime.DiagnosticCorrelation.ProcessID, "the old reference must be scoped to the old process")
 	harness.Stop(syscall.SIGTERM)
-	for _, canary := range []string{endpoint.URL, created.Server.ID, second.Server.ID, "private-concurrent-namespace", "private-downstream-failure-canary", "private-diagnostic-tool", "private-diagnostic-namespace", "Private diagnostic display"} {
+	require.Contains(t, string(result.Stderr), created.Server.ID)
+	require.Contains(t, string(result.Stderr), "Private diagnostic display")
+	require.Contains(t, string(result.Stderr), "unexpected EOF")
+	for _, canary := range []string{"private-concurrent-namespace", "private-downstream-failure-canary", "private-diagnostic-tool", "private-diagnostic-namespace"} {
 		require.NotContains(t, string(result.Stderr), canary)
 	}
 }

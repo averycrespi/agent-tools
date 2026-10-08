@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -51,6 +52,7 @@ const (
 )
 
 type Failure struct {
+	local   diagnostics.Detail
 	kind    error
 	handoff Handoff
 	refused bool
@@ -72,7 +74,8 @@ func (failure *Failure) Error() string {
 	return "control transport failed"
 }
 
-func (failure *Failure) Unwrap() error { return failure.kind }
+func (failure *Failure) Unwrap() error                      { return failure.kind }
+func (failure *Failure) OperatorDetail() diagnostics.Detail { return failure.local }
 
 func FailureHandoff(err error) Handoff {
 	var failure *Failure
@@ -169,12 +172,15 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 			kind = ErrRedirect
 		}
 		handoff := handoffValue(handedOff.Load())
-		return Response{}, &Failure{kind: kind, handoff: handoff, refused: errors.Is(kind, ErrTransport) && handoff == HandoffNone && errors.Is(err, syscall.ECONNREFUSED)}
+		return Response{}, &Failure{local: diagnostics.Snapshot("control-client", request.Method, client.address, err, request.Header.Get("Authorization")), kind: kind, handoff: handoff, refused: errors.Is(kind, ErrTransport) && handoff == HandoffNone && errors.Is(err, syscall.ECONNREFUSED)}
 	}
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, MaxResponseBytes+1))
-	if err != nil || len(body) > MaxResponseBytes {
-		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible}
+	if err != nil {
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, err, request.Header.Get("Authorization"), strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))}
+	}
+	if len(body) > MaxResponseBytes {
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, errors.New("response exceeds size limit"))}
 	}
 	if len(body) > 0 {
 		if _, err := strictjson.ParseValue(body, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth}); err != nil {

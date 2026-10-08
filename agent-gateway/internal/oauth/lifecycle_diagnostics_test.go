@@ -104,7 +104,12 @@ func TestForegroundOAuthDiagnosticsObserveRealServiceOutcomes(t *testing.T) {
 		require.Equal(t, status == http.StatusOK, completed)
 		require.Equal(t, status == http.StatusOK, recovered)
 		require.Equal(t, status != http.StatusOK, failed)
-		for _, canary := range []string{"PRIVATE-token-canary", "PRIVATE-code-canary", parsed.Query().Get("state"), parsed.Query().Get("code_challenge"), bundle.serverID, bundle.flowID, "https://issuer.example", "client-id"} {
+		if failed {
+			require.Contains(t, output.String(), bundle.serverID)
+			require.Contains(t, output.String(), "OAuth token response is invalid")
+			require.Contains(t, output.String(), "HTTP status 401")
+		}
+		for _, canary := range []string{"PRIVATE-token-canary", "PRIVATE-code-canary", parsed.Query().Get("state"), parsed.Query().Get("code_challenge")} {
 			require.NotEmpty(t, canary)
 			require.NotContains(t, output.String(), canary)
 		}

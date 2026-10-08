@@ -106,11 +106,12 @@ type CredentialLifecycleOutcome struct {
 }
 
 type AuthorityOutcome struct {
-	State           contract.RuntimeState
-	CredentialState contract.ServerCredentialState
-	Reason          *contract.PublicReason
-	Retryable       bool
-	Lease           *MaterialLease
+	DiagnosticDetail diagnostics.Detail `json:"-"`
+	State            contract.RuntimeState
+	CredentialState  contract.ServerCredentialState
+	Reason           *contract.PublicReason
+	Retryable        bool
+	Lease            *MaterialLease
 }
 
 type CatalogPublicationPhase string
@@ -145,6 +146,7 @@ const (
 )
 
 type CatalogOutcome struct {
+	DiagnosticDetail     diagnostics.Detail `json:"-"`
 	DiagnosticJoined     bool
 	DiagnosticRetryDelay time.Duration
 	DiagnosticReason     diagnostics.Reason
@@ -170,6 +172,7 @@ type Candidate struct {
 }
 
 type Outcome struct {
+	DiagnosticDetail diagnostics.Detail `json:"-"`
 	DiagnosticPhase  diagnostics.Phase
 	DiagnosticReason diagnostics.Reason
 	State            contract.RuntimeState
@@ -243,6 +246,7 @@ type candidateStop struct {
 }
 
 type reconciliationWork struct {
+	diagnosticDetail     diagnostics.Detail
 	diagnosticAttempt    uint64
 	diagnosticStart      time.Time
 	diagnosticPhase      diagnostics.Phase
@@ -258,9 +262,11 @@ type reconciliationWork struct {
 	settled              bool
 	failed               bool
 	failureCause         diagnostics.Cause
+	failureErr           error
 }
 
 type entry struct {
+	diagnosticResource  string
 	diagnosticReference uint64
 	diagnosticRetries   uint64
 	work                *reconciliationWork
@@ -805,7 +811,7 @@ func sameOptionalString(left, right *string) bool {
 func (manager *Manager) entryLocked(serverID string) *entry {
 	current := manager.entries[serverID]
 	if current == nil {
-		current = &entry{diagnosticReference: manager.diagnosticReference(serverID), status: Status{State: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}}
+		current = &entry{diagnosticResource: diagnostics.Text(serverID, 160), diagnosticReference: manager.diagnosticReference(serverID), status: Status{State: contract.RuntimeInactive, CredentialState: contract.ServerCredentialNotRequired, CatalogState: contract.ActiveCatalogAbsent}}
 		manager.entries[serverID] = current
 	}
 	return current
@@ -1012,8 +1018,11 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 	for {
 		manager.diagnosticPhase(serverID, generation, diagnostics.PhaseCredentials, diagnostics.ReasonUnknown, 0)
 		authorityOutcome := manager.authority.Resolve(candidateContext(manager.ctx, candidate), candidate)
-		outcome = Outcome{State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
+		outcome = Outcome{DiagnosticDetail: authorityOutcome.DiagnosticDetail, State: authorityOutcome.State, CredentialState: authorityOutcome.CredentialState, CatalogState: contract.ActiveCatalogAbsent, Reason: authorityOutcome.Reason, Retryable: authorityOutcome.Retryable}
 		started = false
+		if authorityOutcome.State != "" {
+			manager.diagnosticPhase(serverID, generation, diagnostics.PhaseCredentials, diagnostics.PublicReason(authorityOutcome.Reason), 0, authorityOutcome.DiagnosticDetail)
+		}
 		if authorityOutcome.State == "" {
 			if !manager.Current(candidate) {
 				if authorityOutcome.Lease != nil {
@@ -1023,14 +1032,14 @@ func (manager *Manager) activateCurrentCandidate(serverID string, generation uin
 				return
 			}
 			outcome = manager.driver.Reconcile(candidateContext(manager.ctx, candidate), candidate, authorityOutcome.Lease)
-			manager.diagnosticPhase(serverID, generation, outcome.DiagnosticPhase, outcome.DiagnosticReason, 0)
+			manager.diagnosticPhase(serverID, generation, outcome.DiagnosticPhase, outcome.DiagnosticReason, 0, outcome.DiagnosticDetail)
 			started = true
 			if outcome.CredentialState == "" {
 				outcome.CredentialState = authorityOutcome.CredentialState
 			}
 			if outcome.State == contract.RuntimeActive {
 				catalog := manager.catalog.Activate(candidateContext(manager.ctx, candidate), candidate)
-				manager.diagnosticPhase(serverID, generation, diagnostics.PhaseToolDiscovery, catalog.DiagnosticReason, catalog.DiagnosticRetryDelay)
+				manager.diagnosticPhase(serverID, generation, diagnostics.PhaseToolDiscovery, catalog.DiagnosticReason, catalog.DiagnosticRetryDelay, catalog.DiagnosticDetail)
 				outcome.CatalogState = catalog.State
 				outcome.OAuthChallenge = catalog.OAuthChallenge
 				if outcome.CatalogState == "" {
@@ -1215,11 +1224,32 @@ func (manager *Manager) withdrawCandidate(candidate Candidate) error {
 
 func (manager *Manager) stopCandidate(candidate Candidate) bool {
 	withdrawErr := manager.withdrawCandidate(candidate)
-	if manager.driver.Stop(context.Background(), candidate) {
-		return withdrawErr == nil
+	stopped := manager.driver.Stop(context.Background(), candidate)
+	if !stopped {
+		owner, ok := manager.driver.(ownershipDriver)
+		stopped = ok && !owner.Owned(candidate)
 	}
-	owner, ok := manager.driver.(ownershipDriver)
-	return ok && !owner.Owned(candidate) && withdrawErr == nil
+	verified := stopped && withdrawErr == nil
+	if !verified && manager.diagnostics != nil {
+		detail := diagnostics.Snapshot("runtime", "stop candidate", candidate.Server.ID+"/"+candidate.RuntimeID, withdrawErr)
+		if source, ok := manager.driver.(interface {
+			StopDetail(Candidate) diagnostics.Detail
+		}); ok {
+			if native := source.StopDetail(candidate); native != (diagnostics.Detail{}) {
+				if detail.Explanation != "" {
+					native.Explanation = diagnostics.Text(detail.Explanation+"; "+native.Explanation, 640)
+				}
+				detail = native
+			}
+		}
+		if detail.Explanation == "" {
+			detail.Explanation = "candidate stop unconfirmed"
+		}
+		detail.Resource = diagnostics.Text(candidate.Server.ID+"/"+candidate.RuntimeID, 160)
+		detail.Effect = "settlement unconfirmed; no replay"
+		manager.diagnostics.Reconciliation(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
+	}
+	return verified
 }
 
 func (manager *Manager) stopCatalogHandoffCandidate(candidate Candidate) bool {
@@ -1801,7 +1831,7 @@ func (manager *Manager) finishRuntimeFailure(serverID string, generation uint64,
 		manager.scheduleRetryLocked(serverID, current)
 	}
 	facts := diagnosticStatus(current)
-	facts.Event, facts.Phase = diagnostics.UpstreamUnhealthy, diagnostics.PhaseConnection
+	facts.Event, facts.Phase, facts.Detail = diagnostics.UpstreamUnhealthy, diagnostics.PhaseConnection, failure.Detail
 	manager.observeUpstreamLocked(current, facts)
 	manager.publish(contract.InvalidationServers, &serverID)
 	manager.publish(contract.InvalidationSystemStatus, nil)

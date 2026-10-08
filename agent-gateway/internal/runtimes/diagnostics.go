@@ -14,6 +14,12 @@ func (manager *Manager) observeUpstreamLocked(current *entry, facts diagnostics.
 	if manager.diagnostics == nil || current == nil {
 		return
 	}
+	if facts.Detail.Resource == "" {
+		facts.Detail.Resource = current.diagnosticResource
+	}
+	if facts.Detail.Component == "" {
+		facts.Detail.Component, facts.Detail.Operation = "runtime", "reconcile"
+	}
 	facts.Upstream = current.diagnosticReference
 	if facts.Attempt == 0 && current.work != nil {
 		facts.Attempt = current.work.diagnosticAttempt
@@ -32,11 +38,14 @@ func (manager *Manager) startDiagnosticAttempt(serverID string, work *reconcilia
 	manager.observeUpstreamLocked(current, diagnostics.Facts{Event: diagnostics.UpstreamAttemptStart, Attempt: work.diagnosticAttempt, Phase: diagnostics.PhaseReconciliation, Reason: diagnostics.ReasonNone, Disposition: diagnostics.DispositionExecuting})
 }
 
-func (manager *Manager) diagnosticPhase(serverID string, generation uint64, phase diagnostics.Phase, reason diagnostics.Reason, retryDelay time.Duration) {
+func (manager *Manager) diagnosticPhase(serverID string, generation uint64, phase diagnostics.Phase, reason diagnostics.Reason, retryDelay time.Duration, details ...diagnostics.Detail) {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	current := manager.entries[serverID]
 	if current != nil && current.work != nil && current.work.generation == generation {
+		if len(details) != 0 {
+			current.work.diagnosticDetail = details[0]
+		}
 		current.work.diagnosticPhase = phase
 		current.work.diagnosticReason = reason
 		current.work.diagnosticRetryDelay = retryDelay
@@ -46,6 +55,7 @@ func (manager *Manager) diagnosticPhase(serverID string, generation uint64, phas
 func diagnosticStatus(current *entry) diagnostics.Facts {
 	facts := diagnostics.Facts{Phase: diagnostics.PhaseUnknown, Reason: diagnostics.PublicReason(current.status.Reason)}
 	if current.work != nil {
+		facts.Detail = current.work.diagnosticDetail
 		facts.Phase = current.work.diagnosticPhase
 		if current.work.diagnosticReason != diagnostics.ReasonUnknown || facts.Phase == diagnostics.PhaseConnection || facts.Phase == diagnostics.PhaseInitialization || facts.Phase == diagnostics.PhaseToolDiscovery {
 			facts.Reason = current.work.diagnosticReason
@@ -85,7 +95,7 @@ func (manager *Manager) observeCatalog(candidate Candidate, outcome CatalogOutco
 	if manager.draining || current == nil || current.generation != candidate.Generation {
 		return
 	}
-	facts := diagnostics.Facts{Event: diagnostics.UpstreamUnhealthy, Phase: diagnostics.PhaseToolDiscovery, Reason: outcome.DiagnosticReason, Disposition: diagnostics.DispositionUnknown}
+	facts := diagnostics.Facts{Detail: outcome.DiagnosticDetail, Event: diagnostics.UpstreamUnhealthy, Phase: diagnostics.PhaseToolDiscovery, Reason: outcome.DiagnosticReason, Disposition: diagnostics.DispositionUnknown}
 	switch {
 	case outcome.OAuthChallenge != nil:
 		facts.Reason = diagnostics.ReasonAuthenticationRejected

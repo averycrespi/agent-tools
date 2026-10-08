@@ -1,6 +1,8 @@
 package diagnostics
 
 import (
+	"time"
+
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
@@ -50,20 +52,39 @@ func (adapter *Adapter) Traffic(f Facts) {
 	adapter.Observe(f)
 }
 
-// Two fixed slots bound failure/recovery flapping without allocating per cause,
-// identity or incident. Status remains authoritative when a transition is lost.
-func (adapter *Adapter) suppressTraffic(f Facts) bool {
+type trafficRepeat struct {
+	last  time.Time
+	count uint64
+}
+
+// A bounded history coalesces only identical causes/resources/settlements. New
+// information is never hidden by an unrelated failure earlier in the minute.
+func (adapter *Adapter) suppressTraffic(f *Facts) bool {
 	if !trafficEvent(f.Event) {
 		return false
 	}
-	index := 0
-	if f.Event == TrafficRecovered {
-		index = 1
+	if adapter.trafficHistory == nil {
+		adapter.trafficHistory = make(map[Facts]trafficRepeat)
 	}
 	now := adapter.now()
-	if !adapter.trafficLast[index].IsZero() && now.Sub(adapter.trafficLast[index]) < contract.DiagnosticSummaryInterval {
+	key := *f
+	prior, exists := adapter.trafficHistory[key]
+	if exists && now.Sub(prior.last) < contract.DiagnosticSummaryInterval {
+		prior.count = min(prior.count+1, maxCount)
+		adapter.trafficHistory[key] = prior
 		return true
 	}
-	adapter.trafficLast[index] = now
+	if !exists && len(adapter.trafficHistory) >= 32 {
+		var oldest Facts
+		var at time.Time
+		for k, v := range adapter.trafficHistory {
+			if at.IsZero() || v.last.Before(at) {
+				oldest, at = k, v.last
+			}
+		}
+		delete(adapter.trafficHistory, oldest)
+	}
+	f.Suppressed = prior.count
+	adapter.trafficHistory[key] = trafficRepeat{last: now}
 	return false
 }

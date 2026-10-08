@@ -2,23 +2,28 @@ package oauth
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
 
 type diagnosticFailure struct {
+	detail     diagnostics.Detail
 	cause      error
 	reason     contract.PublicReason
 	httpStatus *int
 }
 
-func (failure *diagnosticFailure) Error() string { return failure.cause.Error() }
-func (failure *diagnosticFailure) Unwrap() error { return failure.cause }
+func (failure *diagnosticFailure) Error() string                      { return failure.cause.Error() }
+func (failure *diagnosticFailure) Unwrap() error                      { return failure.cause }
+func (failure *diagnosticFailure) OperatorDetail() diagnostics.Detail { return failure.detail }
 
 func newDiagnosticFailure(cause error, reason contract.PublicReason, status int) error {
-	failure := &diagnosticFailure{cause: cause, reason: reason}
+	failure := &diagnosticFailure{detail: diagnostics.Snapshot("oauth", "response", "", cause), cause: cause, reason: reason}
 	if status >= 100 && status <= 599 {
 		failure.httpStatus = &status
+		failure.detail.Native = "HTTP status " + strconv.Itoa(status)
 	}
 	return failure
 }

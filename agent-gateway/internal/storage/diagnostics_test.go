@@ -65,7 +65,7 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 			var armed atomic.Bool
 			store, err := InitializeWithFaultInjection(t.Context(), newOwnership(t), testInstallationID, func(point FaultPoint) error {
 				if armed.Load() && point == test.point {
-					return errors.New("secret-token https://sensitive.example/?key=SECRET\nforged-event")
+					return errors.New("device permission denied Authorization: Bearer actual-storage-secret https://storage.example/?key=actual-query-secret\nforged-event")
 				}
 				return nil
 			})
@@ -87,12 +87,59 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 				require.Equal(t, test.stage, record["stage"])
 				require.Equal(t, "ERROR", record["level"])
 			}
-			require.NotContains(t, output.String(), "secret")
-			require.NotContains(t, output.String(), "sensitive")
-			require.NotContains(t, output.String(), "forged-event")
+			require.Contains(t, output.String(), "device permission denied")
+			require.Contains(t, output.String(), "storage.example")
+			wantResource := store.path
+			// The final encoder reserves space for the truncation marker.
+			if len(wantResource) > 160-len("...[truncated]") {
+				wantResource = wantResource[:160-len("...[truncated]")] + "...[truncated]"
+			}
+			require.Equal(t, wantResource, got[0]["resource"])
+			require.NotContains(t, output.String(), "actual-storage-secret")
+			require.NotContains(t, output.String(), "actual-query-secret")
+			require.NotContains(t, output.String(), "\nforged-event")
 		})
 	}
 }
+
+type admissionFormattingError struct {
+	store                  *Store
+	called, underAdmission bool
+}
+
+func (e *admissionFormattingError) Error() string {
+	owned, _ := e.store.MutationOccupancy()
+	e.called = true
+	e.underAdmission = e.underAdmission || owned
+	return "native storage device refused write"
+}
+
+func TestStorageFailureFormattingAfterAdmissionRelease(t *testing.T) {
+	for _, point := range []FaultPoint{FaultArmWrite, FaultAfterCommit, FaultDisarmDelete} {
+		var armed bool
+		cause := &admissionFormattingError{}
+		store, err := InitializeWithFaultInjection(t.Context(), newOwnership(t), testInstallationID, func(p FaultPoint) error {
+			if armed && p == point {
+				return cause
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		cause.store = store
+		var output bytes.Buffer
+		adapter := diagnostics.New(&output, diagnostics.Warn)
+		store.SetDiagnostics(adapter)
+		armed = true
+		err = store.Mutate(t.Context(), func(*sql.Tx) error { return nil })
+		require.ErrorIs(t, err, ErrStorageLatched)
+		require.True(t, cause.called)
+		require.False(t, cause.underAdmission)
+		require.True(t, adapter.Finish(nil))
+		require.Contains(t, output.String(), "native storage device refused write")
+		require.NoError(t, store.Close())
+	}
+}
+
 func TestStorageDiagnosticDisabledObserverAvoidsConstruction(t *testing.T) {
 	var output bytes.Buffer
 	adapter := diagnostics.New(&output, diagnostics.Warn)

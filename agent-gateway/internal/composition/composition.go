@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -90,6 +91,7 @@ type Composition struct {
 	observations         *diagnostics.Observations
 	traffic              *invocation.TrafficStore
 	diagnosticReferences *diagnosticReferences
+	drainPending         map[string]bool
 	httpDiagnostics      diagnostics.HTTPProxyObserver
 	servers              *servers.Repository
 	authorization        *authorization.Repository
@@ -963,6 +965,19 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 			result <- built.drainResult
 			built.drainMu.Unlock()
 		case <-ctx.Done():
+			built.drainMu.Lock()
+			names := make([]string, 0, len(built.drainPending))
+			for name := range built.drainPending {
+				names = append(names, name)
+			}
+			built.drainMu.Unlock()
+			sort.Strings(names)
+			if len(names) == 0 {
+				names = []string{"composition drain"}
+			}
+			for _, name := range names {
+				built.observeDrainFailure(name, ctx.Err())
+			}
 			result <- runtimes.DrainResult{Unconfirmed: 1}
 		}
 		close(result)
@@ -971,6 +986,12 @@ func (built *Composition) Drain(ctx context.Context) <-chan runtimes.DrainResult
 }
 
 func (built *Composition) beginDrain() {
+	built.drainMu.Lock()
+	built.drainPending = make(map[string]bool)
+	for _, name := range []string{"invocation", "authorization", "runtime workers", "catalog", "oauth refresh", "oauth flows", "oauth callbacks", "keyring", "http proxy", "runtime stops", "traffic close"} {
+		built.drainPending[name] = true
+	}
+	built.drainMu.Unlock()
 	built.accepting.Store(false)
 	if built.invocationPipelines != nil {
 		built.invocationPipelines.BeginDrain()
@@ -1017,24 +1038,52 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 	ctx := context.Background()
 	waits := make(chan bool, 9)
 	waitCount := 0
-	for _, wait := range []func(context.Context) bool{
-		func(ctx context.Context) bool {
-			return built.invocationPipelines == nil || built.invocationPipelines.Drain(ctx) == nil
+	names := []string{"invocation", "authorization", "runtime workers", "catalog", "oauth refresh", "oauth flows", "oauth callbacks", "keyring", "http proxy"}
+	confirmed := func(ok bool) error {
+		if ok {
+			return nil
+		}
+		return errors.New("owner settlement unconfirmed")
+	}
+	for index, wait := range []func(context.Context) error{
+		func(ctx context.Context) error {
+			if built.invocationPipelines == nil {
+				return nil
+			}
+			return built.invocationPipelines.Drain(ctx)
 		},
-		func(ctx context.Context) bool {
-			return built.authorization == nil || built.authorization.Drain(ctx) == nil
+		func(ctx context.Context) error {
+			if built.authorization == nil {
+				return nil
+			}
+			return built.authorization.Drain(ctx)
 		},
-		func(ctx context.Context) bool { return built.manager == nil || built.manager.Wait(ctx) },
-		func(ctx context.Context) bool { return built.catalog == nil || built.catalog.Wait(ctx) },
-		func(ctx context.Context) bool { return built.refresh == nil || built.refresh.Wait(ctx) },
-		func(ctx context.Context) bool { return built.flows == nil || built.flows.Wait(ctx) },
-		func(ctx context.Context) bool { return built.oauthCallbacks == nil || built.oauthCallbacks.Wait(ctx) },
-		func(ctx context.Context) bool { return built.keyring == nil || built.keyring.Wait(ctx) },
-		func(ctx context.Context) bool { return built.httpProxy == nil || built.httpProxy.Wait(ctx) == nil },
+		func(ctx context.Context) error { return confirmed(built.manager == nil || built.manager.Wait(ctx)) },
+		func(ctx context.Context) error { return confirmed(built.catalog == nil || built.catalog.Wait(ctx)) },
+		func(ctx context.Context) error { return confirmed(built.refresh == nil || built.refresh.Wait(ctx)) },
+		func(ctx context.Context) error { return confirmed(built.flows == nil || built.flows.Wait(ctx)) },
+		func(ctx context.Context) error {
+			return confirmed(built.oauthCallbacks == nil || built.oauthCallbacks.Wait(ctx))
+		},
+		func(ctx context.Context) error { return confirmed(built.keyring == nil || built.keyring.Wait(ctx)) },
+		func(ctx context.Context) error {
+			if built.httpProxy == nil {
+				return nil
+			}
+			return built.httpProxy.Wait(ctx)
+		},
 	} {
 		waitCount++
 		wait := wait
-		go func() { waits <- wait(ctx) }()
+		name := names[index]
+		go func() {
+			err := wait(ctx)
+			built.drainSettled(name)
+			if err != nil {
+				built.observeDrainFailure(name, err)
+			}
+			waits <- err == nil
+		}()
 	}
 	clean := true
 	result := runtimes.DrainResult{}
@@ -1045,6 +1094,10 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 			clean = false
 		}
 	}
+	if result.Unconfirmed != 0 {
+		built.observeDrainFailure("runtime stops", fmt.Errorf("%d runtime owners unconfirmed", result.Unconfirmed))
+	}
+	built.drainSettled("runtime stops")
 	for range waitCount {
 		if !<-waits {
 			clean = false
@@ -1061,9 +1114,13 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 	if built.httpCA != nil {
 		built.httpCA.Close()
 	}
-	if built.traffic != nil && built.traffic.Close() != nil {
-		clean = false
+	if built.traffic != nil {
+		if err := built.traffic.Close(); err != nil {
+			clean = false
+			built.observeDrainFailure("traffic close", err)
+		}
 	}
+	built.drainSettled("traffic close")
 	if !clean && result.Unconfirmed == 0 {
 		result.Unconfirmed = 1
 	}
@@ -1071,6 +1128,20 @@ func (built *Composition) awaitDrain(ownedBefore int64, managerDone <-chan runti
 	built.drainResult = result
 	close(built.drainDone)
 	built.drainMu.Unlock()
+}
+
+func (built *Composition) drainSettled(name string) {
+	built.drainMu.Lock()
+	delete(built.drainPending, name)
+	built.drainMu.Unlock()
+}
+func (built *Composition) observeDrainFailure(owner string, err error) {
+	if built.httpDiagnostics == nil {
+		return
+	}
+	detail := diagnostics.Snapshot("lifecycle", "drain", owner, err)
+	detail.Effect = "settlement unconfirmed; no replay"
+	built.httpDiagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
 }
 
 func (built *Composition) shutdownConstructed() {

@@ -23,6 +23,7 @@ type DocumentationSecurityContract struct {
 }
 
 var documentationGuides = []DocumentationGuide{
+	{ID: "docs.guide.operator.diagnostics", Path: "docs/maintainers/operator-diagnostics.md", Audience: "Maintainers reviewing local failure diagnostics", Purpose: "Map original causes to sole stderr observation owners and paired disclosure regression coverage."},
 	{ID: "docs.guide.upgrade.compatibility", Path: "docs/operators/upgrade-compatibility.md", Audience: "Operators upgrading Gateway and its clients", Purpose: "Coordinate client/service cutovers while preserving durable authority and resolving uncertain outcomes."},
 	{ID: "docs.guide.implementation.evidence", Path: "docs/maintainers/implementation-evidence.md", Audience: "Maintainers investigating implementation and historical measurements", Purpose: "Retain evidence provenance separately from normative product and release requirements."},
 	{ID: "docs.guide.http.proxy", Path: "docs/operators/http-proxy.md", Audience: "Gateway administrators and client operators", Purpose: "Enable proxying and configure fresh clients without migrating Broker state."},

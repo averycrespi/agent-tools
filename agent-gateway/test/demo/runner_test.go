@@ -69,9 +69,21 @@ func TestDemoHelper(t *testing.T) {
 	opts.configureClient = func(c *client) {
 		original := c.http.Transport
 		until := time.Now().Add(2 * time.Second)
+		historyStatusReads := 0
 		c.http.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Path == "/readyz" && (scenario == "timeout" || (scenario == "delay" && time.Now().Before(until))) {
 				return nil, errors.New("test readiness delay")
+			}
+			if scenario == "history-delay" {
+				if r.URL.Path == "/api/v2/system-status" {
+					historyStatusReads++
+					if historyStatusReads <= 2 {
+						return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"traffic":{"ready":false}}`)), Request: r}, nil
+					}
+				}
+				if (r.URL.Path == "/api/v2/mcp/invocations" || r.URL.Path == "/api/v2/http/traffic") && historyStatusReads <= 2 {
+					return nil, errors.New("history requested before attachment")
+				}
 			}
 			if scenario == "seed" && r.Method == "POST" && r.URL.Path == "/api/v2/principals" {
 				raw, err := io.ReadAll(r.Body)
@@ -359,6 +371,13 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.True(t, contentIs(c.call(reader, "demo_library.lookup", object{"document": "welcome"}), documents["welcome"]))
 		require.NoError(t, c.err)
 		verifyDemoRequestApprovals(t, c, root)
+		// Scan after the last submitted history work actually settles. Scoped
+		// SQLite handles may remove WAL/SHM between directory enumeration and
+		// file reading while a batch is still active; do not skip those files.
+		require.Eventually(t, func() bool {
+			return value(c.get("system-status"), "traffic", "delivery", "queue_records") == float64(0)
+		}, 3*time.Second, 10*time.Millisecond)
+		require.NoError(t, c.err)
 		info, err := os.Stat(root)
 		require.NoError(t, err)
 		require.Equal(t, os.FileMode(0700), info.Mode().Perm())
@@ -471,6 +490,12 @@ func TestServeDemoLifecycle(t *testing.T) {
 		roots, err := filepath.Glob(filepath.Join(s.parent, "agent-gateway-demo-*"))
 		require.NoError(t, err)
 		require.Empty(t, roots)
+	})
+	t.Run("delayed history attachment", func(t *testing.T) {
+		s := startDemo(t, "empty", "history-delay", "")
+		s.ready(t)
+		require.NoError(t, s.process.Signal(syscall.SIGTERM))
+		s.stopped(t, false)
 	})
 	t.Run("delayed readiness and selected failures", func(t *testing.T) {
 		began := time.Now()

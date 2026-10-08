@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"unicode/utf8"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -51,14 +52,17 @@ func ReadJSONInput(options InputOptions) ([]byte, error) {
 	} else {
 		file, err = os.Open(options.Path)
 		if err != nil {
-			return nil, ErrInvalidInput
+			return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "open input", options.Path, err)}
 		}
 		defer func() { _ = file.Close() }()
 		reader = file
 	}
 	contents, err := io.ReadAll(io.LimitReader(reader, MaxInputBytes+1))
-	if err != nil || len(contents) > MaxInputBytes {
-		return nil, ErrInvalidInput
+	if err != nil {
+		return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "read input", options.Path, err)}
+	}
+	if len(contents) > MaxInputBytes {
+		return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "read input", options.Path, errors.New("input exceeds size limit"))}
 	}
 	value, err := strictjson.ParseValue(contents, strictjson.Options{MaxBytes: MaxInputBytes, MaxDepth: MaxJSONDepth})
 	if err != nil || value.Type != strictjson.ValueObject {
@@ -281,6 +285,7 @@ type ServerConfigurationContext struct {
 }
 
 type OnlineError struct {
+	Local     diagnostics.Detail          `json:"-"`
 	Status    *int                        `json:"status"`
 	Code      string                      `json:"code"`
 	Title     string                      `json:"title"`
@@ -291,8 +296,9 @@ type OnlineError struct {
 
 type Problem = OnlineError
 
-func (failure *OnlineError) Error() string { return failure.Title }
-func (failure *OnlineError) ExitCode() int { return failure.Exit }
+func (failure *OnlineError) Error() string                      { return failure.Title }
+func (failure *OnlineError) OperatorDetail() diagnostics.Detail { return failure.Local }
+func (failure *OnlineError) ExitCode() int                      { return failure.Exit }
 
 type problemEnvelope struct {
 	Status  int                         `json:"status"`
@@ -386,7 +392,12 @@ func ClassifyClientError(err error) *OnlineError {
 	return ClassifyRequestError(err, RequestPhaseMutation)
 }
 
-func ClassifyRequestError(err error, phase RequestPhase) *OnlineError {
+func ClassifyRequestError(err error, phase RequestPhase) (problem *OnlineError) {
+	defer func() {
+		if problem != nil {
+			problem.Local = diagnostics.Snapshot("control-client", "request", "", err)
+		}
+	}()
 	switch {
 	case errors.Is(err, ErrTransport):
 		if FailureRefused(err) {
@@ -426,14 +437,23 @@ func NewServerConfigurationInputError(field, rule string) *OnlineError {
 	return &OnlineError{Code: "invalid_server_configuration", Title: "The server configuration is invalid.", Context: context, Exit: 2}
 }
 
-func NewInputError(title string) *OnlineError {
+func NewInputError(title string, causes ...error) *OnlineError {
 	if !validProblemTitle(title) {
 		title = "The command input is invalid."
 	}
-	return &OnlineError{Code: "client_invalid_input", Title: title, Exit: 2}
+	problem := &OnlineError{Code: "client_invalid_input", Title: title, Exit: 2}
+	if len(causes) != 0 {
+		problem.Local = diagnostics.Snapshot("control-client", "read input", "", errors.Join(causes...))
+	}
+	return problem
 }
 
 func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error {
+	if failure != nil && len(failure.Title) > maxProblemTitleBytes {
+		copy := *failure
+		copy.Title = diagnostics.Text(failure.Title, maxProblemTitleBytes)
+		failure = &copy
+	}
 	if failure == nil || failure.Exit < 2 || failure.Exit > 10 || !validProblemCode(failure.Code) || !validProblemTitle(failure.Title) || !validServerConfigurationContext(failure.Code, failure.Context) {
 		return ErrInvalidInput
 	}
@@ -450,6 +470,19 @@ func WriteFailure(writer io.Writer, mode OutputMode, failure *OnlineError) error
 		message := terminalSafe(failure.Title)
 		if failure.Context != nil {
 			message += " [" + failure.Context.Field + ": " + failure.Context.Rule + "]"
+		}
+		if failure.Local.Explanation != "" {
+			message += "\n  " + failure.Local.Operation
+			if failure.Local.Resource != "" {
+				message += " " + failure.Local.Resource
+			}
+			message += ": " + failure.Local.Explanation
+			if failure.Local.Native != "" {
+				message += " (" + failure.Local.Native + ")"
+			}
+			if failure.Local.Excerpt != "" {
+				message += "\n  untrusted stderr: " + failure.Local.Excerpt
+			}
 		}
 		_, err := io.WriteString(writer, message+"\n")
 		return err

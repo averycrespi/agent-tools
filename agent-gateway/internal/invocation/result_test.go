@@ -44,6 +44,18 @@ func TestSanitizeCallResultProjectsFiveClosedContentTypes(t *testing.T) {
 	assert.JSONEq(t, `{"content":[{"type":"text","text":"hello","annotations":{"audience":["user","assistant"],"priority":0.5,"lastModified":"2026-08-26T00:00:00Z"}},{"type":"image","data":"aW1hZ2U=","mimeType":"image/png"},{"type":"audio","data":"YXVkaW8=","mimeType":"audio/wav"},{"type":"resource","resource":{"uri":"file:///safe.txt","mimeType":"text/plain","text":"safe"}},{"type":"resource_link","uri":"https://example.test/item","name":"item","title":"Item","description":"safe","mimeType":"text/plain","size":4e0,"annotations":{"priority":1},"icons":[{"src":"data:image/png;base64,aQ==","mimeType":"image/png","sizes":["16x16","any"],"theme":"dark"}]}],"structuredContent":{"_meta":"tool-data","value":1e0},"isError":false}`, projected)
 }
 
+func TestSanitizeCallResultPreservesGeneralStructuredOutputs(t *testing.T) {
+	for _, structured := range []string{`null`, `[]`, `[1,"two",null]`, `"value"`, `42`, `true`, `{"diff":"patch"}`} {
+		t.Run(structured, func(t *testing.T) {
+			raw := `{"resultType":"complete","content":[],"structuredContent":` + structured + `}`
+			outcome := SanitizeCallResult(downstream.CallResult{Response: downstream.Response{Result: json.RawMessage(raw)}})
+			require.NotNil(t, outcome.Result)
+			assert.Equal(t, contract.TerminalSucceeded, outcome.TerminalClass)
+			assert.JSONEq(t, `{"content":[],"structuredContent":`+structured+`}`, marshalProjectedResult(t, outcome.Result))
+		})
+	}
+}
+
 func TestSanitizeCallResultAcceptsLegacyShapeAndBinaryResource(t *testing.T) {
 	raw := `{"content":[{"type":"resource","resource":{"uri":"urn:example:item","blob":"YmluYXJ5"}}]}`
 	outcome := SanitizeCallResult(downstream.CallResult{Response: downstream.Response{Result: json.RawMessage(raw)}})

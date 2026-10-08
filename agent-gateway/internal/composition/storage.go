@@ -223,17 +223,10 @@ func VerifyStorageBudget(ctx context.Context, root string, budget int64, approva
 	return storage.VerifyCurrentWithTraffic(ctx, root, nil, approvals...)
 }
 
-// openOptionalTraffic refuses recovery of existing artifacts during serving.
-// Closed, fully validated history may acquire a writer; WAL-bearing history is
-// left untouched for explicit stopped inspection rather than silently repaired.
+// openOptionalTraffic retains installation ownership while OpenTraffic validates
+// safe paths and the complete WAL-aware identity/schema/evidence before attaching
+// readers or admitting writes. Immutable inspection belongs only to closed artifacts.
 func openOptionalTraffic(ctx context.Context, owner *gatewaypaths.Ownership, installation, generation string, config invocation.TrafficConfig) (*invocation.TrafficStore, error) {
-	path := filepath.Join(owner.Layout().Root, "traffic-"+generation+".db")
-	if err := storage.RequireClosedGeneration(path); err != nil {
-		return nil, err
-	}
-	if err := invocation.VerifyTrafficFile(ctx, path, installation, generation, config); err != nil {
-		return nil, err
-	}
 	return invocation.OpenTraffic(ctx, owner, installation, generation, config)
 }
 

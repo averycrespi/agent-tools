@@ -42,7 +42,7 @@ type tunnelDeadlineConn struct {
 
 func (c *tunnelDeadlineConn) SetReadDeadline(deadline time.Time) error {
 	if c.fail.Load() {
-		return errors.New("private-read-deadline-canary")
+		return errors.New("set read deadline: closed connection Authorization: Bearer tunnel-secret-canary")
 	}
 	return c.Conn.SetReadDeadline(deadline)
 }
@@ -54,7 +54,7 @@ type tunnelWriteFailureConn struct {
 
 func (c *tunnelWriteFailureConn) Write([]byte) (int, error) {
 	c.writes.Add(1)
-	return 0, errors.New("private-upload-write-canary")
+	return 0, errors.New("write upstream: broken pipe Authorization: Bearer tunnel-secret-canary")
 }
 
 func TestIntegrationTunnelFailureObservedOperation(t *testing.T) {
@@ -112,7 +112,14 @@ func TestIntegrationTunnelFailureObservedOperation(t *testing.T) {
 			require.True(t, observer.Finish(nil))
 			require.Contains(t, output.String(), `"stage":"`+stage+`"`)
 			require.NotContains(t, output.String(), `"stage":"upstream_read"`)
-			require.NotContains(t, output.String(), "canary")
+			require.NotContains(t, output.String(), "tunnel-secret-canary")
+			require.NotContains(t, output.String(), f.credential.Bearer)
+			require.Contains(t, output.String(), target.Host)
+			if stage == "deadline" {
+				require.Contains(t, output.String(), "set read deadline: closed connection")
+			} else {
+				require.Contains(t, output.String(), "write upstream: broken pipe")
+			}
 		})
 	}
 }

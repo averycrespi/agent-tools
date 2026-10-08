@@ -111,7 +111,7 @@ func NormalizeTool(tool RawTool, options NormalizeOptions) (NormalizedTool, erro
 	}
 	var output json.RawMessage
 	if len(outputRaw) != 0 {
-		output, _, err = normalizeSchema(outputRaw, false)
+		output, _, err = normalizeJSONSchema(outputRaw, false, false)
 		if err != nil {
 			return NormalizedTool{}, err
 		}
@@ -134,6 +134,10 @@ func NormalizeTool(tool RawTool, options NormalizeOptions) (NormalizedTool, erro
 }
 
 func normalizeSchema(raw json.RawMessage, allowHeaders bool) (json.RawMessage, []HeaderBinding, error) {
+	return normalizeJSONSchema(raw, allowHeaders, true)
+}
+
+func normalizeJSONSchema(raw json.RawMessage, allowHeaders, requireObjectType bool) (json.RawMessage, []HeaderBinding, error) {
 	if len(raw) == 0 || !utf8.Valid(raw) {
 		return nil, nil, ErrDescriptorInvalid
 	}
@@ -142,7 +146,9 @@ func normalizeSchema(raw json.RawMessage, allowHeaders bool) (json.RawMessage, [
 		return nil, nil, ErrDescriptorInvalid
 	}
 	object, ok := value.(map[string]any)
-	if !ok || object["type"] != "object" {
+	// MCP output schemas are schema objects, but may describe any JSON value.
+	// Only input schemas must explicitly describe an object.
+	if !ok || (requireObjectType && object["type"] != "object") {
 		return nil, nil, ErrDescriptorInvalid
 	}
 	if dialect, exists := object["$schema"]; exists && dialect != schema2020 {

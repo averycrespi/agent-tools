@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
 
 type AuthenticateFunc func(context.Context, *http.Request, contract.CredentialAuthority) (context.Context, error)
@@ -34,6 +35,7 @@ func releaseAuthentication(ctx context.Context) {
 }
 
 type Options struct {
+	Diagnostics          diagnostics.HTTPProxyObserver
 	AllowedHosts         []string
 	Authority            string
 	Ready                func() bool
@@ -44,6 +46,7 @@ type Options struct {
 }
 
 type Boundary struct {
+	diagnostics          diagnostics.HTTPProxyObserver
 	allowedHosts         map[string]struct{}
 	authority            string
 	origin               string
@@ -109,6 +112,7 @@ func New(options Options) (*Boundary, error) {
 		options.Draining = func() bool { return false }
 	}
 	return &Boundary{
+		diagnostics:          options.Diagnostics,
 		allowedHosts:         allowedHosts,
 		authority:            options.Authority,
 		origin:               "http://" + options.Authority,
@@ -125,6 +129,21 @@ func New(options Options) (*Boundary, error) {
 }
 
 func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	operation := "request"
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err, _ := recovered.(error)
+			if !errors.Is(err, http.ErrAbortHandler) && boundary.diagnostics != nil {
+				// API/MCP bodies may carry arbitrary secrets. Without source-owned
+				// masking material, retain the location/stack but not panic values.
+				detail := diagnostics.Panic("http boundary", operation, boundary.authority, "panic detail withheld: request may contain sensitive payload")
+				boundary.diagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
+			}
+			// Preserve net/http's existing connection-abort behavior, without
+			// letting its library logger serialize the original panic value.
+			panic(http.ErrAbortHandler)
+		}
+	}()
 	if strings.HasPrefix(request.URL.Path, "/api/v2/") || strings.HasPrefix(request.URL.Path, "/api/v1/") {
 		writer.Header().Set("Cache-Control", "no-store")
 	}
@@ -137,6 +156,7 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 		writeProblem(writer, contract.ProblemNotFound)
 		return
 	}
+	operation = route.Pattern
 	if !methodAllowed(route, request.Method) {
 		writer.Header().Set("Allow", route.Allow())
 		writeProblem(writer, contract.ProblemMethodNotAllowed)

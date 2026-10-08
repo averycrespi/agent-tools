@@ -20,6 +20,10 @@ func TestTrafficActiveCallerCancellationKeepsRecording(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			s, _ := trafficFixture(t, func(c *TrafficConfig) { c.ReadLifetime = time.Second }, nil)
+			// Retain this fixture-only SQL function on the connection under test.
+			// Production operation-scoped handles are covered separately.
+			s.readerDB.SetMaxIdleConns(1)
+			defer s.readerDB.SetMaxIdleConns(0)
 			conn, err := s.readerDB.Conn(t.Context())
 			require.NoError(t, err)
 			var caller context.Context

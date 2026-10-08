@@ -21,7 +21,7 @@ import (
 type failedDiagnosticResolver struct{}
 
 func (failedDiagnosticResolver) LookupNetIP(context.Context, string, string) ([]netip.Addr, error) {
-	return nil, errors.New("private-resolver-error-canary")
+	return nil, errors.New("lookup failed: no such host Authorization: Bearer private-upstream-token-canary")
 }
 
 func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
@@ -93,7 +93,9 @@ func TestIntegrationProxyRejectionDiagnostics(t *testing.T) {
 			require.Len(t, record["proxy_id"], 32)
 			require.Equal(t, "unavailable", record["cause"])
 			require.Equal(t, "resolution", record["stage"])
-			for _, secret := range []string{"canary", f.credential.Bearer, f.credential.Principal.ID} {
+			require.Contains(t, output.String(), "lookup failed: no such host")
+			require.Contains(t, output.String(), "private-host-canary.example")
+			for _, secret := range []string{"private-upstream-token-canary", "private-body-canary", "private-path-canary", "query-canary", f.credential.Bearer, f.credential.Principal.ID} {
 				require.NotContains(t, output.String(), secret)
 			}
 		})

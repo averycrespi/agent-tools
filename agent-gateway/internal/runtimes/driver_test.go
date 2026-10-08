@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -154,6 +155,28 @@ func TestConstructionFailureCarriesOAuthChallengeDisposition(t *testing.T) {
 	assert.Equal(t, contract.ReasonAuthenticationRejected, *outcome.Reason)
 	assert.Same(t, disposition, outcome.OAuthChallenge)
 	assert.False(t, outcome.Retryable)
+}
+
+func TestConcreteDriverPreservesExitBeforeInitialization(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	definition := fixtureDefinition(executable, "diagnostic-failure")
+	candidate := ownerCandidate(91, contract.TransportStdio)
+	candidate.Server.Transport, err = json.Marshal(contract.StdioTransport{Kind: contract.TransportStdio, Executable: executable, Arguments: definition.Arguments, WorkingDirectory: "/", Environment: definition.Environment, SecretEnvironment: map[string]string{}})
+	require.NoError(t, err)
+	owner := NewRuntimeOwner()
+	supervisor := NewStdioSupervisor(nil)
+	driver, err := NewConcreteDriver(ConcreteDriverOptions{Owner: owner, StartStdio: func(ctx context.Context, d StdioDefinition) (downstream.StdioRuntime, error) {
+		return supervisor.Start(ctx, d)
+	}, HTTPFactory: remote.New(remote.Options{})})
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	outcome := driver.Reconcile(ctx, candidate, nil)
+	require.NotEqual(t, contract.RuntimeActive, outcome.State)
+	require.Equal(t, "exit status 23", outcome.DiagnosticDetail.Native)
+	require.Contains(t, outcome.DiagnosticDetail.Excerpt, "inventory.example: permission denied")
+	require.Zero(t, owner.Status().InUse)
 }
 
 func TestConcreteDriverOwnsStdioBeforeConstructionAndStopsExactly(t *testing.T) {

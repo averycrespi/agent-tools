@@ -24,9 +24,10 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 
 	allowedInternal := map[string]map[string]bool{
 		"internal/controlclient": {
-			"github.com/averycrespi/agent-tools/agent-gateway/internal/contract":   true,
-			"github.com/averycrespi/agent-tools/agent-gateway/internal/paths":      true,
-			"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson": true,
+			"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics": true,
+			"github.com/averycrespi/agent-tools/agent-gateway/internal/contract":    true,
+			"github.com/averycrespi/agent-tools/agent-gateway/internal/paths":       true,
+			"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson":  true,
 		},
 		"cmd/agent-gateway": {
 			"github.com/averycrespi/agent-tools/agent-gateway/internal/contract":      true,
@@ -64,8 +65,13 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 				}
 				ast.Inspect(parsed, func(node ast.Node) bool {
 					if selector, ok := node.(*ast.SelectorExpr); ok {
-						if owner, ok := selector.X.(*ast.Ident); ok && owner.Name == "contract" {
-							assert.Equal(t, "NormalizeHostname", selector.Sel.Name, "controlclient may consume only the hostname grammar")
+						if owner, ok := selector.X.(*ast.Ident); ok {
+							if owner.Name == "contract" {
+								assert.Equal(t, "NormalizeHostname", selector.Sel.Name, "controlclient may consume only the hostname grammar")
+							}
+							if owner.Name == "diagnostics" {
+								assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, selector.Sel.Name, "finite CLI may consume value formatting, not the serve writer")
+							}
 						}
 					}
 					return true

@@ -176,6 +176,16 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	if err != nil {
 		return err
 	}
+	// Demo seeding and empty-history assertions require optional history, unlike
+	// live serving. Wait within the existing startup deadline, without replaying
+	// any seed mutations or changing the Gateway's readiness contract.
+	err = waitUntil(seedCtx, children, "traffic history readiness", func() (bool, error) {
+		status := c.get("system-status")
+		return value(status, "traffic", "ready") == true, c.err
+	})
+	if err != nil {
+		return err
+	}
 	endpoints := map[string]string{}
 	if dataset == "curated" {
 		executable, exeErr := os.Executable()

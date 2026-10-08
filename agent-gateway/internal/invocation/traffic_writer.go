@@ -83,7 +83,13 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, err error) {
 }
 func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	s.writerGate.Lock()
-	defer s.writerGate.Unlock()
+	var observe func()
+	defer func() {
+		s.writerGate.Unlock()
+		if observe != nil {
+			observe()
+		}
+	}()
 	active := make([]*trafficRequest, 0, len(batch))
 	for _, r := range batch {
 		s.mu.Lock()
@@ -103,16 +109,12 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.WriteLifetime)
 	defer cancel()
-	err := s.reserveTraffic(ctx)
-	var recorded []recordedEvent
-	if err == nil {
-		recorded, err = s.writeTraffic(ctx, active)
-	}
+	recorded, err := s.writeTraffic(ctx, active)
 	if s.pendingConnection != nil {
 		err = classifyTraffic(err, "rollback", "uncertain")
 	}
 	if err != nil {
-		s.failTraffic(err, "reservation", "not_started")
+		observe = s.failTrafficState(err, "reservation", "not_started")
 	}
 	if err == nil {
 		for _, event := range recorded {
@@ -144,6 +146,9 @@ func (s *TrafficStore) writeTraffic(ctx context.Context, batch []*trafficRequest
 		return nil, classifyTraffic(err, "begin", "not_started")
 	}
 	defer s.finishTrafficConnection(conn)
+	if err := s.reserveTraffic(ctx); err != nil {
+		return nil, classifyTraffic(err, "reservation", "not_started")
+	}
 	// SQL calls still use the batch deadline. Detaching only the transaction
 	// lifetime prevents database/sql's asynchronous rollback from releasing
 	// apparent ownership before the actual rollback owner has settled.
