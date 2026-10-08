@@ -69,9 +69,21 @@ func TestDemoHelper(t *testing.T) {
 	opts.configureClient = func(c *client) {
 		original := c.http.Transport
 		until := time.Now().Add(2 * time.Second)
+		historyStatusReads := 0
 		c.http.Transport = transportFunc(func(r *http.Request) (*http.Response, error) {
 			if r.URL.Path == "/readyz" && (scenario == "timeout" || (scenario == "delay" && time.Now().Before(until))) {
 				return nil, errors.New("test readiness delay")
+			}
+			if scenario == "history-delay" {
+				if r.URL.Path == "/api/v2/system-status" {
+					historyStatusReads++
+					if historyStatusReads <= 2 {
+						return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"traffic":{"ready":false}}`)), Request: r}, nil
+					}
+				}
+				if (r.URL.Path == "/api/v2/mcp/invocations" || r.URL.Path == "/api/v2/http/traffic") && historyStatusReads <= 2 {
+					return nil, errors.New("history requested before attachment")
+				}
 			}
 			if scenario == "seed" && r.Method == "POST" && r.URL.Path == "/api/v2/principals" {
 				raw, err := io.ReadAll(r.Body)
@@ -478,6 +490,12 @@ func TestServeDemoLifecycle(t *testing.T) {
 		roots, err := filepath.Glob(filepath.Join(s.parent, "agent-gateway-demo-*"))
 		require.NoError(t, err)
 		require.Empty(t, roots)
+	})
+	t.Run("delayed history attachment", func(t *testing.T) {
+		s := startDemo(t, "empty", "history-delay", "")
+		s.ready(t)
+		require.NoError(t, s.process.Signal(syscall.SIGTERM))
+		s.stopped(t, false)
 	})
 	t.Run("delayed readiness and selected failures", func(t *testing.T) {
 		began := time.Now()

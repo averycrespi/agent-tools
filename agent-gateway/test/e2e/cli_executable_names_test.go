@@ -173,8 +173,18 @@ func TestCLIExecutableNames(t *testing.T) {
 			}
 			var statusJSON []byte
 			for _, binary := range []string{names[0], names[1]} {
-				status, statusErr := runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--online", "--address", "http://"+authority, "--json")
-				require.NoError(t, statusErr, "status: %s", status.Stderr)
+				var status testutil.ProcessResult
+				// Service readiness deliberately precedes optional history attachment.
+				require.Eventually(t, func() bool {
+					var statusErr error
+					status, statusErr = runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--online", "--address", "http://"+authority, "--json")
+					require.NoError(t, statusErr, "status: %s", status.Stderr)
+					var checklist struct {
+						System contract.SystemStatus `json:"system"`
+					}
+					require.NoError(t, json.Unmarshal(status.Stdout, &checklist))
+					return checklist.System.Traffic.Ready
+				}, 10*time.Second, 20*time.Millisecond)
 				assertSettledResult(t, status)
 				assert.Empty(t, status.Stderr)
 				assert.True(t, json.Valid(status.Stdout))

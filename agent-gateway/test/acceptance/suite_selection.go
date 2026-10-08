@@ -337,12 +337,53 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 			commands = append(commands, command)
 		}
 	}
+	if id == "test-integration" {
+		return partitionInvocationCommands(moduleRoot, inventory, commands, repeats)
+	}
 	return commands, nil
+}
+
+// Invocation's real SQLite lifecycle coverage exceeds one test binary's budget
+// on hosted runners. Keep every source-discovered identity, but distribute the
+// sorted inventory across two sequential binaries on the same fixture owner.
+func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, commands []SuiteGoCommand, repeats int) ([]SuiteGoCommand, error) {
+	var result []SuiteGoCommand
+	for _, command := range commands {
+		var invocation, other []SuiteTest
+		for _, test := range command.Tests {
+			if test.Package == "./internal/invocation" {
+				invocation = append(invocation, test)
+			} else {
+				other = append(other, test)
+			}
+		}
+		if len(invocation) < 2 {
+			result = append(result, command)
+			continue
+		}
+		sort.Slice(invocation, func(i, j int) bool { return invocation[i].Name < invocation[j].Name })
+		groups := [2][]SuiteTest{other, nil}
+		for index, test := range invocation {
+			groups[index%2] = append(groups[index%2], test)
+		}
+		for _, tests := range groups {
+			if len(tests) == 0 {
+				continue
+			}
+			planned := suiteGoCommand("test-integration", strings.Join(tests[0].Tags, ","), tests, repeats)
+			if err := validateSuiteCommand(moduleRoot, inventory, planned); err != nil {
+				return nil, err
+			}
+			result = append(result, planned)
+		}
+	}
+	return result, nil
 }
 
 // The first shard holds six heavy owners (~half of the measured macOS package time).
 // All other and newly discovered packages go to shard two: this is a partition,
-// never a second executable inventory. Packages remain indivisible fixture owners.
+// never a second executable inventory. A package never spans runners; invocation
+// uses sequential test binaries within that same fixture owner.
 func integrationShard(pkg string) string {
 	switch pkg {
 	case "./internal/invocation", "./internal/storage", "./internal/authorization", "./internal/composition", "./internal/keyring", "./internal/admin":
@@ -465,6 +506,11 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 	commands, err := PlanSuite(moduleRoot, id, inventory, repeats)
 	if err != nil {
 		return err
+	}
+	if id == "test-integration" || id == "test-integration-1" || id == "test-integration-2" {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, suiteCommandBudget("test-integration"))
+		defer cancel()
 	}
 	for _, command := range commands {
 		id := command.Tests[0].Owner
