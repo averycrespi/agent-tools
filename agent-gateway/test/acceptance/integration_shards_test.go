@@ -91,7 +91,7 @@ func TestIntegrationInvocationPartitionsStaySequentialAndComplete(t *testing.T) 
 				sharedDeadline = deadline
 			}
 			assert.Equal(t, sharedDeadline, deadline, "later batches cannot renew the owner budget")
-			assert.Equal(t, 12*time.Minute, command.Timeout)
+			assert.Equal(t, 15*time.Minute, command.Timeout)
 			if calls == failAt {
 				return nil, failure
 			}

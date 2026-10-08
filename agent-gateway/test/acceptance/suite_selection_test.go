@@ -271,7 +271,7 @@ func TestSuiteRunnerKeepsPackageAndCommandDeadlinesSeparate(t *testing.T) {
 		"agent-gateway/internal/first/first_test.go":   "package first\nimport \"testing\"\nfunc TestFirst(t *testing.T) {}\n",
 		"agent-gateway/internal/second/second_test.go": "package second\nimport \"testing\"\nfunc TestSecond(t *testing.T) {}\n",
 	})
-	for _, budget := range []time.Duration{0, 20 * time.Minute, 30 * time.Second} {
+	for _, budget := range []time.Duration{0, 20 * time.Minute, 14 * time.Minute, 30 * time.Second} {
 		t.Run(budget.String(), func(t *testing.T) {
 			ctx := t.Context()
 			if budget != 0 {
@@ -286,14 +286,14 @@ func TestSuiteRunnerKeepsPackageAndCommandDeadlinesSeparate(t *testing.T) {
 				calls++
 				deadline, bounded := commandContext.Deadline()
 				require.True(t, bounded, "the complete integration owner shares one command budget")
-				if parentBound && budget < 12*time.Minute {
+				if parentBound && budget < 15*time.Minute {
 					assert.Equal(t, parentDeadline, deadline)
 				} else {
-					assert.False(t, deadline.Before(started.Add(12*time.Minute)))
-					assert.False(t, deadline.After(time.Now().Add(12*time.Minute)))
+					assert.False(t, deadline.Before(started.Add(15*time.Minute)))
+					assert.False(t, deadline.After(time.Now().Add(15*time.Minute)))
 				}
 				assert.Contains(t, command.Arguments, "-timeout=5m0s")
-				assert.Equal(t, 12*time.Minute, command.Timeout, "the executor must receive the full command budget")
+				assert.Equal(t, 15*time.Minute, command.Timeout, "the executor must receive the full command budget")
 				assert.Contains(t, command.Arguments, "-race")
 				assert.Contains(t, command.Arguments, "-count=1")
 				assert.Contains(t, command.Arguments, "./internal/first")
