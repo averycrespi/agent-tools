@@ -1,6 +1,6 @@
 package contract
 
-const DocumentationOwnershipManifestVersion = 3
+const DocumentationOwnershipManifestVersion = 4
 
 type DocumentationGuide struct {
 	ID       string
@@ -29,6 +29,7 @@ var documentationGuides = []DocumentationGuide{
 	{ID: "docs.guide.http.proxy", Path: "docs/operators/http-proxy.md", Audience: "Gateway administrators and client operators", Purpose: "Enable proxying and configure fresh clients without migrating Broker state."},
 	{ID: "docs.guide.installation.safety", Path: "docs/operators/installation-safety.md", Audience: "Operators maintaining existing Gateway installations", Purpose: "Select the existing installation and retain post-migration safety and recovery artifacts."},
 	{ID: "docs.guide.launchd", Path: "docs/operators/launchd.md", Audience: "Gateway operators using a logged-in macOS desktop", Purpose: "Install, verify, and manage a per-user LaunchAgent"},
+	{ID: "docs.guide.systemd", Path: "docs/operators/systemd.md", Audience: "Gateway operators using a Linux user manager", Purpose: "Supervise foreground serve with an operator-owned systemd user unit."},
 	{ID: "docs.guide.cli.local.administration", Path: "docs/operators/administration.md", Audience: "Gateway operators and automation authors", Purpose: "Run local administration safely through the public CLI."},
 	{ID: "docs.guide.server.configuration", Path: "docs/operators/upstream-servers.md", Audience: "Gateway operators configuring upstream MCP servers", Purpose: "Configure servers, credentials, and OAuth without broadening trust."},
 	{ID: "docs.guide.access.policy", Path: "docs/operators/access-control.md", Audience: "Gateway administrators managing agent access", Purpose: "Manage principals, credentials, grants, and grant requests."},
@@ -43,7 +44,6 @@ var documentationCommandFamilies = []DocumentationCommandFamily{
 	{ID: "docs.command.http.ca", CommandPath: "http ca", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway http ca --help"},
 	{ID: "docs.command.git", CommandPath: "git", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway git --help"},
 	{ID: "docs.command.http", CommandPath: "http", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway http --help"},
-	{ID: "docs.command.service", CommandPath: "service", CanonicalOwner: "docs/operators/launchd.md", HelpInvocation: "agent-gateway service --help"},
 	{ID: "docs.command.audit", CommandPath: "audit", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway audit --help"},
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway admin credential --help"},
 	{ID: "docs.command.admin.reset", CommandPath: "maintenance reset-admin-credentials", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway maintenance reset-admin-credentials --help"},

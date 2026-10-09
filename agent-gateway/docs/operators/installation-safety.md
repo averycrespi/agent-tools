@@ -20,7 +20,7 @@ The current `agent-gateway` resolves an explicit `--data-dir` first, including a
 
 Selection does not inspect legacy paths, tombstones, past XDG locations, or custom supervisors. Changing XDG settings is not relocation. An explicit root does not authorize a second installation. Preserve the actual installed root and service arguments during upgrades; do not reinitialize or rotate credentials for naming.
 
-The canonical [service manager](launchd.md) assumes naming adoption is complete: it does not inspect legacy labels or import archived plists. For an existing installation, select its exact `--data-dir` and preserve installed settings. Reconcile unexpected legacy/custom launchers separately before managing a live service.
+Native service management is retired. The operator owns [launchd](launchd.md) or [systemd](systemd.md) definitions and lifecycle actions; source upgrades do not inspect legacy labels or import archived plists. For an existing installation, select its exact `--data-dir` and preserve installed settings. Reconcile unexpected legacy/custom launchers separately before any authorized live-service change.
 
 ## SQLite sidecar permissions
 

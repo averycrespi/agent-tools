@@ -5,38 +5,40 @@ package e2e
 import (
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestCLIServiceInstalledGrammarAndPlatformRefusal(t *testing.T) {
+func TestCLIServiceRetiredWithoutInstalledResourceAccess(t *testing.T) {
 	binary := gatewayBinary(t)
 	runner := firstRunRunner(t)
 	isolated := t.TempDir()
 	t.Setenv("HOME", isolated)
 	t.Setenv("XDG_DATA_HOME", isolated)
+	// Retained operator-owned artifacts must not be interpreted or rewritten.
+	plist := filepath.Join(isolated, "dev.agent-tools.agent-gateway.plist")
+	original := []byte("retained operator-owned definition\n")
+	require.NoError(t, os.WriteFile(plist, original, 0600))
 	for _, verb := range []string{"install", "start", "stop", "restart", "update", "status", "uninstall"} {
+		result, err := runner.Run(t.Context(), binary, "service", verb)
+		require.Error(t, err)
+		require.Contains(t, string(result.Stderr), "The command is not recognized. Usage: agent-gateway --help")
 		help, err := runner.Run(t.Context(), binary, "service", verb, "--help")
 		require.NoError(t, err)
-		require.Contains(t, string(help.Stdout), "agent-gateway service "+verb)
-		if runtime.GOOS != "darwin" {
-			// Never invoke native mutations on macOS; those need separate resource consent.
-			result, e := runner.Run(t.Context(), binary, "service", verb)
-			require.Error(t, e)
-			require.Empty(t, result.Stdout)
-			require.Contains(t, string(result.Stderr), "requires macOS launchd")
-		}
+		require.NotContains(t, string(help.Stdout), "agent-gateway service")
 	}
-	for _, args := range [][]string{{"service", "restart", "--log-level", "debug"}, {"service", "restart", "--data-dir", filepath.Join(isolated, "data")}, {"service", "update", "--clear-allowed-hosts", "--allowed-host", "host.example"}, {"service", "configure"}, {"service", "install", "unexpected"}} {
-		result, err := runner.Run(t.Context(), binary, args...)
-		require.Error(t, err, strings.Join(args, " "))
-		require.Empty(t, result.Stdout)
-		require.Contains(t, string(result.Stderr), "Usage:")
-	}
+	help, err := runner.Run(t.Context(), binary, "--help")
+	require.NoError(t, err)
+	require.NotContains(t, string(help.Stdout), "Manage the macOS background service")
+	completion, err := runner.Run(t.Context(), binary, "__complete", "serv")
+	require.NoError(t, err)
+	require.Contains(t, string(completion.Stdout), "serve\t")
+	require.NotContains(t, string(completion.Stdout), "service\t")
+	retained, err := os.ReadFile(plist)
+	require.NoError(t, err)
+	require.Equal(t, original, retained)
 	entries, err := os.ReadDir(isolated)
 	require.NoError(t, err)
-	require.Empty(t, entries, "service help/refusal must not initialize storage or create service files")
+	require.Len(t, entries, 1, "retired grammar must not initialize storage or create service files")
 }

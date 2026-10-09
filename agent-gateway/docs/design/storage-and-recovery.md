@@ -163,7 +163,7 @@ autocheckpoint threshold without retaining an ever-growing idle WAL. A reader ma
 still delay cleanup; a retained WAL is valid restart state, not shutdown failure.
 
 The default combined database-plus-WAL budget is **4,294,967,296 bytes**; the
-`serve` and persisted service configuration accept 1 MiB–16 GiB through
+`serve` and operator-authored supervisor arguments accept 1 MiB–16 GiB through
 `--traffic-budget-bytes`, validated before storage mutation. The CLI accepts integer bytes and exact-case B/KB/MB/GB/KiB/MiB/GiB units with overflow checks; installed settings retain canonical decimal bytes. File lengths, not allocated filesystem
 blocks or logical SQLite page counts alone, are measured. For 4096-byte pages,
 64 KiB is safety headroom; at most one third of the remainder is database pages.
@@ -229,7 +229,7 @@ replaced. Recovery observes actual settlement without executing another rollback
 Shutdown joins the actual writer and reports unresolved settlement as unclean.
 Successful checkpoint truncation or WAL absence is not a shutdown/restart correctness
 prerequisite: acknowledged commits survive through WAL-aware validation. Process
-absence, including service-wrapper stop confirmation, does not prove clean storage
+absence, including supervisor stop confirmation, does not prove clean storage
 settlement or a completed checkpoint.
 
 The existing writer lifecycle schedules revalidation after one second, doubling

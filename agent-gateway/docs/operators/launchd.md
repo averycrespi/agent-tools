@@ -2,159 +2,70 @@
 
 Audience: Gateway operators using a logged-in macOS desktop
 
-Purpose: Install, verify, and manage a per-user LaunchAgent with the installed `agent-gateway service` commands. The canonical plist is the single persisted service-settings source; launchd supervises a direct foreground `serve` invocation.
+Purpose: Install, verify, and manage a per-user LaunchAgent with raw launchctl procedures and an operator-owned plist.
 
-## GUI session and credentials
+Gateway supplies foreground `serve`, not a native service manager. Nothing in a binary upgrade unloads a job, rewrites a plist, removes logs or changes installation data. Existing launchd jobs invoking supported `serve` remain valid. Linux operators use the [systemd guide](systemd.md).
 
-Run as the intended logged-in macOS user, without `sudo`. Management targets only `dev.agent-tools.agent-gateway` in `gui/<uid>`, under the **OS-account home**, not the `HOME` environment variable. Root and non-macOS execution refuse before mutation. Custom labels, LaunchDaemons, other supervisors, binary upgrades, storage repair and installation migration are outside this command group.
+## Existing installations and command-line transition
 
-No service command initializes or opens the private database, reads a bearer, or accesses the native keyring. Lifecycle commands may inspect the existing installation lock without creating it or changing recovery markers. Readiness is not credential health: encrypted custody requires the installation's protected master key, and upstream credentials may still be expired or invalid. Gateway never prompts for native credential access. See [encrypted custody](../design/downstream-servers.md#keyring-capability-and-generation-cutover).
+The former Gateway `service` command group is removed, including its JSON output. Replace automation with the explicit supervisor procedures below. `doctor` no longer inspects native jobs or returns the optional `service` member or `installed service` check; other diagnostic and public API schemas are unchanged. Inspect configuration and logs through the supervisor instead.
 
-Never put secrets in plist values, argv, environment variables or logs. Service management assumes completed canonical naming adoption; it does not inspect dual labels or import archived legacy plists. The migrator is retired; follow [installation safety](installation-safety.md) for retained artifacts and [backup and recovery](backup-and-recovery.md) for actual recovery.
+No plist rewrite is required merely because management was removed. Retain the actual executable, data root, listener, allowed hosts, traffic budget, diagnostics/output flags and log destinations. `serve --output human|json` and `--json` remain supported. The exact macOS `XPC_SERVICE_NAME=dev.agent-tools.agent-gateway` compatibility hint still preserves omitted HTTP-listener intent as disabled; it grants no identity or credential authority. For a custom label or a manually edited definition, explicitly select `--http-proxy-listen 127.0.0.1:8212` or `--clear-http-proxy-listen`. Bare foreground `serve` otherwise enables HTTP by default. No automatic migration occurs.
 
-## Quick start
+Before any separately authorized change, record the installed definition, loaded program/arguments and process identity. Preserve a backup outside automatic-load directories. Do not rename labels, initialize a new root, delete locks or force-kill a process to resolve ambiguity. Retain archived plists, logs and recovery artifacts under [installation safety](installation-safety.md).
 
-Prerequisites for **installed management**: the native macOS `agent-gateway` executable and macOS system utilities. No Python, Go toolchain or checkout is needed. Building/installing the executable is a separate [installation](../../README.md#installation) step; service commands never upgrade binaries.
+## Prepare a new definition
 
-For a **new installation only**, initialize the intended unused data root separately with `agent-gateway init`. For an existing installation, retain its data and authority; never initialize another root to resolve a service error.
+Run as the intended logged-in non-root macOS account, without `sudo`. This guide uses the concrete example account `alice`, native executable `/Users/alice/.local/bin/agent-gateway`, data root `/Users/alice/.local/share/agent-gateway` and logs `/Users/alice/Library/Logs/agent-gateway`. **Replace these with the actual absolute paths for your account before installation.** Do not copy example paths unchanged onto another account. launchd does not expand `~`, shell variables or shell profiles in plist arguments. Use an owner-controlled executable, not a version-manager shim; keep executable and parent directories protected from other users' writes.
 
-```bash
-agent-gateway service install
-agent-gateway service start
-agent-gateway service status
-```
+The [maintained plist](../../examples/launchd/agent-gateway.plist) invokes `serve` directly. There is no shell wrapper, installer or runtime template dependency. Its explicit HTTP listener requires existing CA signing material; MCP-only configurations must replace the two HTTP address arguments with `--clear-http-proxy-listen`. Preserve allowed hosts only when required for trusted forwarding; loopback binding is not authorization. See [HTTP/client trust setup](http-proxy.md).
 
-Install creates the private plist and log destinations, but **does not load the service**. Stop on an error and inspect the reported state before another command. Successful launch acceptance does not prove readiness.
+For a **new unused data root only**, perform ordinary [initialization](administration.md#installation-root) with the same account and explicit data path before loading. For an existing root, do not rerun initialization as service repair. The account must own the `0700` data directory, `0600` installation master key and administrator bearer. Retain encrypted backups and separately protected key custody; never put secrets in the plist, argv, environment or logs.
 
-### Defaults and installer behavior
+Prepare the intended private log directory (`0700`) and new stdout/stderr files (`0600`) with `umask 077`, without following symlinks or truncating existing files. Inspect existing paths and ownership before writing; do not broadly chmod/chown an existing installation. Save the reviewed plist as `/Users/alice/Library/LaunchAgents/dev.agent-tools.agent-gateway.plist`, owned by alice, mode `0600`. The LaunchAgents directory must be owner-controlled. Refuse an unexpected existing destination rather than overwriting it.
 
-| Selection   | Install default                                                                                    |
-| ----------- | -------------------------------------------------------------------------------------------------- |
-| Executable  | Absolute path of the currently executing binary, not GOPATH                                        |
-| Data root   | Absolute `$XDG_DATA_HOME/agent-gateway`, otherwise OS-account home + `/.local/share/agent-gateway` |
-| Listener    | `127.0.0.1:8210`                                                                                   |
-| HTTP proxy  | `127.0.0.1:8212`                                                                                   |
-| Plist       | OS-account home + `/Library/LaunchAgents/dev.agent-tools.agent-gateway.plist`                      |
-| Logs        | OS-account home + `/Library/Logs/agent-gateway/{stdout,stderr}.log`                                |
-| Diagnostics | `warn`                                                                                             |
+`RunAtLoad` and `KeepAlive` provide supervision. `ExitTimeOut=30` leaves room for Gateway's ten-second drain plus best-effort diagnostics; forced expiry is not clean-shutdown evidence. The fixed utility PATH is not a login shell environment. Managed stdio servers retain their own explicit clean environments.
 
-Install refuses an existing plist, loaded canonical job, unsafe permissions/ownership, symlinks and unsupported selections rather than overwriting or fixing them. It creates a synced `0600` plist, `0700` log directory and `0600` log files. Newly created directories/logs can remain after a later failure; existing files are not truncated. A retained private management-lock file serializes cooperating commands and is not a second configuration file.
+## Load and inspect
 
-The [example plist](../../examples/launchd/agent-gateway.plist) illustrates the Go-owned definition, not a runtime template dependency. XML-aware serialization preserves literal arguments, including spaces and XML characters. Generated XML includes the standard plist declaration and self-closing boolean elements for launchd compatibility; passing `plutil -lint` alone does not prove launchd will accept a definition. launchd runs the selected executable directly: no shell expansion, profile sourcing, or wrapper. `RunAtLoad` and `KeepAlive` retain launchd supervision; `ExitTimeOut=30` leaves room for Gateway's ten-second drain plus best-effort diagnostic flush. The utility PATH is `/usr/bin:/bin:/usr/sbin:/sbin`, not a shell/version-manager environment. Managed stdio servers have their own clean configured environments.
-
-### HTTP proxy selection
-
-New installs persist `127.0.0.1:8212` by default. Use
-`service install --clear-http-proxy-listen` for MCP-only operation, or
-`--http-proxy-listen 127.0.0.1:8213` for a custom distinct numeric IPv4 loopback
-address. Update preserves omitted selections; `--clear-http-proxy-listen`
-explicitly disables HTTP and cannot accompany a replacement address.
-
-Existing disabled definitions remain disabled, including older plists with no
-HTTP flag. Restart and unchanged update retain their original bytes; changed
-updates render disabled intent explicitly. The canonical launchd label's
-`XPC_SERVICE_NAME` context preserves legacy omission even during an automatic
-restart after binary replacement; this is only an opt-out hint, not process
-identity or credential authority. Custom launchers must explicitly select their
-intended HTTP setting. No automatic plist migration is performed.
-
-Both binds and existing CA signing material must be available for readiness.
-Normal `init` creates the initial CA; service management never creates CA
-material or installs trust. Complete separate [client setup](http-proxy.md).
-Explicit MCP-only operation does not load signing material. After restore or
-key loss, enabled configurations fail until explicit stopped CA replacement;
-there is no automatic replacement or silent MCP-only fallback.
-
-### Custom paths
+Only run these commands after separately authorizing the installed-resource change. First inspect the intended GUI domain and ensure there is no existing job or other launcher for this data root. An inspection failure is not proof of absence.
 
 ```bash
-agent-gateway service install \
-  --binary /absolute/path/to/agent-gateway \
-  --data-dir /absolute/path/to/existing-data \
-  --listen 127.0.0.1:8210 \
-  --allowed-host gateway.example \
-  --log-level info
+/bin/launchctl print "gui/$(id -u)"
+/usr/bin/plutil -lint /Users/alice/Library/LaunchAgents/dev.agent-tools.agent-gateway.plist
+/bin/launchctl bootstrap "gui/$(id -u)" /Users/alice/Library/LaunchAgents/dev.agent-tools.agent-gateway.plist
+/bin/launchctl print "gui/$(id -u)/dev.agent-tools.agent-gateway"
+/Users/alice/.local/bin/agent-gateway --data-dir /Users/alice/.local/share/agent-gateway doctor --address http://127.0.0.1:8210
 ```
 
-Binary and data paths must be clean absolute paths. Explicit `--data-dir` overrides XDG selection; relative XDG input otherwise fails. The selected binary must be an owner-controlled executable, not a symlink or shell-profile-dependent shim. Install persists the explicit data path so later management does not recompute it from the shell environment. Selecting a different data path does not move or initialize any data.
+Run bootstrap once. On error or uncertainty, inspect before deciding another action; do not loop or automatically retry. A valid XML plist is not proof of native acceptance. Loaded/running is not readiness. `doctor` uses a bounded unauthenticated readiness check; an unrelated listener can answer, so match the loaded program, literal arguments and process identity separately. `doctor --online` deliberately uses the selected administrator bearer to inspect authenticated status. Neither proves upstream credential health. Never copy a bearer into curl arguments.
 
-## Manage
+Inspect only the necessary bounded interval of the configured stdout/stderr logs locally. [Serve diagnostics](administration.md#safe-serve-diagnostics) are lossy and not audit evidence or permission to replay an uncertain call. launchd does not rotate these files; the operator owns retention and safe stopped log rotation.
 
-Use `agent-gateway service --help` for the command inventory and each verb's `--help` for its flags.
+## Stop, change settings, and perform maintenance
 
-Service commands default to human-readable output. Status groups installed settings and paths separately from launchd state and readiness; mutations show a short outcome without repeating configuration. Use `--json` or `--output json` for machine-readable success and error output (scripts consuming the former default JSON must now select it explicitly). These flags control only the management command's output, not the installed `serve` diagnostics. Launch acceptance is not readiness; run `agent-gateway service status` after starting or restarting.
-
-### Plist changes
+Disable every other launcher for this installation and coordinate against concurrent manual starts. Record the loaded job's PID and identity **before** unloading, then request graceful termination once:
 
 ```bash
-agent-gateway service update --log-level debug
-agent-gateway service update --allowed-host first.example --allowed-host second.example
-agent-gateway service update --clear-allowed-hosts
+/bin/launchctl print "gui/$(id -u)/dev.agent-tools.agent-gateway"
+/bin/launchctl bootout "gui/$(id -u)/dev.agent-tools.agent-gateway"
 ```
 
-`--traffic-budget-bytes` is a persisted serve setting for install/update (default
-4294967296; supported range 1048576–17179869184). CLI size values also accept integer units such as `256MiB` or `4GiB`; installed definitions retain decimal bytes. Omitted values retain the installed
-selection, including legacy definitions that omit the flag and imply the default.
-Use the same selected value for stopped storage verification. Reducing a budget
-below existing traffic requirements refuses readiness rather than discarding
-history. Backups/staging and control storage need separate disk headroom.
+Allow at most 30 seconds for graceful termination. Verify the job is absent from the same valid GUI domain and the previously identified process has exited; a zombie remains a blocker until reaped. Check for another owner of the selected installation. An unreachable listener or free lock alone is not process-exit proof. Unknown inspection, PID reuse, surviving children, timeout or a bootout error stops the procedure: retain the existing definition/data and investigate, rather than issuing bootstrap, repeated bootout or `kickstart -k`. Do not signal a PID merely from its basename. launchd may enforce its termination deadline; inspect diagnostics and retain any unclean marker, WAL or recovery files.
 
-Update preserves omitted values. Explicit `--allowed-host` values **replace the whole list**; `--clear-allowed-hosts` clears it and cannot be combined with replacement values. There is no separate configure verb. An unchanged update avoids restart. A changed running or loaded-but-exited/restarting job is gracefully unloaded, its stop confirmed, the private plist atomically replaced, and then loaded once. An unloaded job stays unloaded. Settings persist across restarts and GUI logins.
+Only after confirmed stop may you deliberately edit the plist, replace the binary through its authorized installation method, rotate logs, or run [stopped maintenance](backup-and-recovery.md). Keep all automatic launchers disabled during maintenance. Gateway's stopped-ownership checks still apply and do not authorize deleting a lock or marker. Keep the same data root and account; backups and offline key rotation retain their separate safety requirements.
 
-Canonical installer-produced definitions retain supported literal selections, including trailing `--log-level`, `--output human|json`, or `--json`. Conflicting/duplicate singleton flags, unknown keys/arguments, custom environments/log destinations, shell wrappers and ambiguous loaded-versus-installed definitions refuse with reconciliation guidance; nothing is silently discarded. There is no generic argument passthrough or archived `--from-plist` handover. For unsupported custom definitions, separately authorize a manual stopped reconciliation, preserve the original outside LaunchAgents, and retain every intended nonsecret selection. Do not repair by reinitializing or deleting installation state.
+For restart, retain the unchanged definition and bootstrap it once using the earlier command, then inspect identity/readiness again. For changed settings, preserve a private backup outside LaunchAgents, review every literal argument and lint the edited plist before that one bootstrap. A failed start leaves the selected settings in place: no automatic rollback or mutation replay. If retiring a job permanently, leave it unloaded; moving/removing a plist requires a separate deliberate operator decision, never deletion of installation data or logs.
 
-### Graceful stop and restart
+Process-local sessions, streams and runtime handles disappear on restart. In-flight effects can remain unknown; follow [invocation evidence](invocation-evidence.md).
 
-```bash
-agent-gateway service restart
-agent-gateway service stop
-agent-gateway service start
-```
+## Troubleshooting and qualification
 
-Restart uses unchanged installed settings and accepts **no settings overrides**, including inherited `--data-dir`. It loads an absent job. Start is a no-op for an already loaded valid definition, including a loaded job waiting to restart. Stop is a no-op only when unloaded and no relevant process owner remains.
+- **GUI domain unavailable:** use the intended logged-in account. Do not substitute root, a LaunchDaemon or another user's domain.
+- **Bootstrap rejection:** inspect the exact file, permissions, native error and logs. Historical malformed XML may need a separately authorized stopped `plutil -convert xml1` conversion after preserving the original; do not assume lint success proves launchd acceptance.
+- **Repeated exits or unready:** inspect executable/data paths, private log destinations, listener conflicts and CA/key custody. Do not initialize another root or reset credentials.
+- **Ownership or recovery refusal:** preserve files and use the [recovery guide](backup-and-recovery.md); restarting is not generic repair.
 
-Management uses one `bootout` and one appropriate `bootstrap`, never `kickstart -k` or signals to Gateway PIDs. It validates loaded path/program/argv, retains observed process identities and checks installation-scoped ownership rather than globally blocking a basename. Unknown or ambiguous process arguments refuse. The management lock protects cooperating canonical CLI commands, not arbitrary external launchctl calls; do not run manual management or another launcher concurrently. Existing installation lock descriptors remain held through plist publication and the final job/process/plist checks, then are released specifically for the one bootstrap handoff so Gateway can acquire its own lock. This handoff does not coordinate noncooperating foreground launches; keep those disabled throughout management.
-
-Each utility invocation has a five-second deadline and 1 MiB combined output cap; the Go runner retains its unreaped child identity while fencing its own utility group and then reaps it. Stop observation has a 30-second deadline; each operation has a 60-second outer bound, with bounded cleanup. No uncertain mutation is automatically retried. Unknown inspection, reused identity or stop timeout prohibits a replacement owner. A free installation lock alone is not proof of process exit. After bootout, an already tracked PID reported explicitly as a zombie with unchanged UID and start time remains a wait-only blocker, even when `ps` replaces its executable with `<defunct>`, a parenthesized unavailable-command representation, or leaves it empty. It must disappear before bootstrap; a persistent zombie times out. This does not adopt an initially observed zombie, accept a different executable path, or treat an unknown/exiting-only state as proof of exit.
-
-Invalid proposals leave the old plist/service unchanged. Publication failure retains the old definition; failure after confirmed stop leaves the service stopped. Publication/sync uncertainty is reported explicitly. If publication succeeds but bootstrap fails, **new settings remain installed** and launch state is unknown until inspected; there is no automatic rollback or restart retry. Launchd can enforce its termination deadline, so confirmed exit is not proof of clean storage shutdown or a completed checkpoint. Valid retained traffic WAL opens normally on the next startup; do not delete sidecars or change history selection to make a restart succeed. Storage identity, integrity and unresolved security-marker checks still apply.
-
-Restart discards browser sessions, runtime handles, streams, OAuth transients and other process-local state. In-flight effects can remain unknown: never automatically replay them. See [invocation evidence](invocation-evidence.md).
-
-### Older generated plist rejected by launchd
-
-Read-only `service status` warns when a supported definition lacks the standard plist declaration or contains the older paired boolean encoding. JSON includes an optional `warnings` array. This is an encoding hint, not proof of native rejection or acceptance; status does not rewrite the plist. Unsupported contents still refuse management rather than merely warning.
-
-Older installers emitted noncanonical plist XML that could pass `plutil -lint` but fail bootstrap with launchd error `109: Invalid property list`. If service status confirms the job is unloaded and launchd logs show this error, preserve a backup outside automatic-load paths, then normalize the installed plist with `plutil -convert xml1 /absolute/path/to/dev.agent-tools.agent-gateway.plist` before starting it. This preserves the settings and does not initialize data or credentials. Upgrade the executable before subsequent install/update operations regenerate the definition. An unchanged update does not rewrite an existing plist.
-
-## Verify
-
-```bash
-agent-gateway service status
-```
-
-Read-only status shows installed selections, plist/log paths, launchd state, and a **separate** readiness observation. With `--json`, it emits these as a finite JSON object. The unauthenticated numeric-loopback `/readyz` probe bypasses proxies and redirects, is bounded to two seconds and sends no credential. It reports `ready`, `not-ready`, `unavailable` or `unknown`; an unrelated listener can answer that address, so the probe is neither process-identity proof nor upstream credential health. Launchd inspection errors never become “unloaded.” Loaded identity and state come only from the service's top-level fields; nested coalition states and other nested fields are not service identity. Unrelated sections such as LWCR dictionaries/arrays are opaque: their deeper formatting is not validated, but their enclosing indentation and closing boundary must be unambiguous. Literal top-level arguments are compared with the installed definition, not interpreted as section syntax. Duplicate identity fields, ambiguous service/arguments boundaries and loaded-versus-installed mismatches still report unknown. A job loaded without an installed definition is reported separately.
-
-For authenticated storage/keyring posture, deliberately run the ordinary `agent-gateway --data-dir /installed/data/path status --address http://127.0.0.1:8210` command using the installed selections. That separate command reads an administrator bearer; service status does not. Never copy a bearer into a curl header argument. Inspect the reported stdout/stderr paths locally, retaining only necessary nonsecret evidence. See [safe serve diagnostics](administration.md#safe-serve-diagnostics) for levels, correlation and loss limits. Logs are not durable audit evidence and missing lines do not prove nonexecution.
-
-Native launchd behavior needs separately authorized disposable macOS qualification. Linux and injected utility fixtures are deterministic regression evidence, not native launchd proof. Never smoke-test these mutations against the current host installation without explicit authority.
-
-### Logs and uninstall
-
-```bash
-agent-gateway service uninstall
-```
-
-Uninstall first confirms graceful stop, then removes **only the canonical plist**. It preserves binaries, log files, data, bearer files, keyring state and the stable management-lock inode. It does not perform credential retirement or workspace cleanup.
-
-launchd does not rotate these logs. Arrange owner-controlled retention separately; stop and confirm exit before moving log files so the next start opens the intended destinations. Do not broaden permissions or add a token-bearing watchdog. Binary replacement is likewise separate: stop, confirm exit, install the intended native executable through its original authorized installation method, then start and verify.
-
-## Troubleshooting
-
-- **GUI domain unavailable:** use the intended logged-in account, not root or a headless system daemon. Unknown inspection is not absence.
-- **Utility inspection or cleanup failure:** launchd inspection reports the owned utility failure and OS error without copying command output. Preserve that diagnostic when investigating; an installed plist or a separately successful `launchctl print` does not establish that Gateway's utility supervision succeeded. Do not bypass a cleanup refusal with repeated lifecycle mutations or signals to Gateway PIDs.
-- **Bootstrap fails or repeated exits:** inspect the persisted selections, executable availability, private log destinations and safe diagnostics. Keep new settings after a failed updated bootstrap; investigate before a deliberate new attempt.
-- **Ownership conflict:** identify the other process/launcher. Do not delete lock files, change labels or force-kill to bypass the refusal.
-- **Unready, authentication failure or storage latch:** follow [administration](administration.md) and [stopped recovery](backup-and-recovery.md). Restart, reset and initialization are not generic repair operations.
+Consult the installed macOS `man launchctl` and `man launchd.plist` for the host version's supervisor semantics. Source fixtures verify CLI removal, explicit foreground behavior and retained compatibility hints; they do not qualify installed resources or native launchd adoption. Any native lifecycle exercise needs separately authorized disposable resources. This guide does not authorize changing the current host installation.
 
 Return to the [documentation map](../README.md) or [Gateway README](../../README.md).

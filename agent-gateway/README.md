@@ -73,12 +73,11 @@ agent-gateway doctor --online
 
 HTTP defaults to `127.0.0.1:8212`; opt out with `--clear-http-proxy-listen`.
 [Proxy setup](docs/operators/http-proxy.md) covers custom addresses, preserved
-managed settings and manual client trust.
+supervisor settings and manual client trust.
 
-For a checkout-only sandbox with tools, agents, grants and invocation history,
-use `make -C agent-gateway serve-demo`. It avoids the normal installation and native
-keyring. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway)
-for dataset/listener selection, protected credentials, Vite and cleanup.
+Supervise `serve` with [launchd](docs/operators/launchd.md) or [systemd](docs/operators/systemd.md); native management is retired.
+
+For an isolated encrypted sandbox, use `make -C agent-gateway serve-demo`. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for datasets, credentials and cleanup.
 
 Traffic storage defaults to 4 GiB (`--traffic-budget-bytes`), accepting integer bytes or units such as `256MiB` and `4GiB`. Existing installations
 require [stopped migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage).

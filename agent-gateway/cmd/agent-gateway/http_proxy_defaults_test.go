@@ -8,6 +8,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestLegacyHTTPLaunchContext(t *testing.T) {
+	for _, test := range []struct {
+		platform, label string
+		disabled        bool
+	}{
+		{"darwin", "dev.agent-tools.agent-gateway", true},
+		{"darwin", "", false},
+		{"darwin", "0", false},
+		{"darwin", "dev.agent-tools.agent-gateway.other", false},
+		{"linux", "dev.agent-tools.agent-gateway", false},
+	} {
+		require.Equal(t, test.disabled, legacyHTTPDisabled(test.platform, test.label))
+	}
+}
+
 func TestHTTPProxyServeDefaultAndExplicitOptOut(t *testing.T) {
 	root := newRootCmd()
 	serve, _, err := root.Find([]string{"serve"})
@@ -47,8 +62,6 @@ func TestHTTPProxySelectionPreservesManagedIntent(t *testing.T) {
 func TestHTTPProxyConflictingSelectionsFailBeforeInstallation(t *testing.T) {
 	for _, commandArgs := range [][]string{
 		{"serve", "--http-proxy-listen", "127.0.0.1:8213", "--clear-http-proxy-listen"},
-		{"service", "install", "--http-proxy-listen", "127.0.0.1:8213", "--clear-http-proxy-listen"},
-		{"service", "update", "--http-proxy-listen", "127.0.0.1:8213", "--clear-http-proxy-listen"},
 	} {
 		t.Run(commandArgs[0]+"/"+commandArgs[1], func(t *testing.T) {
 			command := newRootCmd()

@@ -14,7 +14,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +30,6 @@ type doctorResult struct {
 	DataDir   string                 `json:"data_dir"`
 	Selection string                 `json:"selection"`
 	Checks    []doctorCheck          `json:"checks"`
-	Service   *service.Result        `json:"service,omitempty"`
 	System    *contract.SystemStatus `json:"system,omitempty"`
 }
 
@@ -167,12 +165,6 @@ func newDoctorCmd() *cobra.Command {
 			}
 		}
 		add("runtime readiness", readiness, "", detail, readinessNext)
-		serviceResult, serviceErr := service.Execute(ctx, "status", service.Changes{})
-		if serviceErr == nil {
-			result.Service = &serviceResult
-		} else {
-			add("installed service", "not-checked", "", "Canonical native service inspection is unavailable on this account or platform.", "")
-		}
 		if online && defaultBearer && rootErr != nil {
 			add("authenticated live status", "not-checked", bearerFile, "Selected installation is absent or unsafe; its default bearer was not read.", "Select an existing safe installation or a known --admin-bearer-file.")
 		} else if online {

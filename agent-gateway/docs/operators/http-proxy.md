@@ -50,14 +50,13 @@ and both listener binds; any failure prevents startup acknowledgement and cleans
 up the partial start. Occupied ports do not select another port or silently disable
 HTTP. No CA is generated during serve and no TLS verification is bypassed.
 
-New macOS `service install` persists the default address; use
-`service install --clear-http-proxy-listen` to opt out. Omitted updates and restart
-preserve existing settings, including legacy missing flags meaning disabled.
-`service update --http-proxy-listen 127.0.0.1:8212` deliberately enables it;
-`service update --clear-http-proxy-listen` disables it. Canonical launchd context
-preserves legacy omission without rewriting old plists; it is not authentication.
-See [launchd management](launchd.md) and [upgrade guidance](upgrade-compatibility.md#http-listener-default-cutover);
-do not run these mutations as a smoke test against a live installation.
+Operator-owned supervisor definitions must persist explicit foreground intent:
+`serve --http-proxy-listen 127.0.0.1:8212` enables HTTP; `serve --clear-http-proxy-listen`
+disables it. Preserve existing settings during separately authorized stopped edits.
+Canonical launchd context preserves legacy omission without rewriting old plists;
+it is not authentication. See [launchd](launchd.md), [systemd](systemd.md) and
+[upgrade guidance](upgrade-compatibility.md#http-listener-default-cutover).
+Source checks never authorize mutations against a live installation.
 
 `doctor --online` and **System → Status** report enablement, selected address, loaded CA,
 proxy readiness, active request/stream and tunnel counts, connection/work occupancy,

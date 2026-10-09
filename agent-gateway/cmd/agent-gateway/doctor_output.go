@@ -16,7 +16,7 @@ func renderDoctorChecks(result doctorResult, verbose bool) string {
 		"administrator credential": "Administrator", "public CA certificate": "CA certificate",
 		"protected CA signing material": "CA signing", "storage inspection": "Storage integrity",
 		"CA metadata": "CA metadata", "runtime readiness": "API readiness",
-		"installed service": "Service", "authenticated live status": "Live status",
+		"authenticated live status": "Live status",
 	}
 	states := map[string]string{"ok": "OK", "present": "Present", "absent": "Missing", "running": "Running", "stopped": "Stopped", "not-checked": "Not checked", "failed": "Failed", "unavailable": "Unavailable", "not-ready": "Not ready"}
 	shownActions := make(map[string]bool)
@@ -55,14 +55,6 @@ func renderDoctorChecks(result doctorResult, verbose bool) string {
 			default:
 				fmt.Fprintf(&out, "  Next: %s\n", check.Next)
 				shownActions[check.Next] = true
-			}
-		}
-	}
-	if s := result.Service; s != nil && s.Installed {
-		out.WriteString("\nService paths\n")
-		for _, field := range [][2]string{{"Configuration", s.Plist}, {"Stdout log", s.Stdout}, {"Stderr log", s.Stderr}} {
-			if field[1] != "" {
-				fmt.Fprintf(&out, "  %-16s %s\n", field[0], controlclient.TerminalSafePath(field[1]))
 			}
 		}
 	}

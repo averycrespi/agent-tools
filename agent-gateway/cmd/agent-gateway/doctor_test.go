@@ -30,6 +30,12 @@ func TestDoctorAbsentAndPartialResultsAreReadOnly(t *testing.T) {
 		require.NoError(t, command.ExecuteContext(t.Context()), stderr.String())
 		var result doctorResult
 		require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
+		var fields map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(stdout.Bytes(), &fields))
+		require.NotContains(t, fields, "service")
+		for _, check := range result.Checks {
+			require.NotEqual(t, "installed service", check.Name)
+		}
 		require.Equal(t, "--data-dir", result.Selection)
 		require.Equal(t, root, result.DataDir)
 		return result

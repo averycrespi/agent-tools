@@ -6,7 +6,6 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +14,7 @@ import (
 func TestHTTPProxyLegacyManagedLaunchPreservesOmission(t *testing.T) {
 	h := newGatewayHarness(t)
 	h.serveArgs = h.serveArgs[:len(h.serveArgs)-1]
-	t.Setenv("XPC_SERVICE_NAME", service.Label)
+	t.Setenv("XPC_SERVICE_NAME", "dev.agent-tools.agent-gateway")
 	h.Start()
 	status := h.adminSnapshot("GET", "/api/v2/system-status", nil)
 	require.Contains(t, string(status.Body), `"enabled":false`)
