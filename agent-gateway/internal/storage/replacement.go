@@ -98,6 +98,10 @@ func OpenReplacement(ctx context.Context, ownership *gatewaypaths.Ownership, pat
 	if err != nil {
 		return nil, err
 	}
+	if err := store.View(ctx, func(tx *sql.Tx) error { return RequireNoLegacyCustodyTx(ctx, tx) }); err != nil {
+		_ = store.Close()
+		return nil, err
+	}
 	if err := store.configureSizeLimit(ctx); err != nil {
 		_ = store.Close()
 		return nil, err

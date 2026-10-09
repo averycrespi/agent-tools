@@ -13,7 +13,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/api"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/oauth"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
@@ -43,9 +42,6 @@ func TestOAuthCallbackSettlesDurableOperationAndRestoresAdmission(t *testing.T) 
 	var starts atomic.Int64
 	var err error
 	built, err = newWithHooks(options, constructorHooks{
-		provider: func(id string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(id, newMemoryBackend())
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			if starts.Add(1) == 1 {
 				close(entered)

@@ -3,182 +3,99 @@ package keyring
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"sync"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompleteGenerationRoundTripAndDeletion(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
-	require.NoError(t, err)
-	for _, size := range []int{1, rawChunkMaximumBytes, rawChunkMaximumBytes + 1, secretMaximumBytes} {
-		t.Run(fmt.Sprintf("bytes_%d", size), func(t *testing.T) {
-			t.Parallel()
-			adapter := newMemoryAdapter()
-			provider, err := newProviderWithAdapter(testInstallationID, adapter)
+func TestCompleteEncryptedGenerationRoundTripAndDeletion(t *testing.T) {
+	for _, size := range []int{1, 2240, 2241, secretMaximumBytes} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			_, _, provider := custodyFixture(t)
+			ns, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
 			require.NoError(t, err)
-			handle, err := NewHandle(bytes.NewReader(bytes.Repeat([]byte{byte(size)}, generationEntropyBytes)))
+			handle, err := NewHandle(bytes.NewReader(make([]byte, generationEntropyBytes)))
 			require.NoError(t, err)
 			secret := bytes.Repeat([]byte("s"), size)
-
-			require.NoError(t, provider.WriteGeneration(ctx, namespace, handle, secret))
-			loaded, err := provider.ReadGeneration(ctx, namespace, handle)
+			require.NoError(t, provider.WriteGeneration(t.Context(), ns, handle, secret))
+			loaded, err := provider.ReadGeneration(t.Context(), ns, handle)
 			require.NoError(t, err)
-			assert.Equal(t, secret, loaded)
-			assert.NotContains(t, string(handle), "ssss")
-			for _, value := range adapter.values() {
-				assert.LessOrEqual(t, len(value), storedChunkMaximumBytes)
-			}
-
-			require.NoError(t, provider.DeleteGeneration(ctx, namespace, handle))
-			_, err = provider.ReadGeneration(ctx, namespace, handle)
-			assert.ErrorIs(t, err, ErrNotFound)
-			assert.Empty(t, adapter.values())
+			require.Equal(t, secret, loaded)
+			require.NoError(t, provider.DeleteGeneration(t.Context(), ns, handle))
+			_, err = provider.ReadGeneration(t.Context(), ns, handle)
+			require.ErrorIs(t, err, ErrIncompleteGeneration)
 		})
 	}
 }
 
-func TestGenerationRejectsOversizeBeforeBackendWrites(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
-	require.NoError(t, err)
-	adapter := newMemoryAdapter()
-	provider, err := newProviderWithAdapter(testInstallationID, adapter)
+func TestEncryptedGenerationRejectsOversizeAndUnconfiguredProvider(t *testing.T) {
+	_, _, provider := custodyFixture(t)
+	ns, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
 	require.NoError(t, err)
 	handle, err := NewHandle(bytes.NewReader(make([]byte, generationEntropyBytes)))
 	require.NoError(t, err)
-
-	err = provider.WriteGeneration(ctx, namespace, handle, make([]byte, secretMaximumBytes+1))
-
-	assert.ErrorIs(t, err, ErrSecretTooLarge)
-	assert.Empty(t, adapter.values())
+	require.ErrorIs(t, provider.WriteGeneration(t.Context(), ns, handle, make([]byte, secretMaximumBytes+1)), ErrSecretTooLarge)
+	_, err = provider.ReadGeneration(t.Context(), ns, handle)
+	require.ErrorIs(t, err, ErrIncompleteGeneration)
+	unconfigured, err := NewProvider(testInstallationID)
+	require.NoError(t, err)
+	require.ErrorIs(t, unconfigured.WriteGeneration(t.Context(), ns, handle, []byte("secret")), ErrCustodyUnavailable)
+	_, err = unconfigured.ReadGeneration(t.Context(), ns, handle)
+	require.ErrorIs(t, err, ErrCustodyUnavailable)
+	require.ErrorIs(t, unconfigured.DeleteGeneration(t.Context(), ns, handle), ErrCustodyUnavailable)
 }
 
-func TestIncompleteOrCorruptGenerationNeverReads(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
-	require.NoError(t, err)
-	for name, mutate := range map[string]func(*memoryAdapter, Namespace, Handle){
-		"chunk without manifest": func(adapter *memoryAdapter, namespace Namespace, handle Handle) {
-			adapter.put(generationChunkItem(namespace, handle, 0), "c2VjcmV0")
-		},
-		"missing chunk": func(adapter *memoryAdapter, namespace Namespace, handle Handle) {
-			secret := []byte("secret")
-			adapter.put(generationManifestItem(namespace, handle), encodeManifest(t, namespace, handle, secret, 1))
-		},
-		"digest mismatch": func(adapter *memoryAdapter, namespace Namespace, handle Handle) {
-			secret := []byte("secret")
-			adapter.put(generationManifestItem(namespace, handle), encodeManifest(t, namespace, handle, secret, 1))
-			adapter.put(generationChunkItem(namespace, handle, 0), "dGFtcGVyZWQ")
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			adapter := newMemoryAdapter()
-			provider, providerErr := newProviderWithAdapter(testInstallationID, adapter)
-			require.NoError(t, providerErr)
-			handle, handleErr := NewHandle(bytes.NewReader(bytes.Repeat([]byte{1}, generationEntropyBytes)))
-			require.NoError(t, handleErr)
-			mutate(adapter, namespace, handle)
-
-			_, readErr := provider.ReadGeneration(ctx, namespace, handle)
-
-			assert.ErrorIs(t, readErr, ErrIncompleteGeneration)
-		})
-	}
-}
-
-func TestWriteFailureDoesNotLeaveReadablePartialGeneration(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
-	require.NoError(t, err)
-	adapter := newMemoryAdapter()
-	adapter.failSetAt = 2
-	provider, err := newProviderWithAdapter(testInstallationID, adapter)
-	require.NoError(t, err)
-	handle, err := NewHandle(bytes.NewReader(bytes.Repeat([]byte{2}, generationEntropyBytes)))
-	require.NoError(t, err)
-
-	err = provider.WriteGeneration(ctx, namespace, handle, bytes.Repeat([]byte("s"), rawChunkMaximumBytes+1))
-	require.Error(t, err)
-	_, readErr := provider.ReadGeneration(ctx, namespace, handle)
-	assert.ErrorIs(t, readErr, ErrNotFound)
-}
-
-func encodeManifest(t *testing.T, namespace Namespace, handle Handle, secret []byte, chunks int) string {
-	t.Helper()
-	digest := sha256.Sum256(secret)
-	value, err := marshalGenerationManifest(generationManifest{
-		Version: generationFormatVersion,
-		Owner:   namespace.Owner(),
-		Kind:    string(namespace.Kind()),
-		Handle:  string(handle),
-		Chunks:  chunks,
-		Bytes:   len(secret),
-		SHA256:  fmt.Sprintf("%x", digest),
-	})
-	require.NoError(t, err)
-	return value
-}
-
+// This test-only generation store injects completion ordering and failures in
+// coordinator tests. It implements no native item, manifest or chunk protocol.
 type memoryAdapter struct {
-	mu              sync.Mutex
-	items           map[string]string
-	setCalls        int
-	failSetAt       int
-	blockSetAt      int
-	setStarted      chan struct{}
-	releaseSet      chan struct{}
-	setStartOnce    sync.Once
-	getCalls        int
-	blockGetAt      int
-	getStarted      chan struct{}
-	releaseGet      chan struct{}
-	getStartOnce    sync.Once
-	deleteCalls     int
-	blockDeleteAt   int
-	deleteStarted   chan struct{}
-	releaseDelete   chan struct{}
-	deleteStartOnce sync.Once
-	probeErr        error
-	operationErr    error
+	mu                              sync.Mutex
+	items                           map[string]string
+	setCalls, failSetAt, blockSetAt int
+	setStarted, releaseSet          chan struct{}
+	setStartOnce                    sync.Once
+	getCalls, blockGetAt            int
+	getStarted, releaseGet          chan struct{}
+	getStartOnce                    sync.Once
+	deleteCalls, blockDeleteAt      int
+	deleteStarted, releaseDelete    chan struct{}
+	deleteStartOnce                 sync.Once
+	probeErr, operationErr          error
 }
 
-func newMemoryAdapter() *memoryAdapter {
-	return &memoryAdapter{items: make(map[string]string)}
+func newMemoryAdapter() *memoryAdapter { return &memoryAdapter{items: make(map[string]string)} }
+func newProviderWithAdapter(id string, store *memoryAdapter) (*Provider, error) {
+	provider, err := NewProvider(id)
+	if err != nil {
+		return nil, err
+	}
+	provider.custody = store
+	provider.work = newWorkLimiter()
+	return provider, nil
 }
-
-func (adapter *memoryAdapter) Probe(context.Context, string) error { return adapter.probeErr }
-
-func (adapter *memoryAdapter) Set(_, user, password string) error {
+func (adapter *memoryAdapter) capability() Capability {
+	if adapter.probeErr != nil {
+		return Capability{State: contract.KeyringUnavailable, Remediation: RemediationRetry}
+	}
+	return Capability{State: contract.KeyringReady, Remediation: RemediationNone}
+}
+func (adapter *memoryAdapter) write(_ context.Context, _ Namespace, handle Handle, secret []byte) error {
 	adapter.mu.Lock()
 	adapter.setCalls++
 	call := adapter.setCalls
 	fail := adapter.failSetAt > 0 && call == adapter.failSetAt
-	operationErr := adapter.operationErr
+	err := adapter.operationErr
 	block := adapter.blockSetAt > 0 && call == adapter.blockSetAt
-	started := adapter.setStarted
-	release := adapter.releaseSet
+	started, release := adapter.setStarted, adapter.releaseSet
 	adapter.mu.Unlock()
 	if fail {
-		return errors.New("injected write failure")
+		return errors.New("injected generation write failure")
 	}
-	if operationErr != nil {
-		return operationErr
+	if err != nil {
+		return err
 	}
 	if block {
 		if started != nil {
@@ -190,21 +107,19 @@ func (adapter *memoryAdapter) Set(_, user, password string) error {
 	}
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
-	adapter.items[user] = password
+	adapter.items[string(handle)] = string(secret)
 	return nil
 }
-
-func (adapter *memoryAdapter) Get(_, user string) (string, error) {
+func (adapter *memoryAdapter) read(_ context.Context, _ Namespace, handle Handle) ([]byte, error) {
 	adapter.mu.Lock()
 	adapter.getCalls++
 	block := adapter.blockGetAt > 0 && adapter.getCalls == adapter.blockGetAt
-	started := adapter.getStarted
-	release := adapter.releaseGet
-	operationErr := adapter.operationErr
-	value, ok := adapter.items[user]
+	started, release := adapter.getStarted, adapter.releaseGet
+	err := adapter.operationErr
+	value, ok := adapter.items[string(handle)]
 	adapter.mu.Unlock()
-	if operationErr != nil {
-		return "", operationErr
+	if err != nil {
+		return nil, err
 	}
 	if block {
 		if started != nil {
@@ -215,22 +130,19 @@ func (adapter *memoryAdapter) Get(_, user string) (string, error) {
 		}
 	}
 	if !ok {
-		return "", ErrNotFound
+		return nil, ErrNotFound
 	}
-	return value, nil
+	return []byte(value), nil
 }
-
-func (adapter *memoryAdapter) Delete(_, user string) error {
+func (adapter *memoryAdapter) remove(_ context.Context, _ Namespace, handle Handle) error {
 	adapter.mu.Lock()
 	adapter.deleteCalls++
 	block := adapter.blockDeleteAt > 0 && adapter.deleteCalls == adapter.blockDeleteAt
-	started := adapter.deleteStarted
-	release := adapter.releaseDelete
-	operationErr := adapter.operationErr
-	_, ok := adapter.items[user]
+	started, release := adapter.deleteStarted, adapter.releaseDelete
+	err := adapter.operationErr
 	adapter.mu.Unlock()
-	if operationErr != nil {
-		return operationErr
+	if err != nil {
+		return err
 	}
 	if block {
 		if started != nil {
@@ -240,29 +152,17 @@ func (adapter *memoryAdapter) Delete(_, user string) error {
 			<-release
 		}
 	}
-	if !ok {
-		return ErrNotFound
-	}
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
-	delete(adapter.items, user)
+	delete(adapter.items, string(handle))
 	return nil
 }
-
 func (adapter *memoryAdapter) blockNextGet(started, release chan struct{}) {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()
 	adapter.blockGetAt = adapter.getCalls + 1
-	adapter.getStarted = started
-	adapter.releaseGet = release
+	adapter.getStarted, adapter.releaseGet = started, release
 }
-
-func (adapter *memoryAdapter) put(item, value string) {
-	adapter.mu.Lock()
-	defer adapter.mu.Unlock()
-	adapter.items[item] = value
-}
-
 func (adapter *memoryAdapter) values() map[string]string {
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()

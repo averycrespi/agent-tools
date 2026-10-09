@@ -82,14 +82,12 @@ func suiteOwner(path string, tags map[string]bool) (string, []string, error) {
 		}
 		return owner, []string{"e2e", "browser"}, nil
 	}
-	for _, tag := range []string{"e2e", "security", "stress", "frontend", "keyringnative", "integration"} {
+	for _, tag := range []string{"e2e", "security", "stress", "frontend", "integration"} {
 		if tags[tag] {
 			owner := "test-" + tag
 			switch tag {
 			case "frontend":
 				owner = "frontend-static-tests"
-			case "keyringnative":
-				owner = "test-keyring-native"
 			case "e2e":
 				if strings.HasPrefix(path, "test/demo/") {
 					return "test-serve-demo", []string{tag}, nil
@@ -110,7 +108,7 @@ func suiteOwner(path string, tags map[string]bool) (string, []string, error) {
 	case "internal/testutil":
 		return "test-harness", nil, nil
 	}
-	if strings.HasPrefix(pkg, "test/acceptance") || strings.HasPrefix(pkg, "test/keyringnative") {
+	if strings.HasPrefix(pkg, "test/acceptance") {
 		return "test-harness", nil, nil
 	}
 	if strings.HasPrefix(pkg, "internal/") || strings.HasPrefix(pkg, "cmd/") {
@@ -133,7 +131,7 @@ func suiteBuildTags(file *ast.File) (map[string]bool, error) {
 			var unknown string
 			expr.Eval(func(tag string) bool {
 				switch tag {
-				case "e2e", "browser", "security", "stress", "frontend", "keyringnative", "integration":
+				case "e2e", "browser", "security", "stress", "frontend", "integration":
 					tags[tag] = true
 				case "aix", "android", "darwin", "dragonfly", "freebsd", "hurd", "illumos", "ios", "js", "linux", "netbsd", "openbsd", "plan9", "solaris", "wasip1", "windows", "unix", "cgo", "race", "gc", "gccgo", "386", "amd64", "arm", "arm64", "loong64", "mips", "mipsle", "mips64", "mips64le", "ppc64", "ppc64le", "riscv64", "s390x", "wasm":
 				default:
@@ -470,13 +468,6 @@ func validateSuiteCommand(moduleRoot string, inventory SuiteInventory, command S
 	return nil
 }
 
-func suiteExecutionPermission(id string) error {
-	if id == "test-keyring-native" && os.Getenv("AGENT_GATEWAY_KEYRING_NATIVE") != "1" {
-		return fmt.Errorf("native execution requires the isolated native wrapper")
-	}
-	return nil
-}
-
 type SuiteExecutor struct {
 	JSON bool
 }
@@ -495,9 +486,6 @@ func (executor SuiteExecutor) Run(ctx context.Context, root string, command Comm
 }
 
 func RunSuite(ctx context.Context, root, id string, repeats int, executor Executor) error {
-	if err := suiteExecutionPermission(id); err != nil {
-		return err
-	}
 	moduleRoot := filepath.Join(root, "agent-gateway")
 	inventory, err := DiscoverSuiteInventory(moduleRoot, runtime.GOOS, runtime.GOARCH)
 	if err != nil {
@@ -514,9 +502,6 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 	}
 	for _, command := range commands {
 		id := command.Tests[0].Owner
-		if err := suiteExecutionPermission(id); err != nil {
-			return err
-		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}

@@ -21,7 +21,7 @@ func TestIntegrationGitCredentialLostAcknowledgmentAndStoppedRecovery(t *testing
 		t.Run(strconv.Itoa(boundary), func(t *testing.T) {
 			armed := false
 			commits := 0
-			s, backend, owner := fixtureWithFault(t, func(point storage.FaultPoint) error {
+			s, _, owner := fixtureWithFault(t, func(point storage.FaultPoint) error {
 				if armed && point == storage.FaultAfterCommit {
 					commits++
 					if commits == boundary {
@@ -57,8 +57,9 @@ func TestIntegrationGitCredentialLostAcknowledgmentAndStoppedRecovery(t *testing
 			require.NoError(t, ValidateStartup(ctx, freshStore))
 			authority, err := authorization.New(freshStore, testClock{}, rand.Reader)
 			require.NoError(t, err)
-			provider, err := keyring.NewProviderWithBackend(installation, backend)
+			provider, err := keyring.NewProvider(installation)
 			require.NoError(t, err)
+			require.NoError(t, provider.UseDatabaseCustody(ctx, freshOwner, freshStore))
 			fresh, err := NewService(freshStore, keyring.NewCoordinator(provider, freshStore, testClock{}, rand.Reader), authority, testClock{}, rand.Reader, installation)
 			require.NoError(t, err)
 			retained, err := fresh.Get(ctx, created.ID)

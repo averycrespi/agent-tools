@@ -16,9 +16,14 @@ func TestEncryptedCustodyMigrationMarksOnlyHistoricalGenerations(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, prior.Checkpoint(t.Context()))
 	require.NoError(t, prior.Close())
-	current, err := Open(t.Context(), owner)
+	_, err = Open(t.Context(), owner)
+	require.ErrorIs(t, err, ErrLegacyCustody)
+	// Inspect the retained historical DDL directly; production opening refuses
+	// before migrating installations with unresolved native dependencies.
+	current, err := openConfigured(t.Context(), owner.Layout(), testOptions{})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, current.Close()) }()
+	require.NoError(t, current.migrateThrough(t.Context(), 22, 23))
 	var count int
 	require.NoError(t, current.database.QueryRowContext(t.Context(), `SELECT count(*) FROM secret_generations WHERE custody='legacy' AND ciphertext IS NULL AND version IS NULL AND key_id IS NULL`).Scan(&count))
 	require.Equal(t, 2, count)

@@ -17,16 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type forbiddenNative struct{ t *testing.T }
-
-func (b forbiddenNative) Probe(context.Context, string) error { b.t.Fatal("native probe"); return nil }
-func (b forbiddenNative) Get(string, string) (string, error) {
-	b.t.Fatal("native read")
-	return "", nil
-}
-func (b forbiddenNative) Set(string, string, string) error { b.t.Fatal("native write"); return nil }
-func (b forbiddenNative) Delete(string, string) error      { b.t.Fatal("native delete"); return nil }
-
 func custodyFixture(t *testing.T) (*gatewaypaths.Ownership, *storage.Store, *Provider) {
 	t.Helper()
 	root := t.TempDir()
@@ -37,7 +27,7 @@ func custodyFixture(t *testing.T) (*gatewaypaths.Ownership, *storage.Store, *Pro
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()); require.NoError(t, owner.Close()) })
 	require.NoError(t, SetupCustody(t.Context(), owner, store, testutil.NewFakeClock(time.Now())))
-	provider, err := NewProviderWithBackend(testInstallationID, forbiddenNative{t})
+	provider, err := NewProvider(testInstallationID)
 	require.NoError(t, err)
 	require.NoError(t, provider.UseDatabaseCustody(t.Context(), owner, store))
 	return owner, store, provider
@@ -59,7 +49,7 @@ func TestEncryptedCustodyAllKindsPersistWithoutPlaintextOrNativeAccess(t *testin
 		require.Equal(t, secret, actual)
 	}
 	// Reconstruct the provider/key schedule as startup does; no native read or probe.
-	restarted, err := NewProviderWithBackend(testInstallationID, forbiddenNative{t})
+	restarted, err := NewProvider(testInstallationID)
 	require.NoError(t, err)
 	require.NoError(t, restarted.UseDatabaseCustody(t.Context(), owner, store))
 	require.Equal(t, provider.Probe(t.Context()), restarted.Probe(t.Context()))
@@ -160,7 +150,7 @@ func TestEncryptedCustodyKeyLossNeverReplacesKey(t *testing.T) {
 			}
 			before, _ := os.ReadFile(path)
 			require.ErrorIs(t, SetupCustody(t.Context(), owner, store, testutil.NewFakeClock(time.Now())), ErrCustodyUnavailable)
-			provider, err := NewProviderWithBackend(testInstallationID, forbiddenNative{t})
+			provider, err := NewProvider(testInstallationID)
 			require.NoError(t, err)
 			require.ErrorIs(t, provider.UseDatabaseCustody(t.Context(), owner, store), ErrCustodyUnavailable)
 			after, err := os.ReadFile(path)

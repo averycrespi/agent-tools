@@ -7,11 +7,9 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -33,38 +31,17 @@ type testClock struct{}
 func (testClock) Now() time.Time { return time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC) }
 
 type memoryBackend struct {
-	mu     sync.Mutex
-	values map[string]string
-	fail   bool
-	onSet  func()
+	fail  bool
+	onSet func()
 }
 
-func (*memoryBackend) Probe(context.Context, string) error { return nil }
-func (b *memoryBackend) Set(service, user, password string) error {
-	if b.onSet != nil {
+func (b *memoryBackend) observe(point string) error {
+	if point == "before_write" && b.onSet != nil {
 		b.onSet()
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.fail {
-		return errors.New("injected write failure")
+	if b.fail && point == "before_write" {
+		return keyring.ErrCustodyUnavailable
 	}
-	b.values[service+user] = password
-	return nil
-}
-func (b *memoryBackend) Get(service, user string) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	v, ok := b.values[service+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return v, nil
-}
-func (b *memoryBackend) Delete(service, user string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.values, service+user)
 	return nil
 }
 
@@ -92,9 +69,12 @@ func fixtureWithFault(t *testing.T, fault func(storage.FaultPoint) error) (*Serv
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	authority, err := authorization.New(store, testClock{}, rand.Reader)
 	require.NoError(t, err)
-	backend := &memoryBackend{values: map[string]string{}}
-	provider, err := keyring.NewProviderWithBackend(installation, backend)
+	backend := &memoryBackend{}
+	require.NoError(t, keyring.SetupCustody(t.Context(), owner, store, testClock{}))
+	provider, err := keyring.NewProvider(installation)
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(t.Context(), owner, store))
+	keyring.ObserveCustodyForIntegration(provider, backend.observe)
 	s, err := NewService(store, keyring.NewCoordinator(provider, store, testClock{}, rand.Reader), authority, testClock{}, rand.Reader, installation)
 	require.NoError(t, err)
 	return s, backend, owner
@@ -263,7 +243,7 @@ func TestIntegrationGitCredentialFencePrecedesProviderAndFailedRotationDoesNotRe
 	require.True(t, repaired.Available)
 }
 func TestIntegrationGitCredentialCopiedBackupAndStoppedRestore(t *testing.T) {
-	s, backend, _ := fixture(t)
+	s, _, _ := fixture(t)
 	ctx := audit.WithSystem(t.Context())
 	created, err := s.Create(ctx, definition(), []byte("backup-private-canary"))
 	require.NoError(t, err)
@@ -295,7 +275,7 @@ func TestIntegrationGitCredentialCopiedBackupAndStoppedRestore(t *testing.T) {
 	require.NoError(t, ValidateStartup(ctx, staged))
 	stagedAuthority, err := authorization.New(staged, testClock{}, rand.Reader)
 	require.NoError(t, err)
-	provider, err := keyring.NewProviderWithBackend(installation, backend)
+	provider, err := keyring.NewProvider(installation)
 	require.NoError(t, err)
 	restored, err := NewService(staged, keyring.NewCoordinator(provider, staged, testClock{}, rand.Reader), stagedAuthority, testClock{}, rand.Reader, installation)
 	require.NoError(t, err)
@@ -317,13 +297,14 @@ func TestIntegrationGitCredentialCopiedBackupAndStoppedRestore(t *testing.T) {
 	require.Error(t, VerifyBackup(ctx, path, identity.SchemaVersion))
 }
 func TestIntegrationGitCredentialMalformedStartupAndMissingMaterial(t *testing.T) {
-	s, backend, _ := fixture(t)
+	s, _, _ := fixture(t)
 	ctx := audit.WithSystem(t.Context())
 	created, err := s.Create(ctx, definition(), []byte("missing-private-canary"))
 	require.NoError(t, err)
-	backend.mu.Lock()
-	clear(backend.values)
-	backend.mu.Unlock()
+	require.NoError(t, s.store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE secret_generations SET ciphertext=zeroblob(length(ciphertext))`)
+		return err
+	}))
 	_, err = s.Acquire(ctx, ref(created))
 	require.Error(t, err)
 	require.NoError(t, s.store.Mutate(ctx, func(tx *sql.Tx) error {

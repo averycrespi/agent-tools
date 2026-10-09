@@ -18,7 +18,6 @@ import (
 	"net/netip"
 	"net/url"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -48,34 +47,6 @@ type fixtureClock struct{}
 
 func (fixtureClock) Now() time.Time { return time.Now().UTC() }
 
-type memoryBackend struct {
-	mu    sync.Mutex
-	items map[string]string
-}
-
-func (*memoryBackend) Probe(context.Context, string) error { return nil }
-func (m *memoryBackend) Set(s, u, v string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.items[s+u] = v
-	return nil
-}
-func (m *memoryBackend) Get(s, u string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	v, ok := m.items[s+u]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return v, nil
-}
-func (m *memoryBackend) Delete(s, u string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.items, s+u)
-	return nil
-}
-
 type proxyFixture struct {
 	engine       *Engine
 	address      string
@@ -87,7 +58,7 @@ type proxyFixture struct {
 	roots        *x509.CertPool
 	publicCA     []byte
 	trafficPath  string
-	backend      *memoryBackend
+	store        *storage.Store
 }
 
 func fixture(t *testing.T) *proxyFixture {
@@ -131,9 +102,10 @@ func fixtureWithStorageInitialization(t *testing.T, completionNow func() time.Ti
 	require.NoError(t, err)
 	credential, err := authority.IssueCredential(ctx, principal.Principal.ID, principal.Principal.Revision)
 	require.NoError(t, err)
-	backend := &memoryBackend{items: map[string]string{}}
-	provider, err := keyring.NewProviderWithBackend(installation, backend)
+	require.NoError(t, keyring.SetupCustody(ctx, owner, store, clock))
+	provider, err := keyring.NewProvider(installation)
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(ctx, owner, store))
 	coordinator := keyring.NewCoordinator(provider, store, clock, rand.Reader)
 	materialRepo, err := httpcredentials.NewRepository(store, clock, rand.Reader, authority)
 	require.NoError(t, err)
@@ -186,7 +158,7 @@ func fixtureWithStorageInitialization(t *testing.T, completionNow func() time.Ti
 			t.Error("proxy serve failed to join")
 		}
 	})
-	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, trafficPath: filepath.Join(owner.Layout().Root, "traffic-01ARZ3NDEKTSV4RRFFQ69G5FAW.db"), backend: backend}
+	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, trafficPath: filepath.Join(owner.Layout().Root, "traffic-01ARZ3NDEKTSV4RRFFQ69G5FAW.db"), store: store}
 }
 func (f *proxyFixture) allow(t *testing.T, raw, kind, path, credential string) {
 	t.Helper()

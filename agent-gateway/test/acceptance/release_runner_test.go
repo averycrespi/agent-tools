@@ -2,13 +2,11 @@ package acceptance
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/test/keyringnative"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -29,10 +27,6 @@ func (executor *releaseFakeExecutor) Run(_ context.Context, _ string, command Co
 		executor.after()
 		executor.after = nil
 	}
-	if command.Native {
-		result := keyringnative.NewResult(keyringnative.ResultPassed, "linux", "native_passed", keyringnative.ResultPassed, keyringnative.ResultPassed)
-		return json.Marshal(result)
-	}
 	return nil, nil
 }
 
@@ -41,11 +35,9 @@ func TestReleaseRunnerExecutesClosedOrderAndProducesValidReport(t *testing.T) {
 	executor := &releaseFakeExecutor{}
 	report, err := runReleaseProfile(context.Background(), root, executor, definition, external, passedReleaseCleanup)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"unit", "native"}, executor.calls)
+	assert.Equal(t, []string{"unit", "material"}, executor.calls)
 	assert.Equal(t, ResultPassed, report.Result)
 	assert.Equal(t, "all_checks_passed", report.Reason)
-	require.NotNil(t, report.Native)
-	assert.Equal(t, keyringnative.ResultPassed, report.Native.Result)
 	assert.True(t, report.Cleanup.Processes)
 	assert.True(t, report.Cleanup.Listeners)
 	assert.True(t, report.Cleanup.TemporaryRoots)

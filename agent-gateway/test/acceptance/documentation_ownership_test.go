@@ -286,7 +286,7 @@ func TestMaintainerGuidanceAndReleaseDocumentation(t *testing.T) {
 		"## Purpose-based verification DAG", "`test` aggregates `test-unit`, `test-integration`, `test-harness`, `test-material`, and `test-serve-demo`",
 		"`accept` invokes disjoint leaves directly", "complete nonbrowser E2E", "five named stress scenarios",
 		"## CI mapping", "superseded report definitions are incompatible", "candidate revision",
-		"typed `passed`, `skipped`, or `failed`", "blocking", "additive", "qualify-external-evidence",
+		"Report schema 5 removes native custody evidence", "blocking", "qualify-external-evidence",
 		"## Failure discipline", "Do not rerun `accept` unchanged", "## Report adoption", "no-check adoption",
 		"does not rerun product checks",
 	} {

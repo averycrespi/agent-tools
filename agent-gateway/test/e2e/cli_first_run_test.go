@@ -25,7 +25,7 @@ var administratorBearerFilePattern = regexp.MustCompile(`^mgw_admin_[A-Za-z0-9_-
 
 func TestCLIFirstRun(t *testing.T) {
 	runner := firstRunRunner(t)
-	binary, _ := httpMaterialBinary(t)
+	binary := gatewayBinary(t)
 	home := filepath.Join(t.TempDir(), "account-home")
 	require.NoError(t, os.Mkdir(home, 0o700))
 	ambientHome := filepath.Join(t.TempDir(), "ambient-home-decoy")

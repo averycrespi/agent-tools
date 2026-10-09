@@ -43,7 +43,7 @@ func TestIntegrationEncryptedRestoreRefusesSemanticCorruption(t *testing.T) {
 			require.NoError(t, keyring.SetupCustody(ctx, owner, store, manager.clock))
 			_, err := admin.NewService(store, manager.clock, rand.Reader).Initialize(ctx, new(captureSink))
 			require.NoError(t, err)
-			provider, err := keyring.NewProviderWithBackend(backupTestInstallationID, &retainedHTTPKeyring{values: map[string]string{}})
+			provider, err := keyring.NewProvider(backupTestInstallationID)
 			require.NoError(t, err)
 			require.NoError(t, provider.UseDatabaseCustody(ctx, owner, store))
 			ca, err := httpca.New(store, keyring.NewCoordinator(provider, store, manager.clock, rand.Reader), backupTestInstallationID, manager.clock, rand.Reader)
@@ -105,8 +105,7 @@ func testEncryptedDomainRecovery(t *testing.T, rotate bool) {
 	require.NoError(t, keyring.SetupCustody(ctx, owner, store, manager.clock))
 	_, err := admin.NewService(store, manager.clock, rand.Reader).Initialize(ctx, new(captureSink))
 	require.NoError(t, err)
-	backend := &retainedHTTPKeyring{values: map[string]string{}}
-	provider, err := keyring.NewProviderWithBackend(backupTestInstallationID, backend)
+	provider, err := keyring.NewProvider(backupTestInstallationID)
 	require.NoError(t, err)
 	require.NoError(t, provider.UseDatabaseCustody(ctx, owner, store))
 	services := func(s *storage.Store) (*httpca.Service, *httpcredentials.Service, *gitcredentials.Service) {
@@ -157,7 +156,6 @@ func testEncryptedDomainRecovery(t *testing.T, rotate bool) {
 	_, err = g.Rotate(ctx, gitCredential.ID, gitCredential.Revision, []byte("new-git"))
 	require.NoError(t, err)
 	ca.Close()
-	require.Empty(t, backend.values)
 	root := owner.Layout().Root
 	require.NoError(t, store.Close())
 	recoveryKey := ""
@@ -245,5 +243,4 @@ func testEncryptedDomainRecovery(t *testing.T, rotate bool) {
 		require.Equal(t, "mcp-recovery-"+string(kind), string(payload))
 		clear(payload)
 	}
-	require.Empty(t, backend.values, "encrypted restore must not use native custody")
 }

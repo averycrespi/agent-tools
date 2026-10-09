@@ -21,14 +21,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationGitPairedRestorePreservesConfigurationNotRetiredMaterial(t *testing.T) {
+func TestIntegrationGitEncryptedRestorePreservesConfigurationAndMaterial(t *testing.T) {
 	manager, control, owner := newBackupManager(t, nil)
 	ctx := audit.WithSystem(t.Context())
 	_, err := admin.NewService(control, manager.clock, rand.Reader).Initialize(ctx, new(captureSink))
 	require.NoError(t, err)
-	backend := &retainedHTTPKeyring{values: map[string]string{}}
-	provider, err := keyring.NewProviderWithBackend(backupTestInstallationID, backend)
+	require.NoError(t, keyring.SetupCustody(ctx, owner, control, manager.clock))
+	provider, err := keyring.NewProvider(backupTestInstallationID)
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(ctx, owner, control))
 	serviceFor := func(store *storage.Store) (*gitcredentials.Service, *authorization.Repository) {
 		policies, err := authorization.New(store, manager.clock, rand.Reader)
 		require.NoError(t, err)
@@ -54,17 +55,17 @@ func TestIntegrationGitPairedRestorePreservesConfigurationNotRetiredMaterial(t *
 	require.NoError(t, err)
 	defer func() { require.NoError(t, traffic.Close()) }()
 	require.NoError(t, control.SelectTraffic(ctx, "", generation))
-	artifact := legacyArtifact(t, manager, traffic)
+	artifact, _, err := manager.Create(ctx, "authority", "encrypted-git-restore")
+	require.NoError(t, err)
 	_, err = manager.Get(ctx, artifact.ID)
 	require.NoError(t, err)
-	for _, name := range []string{databaseFile, metadataFile, "traffic.db"} {
+	for _, name := range []string{databaseFile, metadataFile} {
 		contents, err := os.ReadFile(filepath.Join(owner.Layout().Backups, artifact.ID, name))
 		require.NoError(t, err)
 		require.NotContains(t, string(contents), "paired-git-private-canary")
 	}
 	_, err = service.Rotate(ctx, created.ID, created.Revision, []byte("retired-git-private-canary"))
 	require.NoError(t, err)
-	require.NotEmpty(t, backend.values)
 	root := owner.Layout().Root
 	require.NoError(t, traffic.Close())
 	require.NoError(t, control.Close())
@@ -78,14 +79,16 @@ func TestIntegrationGitPairedRestorePreservesConfigurationNotRetiredMaterial(t *
 	require.NoError(t, err)
 	defer func() { require.NoError(t, restored.Close()) }()
 	require.NoError(t, gitcredentials.ValidateStartup(ctx, restored))
+	require.NoError(t, provider.UseDatabaseCustody(ctx, restoredOwner, restored))
 	restoredService, restoredPolicies := serviceFor(restored)
 	retained, err := restoredService.Get(ctx, created.ID)
 	require.NoError(t, err)
-	require.False(t, retained.Available)
+	require.True(t, retained.Available)
 	require.Equal(t, created.GitCredentialDefinition, retained.GitCredentialDefinition)
 	material, err := restoredService.Acquire(ctx, contract.GitRevisionRef{ID: retained.ID, Revision: retained.Revision})
-	require.Error(t, err)
-	require.Nil(t, material)
+	require.NoError(t, err)
+	require.NotNil(t, material)
+	defer material.Clear()
 	retainedRepository, err := restoredPolicies.GetGitRepository(ctx, repository.ID)
 	require.NoError(t, err)
 	require.Equal(t, repository, retainedRepository)
@@ -98,9 +101,5 @@ func TestIntegrationGitPairedRestorePreservesConfigurationNotRetiredMaterial(t *
 	require.True(t, retainedProfile.Active)
 	restoredGeneration, err := restored.SelectedTraffic(ctx)
 	require.NoError(t, err)
-	require.NotEmpty(t, restoredGeneration)
-	require.NotEqual(t, generation, restoredGeneration)
-	restoredTraffic, err := invocation.OpenTraffic(ctx, restoredOwner, backupTestInstallationID, restoredGeneration, invocation.DefaultTrafficConfig())
-	require.NoError(t, err)
-	require.NoError(t, restoredTraffic.Close())
+	require.Empty(t, restoredGeneration, "format-4 control backups omit optional traffic history")
 }

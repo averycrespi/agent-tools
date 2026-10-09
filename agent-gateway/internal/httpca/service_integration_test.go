@@ -3,12 +3,10 @@
 package httpca
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,33 +15,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
 )
-
-type memoryBackend struct {
-	mu     sync.Mutex
-	values map[string]string
-	fail   bool
-}
-
-func (*memoryBackend) Probe(context.Context, string) error { return nil }
-func (m *memoryBackend) Set(service, user, value string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.fail {
-		return keyring.ErrNotFound
-	}
-	m.values[service+user] = value
-	return nil
-}
-func (m *memoryBackend) Get(service, user string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	v, ok := m.values[service+user]
-	if !ok || m.fail {
-		return "", keyring.ErrNotFound
-	}
-	return v, nil
-}
-func (m *memoryBackend) Delete(_, _ string) error { return nil } // Retired physical keys deliberately survive.
 
 func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
 	ctx := t.Context()
@@ -56,10 +27,23 @@ func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
 	store, err := storage.Initialize(ctx, owner, installation)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
-	backend := &memoryBackend{values: map[string]string{}}
-	provider, err := keyring.NewProviderWithBackend(installation, backend)
-	require.NoError(t, err)
 	c := &testClock{time.Date(2026, 9, 22, 0, 0, 0, 0, time.UTC)}
+	require.NoError(t, keyring.SetupCustody(ctx, owner, store, c))
+	provider, err := keyring.NewProvider(installation)
+	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(ctx, owner, store))
+	fail := false
+	keyring.ObserveCustodyForIntegration(provider, func(string) error {
+		if fail {
+			return keyring.ErrIncompleteGeneration
+		}
+		return nil
+	})
+	count := func() int {
+		var n int
+		require.NoError(t, store.View(ctx, func(tx *sql.Tx) error { return tx.QueryRow(`SELECT count(*) FROM secret_generations`).Scan(&n) }))
+		return n
+	}
 	makeService := func() *Service {
 		s, err := New(store, keyring.NewCoordinator(provider, store, c, rand.Reader), installation, c, rand.Reader)
 		require.NoError(t, err)
@@ -68,7 +52,7 @@ func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
 	s := makeService()
 	_, err = s.Load(ctx)
 	require.Error(t, err)
-	require.Empty(t, backend.values)
+	require.Zero(t, count())
 	require.NoError(t, s.Replace(ctx, "0"))
 	require.NoError(t, ValidateStartup(ctx, store))
 	public, revision, err := s.PublicCertificate(ctx)
@@ -85,7 +69,7 @@ func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
 	require.Equal(t, revision, rev)
 	_, err = s.Load(ctx)
 	require.NoError(t, err)
-	// A restore invalidates even when all old physical chunks remain readable.
+	// Explicit staged invalidation cannot reuse retained ciphertext as authority.
 	s.Close()
 	require.NoError(t, InvalidateStaged(ctx, store, c))
 	require.NoError(t, ValidateStartup(ctx, store))
@@ -104,14 +88,14 @@ func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, leaf.Leaf.CheckSignatureFrom(signer.root))
 	s.Close()
-	backend.fail = true
+	fail = true
 	s = makeService()
 	_, err = s.Load(ctx)
 	require.Error(t, err)
-	before := len(backend.values)
+	before := count()
 	require.Error(t, s.Replace(ctx, rev))
-	require.Len(t, backend.values, before)
-	backend.fail = false
+	require.Equal(t, before, count())
+	fail = false
 	_, err = s.Load(ctx)
 	require.Error(t, err) // No old-key fallback after failed explicit cutover.
 }

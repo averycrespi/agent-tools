@@ -8,7 +8,7 @@ Purpose: Install, verify, and manage a per-user LaunchAgent with the installed `
 
 Run as the intended logged-in macOS user, without `sudo`. Management targets only `dev.agent-tools.agent-gateway` in `gui/<uid>`, under the **OS-account home**, not the `HOME` environment variable. Root and non-macOS execution refuse before mutation. Custom labels, LaunchDaemons, other supervisors, binary upgrades, storage repair and installation migration are outside this command group.
 
-No service command initializes or opens the private database, reads a bearer, or accesses the native keyring. Lifecycle commands may inspect the existing installation lock without creating it or changing recovery markers. Readiness is not credential health: GUI login and the secret-free startup capability probe do not guarantee later Keychain access will avoid an attended prompt. Investigate unexpected prompts; never grant blanket access or place passwords in environment variables. See [native-keyring capability](../design/downstream-servers.md#keyring-capability-and-generation-cutover).
+No service command initializes or opens the private database, reads a bearer, or accesses the native keyring. Lifecycle commands may inspect the existing installation lock without creating it or changing recovery markers. Readiness is not credential health: encrypted custody requires the installation's protected master key, and upstream credentials may still be expired or invalid. Gateway never prompts for native credential access. See [encrypted custody](../design/downstream-servers.md#keyring-capability-and-generation-cutover).
 
 Never put secrets in plist values, argv, environment variables or logs. Service management assumes completed canonical naming adoption; it does not inspect dual labels or import archived legacy plists. The migrator is retired; follow [installation safety](installation-safety.md) for retained artifacts and [backup and recovery](backup-and-recovery.md) for actual recovery.
 
@@ -137,7 +137,7 @@ Read-only status shows installed selections, plist/log paths, launchd state, and
 
 For authenticated storage/keyring posture, deliberately run the ordinary `agent-gateway --data-dir /installed/data/path status --address http://127.0.0.1:8210` command using the installed selections. That separate command reads an administrator bearer; service status does not. Never copy a bearer into a curl header argument. Inspect the reported stdout/stderr paths locally, retaining only necessary nonsecret evidence. See [safe serve diagnostics](administration.md#safe-serve-diagnostics) for levels, correlation and loss limits. Logs are not durable audit evidence and missing lines do not prove nonexecution.
 
-Native launchd behavior and Keychain access need separately authorized disposable macOS qualification. Linux and injected utility fixtures are deterministic regression evidence, not native launchd proof. Never smoke-test these mutations against the current host installation without explicit authority.
+Native launchd behavior needs separately authorized disposable macOS qualification. Linux and injected utility fixtures are deterministic regression evidence, not native launchd proof. Never smoke-test these mutations against the current host installation without explicit authority.
 
 ### Logs and uninstall
 

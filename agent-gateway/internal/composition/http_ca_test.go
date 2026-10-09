@@ -3,6 +3,7 @@ package composition
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/pem"
 	"errors"
 	"os"
@@ -25,10 +26,17 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 	require.NoError(t, err)
 	store, err := storage.Initialize(ctx, owner, id)
 	require.NoError(t, err)
-	require.NoError(t, store.Close())
 	clock := testutil.NewFakeClock(compositionTime)
-	backend := newMemoryBackend()
-	factory := func(id string) (*keyring.Provider, error) { return keyring.NewProviderWithBackend(id, backend) }
+	require.NoError(t, SetupSecrets(ctx, owner, store, clock))
+	require.NoError(t, store.Close())
+	before, err := os.ReadFile(owner.Layout().Database)
+	require.NoError(t, err)
+	assertUnchanged := func() {
+		after, err := os.ReadFile(owner.Layout().Database)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
+	}
+	factory := keyring.NewProvider
 	run := func(operation string) ([]byte, error) {
 		return httpCA(ctx, root, id, operation, clock, rand.Reader, factory)
 	}
@@ -36,7 +44,7 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 		_, err = run(operation)
 		require.ErrorIs(t, err, gatewaypaths.ErrInUse)
 	}
-	require.Empty(t, backend.values)
+	assertUnchanged()
 	require.NoError(t, owner.MarkClean())
 	require.NoError(t, owner.Close())
 	refusal := errors.New("confirmation refused")
@@ -46,10 +54,10 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 		return refusal
 	}})
 	require.ErrorIs(t, err, refusal)
-	require.Empty(t, backend.values)
+	assertUnchanged()
 	_, err = httpCA(ctx, root, "01ARZ3NDEKTSV4RRFFQ69G5FAW", "create", clock, rand.Reader, factory)
 	require.Error(t, err)
-	require.Empty(t, backend.values)
+	assertUnchanged()
 	_, err = run("export")
 	require.Error(t, err)
 	cert, err := httpCA(ctx, root, "", "replace", clock, rand.Reader, factory)
@@ -68,7 +76,16 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, cert, replacement)
 	// Lost protected material does not prevent public export or regenerate a CA.
-	clear(backend.values)
+	owner, err = gatewaypaths.AcquireStoppedExisting(root)
+	require.NoError(t, err)
+	store, err = storage.Open(ctx, owner)
+	require.NoError(t, err)
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE secret_generations SET ciphertext=zeroblob(length(ciphertext))`)
+		return err
+	}))
+	require.NoError(t, store.Close())
+	require.NoError(t, owner.Close())
 	exported, err = httpCA(ctx, root, id, "export", clock, rand.Reader, noProvider)
 	require.NoError(t, err)
 	require.Equal(t, replacement, exported)

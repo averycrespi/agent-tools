@@ -18,7 +18,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,9 +28,7 @@ func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	observer := diagnostics.New(&diagnosticOutput, diagnostics.Warn)
 	t.Cleanup(func() { observer.Finish(nil); <-observer.Done() })
 	options.Diagnostics = observer
-	built, err := newWithHooks(options, constructorHooks{provider: func(id string) (*keyring.Provider, error) {
-		return keyring.NewProviderWithBackend(id, newMemoryBackend())
-	}})
+	built, err := newWithHooks(options, constructorHooks{})
 	require.NoError(t, err)
 	defer built.shutdownConstructed()
 	require.Nil(t, built.httpProxy, "ordinary construction must not select an engine")

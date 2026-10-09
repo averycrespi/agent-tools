@@ -86,7 +86,7 @@ trust. Listener enablement changes no agent HTTP defaults (new agents remain
 blocked), grants, credentials, private-network/tunnel authority or client trust.
 Follow [proxy setup](http-proxy.md), [service management](launchd.md) and
 [restore guidance](backup-and-recovery.md). Fixtures do not qualify native
-launchd/Keychain behavior or authorize installed-resource mutation.
+launchd behavior or authorize installed-resource mutation.
 
 ## Browser persistence cutover
 

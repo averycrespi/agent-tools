@@ -15,49 +15,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEncryptedCustodyLegacySelectionNeverResurrectsAfterUpdate(t *testing.T) {
-	owner, store, _ := custodyFixture(t)
-	backend := newMemoryAdapter()
-	provider, err := NewProviderWithBackend(testInstallationID, backend)
-	require.NoError(t, err)
-	clock := testutil.NewFakeClock(time.Now())
-	coordinator := NewCoordinator(provider, store, clock, rand.Reader)
+func TestEncryptedCustodyRefusesLegacyWithoutDiscardingReferences(t *testing.T) {
+	owner, store, provider := custodyFixture(t)
 	ns, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
 	require.NoError(t, err)
-	old, err := coordinator.Replace(t.Context(), ns, []byte("legacy"))
+	coordinator := NewCoordinator(provider, store, testutil.NewFakeClock(time.Now()), rand.Reader)
+	selected, err := coordinator.Replace(t.Context(), ns, []byte("previously migrated material"))
 	require.NoError(t, err)
-	// This is exactly the origin recorded by schema-23 migration for old handles.
 	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
-		_, err := tx.Exec(`INSERT INTO secret_generations (handle, owner, kind, custody) VALUES (?, ?, ?, 'legacy')`, string(old.Handle), ns.owner, ns.kind)
+		_, err := tx.Exec(`UPDATE secret_generations SET custody='legacy',version=NULL,key_id=NULL,ciphertext=NULL WHERE handle=?`, string(selected.Handle))
 		return err
 	}))
-	require.NoError(t, provider.UseDatabaseCustody(t.Context(), owner, store))
-	secret, _, err := coordinator.ReadActive(t.Context(), ns)
+	keyBefore, err := os.ReadFile(filepath.Join(owner.Layout().Root, gatewaypaths.MasterKeyName))
 	require.NoError(t, err)
-	require.Equal(t, []byte("legacy"), secret)
-	retained := backend.values()
-	writes, deletes := backend.setCalls, backend.deleteCalls
-	current, err := coordinator.Replace(t.Context(), ns, []byte("encrypted"))
+	require.ErrorIs(t, SetupCustody(t.Context(), owner, store, testutil.NewFakeClock(time.Now())), storage.ErrLegacyCustody)
+	restarted, err := NewProvider(testInstallationID)
 	require.NoError(t, err)
-	require.Equal(t, writes, backend.setCalls)
-	require.Equal(t, deletes, backend.deleteCalls)
-	require.Equal(t, retained, backend.values())
-	// Even a native entry with the *new* handle cannot authorize fallback.
-	native, err := NewProviderWithBackend(testInstallationID, backend)
-	require.NoError(t, err)
-	require.NoError(t, native.WriteGeneration(t.Context(), ns, current.Handle, []byte("stale-native")))
-	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
-		_, err := tx.Exec(`DELETE FROM secret_generations WHERE handle = ?`, string(current.Handle))
-		return err
+	require.ErrorIs(t, restarted.UseDatabaseCustody(t.Context(), owner, store), storage.ErrLegacyCustody)
+	_, err = provider.ReadGeneration(t.Context(), ns, selected.Handle)
+	require.ErrorIs(t, err, storage.ErrLegacyCustody)
+	require.ErrorIs(t, provider.DeleteGeneration(t.Context(), ns, selected.Handle), storage.ErrLegacyCustody)
+	require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
+		var origin, handle string
+		require.NoError(t, tx.QueryRow(`SELECT custody FROM secret_generations WHERE handle=?`, string(selected.Handle)).Scan(&origin))
+		require.Equal(t, "legacy", origin)
+		require.NoError(t, tx.QueryRow(`SELECT handle FROM keyring_authorities WHERE owner=? AND kind=?`, ns.owner, ns.kind).Scan(&handle))
+		require.Equal(t, string(selected.Handle), handle)
+		return nil
 	}))
-	reads := backend.getCalls
-	_, _, err = coordinator.ReadActive(t.Context(), ns)
-	require.ErrorIs(t, err, ErrIncompleteGeneration)
-	require.Equal(t, reads, backend.getCalls)
-	_, err = coordinator.InvalidateFenced(t.Context(), ns, nil)
+	keyAfter, err := os.ReadFile(filepath.Join(owner.Layout().Root, gatewaypaths.MasterKeyName))
 	require.NoError(t, err)
-	_, _, err = coordinator.ReadActive(t.Context(), ns)
-	require.ErrorIs(t, err, ErrNoAuthority)
+	require.Equal(t, keyBefore, keyAfter)
 }
 
 func TestEncryptedCustodySetupAdoptsOnlyCompleteInterruptedKey(t *testing.T) {

@@ -33,6 +33,9 @@ func SetupCustody(ctx context.Context, owner *gatewaypaths.Ownership, store *sto
 	if clock == nil || owner == nil || store == nil {
 		return ErrCustodyUnavailable
 	}
+	if err := store.View(ctx, func(tx *sql.Tx) error { return storage.RequireNoLegacyCustodyTx(ctx, tx) }); err != nil {
+		return err
+	}
 	id, err := custodyKeyID(ctx, store)
 	if err != nil {
 		return err
@@ -40,7 +43,7 @@ func SetupCustody(ctx context.Context, owner *gatewaypaths.Ownership, store *sto
 	if id == "" {
 		var count int
 		if err = store.View(ctx, func(tx *sql.Tx) error {
-			return tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM secret_generations WHERE custody = 'encrypted')`).Scan(&count)
+			return tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM secret_generations) OR EXISTS(SELECT 1 FROM keyring_authorities) OR EXISTS(SELECT 1 FROM keyring_candidates)`).Scan(&count)
 		}); err != nil || count != 0 {
 			return ErrCustodyUnavailable
 		}
@@ -110,8 +113,8 @@ func masterKeyID(key []byte) string {
 }
 
 // UseDatabaseCustody is called only during composition, before publication.
-// An unconfigured legacy installation can read explicit legacy generations, but
-// cannot write secrets until stopped setup. Missing/wrong established keys refuse.
+// Only established encrypted custody is supported. Legacy dependencies and
+// missing/wrong established keys refuse without native access or replacement.
 func (provider *Provider) UseDatabaseCustody(ctx context.Context, owner *gatewaypaths.Ownership, store *storage.Store) error {
 	if owner == nil || store == nil {
 		return ErrCustodyUnavailable
@@ -124,17 +127,25 @@ func (provider *Provider) UseDatabaseCustody(ctx context.Context, owner *gateway
 	if err != nil {
 		return ErrCustodyUnavailable
 	}
-	custody := &databaseCustody{store: store, keyID: id}
-	if id == "" {
-		var encrypted bool
-		if err := store.View(ctx, func(tx *sql.Tx) error {
-			var err error
-			encrypted, err = DatabaseCustodyTx(ctx, tx)
+	if err := store.View(ctx, func(tx *sql.Tx) error {
+		if err := storage.RequireNoLegacyCustodyTx(ctx, tx); err != nil {
 			return err
-		}); err != nil || encrypted {
-			return ErrCustodyUnavailable
 		}
+		var missing bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM keyring_authorities a LEFT JOIN secret_generations g ON g.handle=a.handle AND g.owner=a.owner AND g.kind=a.kind WHERE g.handle IS NULL)`).Scan(&missing); err != nil {
+			return err
+		}
+		if missing {
+			return ErrIncompleteGeneration
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
+	if id == "" {
+		return ErrCustodyUnavailable
+	}
+	custody := &databaseCustody{store: store, keyID: id}
 	if id != "" {
 		key, err := gatewaypaths.MasterKey(owner, nil)
 		if err != nil {
@@ -187,7 +198,7 @@ func (custody *databaseCustody) write(ctx context.Context, namespace Namespace, 
 	})
 }
 
-func (custody *databaseCustody) read(ctx context.Context, namespace Namespace, handle Handle) ([]byte, bool, error) {
+func (custody *databaseCustody) read(ctx context.Context, namespace Namespace, handle Handle) ([]byte, error) {
 	var origin string
 	var version sql.NullInt64
 	var keyID sql.NullString
@@ -196,26 +207,28 @@ func (custody *databaseCustody) read(ctx context.Context, namespace Namespace, h
 		return tx.QueryRowContext(ctx, `SELECT custody, version, key_id, substr(ciphertext, 1, 262173) FROM secret_generations WHERE handle = ? AND owner = ? AND kind = ?`, string(handle), namespace.owner, namespace.kind).Scan(&origin, &version, &keyID, &sealed)
 	})
 	if err != nil {
-		return nil, false, ErrIncompleteGeneration
+		return nil, ErrIncompleteGeneration
 	}
-	if origin == "legacy" && !version.Valid && !keyID.Valid && sealed == nil {
-		return nil, true, nil
+	if origin == "legacy" {
+		return nil, storage.ErrLegacyCustody
 	}
 	if origin != "encrypted" || !version.Valid || version.Int64 != 1 || !keyID.Valid || keyID.String != custody.keyID || custody.aead == nil || len(sealed) < 29 || len(sealed) > secretMaximumBytes+28 {
-		return nil, false, ErrIncompleteGeneration
+		return nil, ErrIncompleteGeneration
 	}
 	secret, err := custody.aead.Open(nil, nil, sealed, custodyBinding(namespace, handle, custody.keyID))
 	if err != nil {
-		return nil, false, ErrIncompleteGeneration
+		return nil, ErrIncompleteGeneration
 	}
-	return secret, false, nil
+	return secret, nil
 }
 
 func (custody *databaseCustody) remove(ctx context.Context, namespace Namespace, handle Handle) error {
-	// Legacy native objects are deliberately retained for the separately approved
-	// migration/cutover. Removing their explicit selector cannot resurrect them.
+	// Never discard a legacy selector, including after an unexpected database change.
 	return custody.store.Mutate(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `DELETE FROM secret_generations WHERE handle = ? AND owner = ? AND kind = ? AND NOT EXISTS (SELECT 1 FROM keyring_authorities WHERE handle = ?)`, string(handle), namespace.owner, namespace.kind, string(handle))
+		if err := storage.RequireNoLegacyCustodyTx(ctx, tx); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `DELETE FROM secret_generations WHERE custody = 'encrypted' AND handle = ? AND owner = ? AND kind = ? AND NOT EXISTS (SELECT 1 FROM keyring_authorities WHERE handle = ?)`, string(handle), namespace.owner, namespace.kind, string(handle))
 		return err
 	})
 }

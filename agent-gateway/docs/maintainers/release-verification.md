@@ -24,13 +24,11 @@ The report records the exact clean revision, command and profile hashes, immutab
 
 ## Native and external evidence
 
-The native wrapper checks self-test mode before selecting real material, and destructive-isolation eligibility before selecting native-provider tests. Forced classifier self-tests never launch those suites. Real wrapper execution runs `test-material` once, then selects only native-tagged executable identities rather than reselecting ordinary keyring or material tests. Evidence command identities name the suite runner; old raw-command classifications are historical and rejected.
-
-Native keyring evidence is typed `passed`, `skipped`, or `failed`. `skipped` is an explicit additive gap, never success. `failed` blocks. Do not enable a destructive native prerequisite on a non-disposable user account merely to remove a gap.
+Native credential adapters, wrappers and classification are retired. `test-material` directly owns encrypted credential-material composition in final acceptance. Report schema 5 removes native custody evidence; historical reports are definition-bound and cannot qualify the current candidate. Native service qualification remains separately authorized.
 
 Chromium alone is required for browser acceptance, including privacy, visual, accessibility, and workflow evidence. Firefox/WebKit are available through the explicit `test-browser-cross` target; Safari and VoiceOver are optional manual diagnostics. Do not install or run them by default, request an exception for their absence, or add routine “Firefox/WebKit skipped” caveats. If optional checks are explicitly requested, report their actual outcome without claiming broader qualification from Chromium.
 
-The generic external-evidence validator remains covered by isolated fixtures, but the current release profile has no mandatory browser sidecars. Historical sidecars are not current acceptance evidence. Native keyring classification and authorized native service qualification are unchanged.
+The generic external-evidence validator remains covered by isolated fixtures, but the current release profile has no mandatory browser sidecars. Historical sidecars are not current acceptance evidence. Authorized native service qualification is unchanged.
 
 ## Failure discipline
 
@@ -43,7 +41,7 @@ If a full run fails:
 3. Run only the affected named scenario at higher count when repetition is justified.
 4. Run the affected package or leaf once normally.
 5. Commit the correction at a clean checkpoint.
-6. Refresh candidate-bound native or external evidence if definitions or revision changed.
+6. Refresh candidate-bound external evidence if definitions or revision changed.
 7. Run full acceptance again only after the narrow owner is stable.
 
 Do not rerun `accept` unchanged after a failure. Do not raise timeouts instead of diagnosing the boundary, repeat package-wide fixtures, suppress vulnerability findings, fabricate unavailable evidence, or leave surviving processes/listeners/temp roots for another run.
@@ -52,7 +50,7 @@ A second full failure in the same area requires reassessing the reproduction and
 
 ## Report adoption
 
-`make adopt-acceptance-report REPORT=/absolute/path/report.json ADOPTION=/absolute/path/adoption.json` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, native and external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
+`make adopt-acceptance-report REPORT=/absolute/path/report.json ADOPTION=/absolute/path/adoption.json` performs no-check adoption of one already-produced report. It reparses and hashes the immutable artifact, verifies the same candidate revision and clean worktree, rechecks profile/command/manifest definitions, external classifications, blocking results, and cleanup evidence, then writes a distinct adoption artifact.
 
 Adoption does not rerun product checks and never converts a failure, unavailable blocking cell, stale candidate, dirty revision, or mismatched definition into success. Use it only when no tracked state or acceptance definition changed after report production.
 
@@ -62,7 +60,7 @@ Historical reports remain auditable through version control, but only a report f
 
 Reports from superseded report definitions are incompatible with the current acceptance profile. They remain historical files only and are not upgraded, relabeled, or silently adopted.
 
-A report parser must reject a mismatched profile, schema, revision, definition hash, command set, native classification, external sidecar, or cleanup record. Product API and durable-data compatibility do not imply compatibility of maintainer-facing acceptance artifacts.
+A report parser must reject a mismatched profile, schema, revision, definition hash, command set, external sidecar, or cleanup record. Product API and durable-data compatibility do not imply compatibility of maintainer-facing acceptance artifacts.
 
 ## Purpose-based verification DAG
 
@@ -70,18 +68,17 @@ The public verification interface is organized by evidence purpose:
 
 - `test-unit` owns race-enabled dependency-light contract, parser, discovery, credential-authority, event, and lifecycle tests at count one, without initializing SQLite or launching Gateway processes.
 - `test-integration` owns component, real SQLite/filesystem, and compatibility boundaries at count one, including both ordinary and integration-tagged component tests in one execution.
-- `test-harness` owns runner, fixture, report, selector, and native-classifier self-tests at count one. These are not product E2E or native-provider evidence.
+- `test-harness` owns runner, fixture, report and selector self-tests at count one. These are not product E2E or installed-service evidence.
 - `test-material` owns deterministic credential-material composition at count one.
 - `test-serve-demo` owns real-process curated/empty public outcomes, post-readiness calls, privacy, failures, and disposable Go runner cleanup. CI executes this owner on both Linux and macOS to cover their non-reaping process-exit observers.
 - `test-e2e` owns nonbrowser real-binary and E2E-tagged composition-provider behavior at count one, excluding harness self-tests.
 - `test-security` owns source, secret-sink, durable-artifact, and privacy evidence at count one.
 - `test-stress` repeats only the five named stress scenarios at its configured repeat count.
-- `test-keyring-native` owns deterministic material checks plus typed native-provider evidence.
 - Chromium workflow, privacy, visual, and accessibility leaves each have one owner; `test-browser` is their developer-facing aggregate. `test-browser-cross` remains an opt-in Firefox/WebKit diagnostic, outside ordinary and release aggregates.
 - `test-frontend-development-node` owns pure session, view, mutation and sensitive-sink foundations alongside Node development tests. CI Quality and release acceptance execute this owner; browser leaves retain actual cookies, storage, Origin, interaction and rendering checks.
 - Frontend typecheck, deterministic generated assets, supply-chain guards, and vulnerability audit remain separate explicit owners.
 
-`test` aggregates `test-unit`, `test-integration`, `test-harness`, `test-material`, and `test-serve-demo`. It is a developer convenience, not a release leaf. `test-browser` is also an aggregate: it expands the four required Chromium leaves through one inventory/planner invocation, retaining separate race/count-one Go test commands, per-leaf deadlines, Gateway builds, and cleanup. Final acceptance selects the harness and demo leaves directly; material executes only inside its native wrapper, never a second time as a direct final leaf.
+`test` aggregates `test-unit`, `test-integration`, `test-harness`, `test-material`, and `test-serve-demo`. It is a developer convenience, not a release leaf. `test-browser` is also an aggregate: it expands the four required Chromium leaves through one inventory/planner invocation, retaining separate race/count-one Go test commands, per-leaf deadlines, Gateway builds, and cleanup. Final acceptance selects harness, demo and encrypted material as disjoint direct leaves.
 
 `accept` invokes disjoint leaves directly and never invokes `test`, `test-browser`, `audit`, or another aggregate that would repeat evidence. The complete nonbrowser E2E suite runs once. Only the five named stress scenarios repeat; migration, retention, protocol, browser, and real-binary matrices remain count one. Transitive ownership keeps generated-asset verification from running under multiple names.
 
@@ -91,7 +88,7 @@ For machine-readable timing, `run-suite <owner> --json` emits Go test events on 
 
 Go's `-timeout` bounds each package's test binary, not cold compilation or all packages in a command. `purpose_dag.go` owns package timeouts and full-command budgets; the planner and release runner consume those same values. `Command.Timeout` is the executor's full-command limit, populated from the leaf's **budget**, never its package timeout. Release checks use `BudgetMillis` for their context; `TimeoutMillis` retains the package/tool timeout declaration. Parent cancellation and earlier profile/CI deadlines still win. Identity-checked TERM/KILL/reap cleanup has its own finite supervisor deadlines after cancellation; command budgets do not suppress cleanup.
 
-Integration retains five minutes per test binary and one shared fifteen-minute deadline for compilation and the complete owner, including all sequential batches. The expanded SQLite lifecycle coverage completed in roughly eleven minutes on a faster macOS runner but exhausted the former twelve-minute owner bound on two slower runs while tests continued progressing. The additional owner allowance accommodates cumulative workload and runner variability; it does not extend any individual test binary's lifetime. Invocation's real SQLite lifecycle inventory is sorted by test name and distributed across two disjoint sequential binaries on the same runner; all other packages retain their existing grouping. This avoids cumulative package timeouts without removing tests, changing race/count-one instrumentation, extending individual test lifetimes, or renewing the enclosing budget. The native wrapper's seven-minute budget includes its count-one material prerequisite and setup; the native Go package still has a ten-second timeout. This changes no native-access consent boundary. The fifteen-minute overall release profile remains a separate ceiling, not a promise that cold release acceptance fits it; ordinary CI does not qualify that profile.
+Integration retains five minutes per test binary and one shared fifteen-minute deadline for compilation and the complete owner, including all sequential batches. The expanded SQLite lifecycle coverage completed in roughly eleven minutes on a faster macOS runner but exhausted the former twelve-minute owner bound on two slower runs while tests continued progressing. The additional owner allowance accommodates cumulative workload and runner variability; it does not extend any individual test binary's lifetime. Invocation's real SQLite lifecycle inventory is sorted by test name and distributed across two disjoint sequential binaries on the same runner; all other packages retain their existing grouping. This avoids cumulative package timeouts without removing tests, changing race/count-one instrumentation, extending individual test lifetimes, or renewing the enclosing budget. The fifteen-minute overall release profile remains a separate ceiling, not a promise that cold release acceptance fits it; ordinary CI does not qualify that profile.
 
 Release definitions bind authored frontend source and test files through one sorted, symlink-refusing inventory of `web/src` and `web/tests`, plus explicit build/runner singleton inputs. New modules no longer need copying into every browser leaf. Immutable definition hashes and independent executable ownership/mutation checks remain mandatory. Declared expected process counts are planning metadata, not measured launches.
 
@@ -105,12 +102,11 @@ Release definitions bind authored frontend source and test files through one sor
 | Browser behavior          | required Chromium workflow, privacy, visual, and accessibility leaves                                           |
 | Security and supply chain | `test-security`, direct Go vulnerability scan, frontend supply-chain verification, frontend vulnerability audit |
 | Scheduling sensitivity    | `test-stress` only; never repeat unrelated packages                                                             |
-| Platform capability       | `test-keyring-native` with explicit typed classification                                                        |
 | Release candidate         | one clean `accept` run; Chromium is the required browser baseline                                               |
 
-Repository CI runs Gateway lint independently of its unit, integration, harness/material, E2E, and demo-runner leaves when Gateway is affected; all selected jobs remain mandatory in Required. Tool/role-owned compatible Go caches use fresh run/attempt save keys so newly filled dependency, build, and linter material can be retained. Cache reuse is setup optimization, not exact-revision evidence; `main`, manual, and scheduled runs select every tool. The stable required gate and conservative path-selection policy are described in the [repository CI guide](../../../CLAUDE.md#ci). The Gateway E2E job and macOS harness owner first warm the exact `e2e` command build cache under a separate five-minute setup bound, so cold module downloads and compilation do not consume the harness's 30-second per-process build budget. The macOS preparation is harness-only, runs after cache restoration even on a miss, and uses read-only module resolution; its integration owner is unchanged. The harness still builds and owns its disposable binary; no prebuilt artifact is injected and no runtime or test deadline is relaxed. The demo job likewise prepares the exact read-only `e2e` Gateway build under a separate five-minute bound before its lifecycle owner. Its enclosing job allows 25 minutes: the existing 20-minute allowance plus five for preparation. This is required even on a cache miss (including renamed cache identities): cold compilation must not consume the first demo's 75-second readiness assertion. Preparation populates build material only; the demo still builds and owns its disposable binary, and runtime deadlines, cleanup and count-one scenario ownership are unchanged. This development profile does not replace browser, native, security, or other final-acceptance owners.
+Repository CI runs Gateway lint independently of its unit, integration, harness/material, E2E, and demo-runner leaves when Gateway is affected; all selected jobs remain mandatory in Required. Tool/role-owned compatible Go caches use fresh run/attempt save keys so newly filled dependency, build, and linter material can be retained. Cache reuse is setup optimization, not exact-revision evidence; `main`, manual, and scheduled runs select every tool. The stable required gate and conservative path-selection policy are described in the [repository CI guide](../../../CLAUDE.md#ci). The Gateway E2E job and macOS harness owner first warm the exact `e2e` command build cache under a separate five-minute setup bound, so cold module downloads and compilation do not consume the harness's 30-second per-process build budget. The macOS preparation is harness-only, runs after cache restoration even on a miss, and uses read-only module resolution; its integration owner is unchanged. The harness still builds and owns its disposable binary; no prebuilt artifact is injected and no runtime or test deadline is relaxed. The demo job likewise prepares the exact read-only `e2e` Gateway build under a separate five-minute bound before its lifecycle owner. Its enclosing job allows 25 minutes: the existing 20-minute allowance plus five for preparation. This is required even on a cache miss (including renamed cache identities): cold compilation must not consume the first demo's 75-second readiness assertion. Preparation populates build material only; the demo still builds and owns its disposable binary, and runtime deadlines, cleanup and count-one scenario ownership are unchanged. This development profile does not replace browser, security, or other final-acceptance owners.
 
-Linux and macOS CI partition the existing integration owner into `test-integration-1` and `test-integration-2` on separate runners. Six measured heavy packages occupy the first shard; all remaining and newly discovered packages occupy the second. A package never spans shard runners. Invocation's two source-derived batches remain sequential within its one fixture owner, including in the unsharded local/release plan. The planner still derives exact source/build-aware selectors, and independent tests verify complete union, no overlap, and race/count-one instrumentation on Linux amd64/arm64 and Darwin arm64. Each shard has its own role/OS cache writer; do not run these partitions concurrently on one host. Local `test-integration` and release acceptance remain unsharded. The required macOS matrix also executes `test-harness`. This runs service utility supervision (including Darwin's non-reaping exit observer), retained tombstone recognition and owner-only filesystem fixtures, runtime process groups, deterministic Keychain probe mappings, and direct harness process-identity/cleanup tests. The existing macOS demo owner remains separate. Launchctl/ps lifecycle responses are injected fixtures, not native service qualification. Native LaunchAgent installation/adoption/GUI-domain lifecycle and real `/usr/bin/security`/Keychain credential access remain unqualified and require separately authorized disposable resources. The Darwin URL-opener branch in the real-binary E2E owner is not executed by this matrix; E2E remains Linux-only. No native consent flag is enabled by ordinary CI.
+Linux and macOS CI partition the existing integration owner into `test-integration-1` and `test-integration-2` on separate runners. Six measured heavy packages occupy the first shard; all remaining and newly discovered packages occupy the second. A package never spans shard runners. Invocation's two source-derived batches remain sequential within its one fixture owner, including in the unsharded local/release plan. The planner still derives exact source/build-aware selectors, and independent tests verify complete union, no overlap, and race/count-one instrumentation on Linux amd64/arm64 and Darwin arm64. Each shard has its own role/OS cache writer; do not run these partitions concurrently on one host. Local `test-integration` and release acceptance remain unsharded. The required macOS matrix also executes `test-harness`. This runs service utility supervision (including Darwin's non-reaping exit observer), retained tombstone recognition and owner-only filesystem fixtures, runtime process groups and direct harness process-identity/cleanup tests. The existing macOS demo owner remains separate. Launchctl/ps lifecycle responses are injected fixtures, not native service qualification. Native LaunchAgent installation/adoption/GUI-domain lifecycle remains unqualified and requires separately authorized disposable resources. Keychain/Secret Service access is removed. The Darwin URL-opener branch in the real-binary E2E owner is not executed by this matrix; E2E remains Linux-only. No native consent flag is enabled by ordinary CI.
 
 Gateway's Linux integration and macOS platform owners enable `AGENT_GATEWAY_TEST_JSON=1` so their job logs retain named Go run/pass/skip events without repeating tests. In particular, real IPv6 connection fixtures require positive named pass evidence on an IPv6-enabled runner: a package-level pass or an unavailable-loopback skip is not IPv6 qualification. Local environments may lack IPv6 loopback; the fixture skips only address-unavailable or address-family-unsupported listener setup, never a failed exchange after successful setup.
 
@@ -122,7 +118,7 @@ The root repository aggregate deliberately excludes Gateway acceptance. The Gate
 
 ## Constrained-memory linting
 
-Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.6; repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.
+Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.9; repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.
 
 `make lint` runs all configured linters, including analysis of normal test source (not behavioral test execution), with `GOMEMLIMIT=512MiB`, `GOGC=50`, and `GOMAXPROCS=1`. The linter configuration fixes package concurrency at one, including direct `go tool golangci-lint` invocations. `make verify` reuses that lint recipe after its nonmutating module and format checks. Runtime memory tuning trades CPU for headroom; `GOMEMLIMIT` is a soft Go runtime target, not a guaranteed resident-memory bound.
 
@@ -162,20 +158,14 @@ The retention E2E owner seeds the real 65,536-row boundary with one set-based tr
 
 ### HTTP activation fixtures
 
-The HTTP activation real-binary fixture retains an absolute disposable fake-material
-directory linked into a separate `e2e` binary for explicit legacy reads. Normal builds
-contain neither fixture selector nor plaintext backend. The marked private directory
-is outside installation/backup/evidence trees, bounded and removed by its test owner.
-Fresh init, stopped CA replacement, serving and restart now use encrypted control
-SQLite and the owner-only installation master key; the restart test asserts that the
-legacy material directory contains only its marker. This qualifies source-level
-custody and composition without touching a native keyring, **not** installed/native
-adoption, client trust qualification or target capacity evidence.
-
-Legacy backup/restore E2E scenarios explicitly seed historical custody through domain
-owners instead of bypassing the new-installation refusal. Separate fresh-installation
-scenarios require the explicit encrypted-backup conflict and fail-closed missing-key
-behavior. No fixture converts a failed or unavailable restore into success.
+The HTTP activation real-binary fixture uses normal encrypted database custody in a
+disposable installation. The `e2e` build retains isolated path seams, not a plaintext
+or native material backend. Fresh init, stopped CA replacement, serving, restart and
+restore use encrypted control SQLite and the owner-only master key. Fixtures assert
+restored material and unchanged CA identity, plus fail-closed missing-key and legacy
+refusal. This qualifies source-level custody and composition, **not** installed
+adoption, client trust or target capacity. Failed or unavailable restore is never
+converted into success.
 
 ### Native HTTPS Git transport fixtures
 
@@ -193,7 +183,7 @@ The fixtures use distinct upstream, seed and client repositories, private client
 HOME/CA/proxy-token material, numeric-loopback ephemeral listeners and bounded
 `testutil.BinaryRunner` child groups. They clear ambient Git configuration and
 credential helpers; only the supported agent proxy credential is exported to the
-client. The upstream credential stays in fake host-held material. Process output
+client. The upstream credential stays in encrypted host-held custody. Process output
 is bounded and scanned without printing credential canaries.
 
 Assertions cover native clone/fetch/ls-remote objects and refs, fetch protocol v2
@@ -262,7 +252,7 @@ formatting and verification checks. Independent review covers the incremental di
 exact-head target-applicable CI and named real IPv6 pass evidence remain required.
 
 Barrier injection and owned process-stop evidence are distinct: a returned fault is
-not a crash, and neither proves power-loss durability, native keyring/launchd
+not a crash, and neither proves power-loss durability, native launchd
 behavior, live Git interoperability, shared-filesystem isolation or target capacity.
 This scoped qualification does not constitute full release acceptance or authorize
 installed-resource mutations.
@@ -284,7 +274,7 @@ The source directory, Go module/import prefix, sole command source, CI tool/cach
 | `GATEWAY_BUILD_DIR`, `GATEWAY_INSTALL_DIR`                                         | `AGENT_GATEWAY_BUILD_DIR`, `AGENT_GATEWAY_INSTALL_DIR`                                                                                                                   |
 | Other private `MCP_GATEWAY_*` test controls                                        | Corresponding `AGENT_GATEWAY_*` names                                                                                                                                    |
 
-Retired controls are not aliases. Remove them from shell startup files, CI environment, and Make command lines; merely adding the new name does not resolve the diagnostic. Empty retired values also fail. Diagnostics name the setting and replacement, never its value. Native-keyring consent (`AGENT_GATEWAY_DISPOSABLE_MACOS_KEYCHAIN`) still requires a disposable account; renaming it does not authorize native access. Private demo and MCP fallback fixture controls also use the `AGENT_GATEWAY_` prefix. Neutral target arguments `REPORT` and `ADOPTION`, and `serve-demo.sh`, are unchanged. Installed LaunchAgent management now belongs to the Go `service` commands; the Python helper and install/restart shell entry points are removed. Service component fixtures and real-binary CLI grammar/platform refusals have disjoint integration/E2E owners. They do not qualify native launchd, which requires separately authorized disposable resources.
+Retired controls are not aliases. Remove them from shell startup files, CI environment, and Make command lines; merely adding the new name does not resolve the diagnostic. Empty retired values also fail. Diagnostics name the setting and replacement, never its value. Native-keyring targets and their consent controls are retired. Private demo and MCP fallback fixture controls also use the `AGENT_GATEWAY_` prefix. Neutral target arguments `REPORT` and `ADOPTION`, and `serve-demo.sh`, are unchanged. Installed LaunchAgent management now belongs to the Go `service` commands; the Python helper and install/restart shell entry points are removed. Service component fixtures and real-binary CLI grammar/platform refusals have disjoint integration/E2E owners. They do not qualify native launchd, which requires separately authorized disposable resources.
 
 At the developer source cutover, installed state and service paths were intentionally retained. New installations now use canonical Agent Gateway paths and launchd naming; the rollout owner attested that all installations migrated, and the migration capability is retired. Retain [installation safety artifacts and explicit root selections](../operators/installation-safety.md). Legacy executable publication is now retired; process-lock filenames, keyring service identifiers, credentials and database/backup lineage remain unchanged. Operator help/recovery guidance now uses `agent-gateway` directly; a renamed current binary still exposes only the canonical grammar and completions, not the old standalone implementation. The separate [operator v2 cutover](../operators/upgrade-compatibility.md#operator-v2-cutover) retires old administrative clients, not installed state. MCP client/server identities (including the fixed `mcp-gateway` client name), credential hash domains, cursor MAC domains, schema-validation identifiers and self-service names remain compatibility contracts. Browser persistence now uses canonical theme/session names with the [preference migration and sign-in cutover](../operators/upgrade-compatibility.md#browser-persistence-cutover); the old cookie is expiry-only, not authority. Repository-owned guest provisioning is now retired. Manual client configuration retains **both** `AGENT_GATEWAY_*` and `MCP_GATEWAY_*` endpoint/token pairs from one current authority; operators own private transfer, permission checks and reconciliation of historical managed shell blocks. Source retirement is not live rollout evidence. These legacy exports are supported client compatibility, not retired developer controls; their removal is explicitly outside this retirement and still requires separately delivered agent-config support and rollout qualification. Follow the [manual client compatibility and qualification](../operators/access-control.md#existing-sandbox-migration-and-conflicts). Do not migrate installed state or edit that external repository for the developer cutover.
 
@@ -292,7 +282,7 @@ Temporary test roots, native disposable fixture artifacts, frontend caches, and 
 
 ## Isolated executable naming checks
 
-Build/install publishes only `agent-gateway` from the sole `cmd/agent-gateway` implementation; do not add a second command/composition owner or automatically delete stale legacy output. `AGENT_GATEWAY_BUILD_DIR` and `AGENT_GATEWAY_INSTALL_DIR` select isolated output directories (defaults: current directory and GOPATH/bin), not runtime state. Use disposable destinations, never a live installation. The E2E executable-name fixture exercises the real Make targets with the existing deterministic provider seam: fresh output contains only the canonical binary, repeat publication preserves an old-name sentinel, and an explicitly renamed current test binary still uses canonical help/completions, shared installation and cross-name locking. Ordinary production builds remain native-provider builds. Isolated path fixtures verify retained tombstone recognition and legacy refusal without an exchange implementation; backup owners retain historical lineage coverage. New installation/service paths are canonical, while durable keyring/MCP identities remain compatible. Fixture evidence does not qualify native access, launchd adoption or power-loss durability.
+Build/install publishes only `agent-gateway` from the sole `cmd/agent-gateway` implementation; do not add a second command/composition owner or automatically delete stale legacy output. `AGENT_GATEWAY_BUILD_DIR` and `AGENT_GATEWAY_INSTALL_DIR` select isolated output directories (defaults: current directory and GOPATH/bin), not runtime state. Use disposable destinations, never a live installation. The E2E executable-name fixture exercises the real Make targets with normal encrypted custody and isolated test paths: fresh output contains only the canonical binary, repeat publication preserves an old-name sentinel, and an explicitly renamed current test binary still uses canonical help/completions, shared installation and cross-name locking. Ordinary and test builds share the encrypted custody provider. Isolated path fixtures verify retained tombstone recognition and legacy refusal without an exchange implementation; backup owners retain historical lineage coverage. New installation/service paths are canonical, while durable keyring/MCP identities remain compatible. Fixture evidence does not qualify native access, launchd adoption or power-loss durability.
 
 ## Classified residual-name inventory
 

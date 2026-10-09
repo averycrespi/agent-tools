@@ -14,24 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type offlineBackend map[string]string
-
-func (offlineBackend) Probe(context.Context, string) error { return nil }
-func (b offlineBackend) Set(service, user, value string) error {
-	b[service+"/"+user] = value
-	return nil
-}
-func (b offlineBackend) Get(service, user string) (string, error) {
-	value, ok := b[service+"/"+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return value, nil
-}
-func (b offlineBackend) Delete(service, user string) error { delete(b, service+"/"+user); return nil }
-
-// CLI tests use actual CA SQL and protected-generation lifecycle with a disposable
-// legacy backend. New material uses the same encrypted custody as production.
+// CLI tests use actual CA SQL and the same encrypted custody as production.
 // Composition's own tests independently cover the stopped owner.
 func newTestRootCmd(t *testing.T) *cobra.Command {
 	t.Helper()
@@ -74,7 +57,7 @@ func fixtureCAOperation(ctx context.Context, root, installation, operation strin
 		if operation == "create" && inspection.Revision != "0" {
 			return nil, httpca.ErrUnavailable
 		}
-		provider, err := keyring.NewProviderWithBackend(identity.InstallationID, offlineBackend{})
+		provider, err := keyring.NewProvider(identity.InstallationID)
 		if err != nil {
 			return nil, err
 		}

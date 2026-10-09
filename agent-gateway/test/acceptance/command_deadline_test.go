@@ -2,13 +2,11 @@ package acceptance
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
-	"github.com/averycrespi/agent-tools/agent-gateway/test/keyringnative"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,13 +38,9 @@ func TestCommandDeadlineEnforcesBudgetAndCleansOwnedGroup(t *testing.T) {
 }
 
 func TestReleaseCommandCanExceedPackageTimeoutWithinBudget(t *testing.T) {
-	// Emit a classifier fixture, not a native-provider operation.
-	native, err := json.Marshal(keyringnative.NewResult(keyringnative.ResultPassed, "linux", "native_passed", keyringnative.ResultPassed, keyringnative.ResultPassed))
-	require.NoError(t, err)
 	root, definition, external := releaseRunnerFixture(t, func(definition *releaseProfileDefinition) {
 		check := definition.Checks[0]
-		check.Native = true
-		check.Argv = []string{"sh", "-c", "sleep 0.1; printf '%s' \"$1\"", "fixture", string(native)}
+		check.Argv = []string{"sh", "-c", "sleep 0.1"}
 		check.Coverage = definition.Coverage
 		check.TimeoutMillis = 1
 		check.BudgetMillis = 5000

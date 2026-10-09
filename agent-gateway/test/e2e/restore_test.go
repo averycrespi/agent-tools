@@ -55,7 +55,8 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	initialSecret := filepath.Join(t.TempDir(), "initial")
 	runner, err := testutil.NewBinaryRunner(10*time.Second, 4096)
 	require.NoError(t, err)
-	initializeLegacyGatewayFixture(t, root, initialSecret)
+	initialized, err := runner.Run(ctx, binary, "init", "--confirm", "--data-dir", root, "--secret-output", initialSecret)
+	require.NoError(t, err, "%s", initialized.Stderr)
 	initialBearer, err := os.ReadFile(initialSecret)
 	require.NoError(t, err)
 
@@ -69,7 +70,7 @@ func TestRestoreBackupRealBinaryRekeysCompleteGeneration(t *testing.T) {
 	require.NoError(t, err)
 	traffic, err := invocation.OpenTraffic(ctx, ownership, identity.InstallationID, generation, invocation.DefaultTrafficConfig())
 	require.NoError(t, err)
-	manager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: e2eClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x66}, 128))})
+	manager, err := backup.New(backup.Options{Ownership: ownership, Store: store, Layout: ownership.Layout(), Clock: e2eClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x66}, 128))})
 	require.NoError(t, err)
 	artifact, _, err := manager.Create(ctx, "authority", "e2e-restore")
 	require.NoError(t, err)

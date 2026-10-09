@@ -243,7 +243,7 @@ func writeHTTPCredentialError(w http.ResponseWriter, err error) {
 		problem = contract.ProblemResourceLimit
 	case errors.Is(err, storage.ErrStorageLatched):
 		problem = contract.ProblemStorageUnavailable
-	case errors.As(err, &capability), errors.Is(err, keyring.ErrWorkLimit), errors.Is(err, keyring.ErrNoAuthority), errors.Is(err, keyring.ErrNotFound), errors.Is(err, keyring.ErrCandidateLimit), errors.Is(err, keyring.ErrHandleCollision), errors.Is(err, keyring.ErrDraining), errors.Is(err, keyring.ErrSecretTooLarge), errors.Is(err, keyring.ErrIncompleteGeneration), errors.Is(err, httpcredentials.ErrUnavailable):
+	case errors.As(err, &capability), errors.Is(err, keyring.ErrWorkLimit), errors.Is(err, keyring.ErrNoAuthority), errors.Is(err, keyring.ErrNotFound), errors.Is(err, keyring.ErrCandidateLimit), errors.Is(err, keyring.ErrHandleCollision), errors.Is(err, keyring.ErrDraining), errors.Is(err, keyring.ErrSecretTooLarge), errors.Is(err, keyring.ErrIncompleteGeneration), errors.Is(err, keyring.ErrCustodyUnavailable), errors.Is(err, httpcredentials.ErrUnavailable):
 		problem = contract.ProblemKeyringUnavailable
 	}
 	writeProblem(w, problem)

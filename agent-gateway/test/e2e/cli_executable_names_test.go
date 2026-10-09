@@ -24,8 +24,8 @@ func TestCLIExecutableNames(t *testing.T) {
 	require.NoError(t, err)
 	builder, err := testutil.NewBinaryRunner(300*time.Second, 128*1024)
 	require.NoError(t, err)
-	// Only the existing provider seam is replaced so lifecycle evidence never
-	// touches the native keyring. Publication must not remove stale artifacts.
+	// Isolate account paths while using production encrypted custody.
+	// Publication must not remove stale artifacts.
 	built, err := builder.Run(t.Context(), "make", "-C", module, "build", "install",
 		"AGENT_GATEWAY_BUILD_DIR="+buildDir, "AGENT_GATEWAY_INSTALL_DIR="+installDir, "GOFLAGS=-tags=e2e")
 	require.NoError(t, err, "build/install: %s", built.Stderr)
@@ -126,8 +126,7 @@ func TestCLIExecutableNames(t *testing.T) {
 			}
 		})
 	}
-	// Retain renamed-binary restore coverage on an explicitly legacy installation.
-	initializeLegacyGatewayFixture(t, root, filepath.Join(root, "admin-bearer"))
+	// A renamed current binary retains the same encrypted installation contract.
 	initialized, err := runner.Run(t.Context(), legacy, "init", "--confirm", "--json")
 	require.NoError(t, err, "initialize: %s", initialized.Stderr)
 	assertSettledResult(t, initialized)

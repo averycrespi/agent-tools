@@ -23,7 +23,6 @@ type Command struct {
 	Name      string
 	Arguments []string
 	Artifacts []string
-	Native    bool
 	// Timeout bounds the complete command, including compilation; Go's -timeout separately bounds each test binary.
 	Timeout time.Duration
 }
@@ -76,9 +75,6 @@ func runOSCommand(ctx context.Context, root string, command Command, cleanupInhe
 			cleanup = "failed"
 		}
 		combinedErr = &commandExecutionError{cause: combinedErr, termination: termination, cleanup: cleanup}
-	}
-	if command.Native {
-		return result.Stdout, combinedErr
 	}
 	return nil, combinedErr
 }

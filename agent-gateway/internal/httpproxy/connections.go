@@ -217,8 +217,10 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	lease.Release()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { e.handle(w, r, inside) })
 	if state.NegotiatedProtocol == "h2" {
-		server := &http2.Server{MaxConcurrentStreams: contract.HTTPProxyH2Streams, MaxReadFrameSize: 16 * 1024, IdleTimeout: contract.HTTPProxyIdleTimeout, ReadIdleTimeout: contract.HTTPProxyIdleTimeout, PingTimeout: contract.HTTPProxyDialTimeout, WriteByteTimeout: contract.HTTPProxyIdleTimeout, MaxUploadBufferPerConnection: contract.HTTPProxyBufferBytes * contract.HTTPProxyH2Streams, MaxUploadBufferPerStream: contract.HTTPProxyBufferBytes}
-		server.ServeConn(newH2BoundConn(tlsConn), &http2.ServeConnOpts{Context: r.Context(), Handler: handler, BaseConfig: &http.Server{MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, ErrorLog: diagnostics.HTTPErrorLog(e.options.Diagnostics)}})
+		// Retain the single accepted CONNECT connection and its compiled bounds;
+		// switching to http.Server.Serve requires a separate listener-ownership change.
+		server := &http2.Server{MaxConcurrentStreams: contract.HTTPProxyH2Streams, MaxReadFrameSize: 16 * 1024, IdleTimeout: contract.HTTPProxyIdleTimeout, ReadIdleTimeout: contract.HTTPProxyIdleTimeout, PingTimeout: contract.HTTPProxyDialTimeout, WriteByteTimeout: contract.HTTPProxyIdleTimeout, MaxUploadBufferPerConnection: contract.HTTPProxyBufferBytes * contract.HTTPProxyH2Streams, MaxUploadBufferPerStream: contract.HTTPProxyBufferBytes} //nolint:staticcheck // Preserve ServeConn bounds on the patched compatibility API.
+		server.ServeConn(newH2BoundConn(tlsConn), &http2.ServeConnOpts{Context: r.Context(), Handler: handler, BaseConfig: &http.Server{MaxHeaderBytes: contract.HTTPProxyHeaderBytes, ReadHeaderTimeout: contract.HTTPProxyHeaderTimeout, ErrorLog: diagnostics.HTTPErrorLog(e.options.Diagnostics)}})                                                                                                                                                      //nolint:staticcheck // Serve this already authenticated, handshaken CONNECT stream only.
 		return
 	}
 	bound, ok := client.(*boundConn)

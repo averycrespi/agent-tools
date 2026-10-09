@@ -3,14 +3,12 @@
 package backup
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
@@ -24,32 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type retainedHTTPKeyring struct {
-	mu     sync.Mutex
-	values map[string]string
-}
-
-func (*retainedHTTPKeyring) Probe(context.Context, string) error { return nil }
-func (k *retainedHTTPKeyring) Set(service, user, value string) error {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.values[service+user] = value
-	return nil
-}
-func (k *retainedHTTPKeyring) Get(service, user string) (string, error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	v, ok := k.values[service+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return v, nil
-}
-
-// Retain orphaned physical items to prove restore does not trust their presence.
-func (*retainedHTTPKeyring) Delete(string, string) error { return nil }
-
-func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
+func TestIntegrationEncryptedRestoreRecoversHTTPMaterialAndPolicy(t *testing.T) {
 	for _, action := range []string{"rotate", "delete"} {
 		t.Run(action, func(t *testing.T) {
 			ctx := audit.WithSystem(t.Context())
@@ -63,10 +36,11 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			clock := fixedClock{value: acceptedFixtureTime}
 			_, err = admin.NewService(store, clock, rand.Reader).Initialize(ctx, new(captureSink))
 			require.NoError(t, err)
-			backend := &retainedHTTPKeyring{values: map[string]string{}}
-			provider, err := keyring.NewProviderWithBackend(backupTestInstallationID, backend)
+			require.NoError(t, keyring.SetupCustody(ctx, owner, store, clock))
+			provider, err := keyring.NewProvider(backupTestInstallationID)
 			require.NoError(t, err)
 			serviceFor := func(store *storage.Store) (*httpcredentials.Service, *authorization.Repository) {
+				require.NoError(t, provider.UseDatabaseCustody(ctx, owner, store))
 				policies, err := authorization.New(store, clock, rand.Reader)
 				require.NoError(t, err)
 				repo, err := httpcredentials.NewRepository(store, clock, rand.Reader, policies)
@@ -85,7 +59,7 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			allow, block := contract.HTTPDefaultAllow, contract.HTTPDefaultBlock
 			savedPrincipal, err := policies.PatchPrincipal(ctx, principal.Principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: principal.Principal.Revision, HTTPDefault: &allow})
 			require.NoError(t, err)
-			manager, err := New(Options{Store: store, Layout: owner.Layout(), Clock: clock, Entropy: rand.Reader})
+			manager, err := New(Options{Ownership: owner, Store: store, Layout: owner.Layout(), Clock: clock, Entropy: rand.Reader})
 			require.NoError(t, err)
 			artifact, _, err := manager.Create(ctx, "authority", "http-restore")
 			require.NoError(t, err)
@@ -103,7 +77,6 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 				err = service.Delete(ctx, created.ID, created.Revision)
 			}
 			require.NoError(t, err)
-			require.NotEmpty(t, backend.values)
 			require.NoError(t, store.Close())
 			require.NoError(t, owner.Close())
 			_, err = Restore(ctx, RestoreOptions{Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: clock, Entropy: rand.Reader})
@@ -122,18 +95,18 @@ func TestIntegrationRestoreNeverReactivatesRetiredHTTPCredential(t *testing.T) {
 			require.Equal(t, grant, restoredGrant)
 			preview, err := restoredPolicies.PreviewHTTPAccess(ctx, authorization.HTTPAccessInput{PrincipalID: principal.Principal.ID, URL: "https://api.example.com/", Method: "GET"})
 			require.NoError(t, err)
-			require.Equal(t, contract.HTTPReasonCredentialUnavailable, preview.Decision.Reason)
 			require.Equal(t, contract.HTTPDefaultAllow, preview.Default)
 			require.EqualValues(t, 2, preview.Decision.DefaultRevision)
-			require.False(t, preview.Decision.Allowed)
+			require.True(t, preview.Decision.Allowed)
 			restored, err := restoredService.Get(ctx, created.ID)
 			require.NoError(t, err)
-			require.False(t, restored.Available)
+			require.True(t, restored.Available)
 			revision, err := strconv.ParseUint(restored.Revision, 10, 64)
 			require.NoError(t, err)
 			material, err := restoredService.Acquire(ctx, contract.HTTPRevisionRef{ID: created.ID, Revision: revision})
-			require.Error(t, err)
-			require.Nil(t, material)
+			require.NoError(t, err)
+			require.NotNil(t, material)
+			defer material.Clear()
 		})
 	}
 }

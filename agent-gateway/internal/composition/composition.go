@@ -714,10 +714,8 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err != nil {
 		return nil, fmt.Errorf("construct provider: %w", err)
 	}
-	if hooks.provider == nil {
-		if err = built.provider.UseDatabaseCustody(context.Background(), options.Ownership, options.Store); err != nil {
-			return nil, err
-		}
+	if err = built.provider.UseDatabaseCustody(context.Background(), options.Ownership, options.Store); err != nil {
+		return nil, err
 	}
 	if err := check("keyring_coordinator"); err != nil {
 		return nil, err

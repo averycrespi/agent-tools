@@ -5,6 +5,7 @@ package httpproxy
 import (
 	"bufio"
 	"crypto/x509"
+	"database/sql"
 	"fmt"
 	"io"
 	"net"
@@ -95,9 +96,10 @@ func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) 
 				second := makeMaterial("second")
 				f.allow(t, upstream.URL, "allow_requests", "", second.ID)
 			} else {
-				f.backend.mu.Lock()
-				clear(f.backend.items)
-				f.backend.mu.Unlock()
+				require.NoError(t, f.store.Mutate(audit.WithSystem(t.Context()), func(tx *sql.Tx) error {
+					_, err := tx.Exec(`UPDATE secret_generations SET ciphertext=zeroblob(length(ciphertext))`)
+					return err
+				}))
 			}
 			for _, path := range []string{"/", "/https://example.com//%2f?opaque=%00"} {
 				conn := f.intercept(t, upstream.URL, "http/1.1")

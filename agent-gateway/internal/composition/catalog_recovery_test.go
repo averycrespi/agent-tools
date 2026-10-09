@@ -14,7 +14,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/runtimes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,9 +111,7 @@ func testScheduledCatalogSessionLoss(t *testing.T, confirmed bool) {
 	release := sync.OnceFunc(func() { close(releaseStop) })
 	defer release()
 	var transports atomic.Int32
-	built, err := newWithHooks(options, constructorHooks{scheduler: scheduler, provider: func(id string) (*keyring.Provider, error) {
-		return keyring.NewProviderWithBackend(id, newMemoryBackend())
-	}, newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
+	built, err := newWithHooks(options, constructorHooks{scheduler: scheduler, newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
 		first := transports.Add(1) == 1
 		return downstream.NewCoordinator(&recoveryTransport{Transport: transport, close: func(ctx context.Context) error {
 			if first {

@@ -3,12 +3,9 @@ package acceptance
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"time"
-
-	"github.com/averycrespi/agent-tools/agent-gateway/test/keyringnative"
 )
 
 type ReleaseCleanupResult struct {
@@ -53,20 +50,9 @@ func runReleaseProfile(ctx context.Context, root string, executor Executor, defi
 	for _, expected := range definition.Checks {
 		checkStarted := time.Now().UTC()
 		checkContext, cancelCheck := context.WithTimeout(profileContext, time.Duration(expected.BudgetMillis)*time.Millisecond)
-		command := Command{CheckName: expected.ID, Name: expected.Argv[0], Arguments: append([]string(nil), expected.Argv[1:]...), Artifacts: append([]string(nil), expected.Artifacts...), Native: expected.Native, Timeout: time.Duration(expected.BudgetMillis) * time.Millisecond}
-		output, commandErr := executor.Run(checkContext, root, command)
+		command := Command{CheckName: expected.ID, Name: expected.Argv[0], Arguments: append([]string(nil), expected.Argv[1:]...), Artifacts: append([]string(nil), expected.Artifacts...), Timeout: time.Duration(expected.BudgetMillis) * time.Millisecond}
+		_, commandErr := executor.Run(checkContext, root, command)
 		cancelCheck()
-		if commandErr == nil && expected.Native {
-			native, parseErr := keyringnative.Parse(output)
-			if parseErr != nil {
-				commandErr = fmt.Errorf("parse native evidence: %w", parseErr)
-			} else {
-				report.Native = &native
-				if native.Result == keyringnative.ResultFailed {
-					commandErr = errors.New("native evidence failed")
-				}
-			}
-		}
 		checkEnded := time.Now().UTC()
 		termination, cleanup, diagnostics := executionMetadata(commandErr)
 		if diagnostics == nil {

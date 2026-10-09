@@ -1,5 +1,3 @@
-//go:build !e2e
-
 package composition
 
 import "github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"

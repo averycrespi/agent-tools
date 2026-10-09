@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -26,54 +25,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-type memoryBackend struct {
-	mu     sync.Mutex
-	values map[string]string
-	reads  map[string]int
-}
-
-func newMemoryBackend() *memoryBackend {
-	return &memoryBackend{values: make(map[string]string), reads: make(map[string]int)}
-}
-func (*memoryBackend) Probe(context.Context, string) error { return nil }
-func (backend *memoryBackend) Set(service, user, password string) error {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	backend.values[service+"\x00"+user] = password
-	return nil
-}
-func (backend *memoryBackend) Get(service, user string) (string, error) {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	backend.reads[user]++
-	value, ok := backend.values[service+"\x00"+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return value, nil
-}
-func (backend *memoryBackend) Delete(service, user string) error {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	key := service + "\x00" + user
-	if _, ok := backend.values[key]; !ok {
-		return keyring.ErrNotFound
-	}
-	delete(backend.values, key)
-	return nil
-}
-func (backend *memoryBackend) readsFor(serverID string) int {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	total := 0
-	for item, count := range backend.reads {
-		if strings.Contains(item, serverID) {
-			total += count
-		}
-	}
-	return total
-}
 
 type fixtureInput struct{ bytes.Buffer }
 
@@ -150,7 +101,6 @@ func (transport *compositionTransport) Close(ctx context.Context) error {
 func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	var invalidationMu sync.Mutex
 	var invalidations []contract.Invalidation
 	options.Invalidate = func(invalidation contract.Invalidation) {
@@ -161,9 +111,6 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 	var stdioMu sync.Mutex
 	var stdioDefinitions []runtimes.StdioDefinition
 	hooks := constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(_ context.Context, definition runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			cloned := definition
 			cloned.Secrets = make(map[string]string, len(definition.Secrets))
@@ -199,10 +146,6 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 	public = enableCompositionServer(t, built.servers, public)
 	confidential = enableCompositionServer(t, built.servers, confidential)
 	serversByKind := []servers.Server{credentialFree, static, bearer, public, confidential}
-	readsBeforeStart := make(map[string]int, len(serversByKind))
-	for _, server := range serversByKind {
-		readsBeforeStart[server.ID] = backend.readsFor(server.ID)
-	}
 
 	require.NoError(t, built.Start(context.Background()))
 	startupContext, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
@@ -249,10 +192,6 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 		_, ok := built.ActiveCatalog().Routes().Resolve(descriptor.Resource.ID)
 		assert.True(t, ok)
 	}
-	assert.Equal(t, readsBeforeStart[credentialFree.ID], backend.readsFor(credentialFree.ID))
-	for _, server := range []servers.Server{static, bearer, public, confidential} {
-		assert.Greater(t, backend.readsFor(server.ID), readsBeforeStart[server.ID], server.Namespace)
-	}
 	stdioMu.Lock()
 	require.NotEmpty(t, stdioDefinitions)
 	for _, definition := range stdioDefinitions {
@@ -290,14 +229,10 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 func TestProductionCompositionDrainWaitsForConstructingCleanupAndIsIdempotent(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	runtime := &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}
 	built, err := newWithHooks(options, constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			started <- struct{}{}
 			<-release
@@ -338,16 +273,12 @@ func TestProductionCompositionDrainWaitsForConstructingCleanupAndIsIdempotent(t 
 func TestProductionCompositionDrainDeadlineFencesLateConstructingCompletion(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	runtime := &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}
 	var invalidations atomic.Int64
 	options.Invalidate = func(contract.Invalidation) { invalidations.Add(1) }
 	built, err := newWithHooks(options, constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			started <- struct{}{}
 			<-release
@@ -394,15 +325,11 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 		t.Run(test.name, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
 			defer cleanup()
-			backend := newMemoryBackend()
 			stopStarted, stopRelease := make(chan struct{}), make(chan struct{})
 			replacementStarted, replacementRelease := make(chan struct{}), make(chan struct{})
 			oldRuntime := &controlledStopStdio{fixtureStdio: &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput)}, started: stopStarted, release: stopRelease, result: test.stopResult}
 			var starts atomic.Int64
 			built, err := newWithHooks(options, constructorHooks{
-				provider: func(installationID string) (*keyring.Provider, error) {
-					return keyring.NewProviderWithBackend(installationID, backend)
-				},
 				startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 					if starts.Add(1) == 1 {
 						return oldRuntime, nil
@@ -506,13 +433,9 @@ func TestProductionCompositionReplacementWithdrawsBeforeStopAndConstructsOnlyAft
 func TestProductionCompositionDrainWithdrawsBeforeBlockedStopAndStopsOnce(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	stopStarted, stopRelease := make(chan struct{}), make(chan struct{})
 	runtime := &controlledStopStdio{fixtureStdio: &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput)}, started: stopStarted, release: stopRelease}
 	built, err := newWithHooks(options, constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) { return runtime, nil },
 		newCoordinator: func(transport downstream.Transport) (*downstream.Coordinator, error) {
 			return downstream.NewCoordinator(&compositionTransport{delegate: transport})
@@ -548,14 +471,10 @@ func TestProductionCompositionDrainWithdrawsBeforeBlockedStopAndStopsOnce(t *tes
 func TestProductionCompositionReportsConstructingAndRetainedBlockedStopFromActualOwner(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	var starts atomic.Int64
 	built, err := newWithHooks(options, constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			starts.Add(1)
 			started <- struct{}{}
@@ -588,11 +507,7 @@ func TestProductionCompositionReportsConstructingAndRetainedBlockedStopFromActua
 func TestProductionCompositionFinalizesStaticDisconnectCatalogLifecycle(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	built, err := newWithHooks(options, constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			return &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}, nil
 		},
@@ -630,12 +545,8 @@ func TestProductionCompositionFinalizesStaticDisconnectCatalogLifecycle(t *testi
 func TestProductionCompositionRejectsMissingExtraAndStaleStaticAuthorityBeforeConstruction(t *testing.T) {
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
-	backend := newMemoryBackend()
 	var starts atomic.Int64
 	built, err := newWithHooks(options, constructorHooks{
-		provider: func(installationID string) (*keyring.Provider, error) {
-			return keyring.NewProviderWithBackend(installationID, backend)
-		},
 		startStdio: func(context.Context, runtimes.StdioDefinition) (downstream.StdioRuntime, error) {
 			starts.Add(1)
 			return &fixtureStdio{frames: make(chan []byte), input: new(fixtureInput), stop: true}, nil
@@ -672,9 +583,6 @@ func TestProductionCompositionRejectsMissingExtraAndStaleStaticAuthorityBeforeCo
 	}
 	assert.Zero(t, starts.Load())
 	assert.Zero(t, built.RuntimeOccupancy().InUse)
-	assert.Zero(t, backend.readsFor(missing.ID))
-	assert.Positive(t, backend.readsFor(extra.ID))
-	assert.Positive(t, backend.readsFor(stale.ID))
 	safe, err := json.Marshal(compositionStatuses(built, []servers.Server{missing, extra, stale}))
 	require.NoError(t, err)
 	for _, canary := range []string{"extra-canary", "stale-old-canary", "stale-new-canary"} {

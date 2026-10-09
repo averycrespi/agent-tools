@@ -23,14 +23,14 @@ func TestDocumentationContractDrift(t *testing.T) {
 		},
 		"../../README.md": {
 			"## Why Gateway?", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
-			"before one immediate attempt", "never queues or automatically replays", "deny by default", "Legacy native keyring reads may prompt", "authenticated encryption", "master-key",
+			"before one immediate attempt", "never queues or automatically replays", "deny by default", "native credential stores are not used", "authenticated encryption", "master-key",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
 		"../../docs/operators/backup-and-recovery.md": {
 			"Gateway must be stopped", "agent-gateway maintenance verify-and-recover-storage", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
-			"Format-4 restore recovers the exact backed-up CA certificate and signing identity", "Legacy-only restore still invalidates CA and HTTP/Git credential authority", "master_key_id", "nonrefundable encryption high-water",
+			"Format-4 restore recovers the exact backed-up CA certificate and signing identity", "Restore refuses unresolved legacy CA and HTTP/Git credential authority", "master_key_id", "nonrefundable encryption high-water",
 		},
 		"../../DESIGN.md": {
 			"## Documentation authority", "docs/design/public-contract.md", "docs/design/identity-and-authorization.md", "docs/design/storage-and-recovery.md",
@@ -261,7 +261,7 @@ func TestDesignAdministrationBrowserOperationsAndReleaseAreCurrent(t *testing.T)
 		"No command polls, refetches a precondition",
 		"`accept` invokes disjoint leaves directly",
 		"Reports from superseded report definitions are incompatible",
-		"`skipped` is an explicit additive gap",
+		"Native credential adapters, wrappers and classification are retired",
 		"no-check adoption",
 		"clean revision",
 		"A second signal invokes immediate forced exit",

@@ -9,6 +9,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 	"github.com/stretchr/testify/require"
@@ -128,7 +129,13 @@ func TestAdmissionImplementationHasNoHistoryPermissionOrMutation(t *testing.T) {
 
 func newAdmissionCoordinator(t *testing.T, fault func(storage.FaultPoint) error) (*AdmissionCoordinator, *Repository, *authorization.Repository, contract.Principal, contract.AgentCredentialCreation) {
 	t.Helper()
-	audits, store, clock := newInvocationRepository(t, fault, entropyBytes(1024))
+	coordinator, audits, authority, principal, credential, _ := newAdmissionCoordinatorWithOwnership(t, fault)
+	return coordinator, audits, authority, principal, credential
+}
+
+func newAdmissionCoordinatorWithOwnership(t *testing.T, fault func(storage.FaultPoint) error) (*AdmissionCoordinator, *Repository, *authorization.Repository, contract.Principal, contract.AgentCredentialCreation, *gatewaypaths.Ownership) {
+	t.Helper()
+	audits, store, clock, owner := newInvocationRepositoryWithOwnership(t, fault, entropyBytes(1024))
 	audits.traffic, _ = trafficFixture(t, nil, nil)
 	authority, err := authorization.New(store, clock, entropyBytes(8192))
 	require.NoError(t, err)
@@ -138,7 +145,7 @@ func newAdmissionCoordinator(t *testing.T, fault func(storage.FaultPoint) error)
 	require.NoError(t, err)
 	coordinator, err := NewAdmissionCoordinator(audits, authority)
 	require.NoError(t, err)
-	return coordinator, audits, authority, principal.Principal, credential
+	return coordinator, audits, authority, principal.Principal, credential, owner
 }
 func testAuditRequest(class contract.InvocationAdmissionClass) AuditAdmissionRequest {
 	name := "namespace.tool"

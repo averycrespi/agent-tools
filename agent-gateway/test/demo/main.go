@@ -102,18 +102,11 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	if err = os.Mkdir(home, 0700); err != nil {
 		return errors.New("demo home creation failed")
 	}
-	material := filepath.Join(root, "material")
-	if err = os.Mkdir(material, 0700); err != nil {
-		return errors.New("demo material creation failed")
-	}
-	if err = writePrivate(filepath.Join(material, ".fixture"), []byte("agent-gateway-disposable-e2e-material\n")); err != nil {
-		return errors.New("demo material marker failed")
-	}
 	binary := filepath.Join(root, "agent-gateway")
 	if _, err = fmt.Fprintln(out, "Building demo Gateway from "+opts.module); err != nil {
 		return errors.New("demo output failed")
 	}
-	build, err := opts.start("Gateway build", []string{"go", "-C", opts.module, "build", "-mod=readonly", "-tags=e2e", "-ldflags", "-X github.com/averycrespi/agent-tools/agent-gateway/internal/composition.e2eMaterialDirectory=" + material, "-o", binary, "./cmd/agent-gateway"}, os.Environ())
+	build, err := opts.start("Gateway build", []string{"go", "-C", opts.module, "build", "-mod=readonly", "-tags=e2e", "-o", binary, "./cmd/agent-gateway"}, os.Environ())
 	if err != nil {
 		return err
 	}

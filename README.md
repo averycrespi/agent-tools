@@ -53,7 +53,7 @@ See the [TypeSafe MCP README](typesafe-mcp/README.md) for setup and usage.
 
 Requirements:
 
-- Go 1.26.6 or later and GNU Make
+- Go 1.26.9 or later and GNU Make
 - A supported operating-system keyring for Agent Gateway server credentials
 
 From the repository root, run the install command for the tools you need:
