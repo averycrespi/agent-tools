@@ -14,10 +14,16 @@ type cleanupUnlockedError struct {
 	t           *testing.T
 	coordinator *Coordinator
 	secret      string
+	outer       *bool
+	formatted   *bool
 }
 
 func (e *cleanupUnlockedError) Error() string {
 	require.Zero(e.t, len(e.coordinator.operation), "cleanup cause formatted under cutover admission")
+	if e.outer != nil {
+		require.False(e.t, *e.outer, "cleanup cause formatted under enclosing admission")
+		*e.formatted = true
+	}
 	return "retained generation deletion refused " + e.secret
 }
 
@@ -36,14 +42,20 @@ func TestSuccessfulCutoverWarnsAfterAdmissionWhenCleanupFails(t *testing.T) {
 	t.Cleanup(func() { observer.Finish(nil); <-observer.Done() })
 	coordinator.SetDiagnostics(observer)
 	const secret = "actual-new-generation-canary"
+	outer, formatted := true, false
+	ctx, finishCleanup := DeferCleanupDiagnostics(t.Context())
 	coordinator.hooks.afterCommit = func() error {
 		backend.mu.Lock()
-		backend.operationErr = &cleanupUnlockedError{t: t, coordinator: coordinator, secret: secret}
+		backend.operationErr = &cleanupUnlockedError{t: t, coordinator: coordinator, secret: secret, outer: &outer, formatted: &formatted}
 		backend.mu.Unlock()
 		return nil
 	}
-	current, err := coordinator.Replace(t.Context(), namespace, []byte(secret))
+	current, err := coordinator.Replace(ctx, namespace, []byte(secret))
 	require.NoError(t, err)
+	require.False(t, formatted)
+	outer = false
+	finishCleanup(secret)
+	require.True(t, formatted)
 	require.NotEqual(t, first.Handle, current.Handle)
 	require.Equal(t, "2", current.Revision)
 	require.True(t, observer.Finish(nil))

@@ -80,15 +80,19 @@ func (store *registrationStoreFake) OAuthRegistration(context.Context, string) (
 }
 
 type secretPublisherFake struct {
-	calls  int
-	secret []byte
-	err    error
+	calls       int
+	secret      []byte
+	err         error
+	errorResult keyring.CutoverResult
 }
 
 func (publisher *secretPublisherFake) ReplaceFenced(_ context.Context, _ keyring.Namespace, secret []byte, _ keyring.AuthorityCallback) (keyring.CutoverResult, error) {
 	publisher.calls++
 	publisher.secret = append([]byte(nil), secret...)
-	return keyring.CutoverResult{Revision: "1"}, publisher.err
+	if publisher.err != nil {
+		return publisher.errorResult, publisher.err
+	}
+	return keyring.CutoverResult{Revision: "1"}, nil
 }
 
 func TestRegistrationAuditFencesNetworkAndReportsUnsettledPublication(t *testing.T) {

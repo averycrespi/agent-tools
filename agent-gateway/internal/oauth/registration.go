@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -238,10 +239,15 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 	}
 	phase = "client secret write/readback/publication"
 	cutover, err := registrar.secrets.ReplaceFenced(ctx, namespace, []byte(response.ClientSecret), callback)
+	if cutover.Revision != "" {
+		publication = "ack_revision_" + cutover.Revision
+		if errors.Is(err, storage.ErrStorageLatched) {
+			publication = "unknown_returned_revision_" + cutover.Revision
+		}
+	}
 	if err != nil {
 		return servers.OAuthRegistrationAuthority{}, classifyRegistrationError(err)
 	}
-	publication = "ack_revision_" + cutover.Revision
 	phase = "read back published registration"
 	published, err := registrar.store.OAuthRegistration(ctx, request.ServerID)
 	if err != nil {

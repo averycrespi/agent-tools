@@ -1,7 +1,9 @@
 package keyring
 
 import (
+	"context"
 	"fmt"
+	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 )
@@ -44,14 +46,64 @@ func (coordinator *Coordinator) noteCleanup(namespace Namespace, effects string,
 	}
 	coordinator.cleanupWarnings = append(coordinator.cleanupWarnings, cleanupWarning{namespace: namespace, effects: effects, err: err, secret: string(secret)})
 }
-func (coordinator *Coordinator) observeCleanup(warnings []cleanupWarning, omitted uint64) {
+func (coordinator *Coordinator) observeCleanup(warnings []cleanupWarning, omitted uint64, masking ...string) {
 	if coordinator.diagnostics == nil {
 		return
 	}
 	for _, warning := range warnings {
-		detail := diagnostics.Snapshot("keyring", "cleanup after cutover", warning.namespace.owner, warning.err, warning.secret)
+		secrets := append([]string{warning.secret}, masking...)
+		detail := diagnostics.Snapshot("keyring", "cleanup after cutover", warning.namespace.owner, warning.err, secrets...)
+		clear(secrets)
 		detail.Explanation = fmt.Sprintf("%s; cleanup=unconfirmed omitted_warnings=%d; %s", warning.effects, omitted, detail.Explanation)
 		coordinator.diagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
+	}
+	clear(warnings)
+}
+
+type cleanupDeferralKey struct{}
+type deferredCleanup struct {
+	mu       sync.Mutex
+	warnings []ownedCleanupWarning
+	omitted  uint64
+}
+type ownedCleanupWarning struct {
+	coordinator *Coordinator
+	warning     cleanupWarning
+}
+
+// DeferCleanupDiagnostics transfers at most four causal observations to the
+// enclosing operation. Finish once, after all its admissions and synchronous
+// keyring calls have released, with constituent source-known credential values.
+// It introduces no worker, sink or timer, and never formats while collecting.
+func DeferCleanupDiagnostics(ctx context.Context) (context.Context, func(...string)) {
+	pending := &deferredCleanup{}
+	return context.WithValue(ctx, cleanupDeferralKey{}, pending), func(masking ...string) {
+		pending.mu.Lock()
+		warnings, omitted := pending.warnings, pending.omitted
+		pending.warnings, pending.omitted = nil, 0
+		pending.mu.Unlock()
+		for _, entry := range warnings {
+			entry.coordinator.observeCleanup([]cleanupWarning{entry.warning}, omitted, masking...)
+		}
+		clear(warnings)
+	}
+}
+
+func (coordinator *Coordinator) deliverCleanup(ctx context.Context, warnings []cleanupWarning, omitted uint64) {
+	pending, ok := ctx.Value(cleanupDeferralKey{}).(*deferredCleanup)
+	if !ok {
+		coordinator.observeCleanup(warnings, omitted)
+		return
+	}
+	pending.mu.Lock()
+	defer pending.mu.Unlock()
+	pending.omitted = min(uint64(1<<53-1), pending.omitted+omitted)
+	for _, warning := range warnings {
+		if len(pending.warnings) < 4 {
+			pending.warnings = append(pending.warnings, ownedCleanupWarning{coordinator: coordinator, warning: warning})
+		} else {
+			pending.omitted = min(uint64(1<<53-1), pending.omitted+1)
+		}
 	}
 	clear(warnings)
 }

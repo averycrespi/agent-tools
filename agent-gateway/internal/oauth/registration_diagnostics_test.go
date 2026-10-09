@@ -9,19 +9,28 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
 func TestDynamicRegistrationLocalFailurePreservesRemoteSuccessAtDefaultSink(t *testing.T) {
-	for _, mode := range []string{"write", "audit"} {
+	for _, mode := range []string{"write", "post_commit", "storage_uncertain", "audit"} {
 		t.Run(mode, func(t *testing.T) {
 			graph := registrationGraph([]string{"client_secret_basic"})
 			requester := &registrationRequester{status: 201, header: http.Header{"Content-Type": {contract.MediaTypeJSON}}, body: dynamicResponseJSON("client", contract.TokenEndpointAuthClientSecretBasic, "actual-client-secret-canary", 0)}
 			store := &registrationStoreFake{}
 			secrets := &secretPublisherFake{}
-			if mode == "write" {
+			switch mode {
+			case "write":
 				secrets.err = errors.New("encrypted write: permission denied actual-client-secret-canary")
-			} else {
+			case "post_commit":
+				secrets.errorResult = keyring.CutoverResult{Revision: "7"}
+				secrets.err = errors.New("post-commit settlement refused actual-client-secret-canary")
+			case "storage_uncertain":
+				secrets.errorResult = keyring.CutoverResult{Revision: "8"}
+				secrets.err = errors.Join(storage.ErrStorageLatched, errors.New("directory synchronization refused actual-client-secret-canary"))
+			default:
 				store.auditHook = func(event contract.AuditEvent) error {
 					if event.Phase == "outcome" {
 						return errors.New("audit disk full actual-client-secret-canary")
@@ -44,10 +53,17 @@ func TestDynamicRegistrationLocalFailurePreservesRemoteSuccessAtDefaultSink(t *t
 			require.Equal(t, 1, secrets.calls)
 			require.Contains(t, output.String(), "remote_registration=validated_HTTP_201")
 			require.NotContains(t, output.String(), "actual-client-secret-canary")
-			if mode == "write" {
+			switch mode {
+			case "write":
 				require.Contains(t, output.String(), "permission denied")
 				require.Contains(t, output.String(), "local_publication=not_ack")
-			} else {
+			case "post_commit":
+				require.Contains(t, output.String(), "post-commit settlement refused")
+				require.Contains(t, output.String(), "local_publication=ack_revision_7")
+			case "storage_uncertain":
+				require.Contains(t, output.String(), "directory synchronization refused")
+				require.Contains(t, output.String(), "local_publication=unknown_returned_revision_8")
+			default:
 				require.Contains(t, output.String(), "audit disk full")
 				require.Contains(t, output.String(), "local_publication=ack_revision_1")
 			}

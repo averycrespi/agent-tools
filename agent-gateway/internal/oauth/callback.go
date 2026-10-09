@@ -72,10 +72,12 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 		return CallbackResult{Outcome: CallbackInvalid}
 	}
 	bundle.diagnosticFailure = &callbackDiagnostic{phase: diagnostics.PhaseAuthorization, reason: diagnostics.ReasonUnknown, masking: []string{bundle.state, bundle.verifier}}
+	workCtx, finishCleanup := keyring.DeferCleanupDiagnostics(workCtx)
 	defer service.removeFlowIDs([]string{bundle.flowID})
 	defer func() {
 		release()
 		release = nil
+		finishCleanup(bundle.diagnosticFailure.masking...)
 		if result.Outcome == CallbackSucceeded {
 			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthCompleted, diagnostics.PhaseAuthorization, diagnostics.ReasonNone)
 		} else {

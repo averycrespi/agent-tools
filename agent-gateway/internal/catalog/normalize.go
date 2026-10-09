@@ -440,18 +440,26 @@ func normalizeAnnotations(raw json.RawMessage) (contract.NormalizedToolAnnotatio
 	}
 	var object map[string]json.RawMessage
 	if strictjson.Decode(raw, &object, strictjson.Options{MaxBytes: fixedLimit("tool_descriptor_bytes"), MaxDepth: 8}) != nil || object == nil {
-		return result, ErrDescriptorInvalid
+		var observed any
+		if json.Unmarshal(raw, &observed) != nil {
+			return result, predicate(ErrDescriptorInvalid, "field=annotations rule=valid_json; contents withheld")
+		}
+		return result, predicate(ErrDescriptorInvalid, "field=annotations rule=bounded_unique_object observed_kind=%s expected=object allowed_depth=8 allowed_bytes=%d", jsonKind(observed), fixedLimit("tool_descriptor_bytes"))
 	}
 	var err error
 	if titleRaw, exists := object["title"]; exists && !bytes.Equal(bytes.TrimSpace(titleRaw), []byte("null")) {
 		result.Title, err = optionalString(object, "title", fixedLimit("tool_title_bytes"))
 		if err != nil {
-			return result, err
+			var observed any
+			_ = json.Unmarshal(titleRaw, &observed)
+			return result, predicate(err, "field=annotations.title observed_kind=%s expected=string", jsonKind(observed))
 		}
 	}
 	for key, target := range map[string]*bool{"readOnlyHint": &result.ReadOnlyHint, "destructiveHint": &result.DestructiveHint, "idempotentHint": &result.IdempotentHint, "openWorldHint": &result.OpenWorldHint} {
 		if rawValue, exists := object[key]; exists && json.Unmarshal(rawValue, target) != nil {
-			return result, ErrDescriptorInvalid
+			var observed any
+			_ = json.Unmarshal(rawValue, &observed)
+			return result, predicate(ErrDescriptorInvalid, "field=annotations.%s rule=boolean_hint observed_kind=%s expected=boolean", key, jsonKind(observed))
 		}
 	}
 	return result, nil

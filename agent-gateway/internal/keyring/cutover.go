@@ -107,7 +107,7 @@ func (coordinator *Coordinator) ReplaceFenced(
 	if !coordinator.acquireOperation() {
 		return CutoverResult{}, ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
@@ -140,7 +140,7 @@ func (coordinator *Coordinator) WithOperation(ctx context.Context, use func(*Ope
 	if use == nil || !coordinator.acquireOperation() {
 		return ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return err
@@ -276,7 +276,7 @@ func (coordinator *Coordinator) invalidateFenced(
 	if !coordinator.acquireOperation() {
 		return CutoverResult{}, ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return CutoverResult{}, err
@@ -379,7 +379,7 @@ func (coordinator *Coordinator) CleanupCandidates(ctx context.Context, namespace
 	if !coordinator.acquireOperation() {
 		return ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return err
@@ -895,11 +895,11 @@ func (coordinator *Coordinator) acquireOperation() bool {
 	}
 }
 
-func (coordinator *Coordinator) releaseOperation() {
+func (coordinator *Coordinator) releaseOperation(ctx context.Context) {
 	warnings, omitted := coordinator.cleanupWarnings, coordinator.cleanupOmitted
 	coordinator.cleanupWarnings, coordinator.cleanupOmitted = nil, 0
 	<-coordinator.operation
-	coordinator.observeCleanup(warnings, omitted)
+	coordinator.deliverCleanup(ctx, warnings, omitted)
 }
 
 func (coordinator *Coordinator) activeEpoch() (uint64, error) {

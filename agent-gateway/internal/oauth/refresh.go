@@ -231,6 +231,7 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 	var masking []string
 	var originalFailure error
 	var installedRevision string
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
 	err = service.coordinator.WithOperation(ctx, func(operation refreshOperation) (effectErr error) {
 		oldBytes, active, err := operation.ReadActive(ctx, tokenNamespace)
 		if err != nil {
@@ -362,6 +363,7 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		}
 		err = diagnostics.WithDetail(err, detail)
 	}
+	finishCleanup(masking...)
 	clear(masking)
 	return result, err
 }
