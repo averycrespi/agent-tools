@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -154,6 +155,16 @@ func (registrar *Registrar) Register(ctx context.Context, request RegistrationRe
 }
 
 func (registrar *Registrar) registerDynamic(ctx context.Context, request RegistrationRequest, fence servers.RegistrationFence, created time.Time) (publishedResult servers.OAuthRegistrationAuthority, resultErr error) {
+	phase, publication, remote := "prepare", "not_ack", "not_validated"
+	var clientSecret string
+	defer func() {
+		if resultErr != nil {
+			detail := diagnostics.Snapshot("oauth", "dynamic registration "+phase, request.ServerID, resultErr, clientSecret)
+			detail.Explanation = "remote_registration=" + remote + " local_publication=" + publication + "; " + detail.Explanation
+			detail.Effect = "activation=unknown; inspect registration; no replay"
+			resultErr = diagnostics.WithDetail(resultErr, detail)
+		}
+	}()
 	method, ok := selectDynamicMethod(request.Graph.TokenEndpointAuthMethodsSupported)
 	if !ok {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
@@ -176,9 +187,10 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 		}
 		if err := finishOAuthEffect(ctx, registrar.store, registrar.now(), attempt, outcome); err != nil {
 			publishedResult = servers.OAuthRegistrationAuthority{}
-			resultErr = errors.Join(resultErr, err)
+			resultErr = errors.Join(resultErr, &refreshSettlementFailure{operation: "registration audit settlement unacknowledged", cause: err})
 		}
 	}()
+	phase = "remote exchange"
 	header := http.Header{"Accept": []string{contract.MediaTypeJSON}, "Content-Type": []string{contract.MediaTypeJSON}, "User-Agent": []string{""}}
 	status, responseHeader, body, err := registrar.requester.Request(ctx, request.Graph.RegistrationEndpoint, request.Graph.AllowsRestrictedEndpoint(request.Graph.RegistrationEndpoint), http.MethodPost, header, payload, limit("oauth_response_body_bytes"))
 	if err != nil {
@@ -191,9 +203,13 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 		return servers.OAuthRegistrationAuthority{}, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonProtocolInvalid, status)
 	}
 	response, err := parseDynamicResponse(body, request.CallbackURL, method, created)
+	clear(body)
 	if err != nil {
-		return servers.OAuthRegistrationAuthority{}, newDiagnosticFailure(ErrRegistrationRejected, contract.ReasonProtocolInvalid, status)
+		return servers.OAuthRegistrationAuthority{}, newDiagnosticFailure(err, contract.ReasonProtocolInvalid, status)
 	}
+	remote = "validated_HTTP_201"
+	clientSecret = response.ClientSecret
+	phase = "current generation fence"
 	if !registrar.current() {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationStale
 	}
@@ -204,23 +220,35 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 	}
 	authority := registrationAuthority(contract.RegistrationDynamic, request.Graph, response.ClientID, request.CallbackURL, method, created, expires)
 	if method == contract.TokenEndpointAuthNone {
+		phase = "publish public registration"
 		published, publishErr := registrar.store.PublishPublicRegistration(ctx, fence, authority)
 		if publishErr != nil {
 			return servers.OAuthRegistrationAuthority{}, classifyRegistrationError(publishErr)
 		}
+		publication = "ack_revision_" + published.Revision
 		return published, nil
 	}
 	namespace, err := keyring.NewNamespace(registrar.installationID, request.ServerID, keyring.RecordOAuthClient)
 	if err != nil {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
 	}
+	phase = "prepare authority callback"
 	callback, err := registrar.store.RegistrationAuthorityCallback(fence, authority)
 	if err != nil {
 		return servers.OAuthRegistrationAuthority{}, classifyRegistrationError(err)
 	}
-	if _, err = registrar.secrets.ReplaceFenced(ctx, namespace, []byte(response.ClientSecret), callback); err != nil {
+	phase = "client secret write/readback/publication"
+	cutover, err := registrar.secrets.ReplaceFenced(ctx, namespace, []byte(response.ClientSecret), callback)
+	if cutover.Revision != "" {
+		publication = "ack_revision_" + cutover.Revision
+		if errors.Is(err, storage.ErrStorageLatched) {
+			publication = "unknown_returned_revision_" + cutover.Revision
+		}
+	}
+	if err != nil {
 		return servers.OAuthRegistrationAuthority{}, classifyRegistrationError(err)
 	}
+	phase = "read back published registration"
 	published, err := registrar.store.OAuthRegistration(ctx, request.ServerID)
 	if err != nil {
 		return servers.OAuthRegistrationAuthority{}, classifyRegistrationError(err)
@@ -330,9 +358,18 @@ func selectDynamicMethod(values []string) (contract.TokenEndpointAuthMethod, boo
 	return "", false
 }
 
+type registrationCause struct{ public, cause error }
+
+func (failure *registrationCause) Error() string { return failure.public.Error() }
+func (failure *registrationCause) Unwrap() error { return failure.public }
+func (failure *registrationCause) OperatorDetail() diagnostics.Detail {
+	return diagnostics.Snapshot("oauth", "publish registration", "", failure.cause)
+}
+
 func classifyRegistrationError(err error) error {
+	public := ErrRegistrationRejected
 	if errors.Is(err, servers.ErrStaleRevision) || errors.Is(err, keyring.ErrDraining) {
-		return ErrRegistrationStale
+		public = ErrRegistrationStale
 	}
-	return ErrRegistrationRejected
+	return &registrationCause{public: public, cause: err}
 }

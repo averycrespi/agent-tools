@@ -31,7 +31,11 @@ func (e *Engine) observeRejection(started time.Time, stage diagnostics.Stage, ca
 	if w, ok := writer.(*failureWriter); ok {
 		id, resource, secrets = w.id, w.resource, w.secrets
 	}
-	detail := diagnostics.Snapshot("proxy", "admit", resource, err, secrets...)
+	detail := diagnostics.Snapshot("proxy", "admit", "", err, secrets...)
+	if detail.Resource != "" && detail.Resource != resource {
+		detail.Explanation = "selected_resource=" + detail.Resource + "; " + detail.Explanation
+	}
+	detail.Resource = diagnostics.Text(resource, 160, secrets...)
 	e.observeProxy(started, diagnostics.HTTPProxyRejected, stage, cause, id, detail)
 }
 

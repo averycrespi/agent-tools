@@ -327,7 +327,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: binding.PrincipalID, URL: target.URL().String(), Method: target.Method()}, address.Facts(), e.options.Materials, admissionContext(inside))
 	if err != nil || !result.DispatchAuthorized {
 		if err != nil {
-			e.observeRejection(started, result.FailureStage, result.FailureCause, err, w)
+			e.observeRejection(started, result.FailureStage, result.FailureCause, diagnostics.WithDetail(err, result.FailureDetail), w)
 			if result.FailureCause == diagnostics.Capacity {
 				rejectCapacity(w, http.StatusServiceUnavailable)
 			} else {

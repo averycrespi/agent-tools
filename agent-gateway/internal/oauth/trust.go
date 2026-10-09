@@ -115,7 +115,7 @@ func (fetch remoteFetcher) Fetch(ctx context.Context, rawURL string, trusted boo
 func (resolver *Resolver) Discover(ctx context.Context, input Input) (Graph, error) {
 	resourceURL, err := parseIdentifier(input.Resource, false)
 	if err != nil {
-		return Graph{}, ErrTrustRejected
+		return Graph{}, identifierContext(err, "resource", 0)
 	}
 	trusted, err := trustedOriginSet(input.TrustedOrigins)
 	if err != nil {
@@ -134,25 +134,29 @@ func (resolver *Resolver) Discover(ctx context.Context, input Input) (Graph, err
 	}
 	issuerURL, err := parseIdentifier(issuer, false)
 	if err != nil {
-		return Graph{}, ErrTrustRejected
+		return Graph{}, identifierContext(err, "selected_issuer", 0)
 	}
 	authorization, err := resolver.discoverAuthorization(ctx, issuerURL, trusted, input.AuthServerMetadataURL)
 	if err != nil {
 		return Graph{}, err
 	}
 	if authorization.issuer != issuer || !contains(authorization.responseTypes, "code") || !contains(authorization.grantTypes, "authorization_code") || !contains(authorization.codeChallengeMethods, "S256") {
-		return Graph{}, ErrTrustRejected
+		return Graph{}, protocolPredicate(ErrTrustRejected, "validate authorization metadata", "rule=authorization_metadata_contract issuer_matches=%t response_code_supported=%t authorization_code_supported=%t pkce_S256_supported=%t", authorization.issuer == issuer, contains(authorization.responseTypes, "code"), contains(authorization.grantTypes, "authorization_code"), contains(authorization.codeChallengeMethods, "S256"))
 	}
-	for _, endpoint := range []string{authorization.authorizationEndpoint, authorization.tokenEndpoint} {
-		if _, endpointErr := parseIdentifier(endpoint, true); endpointErr != nil {
-			return Graph{}, ErrTrustRejected
+	for _, endpoint := range []struct {
+		role, value string
+		optional    bool
+	}{
+		{"authorization_endpoint", authorization.authorizationEndpoint, false},
+		{"token_endpoint", authorization.tokenEndpoint, false},
+		{"registration_endpoint", authorization.registrationEndpoint, true},
+		{"revocation_endpoint", authorization.revocationEndpoint, true},
+	} {
+		if endpoint.optional && endpoint.value == "" {
+			continue
 		}
-	}
-	for _, endpoint := range []string{authorization.registrationEndpoint, authorization.revocationEndpoint} {
-		if endpoint != "" {
-			if _, endpointErr := parseIdentifier(endpoint, true); endpointErr != nil {
-				return Graph{}, ErrTrustRejected
-			}
+		if _, endpointErr := parseIdentifier(endpoint.value, true); endpointErr != nil {
+			return Graph{}, identifierContext(endpointErr, endpoint.role, 0)
 		}
 	}
 	return Graph{
@@ -175,7 +179,7 @@ func (resolver *Resolver) discoverProtected(ctx context.Context, input Input, re
 		}
 		metadataURL, err := parseIdentifier(input.ChallengeMetadata[0], true)
 		if err != nil {
-			return protectedMetadata{}, ErrTrustRejected
+			return protectedMetadata{}, identifierContext(err, "challenge_metadata", 1)
 		}
 		return resolver.fetchProtected(ctx, metadataURL.String(), input.Resource, isTrusted(metadataURL, trusted), false)
 	}
@@ -197,20 +201,23 @@ var errNotFound = errors.New("OAuth metadata not found")
 func (resolver *Resolver) fetchProtected(ctx context.Context, rawURL, expectedResource string, trusted, allowNotFound bool) (protectedMetadata, error) {
 	status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, trusted)
 	if err != nil {
-		return protectedMetadata{}, err
+		return protectedMetadata{}, metadataFailure(err, "protected_resource", rawURL, 1, status, false)
 	}
 	if status == http.StatusNotFound && allowNotFound {
 		return protectedMetadata{}, errNotFound
 	}
 	if status != http.StatusOK {
-		return protectedMetadata{}, newDiagnosticFailure(ErrTrustRejected, reasonForHTTPStatus(status), status)
+		return protectedMetadata{}, metadataFailure(newDiagnosticFailure(protocolPredicate(ErrTrustRejected, "validate metadata", "rule=http_status expected=200"), reasonForHTTPStatus(status), status), "protected_resource", rawURL, 1, status, false)
 	}
 	if !jsonContentType(header) {
-		return protectedMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
+		return protectedMetadata{}, metadataFailure(newDiagnosticFailure(protocolPredicate(ErrTrustRejected, "validate metadata", "rule=json_media_type observed=non_json"), contract.ReasonProtocolInvalid, status), "protected_resource", rawURL, 1, status, false)
 	}
 	metadata, err := parseProtected(body)
-	if err != nil || metadata.resource != expectedResource {
-		return protectedMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
+	if err != nil {
+		return protectedMetadata{}, metadataFailure(newDiagnosticFailure(err, contract.ReasonProtocolInvalid, status), "protected_resource", rawURL, 1, status, false)
+	}
+	if metadata.resource != expectedResource {
+		return protectedMetadata{}, metadataFailure(newDiagnosticFailure(protocolPredicate(ErrTrustRejected, "validate metadata", "field=resource rule=exact_resource_binding observed=different"), contract.ReasonProtocolInvalid, status), "protected_resource", rawURL, 1, status, false)
 	}
 	return metadata, nil
 }
@@ -218,32 +225,35 @@ func (resolver *Resolver) fetchProtected(ctx context.Context, rawURL, expectedRe
 func (resolver *Resolver) discoverAuthorization(ctx context.Context, issuer *url.URL, trusted map[string]struct{}, override *string) (authorizationMetadata, error) {
 	urls := authorizationMetadataURLs(issuer)
 	if override != nil {
-		if _, err := parseIdentifier(*override, true); err != nil || strings.Contains(*override, "#") {
-			return authorizationMetadata{}, ErrTrustRejected
+		if _, err := parseIdentifier(*override, true); err != nil {
+			return authorizationMetadata{}, identifierContext(err, "authorization_metadata_override", 0)
+		}
+		if strings.Contains(*override, "#") {
+			return authorizationMetadata{}, identifierContext(protocolPredicate(ErrTrustRejected, "validate URL", "rule=fragment_absent"), "authorization_metadata_override", 0)
 		}
 		urls = []string{*override}
 	}
 	for index, rawURL := range urls {
 		location, err := parseIdentifier(rawURL, true)
 		if err != nil {
-			return authorizationMetadata{}, ErrTrustRejected
+			return authorizationMetadata{}, identifierContext(err, "authorization_metadata", index+1)
 		}
 		status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, isTrusted(location, trusted))
 		if err != nil {
-			return authorizationMetadata{}, err
+			return authorizationMetadata{}, metadataFailure(err, "authorization_server", rawURL, index+1, status, false)
 		}
 		if status == http.StatusNotFound && index+1 < len(urls) {
 			continue
 		}
 		if status != http.StatusOK {
-			return authorizationMetadata{}, newDiagnosticFailure(ErrTrustRejected, reasonForHTTPStatus(status), status)
+			return authorizationMetadata{}, metadataFailure(newDiagnosticFailure(protocolPredicate(ErrTrustRejected, "validate metadata", "rule=http_status expected=200; fallback=refused"), reasonForHTTPStatus(status), status), "authorization_server", rawURL, index+1, status, false)
 		}
 		if !jsonContentType(header) {
-			return authorizationMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
+			return authorizationMetadata{}, metadataFailure(newDiagnosticFailure(protocolPredicate(ErrTrustRejected, "validate metadata", "rule=json_media_type observed=non_json; fallback=refused"), contract.ReasonProtocolInvalid, status), "authorization_server", rawURL, index+1, status, false)
 		}
 		metadata, parseErr := parseAuthorization(body)
 		if parseErr != nil {
-			return authorizationMetadata{}, newDiagnosticFailure(ErrTrustRejected, contract.ReasonProtocolInvalid, status)
+			return authorizationMetadata{}, metadataFailure(newDiagnosticFailure(parseErr, contract.ReasonProtocolInvalid, status), "authorization_server", rawURL, index+1, status, false)
 		}
 		return metadata, nil
 	}
@@ -278,33 +288,54 @@ func trustedOriginSet(values []string) (map[string]struct{}, error) {
 
 func parseIdentifier(raw string, allowQuery bool) (*url.URL, error) {
 	if raw == "" || !utf8.ValidString(raw) || int64(len(raw)) > limit("oauth_url_bytes") {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=bounded_nonempty_utf8_url observed_bytes=%d allowed_bytes=%d valid_utf8=%t", len(raw), limit("oauth_url_bytes"), utf8.ValidString(raw))
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" || (!allowQuery && parsed.RawQuery != "") || parsed.String() != raw || strings.ToLower(parsed.Hostname()) != parsed.Hostname() {
-		return nil, ErrTrustRejected
+	if err != nil {
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=url_syntax; parser input withheld")
 	}
-	if parsed.Port() == "443" {
-		return nil, ErrTrustRejected
+	rule := ""
+	switch {
+	case parsed.Scheme != "https":
+		rule = "https_scheme_required"
+	case parsed.Host == "":
+		rule = "host_required"
+	case parsed.Opaque != "":
+		rule = "hierarchical_url_required"
+	case parsed.User != nil:
+		rule = "userinfo_absent"
+	case parsed.Fragment != "":
+		rule = "fragment_absent"
+	case !allowQuery && parsed.RawQuery != "":
+		rule = "query_absent"
+	case parsed.String() != raw:
+		rule = "canonical_url_rendering"
+	case strings.ToLower(parsed.Hostname()) != parsed.Hostname():
+		rule = "lowercase_hostname"
+	case parsed.Port() == "443":
+		rule = "default_port_omitted"
+	}
+	if rule != "" {
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=%s", rule)
 	}
 	if parsed.Port() != "" {
 		port, portErr := strconv.ParseUint(parsed.Port(), 10, 16)
 		if portErr != nil || port == 0 {
-			return nil, ErrTrustRejected
+			return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=port_unsigned_16_nonzero allowed_min=1 allowed_max=65535")
 		}
 	}
 	if parsed.RawQuery != "" && int64(len(parsed.RawQuery)) > limit("oauth_query_bytes") {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=query_bytes observed_bytes=%d allowed_bytes=%d", len(parsed.RawQuery), limit("oauth_query_bytes"))
 	}
 	if parsed.Path != "" && path.Clean(parsed.Path) != parsed.Path {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=clean_path")
 	}
 	validationURL := *parsed
 	if validationURL.Path == "" {
 		validationURL.Path = "/"
 	}
 	if _, err := remote.Parse(validationURL.String(), remote.Policy{AllowQuery: allowQuery}); err != nil {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=remote_host_and_endpoint_policy; URL contents withheld")
 	}
 	return parsed, nil
 }
@@ -351,35 +382,35 @@ func isTrusted(parsed *url.URL, trusted map[string]struct{}) bool {
 
 func selectIssuer(values []string, desired *string, resourceOrigin string) (string, error) {
 	if len(values) == 0 {
-		return "", ErrTrustRejected
+		return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=nonempty observed_count=0")
 	}
 	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
+	for index, value := range values {
 		parsed, err := parseIdentifier(value, false)
 		if err != nil {
-			return "", ErrTrustRejected
+			return "", identifierContext(err, "advertised_issuer", index+1)
 		}
 		if _, duplicate := seen[value]; duplicate {
-			return "", ErrTrustRejected
+			return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=unique_issuers")
 		}
 		seen[value] = struct{}{}
 		_ = parsed
 	}
 	if desired != nil {
 		if _, err := parseIdentifier(*desired, false); err != nil {
-			return "", ErrTrustRejected
+			return "", identifierContext(err, "desired_issuer", 0)
 		}
 		if _, advertised := seen[*desired]; !advertised {
-			return "", ErrTrustRejected
+			return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=pinned_issuer_advertised observed=false")
 		}
 		return *desired, nil
 	}
 	if len(values) != 1 {
-		return "", ErrTrustRejected
+		return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=single_issuer_without_pin observed_count=%d expected_count=1", len(values))
 	}
 	issuer, _ := parseIdentifier(values[0], false)
 	if origin(issuer) != resourceOrigin {
-		return "", ErrTrustRejected
+		return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=unpinned_issuer_same_origin observed=cross_origin")
 	}
 	return values[0], nil
 }
@@ -395,15 +426,15 @@ func parseProtected(body []byte) (protectedMetadata, error) {
 	}
 	servers, err := requiredStrings(object, "authorization_servers")
 	if err != nil || len(servers) == 0 || len(servers) > 64 {
-		return protectedMetadata{}, ErrTrustRejected
+		return protectedMetadata{}, protocolPredicate(ErrTrustRejected, "validate protected metadata", "field=authorization_servers rule=nonempty_unique_string_array valid_array=%t observed_count=%d minimum=1 maximum=64", err == nil, len(servers))
 	}
 	bearer, present, err := optionalStrings(object, "bearer_methods_supported")
 	if err != nil || present && !contains(bearer, "header") {
-		return protectedMetadata{}, ErrTrustRejected
+		return protectedMetadata{}, protocolPredicate(ErrTrustRejected, "validate protected metadata", "field=bearer_methods_supported rule=header_supported valid_array=%t header_supported=%t", err == nil, contains(bearer, "header"))
 	}
 	scopes, _, err := optionalStrings(object, "scopes_supported")
 	if err != nil || !validScopes(scopes) {
-		return protectedMetadata{}, ErrTrustRejected
+		return protectedMetadata{}, protocolPredicate(ErrTrustRejected, "validate protected metadata", "field=scopes_supported rule=bounded_scope_token_array; values withheld")
 	}
 	return protectedMetadata{resource: resource, authorizationServers: servers, scopesSupported: scopes}, nil
 }
@@ -439,15 +470,15 @@ func parseAuthorization(body []byte) (authorizationMetadata, error) {
 	}
 	registrationEndpoint, registrationPresent, err := optionalString(object, "registration_endpoint")
 	if err != nil || registrationPresent && registrationEndpoint == "" {
-		return authorizationMetadata{}, ErrTrustRejected
+		return authorizationMetadata{}, protocolPredicate(ErrTrustRejected, "validate authorization metadata", "field=registration_endpoint rule=nonempty_string_if_present")
 	}
 	revocationEndpoint, revocationPresent, err := optionalString(object, "revocation_endpoint")
 	if err != nil || revocationPresent && revocationEndpoint == "" {
-		return authorizationMetadata{}, ErrTrustRejected
+		return authorizationMetadata{}, protocolPredicate(ErrTrustRejected, "validate authorization metadata", "field=revocation_endpoint rule=nonempty_string_if_present")
 	}
 	scopes, _, err := optionalStrings(object, "scopes_supported")
 	if err != nil || !validScopes(scopes) {
-		return authorizationMetadata{}, ErrTrustRejected
+		return authorizationMetadata{}, protocolPredicate(ErrTrustRejected, "validate authorization metadata", "field=scopes_supported rule=bounded_scope_token_array; values withheld")
 	}
 	tokenMethods, _, err := optionalStrings(object, "token_endpoint_auth_methods_supported")
 	if err != nil {
@@ -467,7 +498,7 @@ func parseAuthorization(body []byte) (authorizationMetadata, error) {
 func decodeObject(body []byte) (map[string]json.RawMessage, error) {
 	var object map[string]json.RawMessage
 	if err := strictjson.Decode(body, &object, strictjson.Options{MaxBytes: limit("oauth_metadata_body_bytes"), MaxDepth: int(limit("oauth_json_depth"))}); err != nil || object == nil {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "decode metadata", "rule=bounded_unique_member_json_object observed_bytes=%d max_bytes=%d max_depth=%d; payload withheld", len(body), limit("oauth_metadata_body_bytes"), limit("oauth_json_depth"))
 	}
 	return object, nil
 }
@@ -475,7 +506,7 @@ func decodeObject(body []byte) (map[string]json.RawMessage, error) {
 func requiredString(object map[string]json.RawMessage, name string) (string, error) {
 	value, present, err := optionalString(object, name)
 	if err != nil || !present || value == "" {
-		return "", ErrTrustRejected
+		return "", protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=required_nonempty_string present=%t valid_string=%t", name, present, err == nil)
 	}
 	return value, nil
 }
@@ -487,7 +518,7 @@ func optionalString(object map[string]json.RawMessage, name string) (string, boo
 	}
 	var value string
 	if string(raw) == "null" || json.Unmarshal(raw, &value) != nil || !utf8.ValidString(value) {
-		return "", true, ErrTrustRejected
+		return "", true, protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=utf8_string_if_present", name)
 	}
 	return value, true, nil
 }
@@ -495,7 +526,7 @@ func optionalString(object map[string]json.RawMessage, name string) (string, boo
 func requiredStrings(object map[string]json.RawMessage, name string) ([]string, error) {
 	values, present, err := optionalStrings(object, name)
 	if err != nil || !present {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=required_unique_string_array present=%t valid_array=%t", name, present, err == nil)
 	}
 	return values, nil
 }
@@ -507,15 +538,15 @@ func optionalStrings(object map[string]json.RawMessage, name string) ([]string, 
 	}
 	var values []string
 	if string(raw) == "null" || json.Unmarshal(raw, &values) != nil {
-		return nil, true, ErrTrustRejected
+		return nil, true, protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=string_array_if_present", name)
 	}
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		if value == "" || !utf8.ValidString(value) {
-			return nil, true, ErrTrustRejected
+			return nil, true, protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=nonempty_utf8_array_items", name)
 		}
 		if _, duplicate := seen[value]; duplicate {
-			return nil, true, ErrTrustRejected
+			return nil, true, protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=unique_array_items", name)
 		}
 		seen[value] = struct{}{}
 	}
@@ -529,7 +560,7 @@ func optionalBool(object map[string]json.RawMessage, name string) (bool, bool, e
 	}
 	var value bool
 	if string(raw) == "null" || json.Unmarshal(raw, &value) != nil {
-		return false, true, ErrTrustRejected
+		return false, true, protocolPredicate(ErrTrustRejected, "validate metadata", "field=%s rule=boolean_if_present", name)
 	}
 	return value, true, nil
 }

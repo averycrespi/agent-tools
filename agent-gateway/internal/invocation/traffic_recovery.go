@@ -25,6 +25,9 @@ type trafficFailure struct {
 
 func (f *trafficFailure) Error() string { return "traffic storage operation failed" }
 func (f *trafficFailure) Unwrap() error { return f.err }
+func (f *trafficFailure) OperatorDetail() diagnostics.Detail {
+	return diagnostics.Snapshot("traffic", f.stage, "", f.err)
+}
 
 func classifyTraffic(err error, stage, settlement string) *trafficFailure {
 	f := &trafficFailure{err: err, stage: stage, cause: "unknown", settlement: settlement}
@@ -98,7 +101,7 @@ func (s *TrafficStore) failTraffic(err error, stage, settlement string) {
 
 // Return an observation to the current owner, not the queue. Writer-gate callers
 // invoke it after unlocking; arbitrary dependency formatters never run locked.
-func (s *TrafficStore) failTrafficState(err error, stage, settlement string) func() {
+func (s *TrafficStore) failTrafficState(err error, stage, settlement string, batch ...trafficBatchFacts) func() {
 	if err == nil {
 		return nil
 	}
@@ -134,7 +137,10 @@ func (s *TrafficStore) failTrafficState(err error, stage, settlement string) fun
 	s.mu.Unlock()
 	return func() {
 		if observer != nil {
-			facts.Detail = diagnostics.Snapshot("traffic", f.stage, s.path, f.err)
+			facts.Detail = diagnostics.Snapshot("traffic", f.stage, s.path, err)
+			if len(batch) != 0 {
+				facts.Detail.Explanation = batch[0].summary(f.settlement) + facts.Detail.Explanation
+			}
 			observer.Traffic(facts)
 		}
 	}

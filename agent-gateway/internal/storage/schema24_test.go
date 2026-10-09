@@ -25,7 +25,10 @@ func TestNativeCleanupMigrationStartsEmptyAndPreservesEvidence(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, current.Checkpoint(t.Context()))
 	require.NoError(t, current.Close())
-	current, err = Open(t.Context(), owner)
+	_, err = Open(t.Context(), owner)
+	require.ErrorIs(t, err, ErrLegacyCustody)
+	// The production refusal preserves historical evidence and DDL intact.
+	current, err = openConfigured(t.Context(), owner.Layout(), testOptions{})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, current.Close()) }()
 	var state string

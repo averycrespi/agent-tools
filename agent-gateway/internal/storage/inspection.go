@@ -83,7 +83,15 @@ func InspectMaintenance(ctx context.Context, owner *gatewaypaths.Ownership, view
 	if err != nil {
 		return Inspection{}, err
 	}
-	return InspectClosedInstallation(ctx, layout, view)
+	return InspectClosedInstallation(ctx, layout, func(tx *sql.Tx) error {
+		if err := RequireNoLegacyCustodyTx(ctx, tx); err != nil {
+			return err
+		}
+		if view != nil {
+			return view(tx)
+		}
+		return nil
+	})
 }
 
 // InspectClosedInstallation can observe an idle running installation without

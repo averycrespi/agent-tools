@@ -57,11 +57,41 @@ func oauthPhase(stage contract.OAuthDiagnosticStage) diagnostics.Phase {
 	}
 }
 
+// A benign branch never erases an independently failed audit/invalidation.
+func benignRefreshFailure(err error, budget int) bool { return benignRefreshNode(err, &budget) }
+
+func benignRefreshNode(err error, remaining *int) bool {
+	if err == nil || *remaining == 0 {
+		return false
+	}
+	*remaining--
+	//nolint:errorlint // Inspect this node to keep joined secondary effects visible.
+	switch failure := err.(type) {
+	case *refreshSettlementFailure:
+		return false
+	case interface{ Unwrap() []error }:
+		children := failure.Unwrap()
+		if len(children) == 0 || len(children) > *remaining {
+			return false
+		}
+		for _, child := range children {
+			if !benignRefreshNode(child, remaining) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		return benignRefreshNode(failure.Unwrap(), remaining)
+	default:
+		return errors.Is(err, ErrRefreshIneligible) || errors.Is(err, servers.ErrStaleRevision) || errors.Is(err, keyring.ErrDraining) || errors.Is(err, context.Canceled)
+	}
+}
+
 func (service *RefreshService) observeRefresh(serverID string, start time.Time, result RefreshResult, err error) {
 	if service.diagnostics == nil {
 		return
 	}
-	if errors.Is(err, ErrRefreshIneligible) || errors.Is(err, servers.ErrStaleRevision) || errors.Is(err, keyring.ErrDraining) || errors.Is(err, context.Canceled) {
+	if benignRefreshFailure(err, 16) {
 		return
 	}
 	facts := diagnostics.Facts{Phase: diagnostics.PhaseRefresh, Duration: diagnostics.Elapsed(start, service.now()), Disposition: diagnostics.DispositionUnknown}

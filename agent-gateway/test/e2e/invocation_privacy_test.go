@@ -30,7 +30,7 @@ import (
 )
 
 func TestE2EInvocationReadPrivacy(t *testing.T) {
-	harness := newLegacyGatewayHarness(t)
+	harness := newGatewayHarness(t)
 	harness.serveArgs = append(harness.serveArgs, "--log-level", "debug")
 	harness.Start()
 	strictSchema := json.RawMessage(`{"type":"object","properties":{"note":{"type":"string"},"token":{"type":"string"}},"additionalProperties":false}`)
@@ -237,7 +237,7 @@ func simulateRetainedInvocationWindow(t *testing.T, harness *gatewayHarness, ret
 }
 
 func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutOfArtifacts(t *testing.T) {
-	harness := newLegacyGatewayHarness(t)
+	harness := newGatewayHarness(t)
 	harness.Start()
 	catalog := harness.SetupCurrentCatalog("retention", []fixtureTool{{Name: "alpha", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	principal := harness.CreatePrincipal("Retention caller", contract.VisibilityAll)
@@ -319,7 +319,7 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 }
 
 func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
-	harness := newLegacyGatewayHarness(t)
+	harness := newGatewayHarness(t)
 	harness.Start()
 	catalog := harness.SetupCurrentCatalog("privacy", []fixtureTool{{Name: "alpha", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	principal := harness.CreatePrincipal("Privacy caller", contract.VisibilityAll)

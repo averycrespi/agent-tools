@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -27,7 +28,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/mcpingress"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	serverdomain "github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/service"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -66,7 +66,6 @@ func newRootCmdWithDependencies(dependencies offlineDependencies) *cobra.Command
 		newInitCmd(dependencies),
 		newMaintenanceCmd(dependencies),
 		newDoctorCmd(),
-		newServiceCmd(),
 		newServeCmd(dependencies),
 	)
 	for _, online := range newOnlineCommands() {
@@ -200,7 +199,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			return false, controlclient.NewInputError("Each --allowed-host must be an ASCII DNS hostname without a port or trailing dot.")
 		}
 	}
-	proxyAuthority, selectionErr := selectedHTTPProxy(command, service.LegacyHTTPDisabled())
+	proxyAuthority, selectionErr := selectedHTTPProxy(command, legacyHTTPDisabled(runtime.GOOS, os.Getenv("XPC_SERVICE_NAME")))
 	if selectionErr != nil {
 		return false, selectionErr
 	}
@@ -278,7 +277,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
 	})
 	defer unsubscribeEvents()
-	backupManager, err := backup.New(backup.Options{Ownership: ownership, Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
+	backupManager, err := backup.New(backup.Options{Diagnostics: dependencies.diagnostics, Ownership: ownership, Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
 	if err != nil {
 		return false, err
 	}
@@ -294,6 +293,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	})
 	defer ingress.Shutdown()
 	apiHandler := api.New(api.Options{
+		Diagnostics:    controlAPI.Diagnostics,
 		InstallationID: identity.InstallationID,
 
 		Credentials:   credentials,

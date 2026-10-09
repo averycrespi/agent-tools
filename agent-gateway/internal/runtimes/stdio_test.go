@@ -90,6 +90,15 @@ func TestStdioFixtureProcess(t *testing.T) {
 		code, _ := strconv.Atoi(arguments[1])
 		os.Exit(code)
 	case "mcp":
+		if arguments[1] == "fault" {
+			trigger := make(chan os.Signal, 1)
+			signal.Notify(trigger, syscall.SIGUSR1)
+			go func() {
+				<-trigger
+				_, _ = fmt.Fprintln(os.Stderr, "fixture initiating output limit credential="+os.Getenv("RUNTIME_SECRET"))
+				_, _ = fmt.Fprintln(os.Stdout, strings.Repeat("private-stdout-canary", int(limitByName("stdio_protocol_frame_bytes"))/len("private-stdout-canary")+2))
+			}()
+		}
 		fallback := false
 		if arguments[1] == "auto" {
 			if _, err := os.Stat(arguments[2]); err != nil {
@@ -303,7 +312,7 @@ func TestStdioStopUsesGracefulInputAndVerifiedProcessGroup(t *testing.T) {
 	assert.True(t, runtime.Stop(context.Background()))
 	exit := receiveExit(t, runtime.Done())
 	assert.True(t, exit.Requested)
-	assert.Equal(t, "requested termination", exit.Detail.Effect)
+	assert.Equal(t, "requested termination; streams=closed; reap=ack", exit.Detail.Effect)
 	assert.Zero(t, runtime.supervisor.Status().InUse)
 }
 

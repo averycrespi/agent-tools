@@ -228,19 +228,30 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		state = func(string, contract.ServerCredentialState, bool) {}
 	}
 	var result RefreshResult
+	var masking []string
+	var originalFailure error
+	var installedRevision string
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
 	err = service.coordinator.WithOperation(ctx, func(operation refreshOperation) (effectErr error) {
 		oldBytes, active, err := operation.ReadActive(ctx, tokenNamespace)
 		if err != nil {
-			return err
+			return &refreshSettlementFailure{operation: "read oauth_tokens generation", cause: err}
 		}
 		defer clear(oldBytes)
 		if active.Revision != prepared.Fence.ExpectedOAuthTokensRevision {
 			return servers.ErrStaleRevision
 		}
 		old, err := DecodeTokenGeneration(oldBytes)
-		if err != nil || !refreshBindingMatches(old, prepared) || old.RefreshToken == nil || (!request.ForceInvalidToken && !TokenRefreshEligible(old, service.now())) {
+		if err != nil {
+			return err
+		}
+		if !refreshBindingMatches(old, prepared) {
+			return protocolPredicate(ErrTokenRejected, "bind refresh generation", "rule=refresh_binding server_matches=%t issuer_matches=%t revision_matches=%t resource_matches=%t", old.ServerID == prepared.Fence.ServerID, old.Issuer == prepared.Registration.Issuer, old.RegistrationRevision == prepared.Registration.Revision, old.Resource == prepared.Registration.ResourceURL)
+		}
+		if old.RefreshToken == nil || (!request.ForceInvalidToken && !TokenRefreshEligible(old, service.now())) {
 			return ErrRefreshIneligible
 		}
+		masking = append(masking, old.AccessToken, *old.RefreshToken)
 		var clientSecret []byte
 		if prepared.Registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthNone {
 			clientNamespace, namespaceErr := keyring.NewNamespace(service.installationID, request.ServerID, keyring.RecordOAuthClient)
@@ -248,22 +259,21 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 				return ErrTokenRejected
 			}
 			clientSecret, active, err = operation.ReadActive(ctx, clientNamespace)
-			if err != nil || active.Revision != prepared.Fence.ExpectedOAuthClientRevision {
-				clear(clientSecret)
+			masking = append(masking, string(clientSecret))
+			defer clear(clientSecret)
+			if err != nil {
+				return &refreshSettlementFailure{operation: "read oauth_client generation", cause: err}
+			}
+			if active.Revision != prepared.Fence.ExpectedOAuthClientRevision {
 				return servers.ErrStaleRevision
 			}
-			defer clear(clientSecret)
 		}
-		defer func() {
-			if effectErr != nil {
-				effectErr = diagnostics.WithDetail(effectErr, diagnostics.Snapshot("oauth", "refresh", request.ServerID, effectErr, old.AccessToken, *old.RefreshToken, string(clientSecret)))
-			}
-		}()
 		state(request.ServerID, contract.ServerCredentialRefreshing, false)
 		graph, err := service.resolver.Discover(ctx, Input{Resource: prepared.Configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: &prepared.Registration.Issuer, TrustedOrigins: prepared.Configuration.Authentication.TrustedOrigins, AuthServerMetadataURL: prepared.Configuration.Authentication.AuthServerMetadataURL})
 		if err != nil {
 			state(request.ServerID, contract.ServerCredentialReady, false)
-			return diagnostics.WithDetail(ErrTokenRejected, diagnostics.Snapshot("oauth", "refresh discovery", request.ServerID, err, old.AccessToken, *old.RefreshToken, string(clientSecret)))
+			originalFailure = err
+			return ErrTokenRejected
 		}
 		if graph.Issuer != old.Issuer || graph.Resource != old.Resource || !slices.Contains(graph.TokenEndpointAuthMethodsSupported, string(prepared.Registration.TokenEndpointAuthMethod)) {
 			state(request.ServerID, contract.ServerCredentialReady, false)
@@ -287,7 +297,7 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			}
 			if err := finishOAuthEffect(ctx, service.store, service.now(), attempt, outcome); err != nil {
 				result = RefreshResult{}
-				effectErr = errors.Join(effectErr, err)
+				effectErr = errors.Join(effectErr, &refreshSettlementFailure{operation: "refresh audit settlement", cause: err})
 			}
 		}()
 		handed := false
@@ -316,6 +326,10 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			return parseErr
 		}
 		clear(responseBody)
+		masking = append(masking, token.accessToken)
+		if token.refreshToken != nil {
+			masking = append(masking, *token.refreshToken)
+		}
 		if prepared.Registration.TokenEndpointAuthMethod == contract.TokenEndpointAuthNone {
 			if token.refreshToken == nil || *token.refreshToken == *old.RefreshToken {
 				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, ErrRefreshReauthorization, state)
@@ -336,18 +350,41 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 			return err
 		}
 		result = RefreshResult{Revision: cutover.Revision, Refreshed: true}
+		installedRevision = cutover.Revision
 		if notify {
 			service.trigger(request.ServerID)
 		}
 		return nil
 	})
+	if err != nil {
+		detail := diagnostics.Snapshot("oauth", "refresh", request.ServerID, errors.Join(originalFailure, err), masking...)
+		if installedRevision != "" {
+			detail.Explanation = "token_installation=acknowledged revision=" + installedRevision + "; " + detail.Explanation
+		}
+		err = diagnostics.WithDetail(err, detail)
+	}
+	finishCleanup(masking...)
+	clear(masking)
 	return result, err
 }
+
+type refreshSettlementFailure struct {
+	operation string
+	cause     error
+}
+
+func (failure *refreshSettlementFailure) Error() string {
+	return failure.operation + ": " + failure.cause.Error()
+}
+func (failure *refreshSettlementFailure) Unwrap() error { return failure.cause }
 
 func (service *RefreshService) invalidateRefresh(ctx context.Context, operation refreshOperation, namespace keyring.Namespace, callback keyring.AuthorityCallback, serverID string, cause error, state func(string, contract.ServerCredentialState, bool)) error {
 	state(serverID, contract.ServerCredentialReauthenticationRequired, true)
 	_, invalidationErr := operation.InvalidateFencedExact(ctx, namespace, callback)
-	return errors.Join(cause, invalidationErr)
+	if invalidationErr != nil {
+		return errors.Join(cause, &refreshSettlementFailure{operation: "authority invalidation unacknowledged", cause: invalidationErr})
+	}
+	return &refreshSettlementFailure{operation: "authority invalidation acknowledged", cause: cause}
 }
 
 func refreshBindingMatches(token TokenGeneration, prepared servers.OAuthRefreshContext) bool {

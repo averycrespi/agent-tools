@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servercredentials"
 	serverdomain "github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
@@ -38,9 +40,12 @@ func TestCredentialReplacementIsWriteOnlyAndReturnsSafeOperation(t *testing.T) {
 }
 
 func TestCredentialReplacementLostResponseStillTriggersObservableOperation(t *testing.T) {
-	service := &replacementServiceFake{replaceErr: errors.New("acknowledgement lost")}
+	service := &replacementServiceFake{replaceErr: errors.New("acknowledgement lost replacement-canary")}
+	var output bytes.Buffer
+	adapter := diagnostics.New(&output, diagnostics.Warn)
+	t.Cleanup(func() { adapter.Finish(nil); <-adapter.Done() })
 	triggered := false
-	handler := New(Options{Replacements: service, TriggerServer: func(context.Context, string, *string, bool) { triggered = true }})
+	handler := New(Options{Diagnostics: adapter, Replacements: service, TriggerServer: func(context.Context, string, *string, bool) { triggered = true }})
 	request := httptest.NewRequest(http.MethodPost, "/api/v2/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5FAV/credential-replacements", strings.NewReader(`{"kind":"static_credential","expected_revision":"0","values":{"token":"replacement-canary"}}`))
 	request.Header.Set("Content-Type", contract.MediaTypeJSON)
 	request.Header.Set("If-Match", `"server-01ARZ3NDEKTSV4RRFFQ69G5FAV-1"`)
@@ -50,6 +55,11 @@ func TestCredentialReplacementLostResponseStillTriggersObservableOperation(t *te
 	assert.True(t, triggered)
 	assert.NotContains(t, response.Body.String(), "acknowledgement lost")
 	assert.NotContains(t, response.Body.String(), "replacement-canary")
+	require.True(t, adapter.Finish(nil))
+	require.Contains(t, output.String(), "acknowledgement lost")
+	require.Contains(t, output.String(), "publication_ack=true published_revision=1 reconciliation_scheduled=true")
+	require.NotContains(t, output.String(), "replacement-canary")
+	require.Equal(t, 1, bytes.Count(output.Bytes(), []byte(`"event":"operator_failure"`)))
 }
 
 func TestCredentialReplacementRejectsWrongUnionBeforeService(t *testing.T) {

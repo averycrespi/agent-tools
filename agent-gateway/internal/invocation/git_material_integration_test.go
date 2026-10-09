@@ -30,10 +30,18 @@ func TestIntegrationGitAdmissionSelectedMaterialFence(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(audit.WithSystem(t.Context()), 5*time.Second)
 			defer cancel()
-			coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
-			backend := &httpMemoryKeyring{values: map[string]string{}}
-			provider, err := keyring.NewProviderWithBackend(invocationTestInstallationID, backend)
+			coordinator, audits, authority, principal, credential, owner := newAdmissionCoordinatorWithOwnership(t, nil)
+			require.NoError(t, keyring.SetupCustody(ctx, owner, audits.store, audits.clock))
+			provider, err := keyring.NewProvider(invocationTestInstallationID)
 			require.NoError(t, err)
+			require.NoError(t, provider.UseDatabaseCustody(ctx, owner, audits.store))
+			var getBarrier func()
+			keyring.ObserveCustodyForIntegration(provider, func(point string) error {
+				if point == "before_read" && getBarrier != nil {
+					getBarrier()
+				}
+				return nil
+			})
 			materials, err := gitcredentials.NewService(audits.store, keyring.NewCoordinator(provider, audits.store, audits.clock, rand.Reader), authority, audits.clock, rand.Reader, invocationTestInstallationID)
 			require.NoError(t, err)
 			definition := contract.GitCredentialDefinition{Name: "Git", Origin: "https://example.com", Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}
@@ -70,7 +78,7 @@ func TestIntegrationGitAdmissionSelectedMaterialFence(t *testing.T) {
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
 			var blocked atomic.Bool
-			backend.getBarrier = func() {
+			getBarrier = func() {
 				if blocked.CompareAndSwap(false, true) {
 					close(entered)
 					select {

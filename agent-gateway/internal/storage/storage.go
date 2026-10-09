@@ -188,6 +188,9 @@ func openWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, opt
 			_ = store.Close()
 		}
 	}()
+	if err := store.View(ctx, func(tx *sql.Tx) error { return RequireNoLegacyCustodyTx(ctx, tx) }); err != nil {
+		return nil, err
+	}
 	if !marked {
 		if err := store.configureSizeLimit(ctx); err != nil {
 			return nil, err

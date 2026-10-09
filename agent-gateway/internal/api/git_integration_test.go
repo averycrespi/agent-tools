@@ -30,7 +30,7 @@ func newGitIntegrationHandler(t *testing.T) http.Handler {
 	return h
 }
 
-func newGitIntegrationHandlerWithFault(t *testing.T, backend keyring.Backend, fault func(storage.FaultPoint) error) (http.Handler, *storage.Store) {
+func newGitIntegrationHandlerWithFault(t *testing.T, backend interface{ observe(string) error }, fault func(storage.FaultPoint) error) (http.Handler, *storage.Store) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
@@ -47,8 +47,11 @@ func newGitIntegrationHandlerWithFault(t *testing.T, backend keyring.Backend, fa
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	policies, err := authorization.New(store, httpCredentialClock{}, rand.Reader)
 	require.NoError(t, err)
-	provider, err := keyring.NewProviderWithBackend(testID, backend)
+	require.NoError(t, keyring.SetupCustody(t.Context(), owner, store, httpCredentialClock{}))
+	provider, err := keyring.NewProvider(testID)
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(t.Context(), owner, store))
+	keyring.ObserveCustodyForIntegration(provider, backend.observe)
 	secrets, err := gitcredentials.NewService(store, keyring.NewCoordinator(provider, store, httpCredentialClock{}, rand.Reader), policies, httpCredentialClock{}, rand.Reader, testID)
 	require.NoError(t, err)
 	h := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Principals: policies, GitPolicies: policies, GitCredentials: secrets})

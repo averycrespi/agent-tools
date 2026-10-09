@@ -36,6 +36,8 @@ type PageClient interface {
 type DeadlineFunc func(context.Context, time.Duration) (context.Context, context.CancelFunc)
 
 type RawTool struct {
+	Page         int64
+	Item         int64
 	UpstreamName string
 	ExternalName string
 	Descriptor   json.RawMessage
@@ -45,12 +47,22 @@ type IssueClass uint8
 
 const IssueDescriptorInvalid IssueClass = 1
 
+type Rejection struct {
+	Page int64
+	Item int64
+	Name string
+	Rule string
+}
+
+const rejectionSamples = 2
+
 type Candidate struct {
-	Tools    []RawTool
-	Issues   []IssueClass
-	RawCount int64
-	Pages    int64
-	Bytes    int64
+	Rejections []Rejection
+	Tools      []RawTool
+	Issues     []IssueClass
+	RawCount   int64
+	Pages      int64
+	Bytes      int64
 }
 
 type Traverser struct {
@@ -75,7 +87,7 @@ func (traverser *Traverser) Traverse(ctx context.Context, client PageClient, nam
 	case traverser.admission <- struct{}{}:
 		defer func() { <-traverser.admission }()
 	default:
-		return Candidate{}, ErrTraversalLimit
+		return Candidate{}, predicate(ErrTraversalLimit, "rule=catalog_traversals observed=%d allowed=%d request_invoked=false", len(traverser.admission), cap(traverser.admission))
 	}
 	traversalCtx, cancel := traverser.deadline(ctx, contract.CatalogTraversalDeadline)
 	defer cancel()
@@ -91,29 +103,46 @@ func (traverser *Traverser) Status() contract.LimitStatus {
 	return contract.LimitStatus{InUse: inUse, Limit: limit, Saturated: inUse >= limit}
 }
 
-func (traverser *Traverser) traverse(ctx context.Context, client PageClient, namespace string) (Candidate, error) {
+func (traverser *Traverser) traverse(ctx context.Context, client PageClient, namespace string) (result Candidate, resultErr error) {
 	maximumPages := fixedLimit("tools_list_pages")
 	maximumTools := fixedLimit("active_tools_per_server")
-	seenCursors := make(map[string]struct{})
+	seenCursors := make(map[string]int64)
 	seenNames := make(map[string]struct{})
 	candidate := Candidate{Tools: make([]RawTool, 0), Issues: make([]IssueClass, 0)}
+	var requests int64
+	responseReceived := false
+	defer func() {
+		if resultErr != nil {
+			resultErr = predicate(resultErr, "method=tools/list page=%d completed_pages=%d raw=%d response=%t dispatch=unknown", requests, candidate.Pages, candidate.RawCount, responseReceived)
+		}
+	}()
 	cursor := ""
 	for pageIndex := int64(0); pageIndex < maximumPages; pageIndex++ {
 		params, _ := json.Marshal(struct {
 			Cursor string `json:"cursor"`
 		}{Cursor: cursor})
 		pageCtx, cancel := traverser.deadline(ctx, contract.CatalogPageDeadline)
+		requests++
+		responseReceived = false
 		response, err := client.Request(pageCtx, "tools/list", params, "")
+		pageContextErr, traversalContextErr := pageCtx.Err(), ctx.Err()
 		cancel()
 		if err != nil {
 			var challenge *downstream.OAuthChallengeDisposition
 			if errors.As(err, &challenge) && pageIndex > 0 {
 				err = downstream.ErrAuthenticationRejected
 			}
-			return Candidate{}, errors.Join(ErrUnavailable, &requestFailure{err: err})
+			provenance := "unknown"
+			if traversalContextErr != nil {
+				provenance = "traversal_or_parent_context"
+			} else if pageContextErr != nil {
+				provenance = "page_context"
+			}
+			return Candidate{}, predicate(errors.Join(ErrUnavailable, &requestFailure{err: err}), "context_provenance=%s", provenance)
 		}
+		responseReceived = true
 		if response.Error != nil {
-			return Candidate{}, ErrUnavailable
+			return Candidate{}, predicate(ErrUnavailable, "rpc_code=%d; RPC message/data withheld", response.Error.Code)
 		}
 		page, err := decodePage(response.Result)
 		if err != nil {
@@ -122,18 +151,22 @@ func (traverser *Traverser) traverse(ctx context.Context, client PageClient, nam
 		candidate.Pages++
 		candidate.Bytes += int64(len(response.Result))
 		candidate.RawCount += int64(len(page.tools))
-		for _, raw := range page.tools {
+		for item, raw := range page.tools {
 			tool, issue := isolateTool(raw, namespace)
+			tool.Page, tool.Item = pageIndex+1, int64(item)+1
 			if issue != 0 {
 				candidate.Issues = append(candidate.Issues, issue)
+				if len(candidate.Rejections) < rejectionSamples {
+					candidate.Rejections = append(candidate.Rejections, Rejection{Page: tool.Page, Item: tool.Item, Rule: isolationRule(raw, namespace)})
+				}
 				continue
 			}
 			if _, duplicate := seenNames[tool.UpstreamName]; duplicate {
-				return Candidate{}, ErrNameCollision
+				return Candidate{}, predicate(ErrNameCollision, "rule=unique_tool_name item=%d", len(seenNames)+1)
 			}
 			seenNames[tool.UpstreamName] = struct{}{}
 			if int64(len(candidate.Tools)) >= maximumTools {
-				return Candidate{}, ErrTraversalLimit
+				return Candidate{}, predicate(ErrTraversalLimit, "rule=active_tools_per_server observed=%d allowed=%d", len(candidate.Tools)+1, maximumTools)
 			}
 			candidate.Tools = append(candidate.Tools, tool)
 		}
@@ -141,12 +174,12 @@ func (traverser *Traverser) traverse(ctx context.Context, client PageClient, nam
 			return candidate, nil
 		}
 		if pageIndex == maximumPages-1 {
-			return Candidate{}, ErrTraversalLimit
+			return Candidate{}, predicate(ErrTraversalLimit, "rule=tools_list_pages observed=%d allowed=%d continuation=true", pageIndex+1, maximumPages)
 		}
-		if _, duplicate := seenCursors[page.nextCursor]; duplicate {
-			return Candidate{}, ErrCursorCycle
+		if first, duplicate := seenCursors[page.nextCursor]; duplicate {
+			return Candidate{}, predicate(ErrCursorCycle, "rule=cursor_cycle first_page=%d repeated_page=%d; cursor withheld", first, pageIndex+1)
 		}
-		seenCursors[page.nextCursor] = struct{}{}
+		seenCursors[page.nextCursor] = pageIndex + 1
 		cursor = page.nextCursor
 	}
 	return Candidate{}, ErrTraversalLimit
@@ -158,48 +191,51 @@ type rawPage struct {
 }
 
 func decodePage(contents []byte) (rawPage, error) {
-	if !utf8.Valid(contents) || int64(len(contents)) > fixedLimit("tools_list_page_bytes") {
-		return rawPage{}, ErrInvalidPage
+	if !utf8.Valid(contents) {
+		return rawPage{}, predicate(ErrInvalidPage, "rule=page_utf8")
+	}
+	if int64(len(contents)) > fixedLimit("tools_list_page_bytes") {
+		return rawPage{}, predicate(ErrInvalidPage, "rule=tools_list_page_bytes observed=%d allowed=%d", len(contents), fixedLimit("tools_list_page_bytes"))
 	}
 	decoder := json.NewDecoder(bytes.NewReader(contents))
 	first, err := decoder.Token()
 	if err != nil || first != json.Delim('{') {
-		return rawPage{}, ErrInvalidPage
+		return rawPage{}, predicate(ErrInvalidPage, "field=result rule=object_required")
 	}
 	members := make(map[string]json.RawMessage)
 	for decoder.More() {
 		keyToken, keyErr := decoder.Token()
 		key, ok := keyToken.(string)
 		if keyErr != nil || !ok {
-			return rawPage{}, ErrInvalidPage
+			return rawPage{}, predicate(ErrInvalidPage, "field=result rule=member_name_string")
 		}
 		if _, duplicate := members[key]; duplicate {
-			return rawPage{}, ErrInvalidPage
+			return rawPage{}, predicate(ErrInvalidPage, "field=result rule=unique_members; member name withheld")
 		}
 		var raw json.RawMessage
 		if decoder.Decode(&raw) != nil {
-			return rawPage{}, ErrInvalidPage
+			return rawPage{}, predicate(ErrInvalidPage, "field=result rule=valid_member_json; member name/value withheld")
 		}
 		members[key] = raw
 	}
 	if closing, closeErr := decoder.Token(); closeErr != nil || closing != json.Delim('}') {
-		return rawPage{}, ErrInvalidPage
+		return rawPage{}, predicate(ErrInvalidPage, "field=result rule=object_closing_delimiter")
 	}
 	if _, trailingErr := decoder.Token(); !errors.Is(trailingErr, io.EOF) {
-		return rawPage{}, ErrInvalidPage
+		return rawPage{}, predicate(ErrInvalidPage, "field=result rule=no_trailing_value")
 	}
 	toolsRaw, exists := members["tools"]
 	if !exists || bytes.Equal(bytes.TrimSpace(toolsRaw), []byte("null")) {
-		return rawPage{}, ErrInvalidPage
+		return rawPage{}, predicate(ErrInvalidPage, "field=tools rule=present_nonnull_array")
 	}
 	var tools []json.RawMessage
 	if json.Unmarshal(toolsRaw, &tools) != nil || tools == nil {
-		return rawPage{}, ErrInvalidPage
+		return rawPage{}, predicate(ErrInvalidPage, "field=tools rule=array_required")
 	}
 	nextCursor := ""
 	if cursorRaw, present := members["nextCursor"]; present && !bytes.Equal(bytes.TrimSpace(cursorRaw), []byte("null")) {
 		if json.Unmarshal(cursorRaw, &nextCursor) != nil {
-			return rawPage{}, ErrInvalidPage
+			return rawPage{}, predicate(ErrInvalidPage, "field=nextCursor rule=string_or_null; cursor withheld")
 		}
 	}
 	return rawPage{tools: tools, nextCursor: nextCursor}, nil

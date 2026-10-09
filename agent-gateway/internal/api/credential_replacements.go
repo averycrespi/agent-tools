@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"unicode/utf8"
 
@@ -83,12 +84,16 @@ func (handler *Handler) credentialReplacements(writer http.ResponseWriter, reque
 	}
 
 	var secret []byte
+	var masking []string
 	switch raw.Kind {
 	case contract.ServerCredentialStatic:
 		var values map[string]string
 		if strictjson.Decode(raw.Values, &values, strictjson.Options{MaxBytes: int64(limitValue("keyring_secret_bytes")), MaxDepth: int(limitValue("json_depth"))}) != nil {
 			writeProblem(writer, contract.ProblemInvalidJSON)
 			return
+		}
+		for _, value := range values {
+			masking = append(masking, value)
 		}
 		secret, err = servercredentials.EncodeStaticGeneration(values)
 	case contract.ServerCredentialOAuthClient:
@@ -97,12 +102,15 @@ func (handler *Handler) credentialReplacements(writer http.ResponseWriter, reque
 			err = servercredentials.ErrInvalidSecret
 		} else {
 			secret = []byte(clientSecret)
+			masking = append(masking, clientSecret)
 		}
 	}
 	if err != nil {
 		writeProblem(writer, contract.ProblemInvalidOperation)
 		return
 	}
+	defer clear(secret)
+	defer clear(masking)
 	publication, replaceErr := handler.replacements.Replace(request.Context(), plan, secret)
 	if publication.Operation.ID != "" {
 		handler.emit(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: &serverID})
@@ -110,6 +118,7 @@ func (handler *Handler) credentialReplacements(writer http.ResponseWriter, reque
 		handler.trigger(request.Context(), serverID, &publication.Operation.ID, true)
 	}
 	if replaceErr != nil {
+		handler.observeLocalFailure("replace "+string(raw.Kind), serverID, fmt.Sprintf("publication_ack=%t published_revision=%s reconciliation_scheduled=%t operation_id=%s activation=unknown; inspect current authority before replay", publication.Revision != "", publication.Revision, publication.Operation.ID != "", publication.Operation.ID), replaceErr, masking...)
 		writeCredentialReplacementError(writer, replaceErr)
 		return
 	}

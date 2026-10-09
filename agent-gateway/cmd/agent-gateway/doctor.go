@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,8 +14,8 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,6 @@ type doctorResult struct {
 	DataDir   string                 `json:"data_dir"`
 	Selection string                 `json:"selection"`
 	Checks    []doctorCheck          `json:"checks"`
-	Service   *service.Result        `json:"service,omitempty"`
 	System    *contract.SystemStatus `json:"system,omitempty"`
 }
 
@@ -70,10 +70,7 @@ func newDoctorCmd() *cobra.Command {
 		} else if errors.Is(err, os.ErrNotExist) {
 			add("installation", "absent", layout.Root, "No installation directory.", next)
 		} else {
-			detail := pathValidationDetail(err)
-			if detail == "" {
-				detail = "Root ownership, permissions or type could not be verified."
-			}
+			detail := doctorCause("inspect root", layout.Root, err)
 			add("installation", "failed", layout.Root, detail, "Correct the reported path issue; do not delete installation files.")
 		}
 		presence := func(name, path string) {
@@ -92,10 +89,7 @@ func newDoctorCmd() *cobra.Command {
 				}
 				add(name, "absent", path, "File is absent.", action)
 			default:
-				detail := pathValidationDetail(err)
-				if detail == "" {
-					detail = "File is inaccessible or unsafe; contents were not displayed."
-				}
+				detail := doctorCause("inspect file", path, err)
 				add(name, "failed", path, detail, "Correct the reported path issue; do not delete the file.")
 			}
 		}
@@ -108,7 +102,7 @@ func newDoctorCmd() *cobra.Command {
 			}
 			add("process ownership", state, layout.Lock, "Existing lock observation; not readiness or clean-shutdown evidence.", "")
 		} else {
-			add("process ownership", "not-checked", layout.Lock, "Existing lock could not be safely observed.", "")
+			add("process ownership", "not-checked", layout.Lock, doctorCause("probe ownership", layout.Lock, ownershipErr), "Inspect the selected lock path; do not remove it on this evidence.")
 		}
 		defaultBearer := bearerFile == ""
 		if defaultBearer {
@@ -138,26 +132,19 @@ func newDoctorCmd() *cobra.Command {
 					}
 					add("CA metadata", state, "", "Public metadata inspected without keyring access; signing was not checked.", "")
 				} else {
-					detail := pathValidationDetail(errors.Join(inspectErr, closeErr))
-					if detail == "" {
-						detail = "Read-only inspection could not establish a healthy closed generation; no recovery was attempted."
-					}
+					detail := doctorCause("inspect closed storage and close ownership", layout.Database, errors.Join(inspectErr, closeErr))
 					add("storage inspection", "failed", layout.Database, detail, "Retain WAL, journal and marker files; obtain a qualified stopped recovery plan.")
 				}
 			case errors.Is(openErr, gatewaypaths.ErrInUse):
 				add("storage inspection", "not-checked", layout.Database, "Installation is running; offline inspection refused.", "Use --online for authenticated live status.")
 			default:
-				detail := pathValidationDetail(openErr)
-				if detail == "" {
-					detail = "Stopped ownership is unavailable."
-				}
+				detail := doctorCause("acquire stopped ownership", layout.Root, openErr)
 				add("storage inspection", "failed", layout.Database, detail, "Check the reported path without deleting installation files.")
 			}
 		}
 		ctx, cancel := context.WithTimeout(command.Context(), 3*time.Second)
 		defer cancel()
-		readiness := doctorReadiness(ctx, address)
-		detail := "Listener readiness is not process identity, clean storage or upstream credential health."
+		readiness, detail := doctorReadiness(ctx, address)
 		readinessNext := ""
 		if readiness != "ok" && rootErr == nil {
 			readinessNext = "Check the running Gateway's address and logs."
@@ -167,12 +154,6 @@ func newDoctorCmd() *cobra.Command {
 			}
 		}
 		add("runtime readiness", readiness, "", detail, readinessNext)
-		serviceResult, serviceErr := service.Execute(ctx, "status", service.Changes{})
-		if serviceErr == nil {
-			result.Service = &serviceResult
-		} else {
-			add("installed service", "not-checked", "", "Canonical native service inspection is unavailable on this account or platform.", "")
-		}
 		if online && defaultBearer && rootErr != nil {
 			add("authenticated live status", "not-checked", bearerFile, "Selected installation is absent or unsafe; its default bearer was not read.", "Select an existing safe installation or a known --admin-bearer-file.")
 		} else if online {
@@ -181,7 +162,7 @@ func newDoctorCmd() *cobra.Command {
 				result.System = &status
 				add("authenticated live status", "ok", "", "Public control API status received; independent failed checks remain unresolved.", "")
 			} else {
-				add("authenticated live status", "failed", "", "Administrator credential or live control status is unavailable.", "Select a known --admin-bearer-file and the correct --address; never reset solely because a file is missing.")
+				add("authenticated live status", "failed", "", doctorCause("read live status", "", statusErr), "Select a known --admin-bearer-file and the correct --address; never reset solely because a file is missing.")
 			}
 		}
 		var human strings.Builder
@@ -211,47 +192,65 @@ func newDoctorCmd() *cobra.Command {
 	return command
 }
 
-func doctorReadiness(ctx context.Context, address string) string {
+func doctorCause(operation, resource string, err error) string {
+	detail := diagnostics.Snapshot("doctor", operation, resource, err)
+	return strings.TrimSpace(detail.Operation + " " + detail.Resource + ": " + detail.Explanation + " " + detail.Effect)
+}
+
+func doctorReadiness(ctx context.Context, address string) (string, string) {
 	client, err := controlclient.New(address, controlclient.TransportOptions{ConnectTimeout: time.Second, HeaderTimeout: time.Second, RequestTimeout: 2 * time.Second})
 	if err != nil {
-		return "failed"
+		return "failed", doctorCause("validate readiness address", "", err)
 	}
 	response, err := client.Do(ctx, controlclient.Request{Method: http.MethodGet, Path: "/readyz"})
 	if err != nil {
-		return "unavailable"
+		return "unavailable", doctorCause("GET /readyz", address, err)
 	}
+	detail := fmt.Sprintf("GET /readyz %s http_status=%d; authentication=not_attempted", diagnostics.Text(address, 160), response.StatusCode)
 	if response.StatusCode == http.StatusOK && bytes.Equal(bytes.TrimSpace(response.Body), []byte(`{"status":"ready"}`)) {
-		return "ok"
+		return "ok", detail + "; listener readiness is not process identity, clean storage or upstream credential health."
 	}
 	if response.StatusCode == http.StatusServiceUnavailable && bytes.Equal(bytes.TrimSpace(response.Body), []byte(`{"status":"not_ready"}`)) {
-		return "not-ready"
+		return "not-ready", detail + "; listener reports not ready."
 	}
-	return "failed"
+	return "failed", detail + "; expected status/body pair 200/ready or 503/not_ready; response body withheld."
 }
 
 func doctorOnlineStatus(ctx context.Context, address, bearerPath string) (contract.SystemStatus, error) {
 	var result contract.SystemStatus
 	bearer, err := controlclient.AcquireAdminBearer(controlclient.BearerOptions{FilePath: bearerPath})
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("authentication=not_attempted; acquire administrator bearer %s: %w", diagnostics.Text(bearerPath, 160), err)
 	}
 	client, err := controlclient.New(address, controlclient.TransportOptions{RequestTimeout: 2 * time.Second})
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("authentication=not_attempted; validate live status address: %w", err)
 	}
 	header, err := controlclient.RequestMetadata(controlclient.RequestMetadataOptions{Bearer: bearer})
 	if err != nil {
 		return result, err
 	}
+	if err := ctx.Err(); err != nil {
+		return result, fmt.Errorf("authentication=not_attempted; shared doctor context expired before live status: %w", err)
+	}
 	response, err := client.Do(ctx, controlclient.Request{Method: http.MethodGet, Path: "/api/v2/system-status", Header: header})
 	if err != nil {
-		return result, err
+		detail := diagnostics.Snapshot("doctor", "GET /api/v2/system-status", address, err, bearer)
+		detail.Effect = "authentication=unknown"
+		if controlclient.FailureHandoff(err) == controlclient.HandoffNone {
+			detail.Effect = "authentication=not_attempted"
+		}
+		return result, diagnostics.WithDetail(err, detail)
 	}
 	if response.StatusCode != http.StatusOK {
-		return result, controlclient.ErrResponseInvalid
+		code := "unvalidated"
+		if problem := controlclient.EvaluateResponse(response); problem != nil && problem.Status != nil {
+			code = problem.Code
+		}
+		return result, fmt.Errorf("GET /api/v2/system-status %s authentication=attempted http_status=%d problem_code=%s; expected HTTP 200; response body withheld", diagnostics.Text(address, 160), response.StatusCode, code)
 	}
 	if err = controlclient.DecodeResponse(response.Body, &result); err != nil {
-		return result, err
+		return result, fmt.Errorf("GET /api/v2/system-status %s authentication=attempted http_status=200; expected system-status representation; response body withheld: %w", diagnostics.Text(address, 160), err)
 	}
 	return result, nil
 }

@@ -97,7 +97,7 @@ type tokenSecretStore interface {
 
 type flowBundle struct {
 	diagnosticAttempt  uint64
-	diagnosticFailure  *flowDiagnostic
+	diagnosticFailure  *callbackDiagnostic
 	cause              audit.Cause
 	serverID           string
 	flowID             string

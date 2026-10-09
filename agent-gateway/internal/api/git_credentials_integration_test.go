@@ -21,12 +21,12 @@ type gitFailingSetBackend struct {
 	failed atomic.Bool
 }
 
-func (b *gitFailingSetBackend) Set(service, user, value string) error {
-	if b.fail.Load() {
+func (b *gitFailingSetBackend) observe(point string) error {
+	if point == "before_write" && b.fail.Load() {
 		b.failed.Store(true)
 		return errors.New("provider-private-failure")
 	}
-	return b.httpCredentialBackend.Set(service, user, value)
+	return b.httpCredentialBackend.observe(point)
 }
 
 func TestIntegrationGitCredentialProviderFailureAndLostAuditAck(t *testing.T) {

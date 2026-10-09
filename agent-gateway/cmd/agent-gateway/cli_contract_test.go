@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:556218409320e4da3af1095e80a864ae296a988f5fcaf752b12afc1551fb10ad", digest)
+	assert.Equal(t, "sha256:551179c7a0d6009bab57cf2434f806ec0a7f9fe056d87f55a8c4d0dbb311ede5", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -119,9 +119,6 @@ func TestCLIContract(t *testing.T) {
 			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "secret-output"}},
 			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "recovery-key", "secret-output", "security-only", "traffic-budget-bytes"}},
-			{path: []string{"maintenance", "migrate-secrets"}, use: "migrate-secrets", flags: []string{"confirm", "dry-run", "installation-id", "json"}},
-			{path: []string{"maintenance", "verify-secrets"}, use: "verify-secrets", flags: []string{"confirm", "dry-run", "installation-id", "json"}},
-			{path: []string{"maintenance", "cleanup-native-secrets"}, use: "cleanup-native-secrets", flags: []string{"confirm", "dry-run", "installation-id", "json", "operator-verified"}},
 			{path: []string{"maintenance", "rotate-master-key"}, use: "rotate-master-key", flags: []string{"confirm", "dry-run", "installation-id", "json", "recover", "retain-recovery-keys"}},
 			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
 			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "clear-http-proxy-listen", "data-dir", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},

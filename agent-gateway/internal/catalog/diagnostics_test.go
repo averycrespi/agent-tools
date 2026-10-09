@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func TestJoinedFailingPollKeepsOneDiagnosticOwner(t *testing.T) {
 	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(t.Context(), candidate).State)
 	started, release := make(chan struct{}), make(chan struct{})
 	client.mu.Lock()
-	client.started, client.release, client.err = started, release, context.DeadlineExceeded
+	client.started, client.release, client.err = started, release, fmt.Errorf("tools/list page read: %w", errors.Join(context.DeadlineExceeded, errors.New("connection reset by peer")))
 	client.mu.Unlock()
 	pollDone := make(chan struct{})
 	go func() { scheduler.call(0).timer.callback(); close(pollDone) }()
@@ -61,6 +62,8 @@ func TestJoinedFailingPollKeepsOneDiagnosticOwner(t *testing.T) {
 	require.Equal(t, 1, bytes.Count(output.Bytes(), []byte(`"event":"upstream_unhealthy"`)))
 	require.Contains(t, output.String(), `"disposition":"retry_scheduled"`)
 	require.NotContains(t, output.String(), `"disposition":"unknown"`)
+	require.Contains(t, output.String(), "connection reset by peer")
+	require.Contains(t, output.String(), "tools/list page read")
 }
 
 type pollDiagnosticObserver func(diagnostics.Facts)
@@ -90,7 +93,7 @@ func TestCatalogPollDiagnosticsObserveTimeoutAndRecoveryWithoutChangingPolling(t
 	candidate := coordinatorCandidate(t, serverRepository, server)
 	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.Activate(t.Context(), candidate).State)
 	require.Equal(t, contract.ActiveCatalogCurrent, coordinator.run(t.Context(), candidate, runtimes.CatalogTraversalPoll).State)
-	client.err = errors.Join(context.DeadlineExceeded, errors.New("private-response-token-url-canary"))
+	client.err = errors.Join(context.DeadlineExceeded, errors.New("connection reset; access_token=actual-credential-canary"))
 	for range 2 {
 		require.Equal(t, contract.ActiveCatalogStale, coordinator.run(t.Context(), candidate, runtimes.CatalogTraversalPoll).State)
 	}
@@ -133,7 +136,9 @@ func TestCatalogPollDiagnosticsObserveTimeoutAndRecoveryWithoutChangingPolling(t
 		}
 	}
 	require.Equal(t, 6, scheduled)
-	for _, canary := range []string{server.ID, "private-catalog-name", "private-tool-canary", "private-response-token-url-canary"} {
+	require.Contains(t, output.String(), "connection reset")
+	require.Contains(t, output.String(), "private-catalog-name")
+	for _, canary := range []string{"private-tool-canary", "actual-credential-canary"} {
 		require.NotContains(t, output.String(), canary)
 	}
 }

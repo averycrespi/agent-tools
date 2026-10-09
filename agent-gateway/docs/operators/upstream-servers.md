@@ -155,7 +155,7 @@ agent-gateway mcp server credential replace SERVER_ID --etag ETAG --file PATH --
 
 Omitted `--etag` performs one validated server read; an explicit exact value skips it.
 
-The input must be one complete supported static-slot set or OAuth-client-secret form. Replacement always requires confirmation. Gateway never emits, logs, digests for display, or automatically replays the submitted secret. A native keyring operation may prompt, fail, or outlive cancellation.
+The input must be one complete supported static-slot set or OAuth-client-secret form. Replacement always requires confirmation. Gateway never emits, logs, digests for display, or automatically replays the submitted secret. Protected material uses encrypted database custody; unavailable custody refuses without native prompts or fallback.
 
 If the result is uncertain, inspect the server and its operation history. Those safe reads may identify the current credential revision and operation state, but they cannot reveal which secret value became authoritative. Do not resubmit a secret merely because its one-time source is no longer available.
 

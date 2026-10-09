@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 
@@ -36,46 +35,6 @@ const (
 
 var now = time.Date(2026, 8, 25, 0, 0, 0, 0, time.UTC)
 
-type memoryBackend struct {
-	mu     sync.Mutex
-	values map[string]string
-	reads  int
-}
-
-func newMemoryBackend() *memoryBackend                     { return &memoryBackend{values: make(map[string]string)} }
-func (*memoryBackend) Probe(context.Context, string) error { return nil }
-func (backend *memoryBackend) Set(service, user, password string) error {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	backend.values[service+"\x00"+user] = password
-	return nil
-}
-func (backend *memoryBackend) Get(service, user string) (string, error) {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	backend.reads++
-	value, ok := backend.values[service+"\x00"+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return value, nil
-}
-func (backend *memoryBackend) Delete(service, user string) error {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	key := service + "\x00" + user
-	if _, ok := backend.values[key]; !ok {
-		return keyring.ErrNotFound
-	}
-	delete(backend.values, key)
-	return nil
-}
-func (backend *memoryBackend) readCount() int {
-	backend.mu.Lock()
-	defer backend.mu.Unlock()
-	return backend.reads
-}
-
 type fixedClock struct{}
 
 func (fixedClock) Now() time.Time { return now }
@@ -100,9 +59,11 @@ type observingCoordinator struct {
 	delegate  *keyring.Coordinator
 	afterRead func()
 	observed  []byte
+	reads     int
 }
 
 func (coordinator *observingCoordinator) ReadActive(ctx context.Context, namespace keyring.Namespace) ([]byte, keyring.CutoverResult, error) {
+	coordinator.reads++
 	contents, result, err := coordinator.delegate.ReadActive(ctx, namespace)
 	coordinator.observed = contents
 	if err == nil && coordinator.afterRead != nil {
@@ -122,9 +83,10 @@ func TestCompleteCredentialGenerationsAcquireFenceAndCleanMaterial(t *testing.T)
 		require.NoError(t, ownership.MarkClean())
 		require.NoError(t, ownership.Close())
 	})
-	backend := newMemoryBackend()
-	provider, err := keyring.NewProviderWithBackend(installationID, backend)
+	require.NoError(t, keyring.SetupCustody(ctx, ownership, store, fixedClock{}))
+	provider, err := keyring.NewProvider(installationID)
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(ctx, ownership, store))
 	coordinator := keyring.NewCoordinator(provider, store, fixedClock{}, rand.Reader)
 
 	t.Run("static", func(t *testing.T) {
@@ -140,13 +102,11 @@ func TestCompleteCredentialGenerationsAcquireFenceAndCleanMaterial(t *testing.T)
 		observer := &observingCoordinator{delegate: coordinator}
 		resolver, resolverErr := credentialauthority.New(repository, observer, installationID, func() time.Time { return now })
 		require.NoError(t, resolverErr)
-		beforeReads := backend.readCount()
-
 		outcome := resolver.Resolve(ctx, candidate)
 
 		assert.Equal(t, contract.ServerCredentialReady, outcome.CredentialState)
 		require.NotNil(t, outcome.Lease)
-		assert.Equal(t, 2, backend.readCount()-beforeReads)
+		assert.Equal(t, 1, observer.reads)
 		assert.Equal(t, make([]byte, len(observer.observed)), observer.observed)
 		assert.NotContains(t, fmt.Sprintf("%+v", outcome), staticCanary)
 		owner := runtimes.NewRuntimeOwner()
@@ -169,8 +129,14 @@ func TestCompleteCredentialGenerationsAcquireFenceAndCleanMaterial(t *testing.T)
 		assert.Nil(t, stale.Lease)
 		assert.Equal(t, make([]byte, len(staleObserver.observed)), staleObserver.observed)
 		require.NoError(t, provider.DeleteGeneration(ctx, namespace, published.Handle))
-		_, readErr := provider.ReadGeneration(ctx, namespace, published.Handle)
-		require.ErrorIs(t, readErr, keyring.ErrNotFound)
+		retained, readErr := provider.ReadGeneration(ctx, namespace, published.Handle)
+		require.NoError(t, readErr, "physical cleanup must not remove selected encrypted authority")
+		require.Equal(t, material, retained)
+		clear(retained)
+		_, invalidateErr := coordinator.InvalidateFenced(ctx, namespace, nil)
+		require.NoError(t, invalidateErr)
+		_, readErr = provider.ReadGeneration(ctx, namespace, published.Handle)
+		require.ErrorIs(t, readErr, keyring.ErrIncompleteGeneration)
 	})
 
 	t.Run("oauth", func(t *testing.T) {
@@ -192,13 +158,11 @@ func TestCompleteCredentialGenerationsAcquireFenceAndCleanMaterial(t *testing.T)
 		observer := &observingCoordinator{delegate: coordinator}
 		resolver, resolverErr := credentialauthority.New(repository, observer, installationID, func() time.Time { return now })
 		require.NoError(t, resolverErr)
-		beforeReads := backend.readCount()
-
 		outcome := resolver.Resolve(ctx, candidate)
 
 		assert.Equal(t, contract.ServerCredentialReady, outcome.CredentialState)
 		require.NotNil(t, outcome.Lease)
-		assert.Equal(t, 2, backend.readCount()-beforeReads)
+		assert.Equal(t, 1, observer.reads)
 		assert.Equal(t, make([]byte, len(observer.observed)), observer.observed)
 		assert.NotContains(t, fmt.Sprintf("%+v", outcome), accessCanary)
 		assert.NotContains(t, fmt.Sprintf("%+v", outcome), refreshCanary)
@@ -211,7 +175,10 @@ func TestCompleteCredentialGenerationsAcquireFenceAndCleanMaterial(t *testing.T)
 		assert.NotContains(t, string(secret), refreshCanary)
 		assert.True(t, owner.Release(key, true))
 		assert.Equal(t, make([]byte, len(secret)), secret)
-		require.NoError(t, provider.DeleteGeneration(ctx, namespace, published.Handle))
+		_, invalidateErr := coordinator.InvalidateFenced(ctx, namespace, nil)
+		require.NoError(t, invalidateErr)
+		_, readErr := provider.ReadGeneration(ctx, namespace, published.Handle)
+		require.ErrorIs(t, readErr, keyring.ErrIncompleteGeneration)
 	})
 
 	backupPath := filepath.Join(t.TempDir(), "gateway.db")

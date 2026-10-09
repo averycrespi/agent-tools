@@ -12,8 +12,6 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -21,24 +19,11 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
+	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
 )
-
-func httpMaterialBinary(t *testing.T) (string, string) {
-	t.Helper()
-	root := t.TempDir()
-	material := filepath.Join(root, "material")
-	require.NoError(t, os.Mkdir(material, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(material, ".fixture"), []byte("agent-gateway-disposable-e2e-material\n"), 0o600))
-	binary := filepath.Join(root, "agent-gateway")
-	runner, err := testutil.NewBinaryRunner(30*time.Second, 64*1024)
-	require.NoError(t, err)
-	flags := "-X github.com/averycrespi/agent-tools/agent-gateway/internal/composition.e2eMaterialDirectory=" + material
-	result, err := runner.Run(t.Context(), "go", "-C", "../..", "build", "-tags=e2e", "-ldflags", flags, "-o", binary, "./cmd/agent-gateway")
-	require.NoError(t, err, "fixture build: %s", result.Stderr)
-	return binary, material
-}
 
 func createHTTPCA(t *testing.T, h *gatewayHarness) []byte {
 	t.Helper()
@@ -58,7 +43,7 @@ func createHTTPCA(t *testing.T, h *gatewayHarness) []byte {
 }
 
 func TestHTTPProxyProductionActivation(t *testing.T) {
-	binary, _ := httpMaterialBinary(t)
+	binary := gatewayBinary(t)
 	h := newGatewayHarnessBinary(t, t.Context(), binary)
 	proxyAuthority := contract.DefaultHTTPProxyAuthority
 	// Normal init creates signing material. Omit the proxy address to exercise
@@ -151,7 +136,14 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 }
 
 func TestHTTPProxyStartupFailureCleansPartialBinds(t *testing.T) {
-	h := newLegacyGatewayHarness(t)
+	h := newGatewayHarness(t)
+	owner, err := gatewaypaths.AcquireStoppedExisting(h.root)
+	require.NoError(t, err)
+	store, err := storage.Open(t.Context(), owner)
+	require.NoError(t, err)
+	require.NoError(t, httpca.InvalidateStaged(t.Context(), store, e2eClock{}))
+	require.NoError(t, store.Close())
+	require.NoError(t, owner.Close())
 	proxy := contract.DefaultHTTPProxyAuthority
 	args := append(append([]string(nil), h.serveArgs...), "--clear-http-proxy-listen=false")
 	result, err := h.runner.Run(context.Background(), h.binary, args...)

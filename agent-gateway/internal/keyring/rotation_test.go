@@ -63,7 +63,7 @@ func TestMasterKeyRotationPreservesAllKindsAndAuthority(t *testing.T) {
 	reopened, err := storage.Open(ctx, owner)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reopened.Close()) }()
-	restarted, err := NewProviderWithBackend(testInstallationID, forbiddenNative{t})
+	restarted, err := NewProvider(testInstallationID)
 	require.NoError(t, err)
 	require.NoError(t, restarted.UseDatabaseCustody(ctx, owner, reopened))
 	reader := NewCoordinator(restarted, reopened, clock, rand.Reader)

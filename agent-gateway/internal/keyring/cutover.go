@@ -13,6 +13,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
@@ -54,15 +55,18 @@ type cutoverHooks struct {
 }
 
 type Coordinator struct {
-	stateMu   sync.Mutex
-	operation chan struct{}
-	provider  *Provider
-	store     *storage.Store
-	clock     Clock
-	entropy   io.Reader
-	hooks     cutoverHooks
-	epoch     uint64
-	draining  bool
+	diagnostics     diagnostics.HTTPProxyObserver
+	cleanupWarnings []cleanupWarning
+	cleanupOmitted  uint64
+	stateMu         sync.Mutex
+	operation       chan struct{}
+	provider        *Provider
+	store           *storage.Store
+	clock           Clock
+	entropy         io.Reader
+	hooks           cutoverHooks
+	epoch           uint64
+	draining        bool
 }
 
 func NewCoordinator(provider *Provider, store *storage.Store, clock Clock, entropy io.Reader) *Coordinator {
@@ -103,7 +107,7 @@ func (coordinator *Coordinator) ReplaceFenced(
 	if !coordinator.acquireOperation() {
 		return CutoverResult{}, ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
@@ -136,7 +140,7 @@ func (coordinator *Coordinator) WithOperation(ctx context.Context, use func(*Ope
 	if use == nil || !coordinator.acquireOperation() {
 		return ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return err
@@ -161,12 +165,12 @@ func (operation *Operation) ReplaceFencedAfterAuthorizationSuccess(ctx context.C
 		candidateErr = coordinator.activateAuthority(ctx, namespace, epoch, callback, result.Revision)
 	}
 	if candidateErr == nil {
-		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+		coordinator.noteCleanup(namespace, "publication and activation acknowledged", coordinator.cleanupCandidates(ctx, namespace, epoch), secret)
 		return result, nil
 	}
 	_, invalidationErr := coordinator.invalidateAuthority(ctx, namespace, epoch, callback, result.Revision, true)
 	if invalidationErr == nil {
-		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+		coordinator.noteCleanup(namespace, "authority invalidated", coordinator.cleanupCandidates(ctx, namespace, epoch), secret)
 	}
 	return CutoverResult{}, errors.Join(candidateErr, invalidationErr)
 }
@@ -250,7 +254,7 @@ func (coordinator *Coordinator) replaceFencedAdmitted(
 		return result, err
 	}
 	if !keepFenced {
-		_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+		coordinator.noteCleanup(namespace, "publication acknowledged", coordinator.cleanupCandidates(ctx, namespace, epoch), secret)
 	}
 	return result, nil
 }
@@ -272,7 +276,7 @@ func (coordinator *Coordinator) invalidateFenced(
 	if !coordinator.acquireOperation() {
 		return CutoverResult{}, ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return CutoverResult{}, err
@@ -288,7 +292,7 @@ func (coordinator *Coordinator) invalidateFenced(
 	if err := runCutoverHook(coordinator.hooks.afterCommit); err != nil {
 		return result, err
 	}
-	_ = coordinator.cleanupCandidates(ctx, namespace, epoch)
+	coordinator.noteCleanup(namespace, "authority invalidated", coordinator.cleanupCandidates(ctx, namespace, epoch), nil)
 	return result, nil
 }
 
@@ -375,7 +379,7 @@ func (coordinator *Coordinator) CleanupCandidates(ctx context.Context, namespace
 	if !coordinator.acquireOperation() {
 		return ErrWorkLimit
 	}
-	defer coordinator.releaseOperation()
+	defer coordinator.releaseOperation(ctx)
 	epoch, err := coordinator.activeEpoch()
 	if err != nil {
 		return err
@@ -383,24 +387,44 @@ func (coordinator *Coordinator) CleanupCandidates(ctx context.Context, namespace
 	return coordinator.cleanupCandidates(ctx, namespace, epoch)
 }
 
-func (coordinator *Coordinator) cleanupCandidates(ctx context.Context, namespace Namespace, epoch uint64) error {
+func (coordinator *Coordinator) cleanupCandidates(ctx context.Context, namespace Namespace, epoch uint64) (resultErr error) {
+	failure := &cleanupFailure{resource: namespace.owner, kind: string(namespace.kind), phase: "validate namespace"}
+	defer func() {
+		if resultErr != nil {
+			failure.err = resultErr
+			resultErr = failure
+		}
+	}()
 	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
 		return err
 	}
+	failure.phase = "list retained candidates"
 	candidates, err := coordinator.candidates(ctx, namespace)
 	if err != nil {
 		return err
 	}
+	failure.total = len(candidates)
 	for _, handle := range candidates {
+		failure.phase = "fence cleanup"
 		if err := coordinator.ensureActive(epoch); err != nil {
 			return err
 		}
-		if err := coordinator.auditGenerationEffect(ctx, namespace, "delete", func() error { return coordinator.provider.DeleteGeneration(ctx, namespace, handle) }); err != nil {
+		failure.attempted++
+		failure.phase = "delete retained generation and audit"
+		if err := coordinator.auditGenerationEffect(ctx, namespace, "delete", func() error {
+			err := coordinator.provider.DeleteGeneration(ctx, namespace, handle)
+			if err == nil {
+				failure.deleted++
+			}
+			return err
+		}); err != nil {
 			return err
 		}
+		failure.phase = "remove retained candidate bookkeeping"
 		if err := coordinator.removeCandidate(ctx, namespace, handle, epoch); err != nil {
 			return err
 		}
+		failure.removed++
 	}
 	return nil
 }
@@ -871,8 +895,11 @@ func (coordinator *Coordinator) acquireOperation() bool {
 	}
 }
 
-func (coordinator *Coordinator) releaseOperation() {
+func (coordinator *Coordinator) releaseOperation(ctx context.Context) {
+	warnings, omitted := coordinator.cleanupWarnings, coordinator.cleanupOmitted
+	coordinator.cleanupWarnings, coordinator.cleanupOmitted = nil, 0
 	<-coordinator.operation
+	coordinator.deliverCleanup(ctx, warnings, omitted)
 }
 
 func (coordinator *Coordinator) activeEpoch() (uint64, error) {

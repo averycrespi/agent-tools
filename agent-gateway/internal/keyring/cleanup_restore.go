@@ -8,6 +8,18 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
+// Schema 24 permanently records 117 chunk slots and one manifest observation.
+const maximumGenerationChunks = 117
+
+type migrationRecord struct {
+	handle   Handle
+	owner    string
+	kind     RecordKind
+	revision int64
+}
+
+var ErrMigrationIncomplete = errors.New("retained native cleanup provenance is incomplete; preserve the installation and consult the pre-removal upgrade procedure")
+
 // PreserveCleanupInventory carries forward irreversible native observations from
 // the stopped current database into a private restore stage. Backup state can
 // add evidence but cannot erase newer ownership or weaken deletion dispositions.

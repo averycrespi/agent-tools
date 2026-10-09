@@ -4,7 +4,7 @@ Stateless Go stdio MCP server exposing exactly `evaluate` and `list_models` for 
 
 ## Install and use
 
-Requires the repository's Go toolchain (Go 1.26.6 or later).
+Requires the repository's Go toolchain (Go 1.26.9 or later).
 
 ```bash
 make -C typesafe-mcp install

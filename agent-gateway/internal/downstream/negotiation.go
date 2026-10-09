@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -136,7 +138,15 @@ func NewNegotiatorWithDeadline(open OpenCoordinator, deadline DeadlineFunc) (*Ne
 	return &Negotiator{open: open, deadline: deadline}, nil
 }
 
-func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (*Runtime, error) {
+func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (result *Runtime, resultErr error) {
+	fallbackState := "not_attempted"
+	defer func() {
+		if resultErr != nil {
+			detail := diagnostics.Snapshot("downstream", "negotiate", "", resultErr)
+			detail.Explanation = fmt.Sprintf("configured_mode=%s legacy_fallback=%s initialization_budget_ms=%d deadline_provenance=unknown; %s", diagnostics.Text(string(mode), 16), fallbackState, contract.DownstreamInitializationDeadline.Milliseconds(), detail.Explanation)
+			resultErr = diagnostics.WithDetail(resultErr, detail)
+		}
+	}()
 	if mode != ModeModern && mode != ModeLegacy && mode != ModeAuto {
 		return nil, ErrUnsupportedProtocol
 	}
@@ -156,7 +166,7 @@ func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (*Runtim
 	if err != nil {
 		var challenge *OAuthChallengeDisposition
 		if !errors.As(err, &challenge) {
-			_ = coordinator.Close(initializationCtx)
+			err = errors.Join(err, coordinator.Close(initializationCtx))
 		}
 		return nil, err
 	}
@@ -164,12 +174,14 @@ func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (*Runtim
 		return newRuntime(EraModern, coordinator, ""), nil
 	}
 	if mode != ModeAuto || !fallback {
-		_ = coordinator.Close(initializationCtx)
-		return nil, ErrFallbackRejected
+		fallbackState = "denied_by_mode_or_evidence"
+		return nil, errors.Join(negotiationPredicate(ErrFallbackRejected, "fallback", "mode_and_evidence", fmt.Sprintf("evidence_allows=%t", fallback)), coordinator.Close(initializationCtx))
 	}
+	fallbackState = "probe_close_required"
 	if err := coordinator.Close(initializationCtx); err != nil {
 		return nil, err
 	}
+	fallbackState = "fresh_legacy_attempt"
 	legacyCoordinator, err := negotiator.open(initializationCtx)
 	if err != nil {
 		return nil, err
@@ -180,7 +192,13 @@ func (negotiator *Negotiator) Negotiate(ctx context.Context, mode Mode) (*Runtim
 	return negotiateLegacy(initializationCtx, legacyCoordinator)
 }
 
-func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool, error) {
+func negotiateModern(ctx context.Context, coordinator *Coordinator) (selected bool, fallback bool, resultErr error) {
+	var wire WireResponse
+	attempt := 1
+	var rpcCode int64
+	defer func() {
+		resultErr = negotiationContext(resultErr, "server/discover", contract.ModernProtocolVersion, attempt, wire, rpcCode)
+	}()
 	params, _ := json.Marshal(modernParams{Meta: newModernMeta()})
 	requestID, wire, err := coordinator.rawRequest(ctx, "server/discover", params, RequestOptions{ProtocolVersion: contract.ModernProtocolVersion})
 	if err != nil {
@@ -190,7 +208,7 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 		return false, false, wire.OAuthChallenge.at(OAuthChallengeModernDiscovery)
 	}
 	if len(wire.SessionIDs) != 0 {
-		return false, false, ErrSessionLost
+		return false, false, negotiationPredicate(ErrSessionLost, "session_header", "modern_stateless", fmt.Sprintf("observed=%d expected=0", len(wire.SessionIDs)))
 	}
 	if isTextFallback(wire) || isLegacyVersionFallback(wire) {
 		return false, true, nil
@@ -205,15 +223,18 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 		}
 		return true, false, nil
 	}
+	rpcCode = response.Error.Code
 	if response.Error.Code == -32601 && isJSONFallback(wire) && nullOrAbsent(response.Error.Data) {
 		return false, true, nil
 	}
 	if response.Error.Code != -32022 {
-		return false, false, ErrFallbackRejected
+		return false, false, negotiationPredicate(ErrFallbackRejected, "error.code", "fallback_RPC_evidence", fmt.Sprintf("observed=%d expected=-32601_or_-32022", response.Error.Code))
 	}
 	if err := validateUnsupportedVersion(response.Error.Data, contract.ModernProtocolVersion); err != nil {
 		return false, false, err
 	}
+	attempt = 2
+	rpcCode = 0
 	requestID, wire, err = coordinator.rawRequest(ctx, "server/discover", params, RequestOptions{ProtocolVersion: contract.ModernProtocolVersion})
 	if err != nil {
 		return false, false, err
@@ -222,11 +243,17 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 		return false, false, wire.OAuthChallenge.at(OAuthChallengeModernDiscovery)
 	}
 	if len(wire.SessionIDs) != 0 {
-		return false, false, ErrSessionLost
+		return false, false, negotiationPredicate(ErrSessionLost, "session_header", "modern_stateless", fmt.Sprintf("observed=%d expected=0", len(wire.SessionIDs)))
 	}
 	response, err = decodeNegotiationResponse(requestID, wire)
-	if err != nil || response.Error != nil {
-		return false, false, ErrUnsupportedProtocol
+	if response.Error != nil {
+		rpcCode = response.Error.Code
+	}
+	if err != nil {
+		return false, false, diagnostics.WithDetail(ErrUnsupportedProtocol, diagnostics.Snapshot("downstream", "retry discovery", "", err))
+	}
+	if response.Error != nil {
+		return false, false, negotiationPredicate(ErrUnsupportedProtocol, "error", "retry_requires_result", fmt.Sprintf("RPC_code=%d", rpcCode))
 	}
 	if err := validateDiscoverResult(response.Result); err != nil {
 		return false, false, err
@@ -234,37 +261,46 @@ func negotiateModern(ctx context.Context, coordinator *Coordinator) (bool, bool,
 	return true, false, nil
 }
 
-func negotiateLegacy(ctx context.Context, coordinator *Coordinator) (*Runtime, error) {
+func negotiateLegacy(ctx context.Context, coordinator *Coordinator) (result *Runtime, resultErr error) {
+	var wire WireResponse
+	var rpcCode int64
+	method := "initialize"
+	defer func() {
+		resultErr = negotiationContext(resultErr, method, contract.LegacyProtocolVersion, 1, wire, rpcCode)
+	}()
 	params, _ := json.Marshal(initializeParams{ProtocolVersion: contract.LegacyProtocolVersion, ClientInfo: downstreamClientInfo()})
 	requestID, wire, err := coordinator.rawRequest(ctx, "initialize", params, RequestOptions{ProtocolVersion: contract.LegacyProtocolVersion})
 	if err != nil {
-		_ = coordinator.Close(ctx)
-		return nil, err
+		return nil, errors.Join(err, coordinator.Close(ctx))
 	}
 	if wire.OAuthChallenge != nil {
 		return nil, wire.OAuthChallenge.at(OAuthChallengeLegacyInitialize)
 	}
 	response, err := decodeNegotiationResponse(requestID, wire)
+	if response.Error != nil {
+		rpcCode = response.Error.Code
+	}
 	if err != nil || response.Error != nil {
-		_ = coordinator.Close(ctx)
-		return nil, ErrUnsupportedProtocol
+		if err == nil {
+			err = negotiationPredicate(ErrUnsupportedProtocol, "error", "initialize_requires_result", fmt.Sprintf("RPC_code=%d", rpcCode))
+		}
+		return nil, errors.Join(diagnostics.WithDetail(ErrUnsupportedProtocol, diagnostics.Snapshot("downstream", "initialize", "", err)), coordinator.Close(ctx))
 	}
 	if err := validateInitializeResult(response.Result); err != nil {
-		_ = coordinator.Close(ctx)
-		return nil, err
+		return nil, errors.Join(err, coordinator.Close(ctx))
 	}
 	sessionID, err := initialSession(wire.SessionIDs)
 	if err != nil {
-		_ = coordinator.Close(ctx)
-		return nil, err
+		return nil, errors.Join(err, coordinator.Close(ctx))
 	}
+	method = "notifications/initialized"
 	notification, err := coordinator.Notify(ctx, "notifications/initialized", json.RawMessage(`{}`), RequestOptions{ProtocolVersion: contract.LegacyProtocolVersion, SessionID: sessionID})
+	wire = notification
 	if err != nil || !successfulNotification(notification) || !sameSession(sessionID, notification.SessionIDs) {
-		_ = coordinator.Close(ctx)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			err = negotiationPredicate(ErrSessionLost, "initialized", "notification_status_and_session", fmt.Sprintf("status_success=%t session_matches=%t", successfulNotification(notification), sameSession(sessionID, notification.SessionIDs)))
 		}
-		return nil, ErrSessionLost
+		return nil, errors.Join(err, coordinator.Close(ctx))
 	}
 	return newRuntime(EraLegacy, coordinator, sessionID), nil
 }
@@ -316,10 +352,10 @@ func (runtime *Runtime) Request(ctx context.Context, method string, params json.
 		return Response{}, wire.OAuthChallenge.at(OAuthChallengeCatalogFirstPage)
 	}
 	if wire.StatusCode == http.StatusUnauthorized || wire.StatusCode == http.StatusForbidden {
-		return Response{}, ErrAuthenticationRejected
+		return Response{}, negotiationContext(ErrAuthenticationRejected, method, version, 1, wire, 0)
 	}
 	if wire.StatusCode == http.StatusRequestTimeout || wire.StatusCode == http.StatusTooEarly || wire.StatusCode == http.StatusTooManyRequests || wire.StatusCode >= http.StatusInternalServerError {
-		return Response{}, ErrRemoteUnavailable
+		return Response{}, negotiationContext(ErrRemoteUnavailable, method, version, 1, wire, 0)
 	}
 	if !runtimeSessionCurrent(era, sessionID, wire) {
 		_ = runtime.Close(ctx)
@@ -410,39 +446,79 @@ func validateLegacyParams(params json.RawMessage) error {
 func decodeNegotiationResponse(requestID uint64, wire WireResponse) (Response, error) {
 	if wire.StatusCode != 0 {
 		if wire.StatusCode < 200 || wire.StatusCode > 299 {
-			return Response{}, ErrFallbackRejected
+			return Response{}, negotiationPredicate(ErrFallbackRejected, "HTTP_status", "successful_response", fmt.Sprintf("observed=%d expected=200..299", wire.StatusCode))
 		}
 		mediaType, _, err := mime.ParseMediaType(wire.ContentType)
 		if err != nil || mediaType != contract.MediaTypeJSON && mediaType != contract.MediaTypeEventStream {
-			return Response{}, ErrFallbackRejected
+			return Response{}, negotiationPredicate(ErrFallbackRejected, "Content-Type", "response_media", "observed="+negotiationMedia(wire.ContentType)+" expected=json_or_event_stream")
 		}
 	}
-	return decodeResponse(requestID, wire.Body)
+	response, err := decodeResponse(requestID, wire.Body)
+	if err != nil {
+		err = negotiationPredicate(err, "response_envelope", "JSON_RPC_contract", fmt.Sprintf("expected=bounded_unique_JSON_RPC_matching_ID observed_bytes=%d allowed_bytes=%d", len(wire.Body), limit("downstream_mcp_body_bytes")))
+	}
+	return response, err
 }
 
 func validateDiscoverResult(raw json.RawMessage) error {
 	var result discoverResult
 	if err := strictjson.Decode(raw, &result, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil {
-		return ErrUnsupportedProtocol
+		return negotiationShape(raw, map[string]string{"resultType": "string", "_meta": "object", "ttlMs": "integer", "cacheScope": "string", "supportedVersions": "array", "capabilities": "any", "instructions": "string"})
 	}
-	if result.ResultType != "" && result.ResultType != "complete" || result.TTLMs == nil || *result.TTLMs < 0 || result.CacheScope == nil || (*result.CacheScope != "public" && *result.CacheScope != "private") || result.SupportedVersions == nil || !containsExactVersion(*result.SupportedVersions, contract.ModernProtocolVersion) || !jsonObject(result.Capabilities) {
-		return ErrUnsupportedProtocol
+	if result.ResultType != "" && result.ResultType != "complete" {
+		return negotiationPredicate(ErrUnsupportedProtocol, "resultType", "enum", "expected=absent_or_complete observed=other_string")
+	}
+	if result.TTLMs == nil {
+		return negotiationPredicate(ErrUnsupportedProtocol, "ttlMs", "required", "observed=missing_or_null expected=nonnegative_integer")
+	}
+	if *result.TTLMs < 0 {
+		return negotiationPredicate(ErrUnsupportedProtocol, "ttlMs", "minimum", fmt.Sprintf("observed=%d expected_minimum=0", *result.TTLMs))
+	}
+	if result.CacheScope == nil {
+		return negotiationPredicate(ErrUnsupportedProtocol, "cacheScope", "required", "observed=missing_or_null")
+	}
+	if *result.CacheScope != "public" && *result.CacheScope != "private" {
+		return negotiationPredicate(ErrUnsupportedProtocol, "cacheScope", "enum", "observed=other_string expected=public_or_private")
+	}
+	if result.SupportedVersions == nil {
+		return negotiationPredicate(ErrUnsupportedProtocol, "supportedVersions", "required", "observed=missing_or_null")
+	}
+	if !containsExactVersion(*result.SupportedVersions, contract.ModernProtocolVersion) {
+		return negotiationPredicate(ErrUnsupportedProtocol, "supportedVersions", "unique_nonempty_exact_version", fmt.Sprintf("count=%d required_version=%s", len(*result.SupportedVersions), contract.ModernProtocolVersion))
+	}
+	if !jsonObject(result.Capabilities) {
+		return negotiationPredicate(ErrUnsupportedProtocol, "capabilities", "kind", "expected=object observed=missing_or_nonobject")
 	}
 	return nil
 }
 
 func validateUnsupportedVersion(raw json.RawMessage, requested string) error {
 	var data unsupportedVersionData
-	if err := strictjson.Decode(raw, &data, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil || data.Requested != requested || !containsExactVersion(data.Supported, contract.ModernProtocolVersion) {
-		return ErrUnsupportedProtocol
+	if err := strictjson.Decode(raw, &data, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil {
+		return negotiationShape(raw, map[string]string{"supported": "array", "requested": "string"})
+	}
+	if data.Requested != requested {
+		return negotiationPredicate(ErrUnsupportedProtocol, "error.data.requested", "exact_request_version", "matches=false")
+	}
+	if !containsExactVersion(data.Supported, contract.ModernProtocolVersion) {
+		return negotiationPredicate(ErrUnsupportedProtocol, "error.data.supported", "unique_nonempty_exact_version", fmt.Sprintf("count=%d required_version=%s", len(data.Supported), contract.ModernProtocolVersion))
 	}
 	return nil
 }
 
 func validateInitializeResult(raw json.RawMessage) error {
 	var result initializeResult
-	if err := strictjson.Decode(raw, &result, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil || result.ProtocolVersion != contract.LegacyProtocolVersion || !jsonObject(result.Capabilities) || !validServerImplementation(result.ServerInfo) {
-		return ErrUnsupportedProtocol
+	if err := strictjson.Decode(raw, &result, strictjson.Options{MaxBytes: limit("downstream_mcp_body_bytes"), MaxDepth: int(limit("json_depth")), RejectUnknownMembers: true}); err != nil {
+		return negotiationShape(raw, map[string]string{"_meta": "object", "capabilities": "any", "instructions": "string", "protocolVersion": "string", "serverInfo": "any"})
+	}
+	if result.ProtocolVersion != contract.LegacyProtocolVersion {
+		return negotiationPredicate(ErrUnsupportedProtocol, "protocolVersion", "exact_legacy_version", "matches=false expected="+contract.LegacyProtocolVersion)
+	}
+	if !jsonObject(result.Capabilities) {
+		return negotiationPredicate(ErrUnsupportedProtocol, "capabilities", "kind", "expected=object observed=missing_or_nonobject")
+	}
+	if !validServerImplementation(result.ServerInfo) {
+		return negotiationPredicate(ErrUnsupportedProtocol, "serverInfo", "implementation_contract", "expected=closed_object_with_nonempty_name_and_version")
 	}
 	return nil
 }
@@ -540,7 +616,7 @@ func initialSession(values []string) (string, error) {
 		return "", nil
 	}
 	if len(values) != 1 || values[0] == "" || int64(len(values[0])) > limit("downstream_legacy_session_id_bytes") {
-		return "", ErrSessionLost
+		return "", negotiationPredicate(ErrSessionLost, "session_header", "legacy_initial_session", fmt.Sprintf("count=%d expected_count=1 allowed_bytes=%d value=withheld", len(values), limit("downstream_legacy_session_id_bytes")))
 	}
 	return values[0], nil
 }

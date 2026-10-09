@@ -3,7 +3,6 @@
 package api
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -38,36 +37,15 @@ type httpCredentialBackend struct {
 	corruptManifest bool
 }
 
-func (b *httpCredentialBackend) Probe(context.Context, string) error {
+func (b *httpCredentialBackend) observe(point string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.probeErr
-}
-func (b *httpCredentialBackend) Set(service, user, value string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.setErr != nil {
-		return b.setErr
+	if point == "before_write" && (b.probeErr != nil || b.setErr != nil) {
+		return keyring.ErrCustodyUnavailable
 	}
-	if b.corruptManifest && strings.HasSuffix(user, ".manifest") {
-		value = "malformed-manifest"
+	if point == "before_read" && b.corruptManifest {
+		return keyring.ErrIncompleteGeneration
 	}
-	b.items[service+user] = value
-	return nil
-}
-func (b *httpCredentialBackend) Get(service, user string) (string, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	v, ok := b.items[service+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return v, nil
-}
-func (b *httpCredentialBackend) Delete(service, user string) error {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	delete(b.items, service+user)
 	return nil
 }
 
@@ -92,8 +70,11 @@ func newHTTPCredentialIntegrationHandlerWithRestart(t *testing.T, backend *httpC
 	store, err := storage.Initialize(t.Context(), owner, testID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
-	provider, err := keyring.NewProviderWithBackend(testID, backend)
+	require.NoError(t, keyring.SetupCustody(t.Context(), owner, store, httpCredentialClock{}))
+	provider, err := keyring.NewProvider(testID)
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(t.Context(), owner, store))
+	keyring.ObserveCustodyForIntegration(provider, backend.observe)
 	policies, err := authorization.New(store, httpCredentialClock{}, rand.Reader)
 	require.NoError(t, err)
 	repo, err := httpcredentials.NewRepository(store, httpCredentialClock{}, rand.Reader, policies)

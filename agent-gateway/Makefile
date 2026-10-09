@@ -18,12 +18,12 @@ SUITE_OUTPUT_FLAG := $(if $(filter 1,$(AGENT_GATEWAY_TEST_JSON)),--json)
 
 .NOTPARALLEL: test test-browser test-frontend-development
 
-.PHONY: help build install serve-demo test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-keyring-native test-serve-demo test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-browser test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
+.PHONY: help build install serve-demo test test-unit test-integration test-harness test-material suite-inventory test-e2e test-security test-stress test-serve-demo test-browser test-browser-workflows test-browser-privacy test-browser-visual test-browser-accessibility test-browser-cross test-frontend-browser test-frontend-development test-frontend-development-node test-frontend-development-browser frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report lint fmt tidy verify audit
 
 help:
 	@printf '%s\n' \
 		'test-unit | test-integration | test-harness | test-material | suite-inventory' \
-		'test-e2e | test-security | test-stress | test-keyring-native | test-serve-demo' \
+		'test-e2e | test-security | test-stress | test-serve-demo' \
 		'test-browser-workflows | test-browser-privacy | test-browser-visual | test-browser-accessibility | test-browser-cross' \
 		'test-browser (required Chromium aggregate; one planner, isolated leaves)' \
 		'test-frontend-browser (mocked frontend states and screenshot gallery; no Gateway)' \
@@ -81,9 +81,6 @@ test-security:
 
 test-stress:
 	go run ./test/acceptance/cmd run-suite test-stress --count=$(AGENT_GATEWAY_STRESS_COUNT) $(SUITE_OUTPUT_FLAG)
-
-test-keyring-native:
-	./test/keyring-native.sh
 
 test-browser:
 	go run ./test/acceptance/cmd run-suite test-browser $(SUITE_OUTPUT_FLAG)

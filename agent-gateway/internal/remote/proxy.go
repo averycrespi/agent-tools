@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -90,16 +91,31 @@ func (p *ProxyAddress) validateDial(private bool) error {
 	return nil
 }
 
-func (p *ProxyAddress) dialCandidates(ctx context.Context, private bool) (net.Conn, error) {
+func (p *ProxyAddress) dialCandidates(ctx context.Context, private bool) (result net.Conn, resultErr error) {
+	started := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, contract.HTTPProxyDialTimeout)
 	defer cancel()
 	deadline, _ := ctx.Deadline()
+	attempted, timeoutOrdinal := 0, 0
+	lastFamily, stopReason, contextState := "none", "exhausted", "none"
+	var candidateBudget time.Duration
+	var lastNative, timeoutNative string
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		facts := fmt.Sprintf("attempted=%d available=%d last_family=%s candidate_budget_ms=%d total_budget_ms=%d elapsed_ms=%d stop=%s context=%s omitted_samples=%d; timeout_candidate=%d timeout_cause=%s; last_native=%s", attempted, len(p.facts.Addresses), lastFamily, max(candidateBudget.Milliseconds(), 0), max(deadline.Sub(started).Milliseconds(), 0), max(time.Since(started).Milliseconds(), 0), stopReason, contextState, max(attempted-2, 0), timeoutOrdinal, timeoutNative, lastNative)
+		resultErr = diagnostics.WithDetail(resultErr, diagnostics.Detail{Component: "remote", Operation: "dial candidates", Resource: diagnostics.Text(p.destination.Authority(), 160), Explanation: facts, Effect: "application_dispatch=not_started"})
+	}()
 	failure := ErrProxyConnection
 	for i, ip := range p.facts.Addresses {
 		if err := p.validateDial(private); err != nil {
+			stopReason = "address_policy"
 			return nil, err
 		}
 		if err := ctx.Err(); err != nil {
+			stopReason = "total_or_parent_context"
+			contextState = diagnostics.Text(err.Error(), 64)
 			return nil, proxyTransportFailure(err)
 		}
 		// Share the remaining budget rather than letting a stalled first address
@@ -107,6 +123,12 @@ func (p *ProxyAddress) dialCandidates(ctx context.Context, private bool) (net.Co
 		// send application bytes. Every subdeadline is bounded by the same total.
 		now := time.Now()
 		attemptDeadline := now.Add(deadline.Sub(now) / time.Duration(len(p.facts.Addresses)-i))
+		candidateBudget = attemptDeadline.Sub(now)
+		attempted++
+		lastFamily = "ipv6"
+		if ip.Is4() || ip.Is4In6() {
+			lastFamily = "ipv4"
+		}
 		attempt, stop := context.WithDeadline(ctx, attemptDeadline)
 		conn, err := p.factory.dial(attempt, "tcp", netip.AddrPortFrom(ip, p.destination.Port()).String())
 		attemptErr := attempt.Err()
@@ -120,16 +142,31 @@ func (p *ProxyAddress) dialCandidates(ctx context.Context, private bool) (net.Co
 		if conn != nil {
 			_ = conn.Close()
 		}
+		lastNative = diagnostics.Text(diagnostics.Snapshot("remote", "dial", p.destination.Authority(), err).Explanation, 96)
+		if err == nil {
+			lastNative = "dial returned no usable connection"
+		}
+		contextState = "none"
 		if attemptErr != nil {
+			contextState = diagnostics.Text(attemptErr.Error(), 64)
 			err = attemptErr
 		}
 		category := ErrProxyConnection
-		if errors.Is(proxyTransportFailure(err), ErrProxyTimeout) || errors.Is(failure, ErrProxyTimeout) {
+		if errors.Is(proxyTransportFailure(err), ErrProxyTimeout) {
+			if timeoutOrdinal == 0 {
+				timeoutOrdinal = attempted
+				timeoutNative = lastNative + " (context=" + contextState + ")"
+			}
 			category = ErrProxyTimeout
 		}
-		failure = diagnostics.WithDetail(category, diagnostics.Snapshot("remote", "dial", p.destination.Authority(), err))
+		if errors.Is(failure, ErrProxyTimeout) {
+			category = ErrProxyTimeout
+		}
+		failure = category
 	}
 	if err := ctx.Err(); err != nil {
+		stopReason = "total_or_parent_context"
+		contextState = diagnostics.Text(err.Error(), 64)
 		return nil, proxyTransportFailure(err)
 	}
 	return nil, failure

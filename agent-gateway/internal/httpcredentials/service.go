@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
@@ -47,7 +49,8 @@ func (s *Service) Create(ctx context.Context, def Definition, secret []byte) (Re
 	if !s.acquireMutation() {
 		return Resource{}, ErrUnavailable
 	}
-	defer s.releaseMutation()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.releaseMutation(); finishCleanup(string(secret)) }()
 	canonical, err := Normalize(def)
 	if err != nil || !contract.ValidHTTPCredentialSecret(canonical.Recipe, secret) {
 		return Resource{}, ErrInvalid
@@ -64,7 +67,8 @@ func (s *Service) Rotate(ctx context.Context, id, revision string, secret []byte
 	if !s.acquireMutation() {
 		return Resource{}, ErrUnavailable
 	}
-	defer s.releaseMutation()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.releaseMutation(); finishCleanup(string(secret)) }()
 	return s.rotate(ctx, id, revision, secret)
 }
 
@@ -102,7 +106,8 @@ func (s *Service) Delete(ctx context.Context, id, revision string) error {
 	if !s.acquireMutation() {
 		return ErrUnavailable
 	}
-	defer s.releaseMutation()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.releaseMutation(); finishCleanup() }()
 	namespace, err := keyring.NewNamespace(s.installationID, id, keyring.RecordHTTPCredential)
 	if err != nil {
 		return ErrInvalid
@@ -140,7 +145,7 @@ func (s *Service) Acquire(ctx context.Context, ref contract.HTTPRevisionRef) (*M
 		// JSON may expand each permitted ASCII byte to a six-byte escape; the
 		// decoded header value still receives its independent 4096-byte bound.
 		if strictjson.Decode(payload, &decoded, strictjson.Options{MaxBytes: contract.HTTPCredentialValueBytes*6 + 64, MaxDepth: 2, RejectUnknownMembers: true}) != nil || decoded.Version != 1 {
-			return ErrUnavailable
+			return diagnostics.WithDetail(ErrUnavailable, diagnostics.Detail{Component: "http-credential", Operation: "parse generation", Resource: ref.ID, Explanation: "rule=closed_generation_v1_json_depth_2; generation values withheld"})
 		}
 		return s.repository.store.View(ctx, func(tx *sql.Tx) error {
 			rec, err := readTx(ctx, tx, ref.ID)
@@ -148,7 +153,7 @@ func (s *Service) Acquire(ctx context.Context, ref contract.HTTPRevisionRef) (*M
 				return err
 			}
 			if rec.deleted || rec.Revision != strconv.FormatUint(ref.Revision, 10) || !rec.handle.Valid || rec.handle.String != string(selected.Handle) || strconv.FormatUint(rec.materialRevision, 10) != selected.Revision || s.repository.store.Latched() {
-				return ErrUnavailable
+				return diagnostics.WithDetail(ErrUnavailable, diagnostics.Detail{Component: "http-credential", Operation: "fence generation", Resource: ref.ID, Explanation: fmt.Sprintf("rule=selected_material_fence deleted=%t expected_revision=%d observed_revision=%s handle_present=%t binding_matches=%t expected_generation=%d observed_generation=%s latched=%t", rec.deleted, ref.Revision, rec.Revision, rec.handle.Valid, rec.handle.String == string(selected.Handle), rec.materialRevision, selected.Revision, s.repository.store.Latched())})
 			}
 			result, err = newMaterial(ref, rec.Definition, []byte(decoded.Secret))
 			if err == nil {

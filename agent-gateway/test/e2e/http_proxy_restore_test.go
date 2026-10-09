@@ -17,7 +17,7 @@ import (
 
 func TestHTTPProxyEncryptedCustodyRestartBackupAndKeyLoss(t *testing.T) {
 	h := newGatewayHarness(t)
-	binary, material := httpMaterialBinary(t)
+	binary := gatewayBinary(t)
 	h.binary = binary
 	originalCA := createHTTPCA(t, h)
 	h.serveArgs = append(h.serveArgs, "--clear-http-proxy-listen=false", "--http-proxy-listen", unusedAuthority(t))
@@ -40,12 +40,6 @@ func TestHTTPProxyEncryptedCustodyRestartBackupAndKeyLoss(t *testing.T) {
 	require.Equal(t, "no-store", created.Header.Get("Cache-Control"))
 	require.Equal(t, http.StatusOK, h.ModernList(credential.Bearer, json.RawMessage(`"still-current"`), "").StatusCode)
 	h.Stop(syscall.SIGTERM)
-	// The native fixture has no secret material: both stopped CA creation and
-	// subsequent processes use the encrypted control generation and file key.
-	entries, err := os.ReadDir(material)
-	require.NoError(t, err)
-	require.Len(t, entries, 1)
-	require.Equal(t, ".fixture", entries[0].Name())
 	h.Start()
 	h.Stop(syscall.SIGTERM)
 	public, err := h.runner.Run(h.ctx, binary, "http", "ca", "export", "--data-dir", h.root, "--stdout")

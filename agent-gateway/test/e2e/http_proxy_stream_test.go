@@ -36,7 +36,7 @@ func putProxyTestGrant(t *testing.T, h *gatewayHarness, principal string, policy
 
 func TestHTTPProxyInterceptedStreamingRotationAndFourPriorities(t *testing.T) {
 	h := newGatewayHarness(t)
-	h.binary, _ = httpMaterialBinary(t)
+	h.binary = gatewayBinary(t)
 	release := make(chan struct{})
 	var once sync.Once
 	finish := func() { once.Do(func() { close(release) }) }

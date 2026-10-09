@@ -109,6 +109,7 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 	}
 	defer clear(secret)
 	resource, err := h.httpCredentials.Create(r.Context(), httpcredentials.Definition{Name: *input.Name, Boundary: *input.Boundary, Recipe: *input.Recipe}, secret)
+	h.observeLocalFailure("create HTTP credential", resource.ID, "publication/activation=unconfirmed; inspect current credential; do not replay", err, string(secret))
 	h.httpCredentialResult(w, resource, err, http.StatusCreated)
 }
 
@@ -153,6 +154,7 @@ func (h *Handler) httpCredentialMember(w http.ResponseWriter, r *http.Request, i
 		}
 		defer clear(secret)
 		resource, err := h.httpCredentials.Rotate(r.Context(), id, revision, secret)
+		h.observeLocalFailure("rotate HTTP credential", id, "expected_revision="+revision+"; publication/activation=unconfirmed; inspect current credential; do not replay", err, string(secret))
 		h.httpCredentialResult(w, resource, err, http.StatusOK)
 		return
 	}
@@ -243,7 +245,7 @@ func writeHTTPCredentialError(w http.ResponseWriter, err error) {
 		problem = contract.ProblemResourceLimit
 	case errors.Is(err, storage.ErrStorageLatched):
 		problem = contract.ProblemStorageUnavailable
-	case errors.As(err, &capability), errors.Is(err, keyring.ErrWorkLimit), errors.Is(err, keyring.ErrNoAuthority), errors.Is(err, keyring.ErrNotFound), errors.Is(err, keyring.ErrCandidateLimit), errors.Is(err, keyring.ErrHandleCollision), errors.Is(err, keyring.ErrDraining), errors.Is(err, keyring.ErrSecretTooLarge), errors.Is(err, keyring.ErrIncompleteGeneration), errors.Is(err, httpcredentials.ErrUnavailable):
+	case errors.As(err, &capability), errors.Is(err, keyring.ErrWorkLimit), errors.Is(err, keyring.ErrNoAuthority), errors.Is(err, keyring.ErrNotFound), errors.Is(err, keyring.ErrCandidateLimit), errors.Is(err, keyring.ErrHandleCollision), errors.Is(err, keyring.ErrDraining), errors.Is(err, keyring.ErrSecretTooLarge), errors.Is(err, keyring.ErrIncompleteGeneration), errors.Is(err, keyring.ErrCustodyUnavailable), errors.Is(err, httpcredentials.ErrUnavailable):
 		problem = contract.ProblemKeyringUnavailable
 	}
 	writeProblem(w, problem)

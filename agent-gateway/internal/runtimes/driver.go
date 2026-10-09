@@ -76,13 +76,20 @@ func NewConcreteDriver(options ConcreteDriverOptions) (*ConcreteDriver, error) {
 
 func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate, lease *MaterialLease) (outcome Outcome) {
 	phase := diagnostics.PhaseConnection
+	var desired contract.Transport
 	defer func() {
 		outcome.DiagnosticPhase = phase
 		if outcome.DiagnosticDetail != (diagnostics.Detail{}) {
-			outcome.DiagnosticDetail.Resource = diagnostics.Text(candidate.Server.DisplayName+" ("+candidate.Server.ID+")", 160)
+			resource := diagnostics.Text(candidate.Server.DisplayName, 48) + " (" + candidate.Server.ID + ")"
+			switch configured := desired.(type) {
+			case contract.StreamableHTTPTransport:
+				resource += " " + configured.URL
+			case contract.StdioTransport:
+				resource += " " + configured.Executable
+			}
+			outcome.DiagnosticDetail.Resource = diagnostics.Text(resource, 160)
 		}
 	}()
-	var desired contract.Transport
 	var initial *downstream.Coordinator
 	key, err := driver.owner.Admit(candidate, lease, func(OwnedRuntime) error {
 		var constructErr error

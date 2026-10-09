@@ -18,12 +18,11 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
-	"github.com/averycrespi/agent-tools/agent-gateway/test/keyringnative"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 const (
-	releaseReportSchemaVersion = 4
+	releaseReportSchemaVersion = 5
 	releaseProfile             = "accept"
 )
 
@@ -48,7 +47,6 @@ type releaseCheckDefinition struct {
 	ExpectedBrowserStarts int             `json:"expected_browser_starts"`
 	Artifacts             []string        `json:"artifacts"`
 	CleanupRequirements   []string        `json:"cleanup_requirements"`
-	Native                bool            `json:"native,omitempty"`
 }
 
 type releaseProfileDefinition struct {
@@ -111,7 +109,6 @@ type releaseReport struct {
 	DurationMillis        int64                              `json:"duration_ms"`
 	Coverage              releaseCoverage                    `json:"coverage"`
 	Checks                []releaseCheck                     `json:"checks"`
-	Native                *keyringnative.Result              `json:"native,omitempty"`
 	ExternalEvidence      []releaseExternalEvidenceReference `json:"external_evidence"`
 	Cleanup               releaseCleanup                     `json:"cleanup"`
 }
@@ -125,7 +122,6 @@ type releaseAdoption struct {
 	CommandDefinitionHash string                             `json:"command_definition_hash"`
 	ManifestHash          string                             `json:"manifest_hash"`
 	Coverage              releaseCoverage                    `json:"coverage"`
-	NativeResult          string                             `json:"native_result"`
 	ExternalEvidence      []releaseExternalEvidenceReference `json:"external_evidence"`
 	CleanAfter            bool                               `json:"clean_after"`
 	AdoptedAt             string                             `json:"adopted_at"`
@@ -262,15 +258,6 @@ func validateReleaseReport(report releaseReport, definition releaseProfileDefini
 			}
 		}
 	}
-	if report.Native != nil {
-		encoded, err := json.Marshal(report.Native)
-		if err != nil {
-			return err
-		}
-		if _, err := keyringnative.Parse(encoded); err != nil {
-			return fmt.Errorf("invalid release native evidence: %w", err)
-		}
-	}
 	if err := validateReleaseExternalReferenceDefinitions(definition.ExternalEvidence, report.ExternalEvidence); err != nil {
 		return err
 	}
@@ -282,9 +269,6 @@ func validateReleaseReport(report releaseReport, definition releaseProfileDefini
 			if check.Status != ResultPassed {
 				return errors.New("passed release report cannot contain a failed check")
 			}
-		}
-		if report.Native == nil || report.Native.Result == keyringnative.ResultFailed {
-			return errors.New("passed release report requires nonfailed native evidence")
 		}
 		for _, external := range report.ExternalEvidence {
 			if external.Result == "failed" || external.Result == "unavailable" && external.Blocking {
@@ -567,14 +551,10 @@ func adoptReleaseReport(root, reportPath, outputPath string, definition releaseP
 	if err := verify(); err != nil {
 		return releaseAdoption{}, err
 	}
-	nativeResult := ""
-	if report.Native != nil {
-		nativeResult = report.Native.Result
-	}
 	adoption := releaseAdoption{
 		SchemaVersion: 1, ReportSHA256: "sha256:" + hex.EncodeToString(digest[:]), Revision: report.Revision,
 		Profile: report.Profile, ProfileHash: report.ProfileHash, CommandDefinitionHash: report.CommandDefinitionHash,
-		ManifestHash: report.ManifestHash, Coverage: cloneReleaseCoverage(report.Coverage), NativeResult: nativeResult,
+		ManifestHash: report.ManifestHash, Coverage: cloneReleaseCoverage(report.Coverage),
 		ExternalEvidence: append([]releaseExternalEvidenceReference(nil), report.ExternalEvidence...), CleanAfter: true,
 		AdoptedAt: now().UTC().Format(time.RFC3339Nano),
 	}

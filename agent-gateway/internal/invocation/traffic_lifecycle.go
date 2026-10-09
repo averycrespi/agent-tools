@@ -101,6 +101,7 @@ func (s *TrafficStore) SetTrafficDiagnostics(observer diagnostics.TrafficObserve
 	s.mu.Lock()
 	s.diagnostics = observer
 	s.mu.Unlock()
+	s.reportLoss()
 }
 
 func (s *TrafficStore) optionalTarget() *TrafficStore {

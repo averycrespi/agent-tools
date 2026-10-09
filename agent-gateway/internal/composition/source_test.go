@@ -34,9 +34,9 @@ func TestProductionSourceGuards(t *testing.T) {
 
 func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []productionSource) {
 	allowedExec := func(path string) bool {
-		return path == "internal/service/runner_unix.go" || path == "cmd/agent-gateway/online_auth_flows.go" || path == "internal/keyring/probe_darwin.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
+		return path == "cmd/agent-gateway/online_auth_flows.go" || path == "test/acceptance/acceptance.go" || strings.HasPrefix(path, "internal/runtimes/stdio")
 	}
-	processConstructors := map[string]string{"internal/service/runner_unix.go": "Command", "cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/keyring/probe_darwin.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
+	processConstructors := map[string]string{"cmd/agent-gateway/online_auth_flows.go": "CommandContext", "internal/runtimes/stdio.go": "Command", "test/acceptance/acceptance.go": "CommandContext"}
 	allowedHTTP := map[string]bool{"internal/remote/remote.go": true, "internal/remote/proxy.go": true, "internal/controlclient/controlclient.go": true}
 	allowedSDK := map[string]bool{"internal/mcpingress/handler.go": true}
 	allowedTestutil := map[string]bool{"test/acceptance/acceptance.go": true, "test/acceptance/cmd/main.go": true}
@@ -49,6 +49,9 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 			}
 		}
 		for _, imported := range source.imports {
+			if imported == "github.com/zalando/go-keyring" || strings.HasPrefix(imported, "github.com/godbus/dbus") {
+				t.Errorf("%s: retired native custody import %s", source.path, imported)
+			}
 			if strings.HasSuffix(imported, "/internal/testutil") && !allowedTestutil[source.path] {
 				t.Errorf("%s: prohibited import %s", source.path, imported)
 			}
@@ -105,8 +108,6 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 			t.Errorf("%s: misplaced production authenticator mcpingress.Options", source.path)
 		}
 	}
-	probe := readProductionSource(t, root, "internal/keyring/probe_darwin.go")
-	assert.Contains(t, probe, `securityTool = "/usr/bin/security"`, "internal/keyring/probe_darwin.go: keyring probe must use an absolute executable")
 	controlClient := readProductionSource(t, root, "internal/controlclient/controlclient.go")
 	for _, required := range []string{"Proxy:                  nil", "DisableKeepAlives:      true", "CheckRedirect:", "WroteHeaders:"} {
 		assert.Contains(t, controlClient, required, "internal/controlclient/controlclient.go: missing strict local-control transport symbol %s", required)
@@ -135,8 +136,7 @@ func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	root := gatewayModuleRoot(t)
 	rootSource := readProductionSource(t, root, "cmd/agent-gateway/root.go")
 	compositionSource := readProductionSource(t, root, "internal/composition/composition.go")
-	nativeProviderSource := readProductionSource(t, root, "internal/composition/provider_factory.go")
-	e2eProviderSource := readProductionSource(t, root, "internal/composition/provider_factory_e2e.go")
+	providerSource := readProductionSource(t, root, "internal/composition/provider_factory.go")
 	for _, required := range []string{
 		"newComposition: composition.New", "newComposition(composition.Options{", "authorizationRepository := runtime.Authorization()", "Principals:    authorizationRepository", "GrantTarget: func(", "serverRepository.ValidateGrantTargetTx", "activeCatalog := runtime.ActiveCatalog()",
 		"ActiveCatalog:  activeCatalog", "agentIngress, ok := runtime.AgentIngress()", "controlAPI, ok := runtime.ControlAPI()", "GrantRequests: controlAPI.GrantRequests", "Invocations:   controlAPI.Invocations", "Authenticator: agentIngress.Authenticator", "ListTools:     agentIngress.ListTools", "CallTools:     agentIngress.CallTools", "agentIngress.AuthMode", "runtime.AuthorizationOccupancy(context.Background())", "runtime.GrantRequestOccupancy(context.Background())", "runtime.Start(ctx)", "runtime.Drain(shutdownCtx)",
@@ -160,13 +160,15 @@ func TestRootUsesOneAtomicCompositionForControlAndAgentIngress(t *testing.T) {
 	for _, required := range []string{"built.invocationPipelines.BeginDrain()", "return built.invocationPipelines.Drain(ctx)"} {
 		assert.Contains(t, compositionSource, required, "internal/composition/composition.go: missing invocation drain symbol %s", required)
 	}
-	assert.Contains(t, compositionSource, "providerFactory = productionProvider", "internal/composition/composition.go: ordinary build must use the build-selected provider")
-	assert.Contains(t, nativeProviderSource, "//go:build !e2e", "internal/composition/provider_factory.go: native provider must exclude e2e builds")
-	assert.Contains(t, nativeProviderSource, "keyring.NewProvider(installationID)", "internal/composition/provider_factory.go: ordinary build must select native provider")
-	assert.Contains(t, e2eProviderSource, "//go:build e2e", "internal/composition/provider_factory_e2e.go: deterministic provider must be e2e-only")
-	assert.Contains(t, e2eProviderSource, "keyring.NewProviderWithBackend", "internal/composition/provider_factory_e2e.go: e2e build must use the explicit provider boundary")
-	for _, prohibited := range []string{"os.Getenv", "flag.", "cobra.", "http."} {
-		assert.NotContains(t, e2eProviderSource, prohibited, "internal/composition/provider_factory_e2e.go: provider seam must have no public configuration symbol %s", prohibited)
+	assert.Contains(t, compositionSource, "providerFactory = productionProvider")
+	assert.Contains(t, compositionSource, "built.provider.UseDatabaseCustody(")
+	assert.Contains(t, providerSource, "keyring.NewProvider(installationID)")
+	for _, prohibited := range []string{"//go:build", "os.Getenv", "flag.", "cobra.", "http.", "Backend"} {
+		assert.NotContains(t, providerSource, prohibited, "all builds must use the same encrypted provider")
+	}
+	for _, retired := range []string{"internal/composition/provider_factory_e2e.go", "internal/composition/provider_material_e2e.go", "internal/keyring/probe_darwin.go", "internal/keyring/probe_linux.go", "cmd/agent-gateway/secret_migration.go"} {
+		_, err := os.Stat(filepath.Join(root, retired))
+		assert.True(t, os.IsNotExist(err), "retired native custody source: %s", retired)
 	}
 }
 

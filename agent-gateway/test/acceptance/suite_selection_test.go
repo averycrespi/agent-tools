@@ -107,7 +107,7 @@ func TestRepositorySuitesHaveCompleteUniqueExecutableOwnership(t *testing.T) {
 	root := purposeTargetModuleRoot(t)
 	inventory, err := DiscoverSuiteInventory(root, runtime.GOOS, runtime.GOARCH)
 	require.NoError(t, err)
-	owners := []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native", "test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser", "frontend-static-tests"}
+	owners := []string{"test-unit", "test-integration", "test-harness", "test-material", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser", "frontend-static-tests"}
 	selected := make(map[string]string)
 	var stress []string
 	for _, owner := range owners {
@@ -253,10 +253,9 @@ func TestBrowserAggregateCancellationStopsLaterLeaves(t *testing.T) {
 	assert.Len(t, executor.calls, 1)
 }
 
-func TestSuiteRunNativeBoundaryPrecedesPlanning(t *testing.T) {
-	t.Setenv("AGENT_GATEWAY_KEYRING_NATIVE", "")
+func TestSuiteRejectsRetiredNativeOwner(t *testing.T) {
 	executor := &browserSuiteExecutor{}
-	require.ErrorContains(t, RunSuite(t.Context(), t.TempDir(), "test-keyring-native", 1, executor), "native execution requires")
+	require.Error(t, RunSuite(t.Context(), repositoryRoot(t), "test-keyring-native", 1, executor))
 	assert.Empty(t, executor.calls)
 }
 

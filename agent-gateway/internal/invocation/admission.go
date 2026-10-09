@@ -7,6 +7,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
@@ -72,7 +73,7 @@ func (c *AdmissionCoordinator) Admit(ctx context.Context, lease *authorization.L
 		if prepared, prepareErr := identity.WithAdmission(evidence); prepareErr == nil {
 			result.observation = c.audits.traffic.ObserveMCP(prepared)
 		} else {
-			c.audits.traffic.drop()
+			c.audits.traffic.drop(diagnostics.TrafficInvalid, false)
 		}
 	}
 	if evaluation.Candidate == nil {

@@ -12,14 +12,14 @@ func (coordinator *Coordinator) observePoll(candidate runtimes.Candidate, result
 	if coordinator.diagnostics == nil {
 		return
 	}
-	if result.Reason != nil && (*result.Reason == contract.ReasonSuperseded || *result.Reason == contract.ReasonCancelled || *result.Reason == contract.ReasonInterrupted) {
+	if result.DiagnosticDetail == (diagnostics.Detail{}) && result.Reason != nil && (*result.Reason == contract.ReasonSuperseded || *result.Reason == contract.ReasonCancelled || *result.Reason == contract.ReasonInterrupted) {
 		return
 	}
-	facts := diagnostics.Facts{Event: diagnostics.UpstreamUnhealthy, Phase: diagnostics.PhaseToolDiscovery, Reason: result.DiagnosticReason, Disposition: diagnostics.DispositionUnknown}
+	facts := diagnostics.Facts{Detail: result.DiagnosticDetail, Event: diagnostics.UpstreamUnhealthy, Phase: diagnostics.PhaseToolDiscovery, Reason: result.DiagnosticReason, Disposition: diagnostics.DispositionUnknown}
 	if result.DiagnosticRetryDelay > 0 {
 		facts.Disposition = diagnostics.DispositionRetryScheduled
 	}
-	if result.State == contract.ActiveCatalogCurrent {
+	if result.State == contract.ActiveCatalogCurrent && result.Reason == nil && result.Phase == runtimes.CatalogPublicationInstalled && result.DiagnosticDetail == (diagnostics.Detail{}) {
 		facts.Event, facts.Reason, facts.Disposition = diagnostics.UpstreamRecovered, diagnostics.ReasonNone, diagnostics.DispositionHealthy
 	}
 	if coordinator.diagnosticReference != nil {
@@ -33,7 +33,7 @@ func (coordinator *Coordinator) observeSchedule(candidate runtimes.Candidate, re
 		return
 	}
 	reason := result.DiagnosticReason
-	if result.State == contract.ActiveCatalogCurrent {
+	if result.State == contract.ActiveCatalogCurrent && result.Reason == nil && result.Phase == runtimes.CatalogPublicationInstalled && result.DiagnosticDetail == (diagnostics.Detail{}) {
 		reason = diagnostics.ReasonNone
 	}
 	facts := diagnostics.Facts{Event: diagnostics.CatalogPollScheduled, Phase: diagnostics.PhaseToolDiscovery, Reason: reason, Disposition: diagnostics.DispositionRetryScheduled, Delay: result.DiagnosticRetryDelay}

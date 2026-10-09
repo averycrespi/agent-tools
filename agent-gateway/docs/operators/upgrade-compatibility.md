@@ -62,9 +62,15 @@ Jina rejection's precise cause remains unproven. Live adoption, installed resour
 changes and client qualification require separate operator approval; source/CI
 success does not authorize a service reload, restart or deployment.
 
+## Native service-management retirement
+
+The Gateway `service` command group is removed, without aliases or completion entries. Replace automation with operator-owned [launchd procedures](launchd.md) or [systemd procedures](systemd.md). Existing jobs invoking supported foreground `serve` remain valid; no installed plist, logs or data are rewritten or deleted. Preserve the exact account, executable and data-root selections. Changes require separately authorized stopped reconciliation, not reinitialization.
+
+`doctor` no longer performs native service inspection: the optional `service` JSON member and `installed service` check are removed. The remaining checklist, human/verbose behavior, public status and schema-2 diagnostics are unchanged. Use the supervisor for configuration, process and log-path inspection; listener readiness is not process identity.
+
 ## HTTP listener default cutover
 
-Bare `serve` and new `service install` default HTTP to `127.0.0.1:8212`, separate
+Bare `serve` and maintained supervisor examples select HTTP at `127.0.0.1:8212`, separate
 from administration/MCP at `127.0.0.1:8210`. Normal `init` already creates the
 initial interception CA. Select `--http-proxy-listen` for a custom numeric-loopback
 address or `--clear-http-proxy-listen` for MCP-only operation; do not combine them.
@@ -73,9 +79,9 @@ Existing managed settings remain authoritative: custom addresses stay unchanged,
 explicit disabled settings stay disabled, and legacy absent HTTP flags still mean
 disabled under the canonical macOS launchd label. The exact `XPC_SERVICE_NAME`
 launch context suppresses only an omitted listener; it is not process identity or
-credential authority. New definitions persist their intent explicitly. Restart and
-unchanged updates do not rewrite old definitions; a changed update preserves
-omitted values and renders disabled intent explicitly. No live migration occurs.
+credential authority. New definitions persist their intent explicitly. Source
+upgrades do not rewrite old definitions; operator edits must preserve every
+intended selection and render disabled intent explicitly. No live migration occurs.
 Custom supervisors and foreground scripts that previously omitted HTTP must now
 select `--clear-http-proxy-listen` if they require MCP-only operation.
 
@@ -84,9 +90,9 @@ readiness, fallback, replacement or TLS bypass. After legacy-only restore, use e
 MCP-only recovery or deliberately replace the CA while stopped and refresh client
 trust. Listener enablement changes no agent HTTP defaults (new agents remain
 blocked), grants, credentials, private-network/tunnel authority or client trust.
-Follow [proxy setup](http-proxy.md), [service management](launchd.md) and
+Follow [proxy setup](http-proxy.md), [operator supervision](launchd.md) and
 [restore guidance](backup-and-recovery.md). Fixtures do not qualify native
-launchd/Keychain behavior or authorize installed-resource mutation.
+launchd behavior or authorize installed-resource mutation.
 
 ## Browser persistence cutover
 

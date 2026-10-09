@@ -36,7 +36,7 @@ func runServerCredentialReplace(command *cobra.Command, options *onlineOptions, 
 	}
 	if err := controlclient.RequireConfirmation(controlclient.ConfirmationOptions{
 		Yes:         options.yes,
-		Consequence: "Replace this server credential, withdraw routes, and interrupt in-flight calls whose outcome may be unknown? Native keyring interaction may fail, prompt, or outlive cancellation.",
+		Consequence: "Replace this server credential, withdraw routes, and interrupt in-flight calls whose outcome may be unknown? Encrypted secret custody must be available; failed or uncertain replacement cannot reuse old material.",
 	}); err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}

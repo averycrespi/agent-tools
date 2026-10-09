@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -251,8 +252,12 @@ func (coordinator *Coordinator) ServerStatus(serverID string) contract.LimitStat
 
 func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent) runtimes.CatalogOutcome {
 	if !coordinator.live(candidate) {
-		_, _ = coordinator.active.WithdrawAudited(audit.WithCause(context.Background(), candidate.Cause), candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
-		return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
+		_, err := coordinator.active.WithdrawAudited(audit.WithCause(context.Background(), candidate.Cause), candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
+		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
+		if err != nil {
+			outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "withdraw superseded candidate", candidate.Server.ID, err)
+		}
+		return outcome
 	}
 	client, ok := coordinator.client(candidate)
 	if !ok {
@@ -261,10 +266,14 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	}
 	attempt, err := audit.NewAttempt(ctx, coordinator.clock.Now(), "catalog", "refresh", contract.AuditTarget{Type: "server", ID: candidate.Server.ID})
 	if err != nil {
-		return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
+		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
+		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "prepare refresh audit", candidate.Server.ID, err)
+		return outcome
 	}
 	if err := audit.Append(ctx, coordinator.repository.store, attempt); err != nil {
-		return catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
+		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
+		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "append refresh audit", candidate.Server.ID, err)
+		return outcome
 	}
 	raw, err := coordinator.traverser.Traverse(ctx, client, candidate.Server.Namespace)
 	outcome := "succeeded"
@@ -272,7 +281,7 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		outcome = "unknown"
 	}
 	if evidenceErr := audit.Finish(ctx, coordinator.repository.store, attempt, coordinator.clock.Now(), outcome); evidenceErr != nil {
-		return coordinator.failure(candidate, intent, servers.ErrStorageUnavailable, nil)
+		return coordinator.failure(candidate, intent, errors.Join(err, fmt.Errorf("refresh audit settlement: %w", evidenceErr)), nil)
 	}
 	if err != nil {
 		return coordinator.failure(candidate, intent, err, catalogRuntimeFailure(err, client))
@@ -298,11 +307,24 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		var publicationFailure *PublicationFailure
 		if errors.As(err, &publicationFailure) {
 			reason, cause := postCommitFailure(publicationFailure)
-			return runtimes.CatalogOutcome{State: coordinator.active.Status(candidate.Server.ID).State, Reason: &reason, Phase: runtimes.CatalogPublicationDurableOnly, Cause: cause, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
+			active := coordinator.active.Status(candidate.Server.ID)
+			activeRevision := "none"
+			if active.Revision != nil {
+				activeRevision = *active.Revision
+			}
+			detail := diagnostics.Snapshot("catalog", "activate committed candidate", candidate.Server.ID, err)
+			detail.Explanation = diagnostics.Text(fmt.Sprintf("durable_revision=%s candidate_generation=%d active_revision=%s active_routes=%d; ", publicationFailure.Revision, candidate.Generation, activeRevision, active.ToolCount), 192) + detail.Explanation
+			detail.Effect = "durable=ack; candidate_activation=not_ack"
+			return runtimes.CatalogOutcome{State: active.State, Reason: &reason, Phase: runtimes.CatalogPublicationDurableOnly, Cause: cause, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, DiagnosticDetail: detail, DiagnosticReason: diagnostics.PublicReason(&reason)}
 		}
 		return coordinator.failure(candidate, intent, err, nil)
 	}
-	return runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
+	result := runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
+	if len(normalized.Issues) != 0 {
+		result.DiagnosticDetail = partialPublicationDetail(candidate, runtime, normalized, status)
+		result.DiagnosticReason = diagnostics.ReasonCatalogInvalid
+	}
+	return result
 }
 
 func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) (outcome runtimes.CatalogOutcome) {
@@ -317,6 +339,24 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent run
 		}
 	}()
 	ctx := audit.WithSystem(audit.WithCause(context.Background(), candidate.Cause))
+	retain := func(operation string, cause error) {
+		if cause != nil {
+			err = errors.Join(err, &settlementFailure{operation: operation, cause: cause})
+		}
+	}
+	setState := func(state contract.DurableCatalogState) bool {
+		stateErr := coordinator.setFailureState(candidate, state)
+		retain("set durable catalog "+string(state), stateErr)
+		return stateErr == nil
+	}
+	markUnavailable := func() {
+		_, cause := coordinator.active.markUnavailable(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
+		retain("mark active unavailable", cause)
+	}
+	withdraw := func() {
+		_, cause := coordinator.active.WithdrawAudited(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
+		retain("withdraw active catalog", cause)
+	}
 	reason := catalogFailureReason(err)
 	var challenge *downstream.OAuthChallengeDisposition
 	if errors.As(err, &challenge) {
@@ -336,10 +376,10 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent run
 	if runtimeFailure != nil && runtimeFailure.RuntimeLost {
 		reason = runtimeFailure.Reason
 		if live {
-			coordinator.setFailureState(candidate, contract.DurableCatalogUnavailable)
-			coordinator.active.markUnavailable(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
+			setState(contract.DurableCatalogUnavailable)
+			markUnavailable()
 		} else {
-			_, _ = coordinator.active.WithdrawAudited(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
+			withdraw()
 		}
 		coordinator.detach(candidate)
 		failure := *runtimeFailure
@@ -348,35 +388,39 @@ func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent run
 	if live && intent != runtimes.CatalogTraversalInitial {
 		active := coordinator.active.Status(candidate.Server.ID)
 		if active.State == contract.ActiveCatalogCurrent || active.State == contract.ActiveCatalogStale {
-			if coordinator.setFailureState(candidate, contract.DurableCatalogStale) && coordinator.active.markStale(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1) {
-				return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, OAuthChallenge: challenge}
+			if setState(contract.DurableCatalogStale) {
+				ok, cause := coordinator.active.markStale(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
+				retain("mark active stale", cause)
+				if ok {
+					return runtimes.CatalogOutcome{State: contract.ActiveCatalogStale, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, OAuthChallenge: challenge}
+				}
 			}
 		}
 	}
 	if live {
-		coordinator.setFailureState(candidate, contract.DurableCatalogUnavailable)
-		coordinator.active.markUnavailable(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, 1)
+		setState(contract.DurableCatalogUnavailable)
+		markUnavailable()
 	} else {
-		_, _ = coordinator.active.WithdrawAudited(ctx, candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
+		withdraw()
 	}
 	return runtimes.CatalogOutcome{State: contract.ActiveCatalogUnavailable, Reason: &reason, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, OAuthChallenge: challenge}
 }
 
-func (coordinator *Coordinator) setFailureState(candidate runtimes.Candidate, state contract.DurableCatalogState) bool {
+func (coordinator *Coordinator) setFailureState(candidate runtimes.Candidate, state contract.DurableCatalogState) error {
 	ctx := audit.WithSystem(audit.WithCause(coordinator.ctx, candidate.Cause))
 	durable, err := coordinator.repository.Status(ctx, candidate.Server.ID)
 	if err != nil {
-		return false
+		return err
 	}
 	revision := "0"
 	if durable.Revision != nil {
 		revision = *durable.Revision
 	}
 	if durable.State == state && durable.IssueCount == 1 {
-		return true
+		return nil
 	}
 	_, err = coordinator.repository.SetState(ctx, coordinator.commitFence(candidate, revision), state, 1)
-	return err == nil
+	return err
 }
 
 func (coordinator *Coordinator) commitFence(candidate runtimes.Candidate, revision string) CommitFence {

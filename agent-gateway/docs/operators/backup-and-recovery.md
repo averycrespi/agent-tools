@@ -26,53 +26,25 @@ agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data 
 agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data --confirm
 ```
 
-This creates or verifies the master key and binds its identity; it does not migrate native entries, rotate credentials, start services or change trust. Existing records explicitly marked legacy may still read native storage. New writes require setup and use database custody. Selected missing/corrupt encrypted records never fall back to old native values. Database-backed restart does not require native credentials.
+This creates or verifies the master key and binds its identity; it does not migrate native entries, rotate credentials, start services or change trust. Explicit legacy generations and unresolved native cleanup inventory refuse without changing references or accessing native storage. Complete the pre-removal upgrade procedure before adopting this binary. All reads and writes require encrypted custody; selected missing/corrupt records never fall back to native values.
 
 Preserve the key and database together. Do not delete, replace, chmod, symlink or regenerate a refused key to bypass validation. A missing/wrong established key, partial key file or uncertain setup needs diagnosis and a separately qualified recovery plan; setup never overwrites it. Encryption protects against database-only theft, not theft of both key and database, or compromise of the Gateway account/root.
 
 Encrypted installations create **format-4** control backups. Safeguard a separate owner-only copy of the matching `master-key` outside the backup artifact and protect it independently. `metadata.json` identifies the required key by its SHA-256 `master_key_id`, never by its value. Losing that key makes its encrypted backups unrecoverable; setup cannot regenerate it. Historical backups retain historical upstream secrets even after online deletion or rotation. Protect their custody and retention accordingly.
 
-Recovery requires the existing installation, its closed current control database and the matching current key at `<data-dir>/master-key`. For pre-rotation backups, also supply their original decrypt-only key as described [below](#recover-an-older-backup-after-rotation). It is not fresh-install import, cloning or host relocation. Do not manually replace the current database with an older copy: its nonrefundable encryption high-water is required for safe continued use of the key. Missing/wrong keys, corruption and incomplete encrypted generations refuse before replacement. Unresolved legacy dependencies or in-progress credential cutovers refuse encrypted backup creation; complete the supported credential operation before trying a new backup. Native migration is a separate operation, not part of backup.
+Recovery requires the existing installation, its closed current control database and the matching current key at `<data-dir>/master-key`. For pre-rotation backups, also supply their original decrypt-only key as described [below](#recover-an-older-backup-after-rotation). It is not fresh-install import, cloning or host relocation. Do not manually replace the current database with an older copy: its nonrefundable encryption high-water is required for safe continued use of the key. Missing/wrong keys, corruption and incomplete encrypted generations refuse before replacement. Unresolved legacy dependencies or in-progress credential cutovers refuse encrypted backup creation; complete the supported credential operation before trying a new backup. Native migration is no longer available in this binary.
 
-Formats 0, 2 and 3 remain legacy-only recovery, not self-contained secret backups. They cannot restore over encrypted custody, even with `--security-only`; an old encrypted database copy without format-4 metadata is also rejected. `encrypted_backup_unsupported` explains this boundary. Preserve old artifacts rather than relabeling them. Unsupported formats fail closed.
+Formats 0, 2 and 3 remain historical recovery only when no legacy material dependency or unresolved cleanup provenance remains; they are not self-contained secret backups. They cannot restore over encrypted custody, even with `--security-only`; an old encrypted database copy without format-4 metadata is also rejected. `encrypted_backup_unsupported` explains this boundary. Preserve old artifacts rather than relabeling them. Unsupported formats fail closed.
 
-## Migrate native secrets and retire sources
+## Legacy custody upgrade boundary
 
-These commands require separate authorization to touch installed resources. Shipping or testing them does not authorize live Keychain access, service changes or legacy-tool removal. Follow this order; migration and cleanup are deliberately separate:
+The temporary `migrate-secrets`, `verify-secrets` and `cleanup-native-secrets` commands, their flags and completion entries are removed. They are not aliases. Gateway no longer reads, probes or deletes native Keychain/Secret Service material.
 
-1. **Stop Gateway and all launchers** under your operational authorization. Preserve existing recovery artifacts and the established master key. Inspect the migration plan, then explicitly approve it:
+Before adopting this binary, complete the predecessor's separately authorized migration, completeness verification, representative operational checks, encrypted backup and separate key safeguarding, native-leftover resolution and explicit human approval. Keep that evidence. Source tests do not authorize live credential access or service changes.
 
-   ```bash
-   agent-gateway maintenance migrate-secrets --data-dir /path/to/gateway-data --dry-run
-   agent-gateway maintenance migrate-secrets --data-dir /path/to/gateway-data --confirm
-   ```
+An explicit legacy generation or unresolved cleanup item refuses startup, setup and maintenance. Preserve the database, keys, references, recovery markers and native objects; use a compatible pre-removal release and its documented upgrade procedure under separate operational authorization. Never delete inventory, drop handles, regenerate keys or reinitialize to bypass refusal. Binary downgrade safety is not promised; obtain a qualified recovery plan rather than replacing the installed database blindly.
 
-   Migration enumerates Gateway's selected MCP static/OAuth, HTTP/Git and CA references, not arbitrary native entries. It safely provisions an initial key only when no existing encrypted data requires one. It copies and authenticates each current unfenced selection, retaining native sources and completed work. Repeated deliberate runs skip encrypted selections rather than overwriting newer values. Missing/inaccessible native material remains incomplete; repair access or explicitly replace unavailable credentials through their normal domain workflow. Never delete markers or roll back the nonce counter to make migration pass.
-
-2. **Verify complete encrypted custody while stopped**:
-
-   ```bash
-   agent-gateway maintenance verify-secrets --data-dir /path/to/gateway-data --confirm
-   ```
-
-   This is a nonmutating, native-free authentication and dependency check. Its `--dry-run` only previews the plan; it is not completeness evidence. Verification covers all nondeleted servers (including disabled ones), configured HTTP/Git credentials, and established CA identity. Missing required selections, unsettled operations, unreadable generations and any remaining legacy rows refuse success. A pristine absent CA is not a migrated CA and does not establish proxy readiness. DB-backed credentials never fall back to retained native sources.
-
-3. **Perform operational checks**, starting Gateway only with separate service authorization. Check representative MCP static/OAuth calls and refresh, HTTP/Git authentication, interception with the unchanged CA, and client trust. Custody verification does not prove upstream validity or unexpired tokens/certificates. Source tests do not qualify native behavior or live adoption.
-
-4. **Create and verify a new format-4 backup**, using the running [backup commands](#create-and-manage-backups), and safeguard its matching master key separately. Retain any historical keys still needed by older backups. Do not put the key in the backup artifact. Then stop Gateway and its launchers again.
-
-5. **Explicitly clean up retired native sources**, acknowledging the preceding checks and custody work:
-
-   ```bash
-   agent-gateway maintenance cleanup-native-secrets --data-dir /path/to/gateway-data --operator-verified --dry-run
-   agent-gateway maintenance cleanup-native-secrets --data-dir /path/to/gateway-data --operator-verified --confirm
-   ```
-
-   Cleanup repeats completeness verification and removes only the installation-owned generation slots recorded during successful migration. It refuses still-needed legacy material and does not search or delete unrelated native entries. `--operator-verified` is an operator attestation, not an automated operational/backup check. Confirmed native absence, retained items and uncertain effects are reported separately; permanent DB inventory is kept even after deletion. Restore carries current inventory and conservative deletion/reappearance evidence into the restored stage rather than rolling it back to backup time. An interrupted run first reconciles current presence on the next separately confirmed invocation before any new delete. A confirmed-deleted item that reappears is retained and reported unresolved; obtain a qualified manual plan rather than silently deleting it.
-
-6. **Obtain explicit human approval before removing legacy tooling.** Review complete verification, operational checks, backup/key custody and resolved native leftovers together. Neither successful migration nor cleanup grants that approval. Startup, migration, shutdown and support removal never clean up native secrets automatically. Binary downgrade safety is not promised.
-
-Use `--json` for bounded counts: `migrated`, `remaining`, `deleted_items`, `uncertain_items` and `retained_items`. Migration reconciles `remaining` across all legacy or missing authoritative generations, including unvisited work; it is meaningful only when `remaining_known` is true. A failed reconciliation reports unknown rather than a known zero. Missing configured dependencies without any generation still fail completeness independently. `deleted_items` means confirmed absent, including items already absent at reconciliation; it is not a count of native Delete calls. On failure the partial report is written to stderr alongside a typed failure, never a success claim. Counts do not expose handles, native errors or secret values. If a storage effect is uncertain, preserve the DB, key and recovery markers and follow qualified stopped recovery before another migration or cleanup. Completed selection is not rolled back, and failed encryption attempts can permanently consume nonce budget.
+Completed historical cleanup provenance remains in the database and survives credential deletion, backup and restore. It is not an automatic cleanup queue; the current binary never revisits native providers.
 
 ## Rotate the master key
 
@@ -201,7 +173,7 @@ agent-gateway backup get BACKUP_ID
 agent-gateway backup delete BACKUP_ID --yes
 ```
 
-New encrypted backups use **format 4** (legacy-only installations still use format 3), explicitly reporting `history:"omitted"`. They capture
+New encrypted backups use **format 4** (historical unconfigured-storage artifacts use format 3), explicitly reporting `history:"omitted"`. They capture
 configuration, authority and administrative audit from one control-only SQLite
 snapshot, without pausing or opening optional traffic history. Embedded legacy
 invocation rows are removed from the private copy and the copy is compacted; the
@@ -302,7 +274,7 @@ agent-gateway maintenance restore-backup BACKUP_ID \
 
 Format-4 restore recovers the exact backed-up CA certificate and signing identity; it never automatically replaces the CA. Existing clients trusting that certificate need no trust change. If trust changed after the backup, explicitly reconcile it against the recovered certificate. The managed `http-ca.pem` export is updated after database replacement only if absent or matching the previously selected certificate; unrelated files refuse before replacement. A crash or publication error can leave the database selected while the derived PEM is stale: inspect `http ca export --stdout` and the reported effect, never assume rollback or replay restore. Client trust and installed proxy settings are never mutated.
 
-Legacy-only restore still invalidates CA and HTTP/Git credential authority. It requires explicit CA replacement and client trust updates before interception; use `serve --clear-http-proxy-listen` for MCP-only recovery. Surviving retired native keys are not restored authority. See [stopped CA management](#stopped-interception-ca-commands) and [proxy activation](http-proxy.md).
+Restore refuses unresolved legacy CA and HTTP/Git credential authority without discarding references or replacing keys. Complete the pre-removal upgrade procedure instead. Surviving retired native keys are not restored authority. See [stopped CA management](#stopped-interception-ca-commands) and [proxy activation](http-proxy.md).
 
 Restore verifies artifact ID, installation, supported schema, revision, size, digest,
 SQLite integrity and staged authority. Formats 3 and 4 restore security only and disable
@@ -386,7 +358,7 @@ They do not enable the proxy, install trust, or export a private key.
 agent-gateway init --data-dir /path/to/gateway-data --confirm
 agent-gateway http ca export --data-dir /path/to/gateway-data \
   --output /safe/path/gateway-ca.pem
-# Explicit rotation, unrecoverable key loss, or after legacy-only restore:
+# Explicit CA rotation after separately qualified recovery:
 agent-gateway http ca replace --data-dir /path/to/gateway-data \
   --installation-id ID --confirm
 ```
@@ -394,7 +366,7 @@ agent-gateway http ca replace --data-dir /path/to/gateway-data \
 `http ca create` is removed. `init` owns first creation and never replaces an existing or restored CA.
 `replace` supports verified absence or selects new protected signing material and a new public certificate.
 Creation/replacement writes `<data-dir>/http-ca.pem` and reports its SHA-256 fingerprint.
-Replacement updates that managed file only when it matches the previously selected certificate; unrelated files are retained and publication failure is reported separately from authority change. Explicitly update client trust before interception. Ordinary restart never calls either mutation. New signing material requires configured encrypted secret custody; only explicitly legacy CA reads use the native keyring. There is no plaintext or stale-generation fallback.
+Replacement updates that managed file only when it matches the previously selected certificate; unrelated files are retained and publication failure is reported separately from authority change. Explicitly update client trust before interception. Ordinary restart never calls either mutation. New signing material requires configured encrypted secret custody; legacy CA references refuse without native access. There is no plaintext or stale-generation fallback.
 
 `export` writes `<data-dir>/http-ca.pem` by default, accepts `--output PATH` as a file destination, or streams only public PEM with `--stdout`. Identical re-export is safe; different existing files and links are refused. `--json` selects structured results, not the certificate destination; it cannot be combined with `--stdout`. Export never reads the keyring. Its success
 is not proof that signing material is available or that client trust is installed;

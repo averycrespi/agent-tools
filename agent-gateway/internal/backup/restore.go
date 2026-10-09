@@ -13,6 +13,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/grantrequests"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
@@ -79,7 +80,7 @@ func Restore(ctx context.Context, options RestoreOptions) (result storage.Identi
 	artifact, err := manager.readArtifactScope(ctx, filepath.Join(layout.Backups, options.BackupID), options.BackupID, options.SecurityOnly)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return storage.Identity{}, ErrNotFound
+			return storage.Identity{}, diagnostics.WithDetail(ErrNotFound, diagnostics.Snapshot("backup", "restore artifact", filepath.Join(layout.Backups, options.BackupID), err))
 		}
 		if errors.Is(err, ErrInvalidArtifact) {
 			return storage.Identity{}, err

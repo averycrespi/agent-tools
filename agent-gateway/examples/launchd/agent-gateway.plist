@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Run agent-gateway service install to create the Go-owned definition
-     with account-specific defaults; this example is not a runtime dependency.
-     See docs/operators/launchd.md for initialization, loading, and management.
+<!-- Operator-owned example for account alice: replace every path with the
+     actual absolute path for your account before loading. Preserve existing
+     installations; see docs/operators/launchd.md for stopped changes.
      launchd does not expand shell variables or source shell profiles. -->
 <plist version="1.0">
 <dict>
@@ -10,10 +10,10 @@
     <string>dev.agent-tools.agent-gateway</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/ABSOLUTE/PATH/TO/agent-gateway</string>
+        <string>/Users/alice/.local/bin/agent-gateway</string>
         <string>serve</string>
         <string>--data-dir</string>
-        <string>/ABSOLUTE/PATH/TO/gateway-data</string>
+        <string>/Users/alice/.local/share/agent-gateway</string>
         <string>--listen</string>
         <string>127.0.0.1:8210</string>
         <string>--http-proxy-listen</string>
@@ -34,8 +34,8 @@
         <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
     </dict>
     <key>StandardOutPath</key>
-    <string>/ABSOLUTE/PATH/TO/gateway-logs/stdout.log</string>
+    <string>/Users/alice/Library/Logs/agent-gateway/stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>/ABSOLUTE/PATH/TO/gateway-logs/stderr.log</string>
+    <string>/Users/alice/Library/Logs/agent-gateway/stderr.log</string>
 </dict>
 </plist>

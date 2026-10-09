@@ -24,7 +24,7 @@
     "cleanup"
   ],
   "properties": {
-    "schema_version": { "const": 4 },
+    "schema_version": { "const": 5 },
     "profile": { "const": "accept" },
     "profile_hash": { "$ref": "#/$defs/digest" },
     "command_definition_hash": { "$ref": "#/$defs/digest" },
@@ -40,7 +40,6 @@
     "duration_ms": { "type": "integer", "minimum": 0 },
     "coverage": { "$ref": "#/$defs/coverage" },
     "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
-    "native": { "type": "object" },
     "external_evidence": {
       "type": "array",
       "items": { "$ref": "#/$defs/external" }

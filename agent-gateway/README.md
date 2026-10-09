@@ -22,7 +22,7 @@ Gateway denies calls by default and checks current policy before execution. Rota
 
 ### Service credentials stay with Gateway
 
-Gateway manages upstream credentials and OAuth. Agents use separate Gateway credentials, never upstream API keys or OAuth tokens. New secrets use authenticated encryption in control SQLite; only explicitly legacy credentials use native storage.
+Gateway manages upstream credentials and OAuth. Agents use separate Gateway credentials, never upstream API keys or OAuth tokens. Secrets use authenticated encryption in control SQLite with a separate owner-only master key; native credential stores are not used.
 
 ### Sandbox-agnostic
 
@@ -44,7 +44,7 @@ Gateway never queues or automatically replays tool calls. If a handoff leaves th
 
 ## Installation
 
-Requirements: Go 1.26.6 or later and GNU Make. A supported operating-system keyring is needed only for legacy credentials.
+Requirements: Go 1.26.9 or later and GNU Make. No operating-system keyring is required.
 
 From the `agent-gateway` directory:
 
@@ -73,12 +73,11 @@ agent-gateway doctor --online
 
 HTTP defaults to `127.0.0.1:8212`; opt out with `--clear-http-proxy-listen`.
 [Proxy setup](docs/operators/http-proxy.md) covers custom addresses, preserved
-managed settings and manual client trust.
+supervisor settings and manual client trust.
 
-For a checkout-only sandbox with tools, agents, grants and invocation history,
-use `make -C agent-gateway serve-demo`. It avoids the normal installation and native
-keyring. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway)
-for dataset/listener selection, protected credentials, Vite and cleanup.
+Supervise `serve` with [launchd](docs/operators/launchd.md) or [systemd](docs/operators/systemd.md); native management is retired.
+
+For an isolated encrypted sandbox, use `make -C agent-gateway serve-demo`. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for datasets, credentials and cleanup.
 
 Traffic storage defaults to 4 GiB (`--traffic-budget-bytes`), accepting integer bytes or units such as `256MiB` and `4GiB`. Existing installations
 require [stopped migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage).
@@ -110,7 +109,7 @@ If an online command proves that the selected loopback Gateway is stopped, its e
 - Gateway is deny by default: only a current credential for an active agent can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
 - One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
 - An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
-- Legacy native keyring reads may prompt. Encrypted custody uses a private `master-key`; see [setup, separately safeguarded keys and encrypted backup recovery](docs/operators/backup-and-recovery.md#encrypted-secret-storage).
+- Safeguard the private `master-key`: [encrypted recovery](docs/operators/backup-and-recovery.md#encrypted-secret-storage). [Legacy custody refuses](docs/operators/backup-and-recovery.md#legacy-custody-upgrade-boundary).
 
 See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/operators/invocation-evidence.md) for operator interpretation.
 
@@ -133,6 +132,6 @@ npm run ui:typecheck
 npm run ui:build
 ```
 
-`make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and native evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its four required Chromium leaves through one planner while retaining separate test processes and Gateway builds. Add `AGENT_GATEWAY_TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
+`make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and encrypted-material evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its four required Chromium leaves through one planner while retaining separate test processes and Gateway builds. Add `AGENT_GATEWAY_TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
 
 Use the [frontend development guide](docs/maintainers/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/maintainers/release-verification.md) for release evidence and failure discipline.

@@ -17,6 +17,7 @@ import (
 // Adapter is the sole diagnostic encoder and sink writer. Callers retain it
 // until Done closes, even if Finish's bounded wait expires.
 type Adapter struct {
+	trafficLosses  trafficLossCounters
 	level          Level
 	sink           io.Writer
 	queue          chan queuedFact
@@ -425,6 +426,7 @@ func (adapter *Adapter) run() {
 	defer ticker.Stop()
 	var lastLoss time.Time
 	var reportedDropped, reportedInvalid uint64
+	var reportedTraffic [trafficLossKinds][2]uint64
 	loss := func() bool {
 		now := time.Now()
 		if !lastLoss.IsZero() && now.Sub(lastLoss) < time.Second {
@@ -452,12 +454,12 @@ func (adapter *Adapter) run() {
 		case <-adapter.abort:
 			return
 		case <-ticker.C:
-			if !loss() {
+			if !loss() || !adapter.reportTrafficLoss(&reportedTraffic) {
 				return
 			}
 		case facts, ok := <-adapter.queue:
 			if !ok {
-				if !loss() {
+				if !loss() || !adapter.reportTrafficLoss(&reportedTraffic) {
 					return
 				}
 				if adapter.terminal.invalid {

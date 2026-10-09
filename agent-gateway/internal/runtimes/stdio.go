@@ -56,26 +56,27 @@ type StdioSupervisor struct {
 }
 
 type StdioRuntime struct {
-	mu              sync.Mutex
-	supervisor      *StdioSupervisor
-	id              string
-	command         *exec.Cmd
-	processGroup    int
-	stdin           io.WriteCloser
-	stdout          io.ReadCloser
-	stderr          io.ReadCloser
-	frames          chan []byte
-	done            chan StdioExit
-	finished        chan struct{}
-	cancel          context.CancelFunc
-	failure         *contract.PublicReason
-	diagnostics     []byte
-	stderrTruncated bool
-	requested       bool
-	secretValues    []string
-	stopDetail      diagnostics.Detail
-	exited          bool
-	stopMu          sync.Mutex
+	mu               sync.Mutex
+	supervisor       *StdioSupervisor
+	id               string
+	command          *exec.Cmd
+	processGroup     int
+	stdin            io.WriteCloser
+	stdout           io.ReadCloser
+	stderr           io.ReadCloser
+	frames           chan []byte
+	done             chan StdioExit
+	finished         chan struct{}
+	cancel           context.CancelFunc
+	failure          *contract.PublicReason
+	diagnostics      []byte
+	stderrTruncated  bool
+	requested        bool
+	secretValues     []string
+	stopDetail       diagnostics.Detail
+	initiatingDetail diagnostics.Detail
+	exited           bool
+	stopMu           sync.Mutex
 }
 
 type byteRateLimiter struct {
@@ -220,9 +221,7 @@ func (runtime *StdioRuntime) Stop(ctx context.Context) bool {
 		return joinPublication()
 	}
 	runtime.mu.Lock()
-	if runtime.failure == nil {
-		runtime.requested = true
-	}
+	runtime.requested = true
 	runtime.mu.Unlock()
 	runtime.cancel()
 	_ = runtime.stdin.Close()
@@ -313,14 +312,21 @@ func (runtime *StdioRuntime) supervise(ctx context.Context) {
 		}
 		stderr := string(runtime.diagnostics)
 		truncated, requested := runtime.stderrTruncated, runtime.requested
+		initiating := runtime.initiatingDetail
 		runtime.mu.Unlock()
 		detail := diagnostics.Snapshot("stdio", "wait", runtime.command.Path, waitErr, runtime.secretValues...)
 		if state != nil {
 			detail.Native = diagnostics.Text(state.String(), 64)
 		}
-		detail.Effect = "unexpected termination"
+		detail.Effect = "unexpected termination; streams=closed"
 		if requested {
-			detail.Effect = "requested termination"
+			detail.Effect = "requested termination; streams=closed"
+		}
+		if state != nil {
+			detail.Effect += "; reap=ack"
+		}
+		if initiating.Explanation != "" {
+			detail.Explanation = initiating.Explanation + "; later_wait=" + detail.Explanation
 		}
 		detail.Excerpt = diagnostics.Text(stderr, 256, runtime.secretValues...)
 		if truncated {
@@ -341,26 +347,30 @@ func (runtime *StdioRuntime) supervise(ctx context.Context) {
 func (runtime *StdioRuntime) readFrames(ctx context.Context, limiter *byteRateLimiter) {
 	maximum := int(limitByName("stdio_protocol_frame_bytes"))
 	reader := bufio.NewReaderSize(runtime.stdout, maximum+1)
+	var ordinal uint64
 	for {
 		line, err := reader.ReadSlice('\n')
+		if ordinal < ^uint64(0) {
+			ordinal++
+		}
 		if !limiter.Allow(len(line)) {
-			runtime.fail(contract.ReasonOutputLimit)
+			runtime.fail(contract.ReasonOutputLimit, runtime.streamDetail("stdout", fmt.Sprintf("rule=output_rate ordinal=%d observed_bytes=%d available_bytes=%d burst_bytes=%d rate_bytes_per_second=%d", ordinal, len(line), limiter.available(), limitByName("stdio_output_burst_bytes"), limitByName("stdio_output_rate_bytes_per_second")), nil))
 			return
 		}
 		if errors.Is(err, bufio.ErrBufferFull) || (err != nil && len(line) > maximum) {
-			runtime.fail(contract.ReasonOutputLimit)
+			runtime.fail(contract.ReasonOutputLimit, runtime.streamDetail("stdout", fmt.Sprintf("rule=frame_bytes ordinal=%d observed_bytes=%d allowed_bytes=%d", ordinal, len(line), maximum), err))
 			return
 		}
 		if len(line) != 0 {
 			if line[len(line)-1] != '\n' {
 				if err != nil {
-					runtime.fail(contract.ReasonProtocolInvalid)
+					runtime.fail(contract.ReasonProtocolInvalid, runtime.streamDetail("stdout", fmt.Sprintf("rule=ndjson_newline ordinal=%d observed_bytes=%d expected=newline", ordinal, len(line)), err))
 				}
 				return
 			}
 			line = line[:len(line)-1]
 			if len(line) > maximum {
-				runtime.fail(contract.ReasonOutputLimit)
+				runtime.fail(contract.ReasonOutputLimit, runtime.streamDetail("stdout", fmt.Sprintf("rule=frame_bytes ordinal=%d observed_bytes=%d allowed_bytes=%d", ordinal, len(line), maximum), nil))
 				return
 			}
 			frame := append([]byte(nil), line...)
@@ -369,11 +379,14 @@ func (runtime *StdioRuntime) readFrames(ctx context.Context, limiter *byteRateLi
 			case <-ctx.Done():
 				return
 			default:
-				runtime.fail(contract.ReasonOutputLimit)
+				runtime.fail(contract.ReasonOutputLimit, runtime.streamDetail("stdout", fmt.Sprintf("rule=frame_queue ordinal=%d occupancy=%d allowed=%d", ordinal, len(runtime.frames), cap(runtime.frames)), nil))
 				return
 			}
 		}
 		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				runtime.recordInitiating(runtime.streamDetail("stdout", "rule=stream_read", err))
+			}
 			return
 		}
 	}
@@ -386,7 +399,7 @@ func (runtime *StdioRuntime) readStderr(ctx context.Context, limiter *byteRateLi
 		count, err := runtime.stderr.Read(buffer)
 		if count > 0 {
 			if !limiter.Allow(count) {
-				runtime.fail(contract.ReasonOutputLimit)
+				runtime.fail(contract.ReasonOutputLimit, runtime.streamDetail("stderr", fmt.Sprintf("rule=output_rate observed_bytes=%d available_bytes=%d burst_bytes=%d rate_bytes_per_second=%d", count, limiter.available(), limitByName("stdio_output_burst_bytes"), limitByName("stdio_output_rate_bytes_per_second")), nil))
 				return
 			}
 			runtime.mu.Lock()
@@ -403,6 +416,9 @@ func (runtime *StdioRuntime) readStderr(ctx context.Context, limiter *byteRateLi
 			runtime.mu.Unlock()
 		}
 		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				runtime.recordInitiating(runtime.streamDetail("stderr", "rule=stream_read", err))
+			}
 			return
 		}
 		select {
@@ -413,7 +429,30 @@ func (runtime *StdioRuntime) readStderr(ctx context.Context, limiter *byteRateLi
 	}
 }
 
-func (runtime *StdioRuntime) fail(reason contract.PublicReason) {
+func (runtime *StdioRuntime) streamDetail(stream, rule string, err error) diagnostics.Detail {
+	detail := diagnostics.Snapshot("stdio", "read "+stream, runtime.command.Path, err, runtime.secretValues...)
+	detail.Explanation = "stream=" + stream + " " + rule + "; " + detail.Explanation
+	return detail
+}
+
+func (runtime *StdioRuntime) recordInitiating(detail diagnostics.Detail) {
+	runtime.mu.Lock()
+	if runtime.initiatingDetail == (diagnostics.Detail{}) {
+		runtime.initiatingDetail = detail
+	}
+	runtime.mu.Unlock()
+}
+
+func (limiter *byteRateLimiter) available() int64 {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	return int64(max(limiter.tokens, 0))
+}
+
+func (runtime *StdioRuntime) fail(reason contract.PublicReason, details ...diagnostics.Detail) {
+	if len(details) != 0 {
+		runtime.recordInitiating(details[0])
+	}
 	runtime.mu.Lock()
 	if runtime.failure == nil {
 		runtime.failure = &reason

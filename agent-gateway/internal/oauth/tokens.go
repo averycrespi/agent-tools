@@ -44,24 +44,30 @@ type parsedTokenResponse struct {
 }
 
 func parseTokenResponse(status int, header http.Header, body []byte, requested []string, now time.Time) (parsedTokenResponse, error) {
-	if status != http.StatusOK || !jsonContentType(header) || int64(len(body)) > limit("oauth_response_body_bytes") {
-		return parsedTokenResponse{}, ErrTokenRejected
+	if status != http.StatusOK {
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "role=token method=POST http_status=%d expected_status=200", status)
+	}
+	if !jsonContentType(header) {
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "role=token http_status=200 rule=json_media_type observed=non_json")
+	}
+	if int64(len(body)) > limit("oauth_response_body_bytes") {
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "rule=oauth_response_body_bytes observed=%d allowed=%d", len(body), limit("oauth_response_body_bytes"))
 	}
 	object, err := decodeObject(body)
 	if err != nil {
-		return parsedTokenResponse{}, ErrTokenRejected
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "rule=bounded_unique_member_json_object max_depth=%d; payload withheld", limit("oauth_json_depth"))
 	}
 	accessToken, err := requiredString(object, "access_token")
 	if err != nil || accessToken == "" || int64(len(accessToken)) > limit("keyring_secret_bytes") {
-		return parsedTokenResponse{}, ErrTokenRejected
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "field=access_token rule=nonempty_bounded_string valid_string=%t observed_bytes=%d allowed_bytes=%d", err == nil, len(accessToken), limit("keyring_secret_bytes"))
 	}
 	tokenType, err := requiredString(object, "token_type")
 	if err != nil || len(tokenType) > 32 || !strings.EqualFold(tokenType, "Bearer") {
-		return parsedTokenResponse{}, ErrTokenRejected
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "field=token_type rule=case_insensitive_bearer valid_string=%t observed_bytes=%d allowed_bytes=32; value withheld", err == nil, len(tokenType))
 	}
 	refresh, refreshPresent, err := optionalString(object, "refresh_token")
 	if err != nil || refreshPresent && (refresh == "" || !utf8.ValidString(refresh) || int64(len(refresh)) > limit("keyring_secret_bytes")) {
-		return parsedTokenResponse{}, ErrTokenRejected
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "field=refresh_token rule=nonempty_bounded_utf8_string valid_string=%t observed_bytes=%d allowed_bytes=%d", err == nil, len(refresh), limit("keyring_secret_bytes"))
 	}
 	var refreshToken *string
 	if refreshPresent {
@@ -69,7 +75,7 @@ func parseTokenResponse(status int, header http.Header, body []byte, requested [
 	}
 	expires, expiresPresent, err := optionalInteger(object, "expires_in")
 	if err != nil || expiresPresent && (expires < 0 || expires > math.MaxInt64/int64(time.Second)) {
-		return parsedTokenResponse{}, ErrTokenRejected
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "field=expires_in rule=bounded_nonnegative_integer valid_integer=%t observed=%d minimum=0 maximum=%d", err == nil, expires, math.MaxInt64/int64(time.Second))
 	}
 	var expiresAt *time.Time
 	if expiresPresent {
@@ -78,7 +84,7 @@ func parseTokenResponse(status int, header http.Header, body []byte, requested [
 	}
 	scopeText, scopePresent, err := optionalString(object, "scope")
 	if err != nil {
-		return parsedTokenResponse{}, ErrTokenRejected
+		return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "field=scope rule=string_if_present")
 	}
 	var scopes []string
 	if scopePresent {
@@ -87,7 +93,7 @@ func parseTokenResponse(status int, header http.Header, body []byte, requested [
 			return parsedTokenResponse{}, err
 		}
 		if requested != nil && !scopeSubset(scopes, requested) {
-			return parsedTokenResponse{}, ErrTokenRejected
+			return parsedTokenResponse{}, protocolPredicate(ErrTokenRejected, "validate token response", "field=scope rule=requested_scope_subset observed_count=%d requested_count=%d; values withheld", len(scopes), len(requested))
 		}
 	} else if requested != nil {
 		scopes = append([]string(nil), requested...)
@@ -98,12 +104,12 @@ func parseTokenResponse(status int, header http.Header, body []byte, requested [
 
 func parseScope(value string) ([]string, error) {
 	if value == "" || strings.TrimSpace(value) != value || strings.Contains(value, "  ") {
-		return nil, ErrTokenRejected
+		return nil, protocolPredicate(ErrTokenRejected, "validate token scope", "field=scope rule=nonempty_single_space_separated_tokens")
 	}
 	values := strings.Split(value, " ")
 	for _, token := range values {
 		if token == "" || !utf8.ValidString(token) || strings.ContainsAny(token, "\t\r\n") || int64(len(token)) > limit("oauth_scope_token_bytes") {
-			return nil, ErrTokenRejected
+			return nil, protocolPredicate(ErrTokenRejected, "validate token scope", "field=scope rule=bounded_utf8_token_without_controls observed_bytes=%d allowed_bytes=%d", len(token), limit("oauth_scope_token_bytes"))
 		}
 	}
 	sort.Strings(values)
@@ -114,7 +120,7 @@ func parseScope(value string) ([]string, error) {
 		}
 	}
 	if int64(len(unique)) > limit("oauth_scope_count") || int64(len(strings.Join(unique, " "))) > limit("oauth_scope_bytes") {
-		return nil, ErrTokenRejected
+		return nil, protocolPredicate(ErrTokenRejected, "validate token scope", "field=scope rule=scope_bounds observed_count=%d allowed_count=%d observed_bytes=%d allowed_bytes=%d", len(unique), limit("oauth_scope_count"), len(strings.Join(unique, " ")), limit("oauth_scope_bytes"))
 	}
 	return append([]string(nil), unique...), nil
 }
@@ -162,32 +168,32 @@ func encodeBoundTokenGeneration(binding TokenGeneration, token parsedTokenRespon
 func DecodeTokenGeneration(contents []byte) (TokenGeneration, error) {
 	var generation TokenGeneration
 	if err := strictjson.Decode(contents, &generation, strictjson.Options{MaxBytes: limit("keyring_secret_bytes"), MaxDepth: int(limit("oauth_json_depth")), RejectUnknownMembers: true}); err != nil {
-		return TokenGeneration{}, ErrTokenRejected
+		return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "rule=closed_bounded_generation_json max_depth=%d max_bytes=%d; generation withheld", limit("oauth_json_depth"), limit("keyring_secret_bytes"))
 	}
 	if generation.Version != tokenGenerationVersion || generation.ServerID == "" || generation.Issuer == "" || generation.RegistrationRevision == "" || generation.Resource == "" || generation.AccessToken == "" || generation.IssuedAt == "" {
-		return TokenGeneration{}, ErrTokenRejected
+		return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "rule=version_and_required_bindings version=%d expected_version=%d server_present=%t issuer_present=%t revision_present=%t resource_present=%t access_present=%t issued_present=%t", generation.Version, tokenGenerationVersion, generation.ServerID != "", generation.Issuer != "", generation.RegistrationRevision != "", generation.Resource != "", generation.AccessToken != "", generation.IssuedAt != "")
 	}
 	if _, err := time.Parse(time.RFC3339Nano, generation.IssuedAt); err != nil {
-		return TokenGeneration{}, ErrTokenRejected
+		return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "field=issued_at rule=rfc3339_timestamp; value withheld")
 	}
 	if generation.ExpiresAt != nil {
 		if _, err := time.Parse(time.RFC3339Nano, *generation.ExpiresAt); err != nil {
-			return TokenGeneration{}, ErrTokenRejected
+			return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "field=expires_at rule=rfc3339_timestamp; value withheld")
 		}
 	}
 	if generation.RefreshToken != nil && *generation.RefreshToken == "" {
-		return TokenGeneration{}, ErrTokenRejected
+		return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "field=refresh_token rule=nonempty_when_present")
 	}
 	if generation.ScopeSpecified {
 		if generation.Scopes == nil {
-			return TokenGeneration{}, ErrTokenRejected
+			return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "field=scopes rule=array_when_scope_specified")
 		}
 		parsed, err := contract.NormalizeOAuthScopes(generation.Scopes)
 		if err != nil || !equalStrings(parsed, generation.Scopes) {
-			return TokenGeneration{}, ErrTokenRejected
+			return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "field=scopes rule=canonical_bounded_scope_array; values withheld")
 		}
 	} else if generation.Scopes != nil {
-		return TokenGeneration{}, ErrTokenRejected
+		return TokenGeneration{}, protocolPredicate(ErrTokenRejected, "decode token generation", "field=scopes rule=null_when_scope_unspecified")
 	}
 	return generation, nil
 }

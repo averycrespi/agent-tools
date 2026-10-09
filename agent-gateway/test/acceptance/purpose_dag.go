@@ -68,7 +68,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"test-unit":        leaf("test-unit", []string{"tier.unit.contract"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"race-enabled Go test output"}),
 		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 15*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
 		"test-harness":     leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
-		"test-material":    leaf("test-material", []string{"tier.native.keyring"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
+		"test-material":    leaf("test-material", []string{"tier.material.encrypted"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
 		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, demoDefinitions...),
 		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 67, 0, []string{"real-binary output", "process cleanup records"}),
 		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
@@ -76,7 +76,6 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 			"product.grant_request.conflict_and_uncertainty", "product.grant_request.approval_narrowing", "product.invocation.page_coherence",
 			"product.client_refresh.no_unsafe_replay", "product.invocation.missing_terminal_unknown",
 		}, 2*time.Minute, 5*time.Minute, 20, 0, 0, []string{"five targeted race scenario results"}),
-		"test-keyring-native": leaf("test-keyring-native", []string{"tier.native.keyring"}, 10*time.Second, 7*time.Minute, 1, 0, 0, []string{"typed native keyring classification"}, "agent-gateway/test/keyring-native.sh"),
 
 		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 6*time.Minute, 7*time.Minute, 1, 36, 35, []string{"browser workflow output", "browser cleanup records"}, "agent-gateway/test/e2e/harness_test.go"),
 		"test-browser-privacy":       leaf("test-browser-privacy", []string{"security.browser.storage", "frontend.privacy"}, 30*time.Second, 45*time.Second, 1, 1, 1, []string{"secret canary scan", "browser cleanup records"}, "agent-gateway/test/e2e/browser_secret_storage_privacy_test.go"),
@@ -117,9 +116,6 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 	addCommand("go.security", suiteCommandArgv("test-security"), []string{makefile, "agent-gateway/test/security/security_canaries_test.go", "agent-gateway/test/acceptance/release_report_security_test.go"}, nil)
 	addMake("test-stress", "go.stress")
 	addCommand("go.stress", append(suiteCommandArgv("test-stress"), "--count=$(AGENT_GATEWAY_STRESS_COUNT)"), []string{makefile}, nil)
-	addMake("test-keyring-native", "shell.keyring-native")
-	addCommand("shell.keyring-native", []string{"./test/keyring-native.sh"}, []string{makefile, "agent-gateway/test/keyring-native.sh", "agent-gateway/test/keyringnative/result.go", "agent-gateway/test/keyringnative/result.schema.json", "agent-gateway/test/keyringnative/cmd/main.go"}, []string{"go.material", "go.native"})
-	addCommand("go.native", suiteCommandArgv("test-keyring-native"), []string{makefile, "agent-gateway/test/keyring-native.sh"}, nil)
 
 	for _, target := range []string{"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility", "test-browser-cross", "test-frontend-development-browser"} {
 		commandID := "go." + target

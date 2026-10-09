@@ -183,7 +183,7 @@ func verifyGatewayCatalog(t *testing.T, ctx context.Context, module, temp, catal
 	require.NoError(t, os.Mkdir(probe, 0700))
 	// A temporary lexical child may import the actual checked-out Gateway internals;
 	// no product dependency, copied schema implementation, or live Gateway is involved.
-	require.NoError(t, os.WriteFile(filepath.Join(probe, "go.mod"), []byte("module github.com/averycrespi/agent-tools/agent-gateway/catalogprobe\n\ngo 1.26.6\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(probe, "go.mod"), []byte("module github.com/averycrespi/agent-tools/agent-gateway/catalogprobe\n\ngo 1.26.9\n"), 0600))
 	program := `package main
 import("context";"encoding/json";"os";"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog";"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream";"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation";"github.com/averycrespi/agent-tools/agent-gateway/internal/contract")
 type page []byte
@@ -192,7 +192,7 @@ func main(){raw,e:=os.ReadFile(os.Args[1]);if e!=nil{panic(e)};candidate,e:=cata
 `
 	require.NoError(t, os.WriteFile(filepath.Join(probe, "main.go"), []byte(program), 0600))
 	workspace := filepath.Join(temp, "go.work")
-	require.NoError(t, os.WriteFile(workspace, []byte("go 1.26.6\nuse (\n"+strconv.Quote(filepath.Join(module, "../agent-gateway"))+"\n"+strconv.Quote(probe)+"\n)\n"), 0600))
+	require.NoError(t, os.WriteFile(workspace, []byte("go 1.26.9\nuse (\n"+strconv.Quote(filepath.Join(module, "../agent-gateway"))+"\n"+strconv.Quote(probe)+"\n)\n"), 0600))
 	command := exec.CommandContext(ctx, "go", "run", ".", catalogPath, failurePath)
 	command.Dir = probe
 	command.Env = append(os.Environ(), "GOWORK="+workspace)

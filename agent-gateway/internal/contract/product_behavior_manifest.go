@@ -134,7 +134,7 @@ var evidenceTierRows = []EvidenceTier{
 	{ID: "tier.security.privacy"},
 	{ID: "tier.supply_chain.go"},
 	{ID: "tier.supply_chain.frontend"},
-	{ID: "tier.native.keyring"},
+	{ID: "tier.material.encrypted"},
 	{ID: "tier.repository.other_tools"},
 	{ID: "tier.repository.diff"},
 }

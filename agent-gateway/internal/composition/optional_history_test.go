@@ -73,13 +73,17 @@ func TestOptionalHistoryReadinessBeforeOpenAndLateDrain(t *testing.T) {
 }
 
 func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
-	for _, kind := range []string{"missing", "corrupt", "foreign-binding", "unsafe-link", "permission", "unsafe-wal", "journal"} {
+	for _, kind := range []string{"missing", "corrupt", "foreign-binding", "unsafe-link", "permission", "unsafe-wal", "journal", "shm-size", "accounting", "schema"} {
 		t.Run(kind, func(t *testing.T) {
 			options, cleanup := newCompositionOptions(t)
 			defer cleanup()
 			generation, err := options.Store.SelectedTraffic(t.Context())
 			require.NoError(t, err)
 			path := filepath.Join(options.Ownership.Layout().Root, "traffic-"+generation+".db")
+			var output bytes.Buffer
+			observer := diagnostics.New(&output, diagnostics.Warn)
+			t.Cleanup(func() { observer.Finish(nil); <-observer.Done() })
+			options.Diagnostics = observer
 			var expected []byte
 			switch kind {
 			case "missing":
@@ -87,10 +91,17 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 			case "corrupt":
 				expected = []byte("not a database")
 				require.NoError(t, os.WriteFile(path, expected, 0o600))
-			case "foreign-binding":
+			case "foreign-binding", "accounting", "schema":
 				db, err := sql.Open("sqlite3", "file:"+path+"?mode=rw")
 				require.NoError(t, err)
-				_, err = db.ExecContext(t.Context(), `UPDATE traffic_meta SET installation='01ARZ3NDEKTSV4RRFFQ69G5FA0'`)
+				query := `UPDATE traffic_meta SET installation='01ARZ3NDEKTSV4RRFFQ69G5FA0'`
+				if kind == "accounting" {
+					query = `UPDATE traffic_meta SET records=1`
+				}
+				if kind == "schema" {
+					query = `CREATE TABLE private_schema_canary (private_payload TEXT)`
+				}
+				_, err = db.ExecContext(t.Context(), query)
 				require.NoError(t, err)
 				_, err = db.ExecContext(t.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
 				require.NoError(t, err)
@@ -106,6 +117,11 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 				expected = []byte("untouched unsafe WAL")
 				require.NoError(t, os.WriteFile(path+"-wal", expected, 0o666))
 				require.NoError(t, os.Chmod(path+"-wal", 0o666))
+			case "shm-size":
+				file, err := os.OpenFile(path+"-shm", os.O_CREATE|os.O_WRONLY, 0o600)
+				require.NoError(t, err)
+				require.NoError(t, file.Truncate((16<<20)+1))
+				require.NoError(t, file.Close())
 			case "journal":
 				expected = []byte("unresolved journal")
 				require.NoError(t, os.WriteFile(path+"-journal", expected, 0o600))
@@ -119,13 +135,21 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 			status := built.Traffic().Status(t.Context())
 			require.Equal(t, "operator_action_required", status.Health)
 			require.NotNil(t, status.Incident)
-			expectedCause := map[string]string{"missing": "missing", "corrupt": "integrity", "foreign-binding": "integrity", "unsafe-link": "ownership", "permission": "ownership", "unsafe-wal": "ownership", "journal": "integrity"}[kind]
+			expectedCause := map[string]string{"missing": "missing", "corrupt": "integrity", "foreign-binding": "integrity", "unsafe-link": "ownership", "permission": "ownership", "unsafe-wal": "ownership", "journal": "integrity", "shm-size": "integrity", "accounting": "integrity", "schema": "integrity"}[kind]
 			require.Equal(t, expectedCause, status.Incident.Cause)
+			require.True(t, observer.Finish(nil))
+			require.Contains(t, output.String(), "generation="+generation)
+			require.Contains(t, output.String(), "history unavailable; preserve rejected artifacts")
+			rule := map[string]string{"foreign-binding": "metadata_binding_and_bounds", "journal": "rollback_journal_bytes", "shm-size": "shm_bytes", "accounting": "retention_accounting", "schema": "schema_definition"}[kind]
+			if rule != "" {
+				require.Contains(t, output.String(), "rule="+rule)
+			}
+			require.NotContains(t, output.String(), "private_schema_canary")
 			switch kind {
 			case "missing":
 				_, err = os.Lstat(path)
 				require.True(t, os.IsNotExist(err))
-			case "corrupt", "foreign-binding":
+			case "corrupt", "foreign-binding", "accounting", "schema":
 				actual, err := os.ReadFile(path)
 				require.NoError(t, err)
 				require.Equal(t, expected, actual)
@@ -137,6 +161,10 @@ func TestOptionalHistoryPreservesUnavailableArtifacts(t *testing.T) {
 				info, err := os.Stat(path)
 				require.NoError(t, err)
 				require.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+			case "shm-size":
+				info, err := os.Stat(path + "-shm")
+				require.NoError(t, err)
+				require.EqualValues(t, (16<<20)+1, info.Size())
 			case "unsafe-wal", "journal":
 				suffix := "-wal"
 				if kind == "journal" {

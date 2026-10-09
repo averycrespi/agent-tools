@@ -339,6 +339,12 @@ func TestRepositoryFixturesIsolateRowsAndFaultAuthority(t *testing.T) {
 
 func newInvocationRepository(t *testing.T, fault func(storage.FaultPoint) error, entropy io.Reader) (*Repository, *storage.Store, *repositoryClock) {
 	t.Helper()
+	repository, store, clock, _ := newInvocationRepositoryWithOwnership(t, fault, entropy)
+	return repository, store, clock
+}
+
+func newInvocationRepositoryWithOwnership(t *testing.T, fault func(storage.FaultPoint) error, entropy io.Reader) (*Repository, *storage.Store, *repositoryClock, *gatewaypaths.Ownership) {
+	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
@@ -359,7 +365,7 @@ func newInvocationRepository(t *testing.T, fault func(storage.FaultPoint) error,
 		}
 		_ = ownership.Close()
 	})
-	return repository, store, clock
+	return repository, store, clock, ownership
 }
 
 func testEvaluatedAdmission() Admission {

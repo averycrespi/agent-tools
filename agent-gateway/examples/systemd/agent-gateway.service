@@ -1,0 +1,20 @@
+# Operator-owned user unit for alice. Replace paths before installation.
+# See docs/operators/systemd.md; never enable two launchers for one data root.
+[Unit]
+Description=Agent Gateway
+
+[Service]
+Type=exec
+ExecStart=/home/alice/.local/bin/agent-gateway serve --data-dir /home/alice/.local/share/agent-gateway --listen 127.0.0.1:8210 --http-proxy-listen 127.0.0.1:8212 --traffic-budget-bytes 4294967296
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=30s
+SendSIGKILL=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

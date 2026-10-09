@@ -22,49 +22,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type httpMemoryKeyring struct {
-	mu         sync.Mutex
-	values     map[string]string
-	getBarrier func()
-}
-
-func (*httpMemoryKeyring) Probe(context.Context, string) error { return nil }
-func (m *httpMemoryKeyring) Set(service, user, value string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.values[service+user] = value
-	return nil
-}
-func (m *httpMemoryKeyring) Get(service, user string) (string, error) {
-	if m.getBarrier != nil {
-		m.getBarrier()
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	value, ok := m.values[service+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return value, nil
-}
-func (m *httpMemoryKeyring) Delete(service, user string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.values, service+user)
-	return nil
-}
-
 func TestIntegrationHTTPAdmissionSealsSelectedMaterialGeneration(t *testing.T) {
 	for _, mode := range []string{"allow", "rotate", "edit"} {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(audit.WithSystem(t.Context()), 5*time.Second)
 			defer cancel()
-			coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+			coordinator, audits, authority, principal, credential, owner := newAdmissionCoordinatorWithOwnership(t, nil)
 			repository, err := httpcredentials.NewRepository(audits.store, audits.clock, rand.Reader, authority)
 			require.NoError(t, err)
-			backend := &httpMemoryKeyring{values: map[string]string{}}
-			provider, err := keyring.NewProviderWithBackend(invocationTestInstallationID, backend)
+			require.NoError(t, keyring.SetupCustody(ctx, owner, audits.store, audits.clock))
+			provider, err := keyring.NewProvider(invocationTestInstallationID)
 			require.NoError(t, err)
+			require.NoError(t, provider.UseDatabaseCustody(ctx, owner, audits.store))
+			var getBarrier func()
+			keyring.ObserveCustodyForIntegration(provider, func(point string) error {
+				if point == "before_read" && getBarrier != nil {
+					getBarrier()
+				}
+				return nil
+			})
 			materials, err := httpcredentials.NewService(repository, keyring.NewCoordinator(provider, audits.store, audits.clock, rand.Reader), invocationTestInstallationID)
 			require.NoError(t, err)
 			definition := httpcredentials.Definition{Name: "Injection", Boundary: httpcredentials.Boundary{Host: "example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}
@@ -92,7 +68,7 @@ func TestIntegrationHTTPAdmissionSealsSelectedMaterialGeneration(t *testing.T) {
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()
 			var blocked atomic.Bool
-			backend.getBarrier = func() {
+			getBarrier = func() {
 				if blocked.CompareAndSwap(false, true) {
 					close(entered)
 					select {

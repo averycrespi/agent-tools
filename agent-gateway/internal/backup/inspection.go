@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
@@ -47,7 +48,7 @@ func InspectRestoreWithKey(ctx context.Context, owner *gatewaypaths.Ownership, i
 	metadata, err := (&Manager{layout: layout}).readArtifactScope(ctx, filepath.Join(layout.Backups, id), id, securityOnly)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return RestoreInspection{}, ErrNotFound
+			return RestoreInspection{}, diagnostics.WithDetail(ErrNotFound, diagnostics.Snapshot("backup", "inspect restore artifact", filepath.Join(layout.Backups, id), err))
 		}
 		return RestoreInspection{}, err
 	}

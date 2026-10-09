@@ -16,7 +16,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	require.NoError(t, validateFinalReleaseProfile(repositoryRoot(t), profile))
 
 	expectedChecks := []string{
-		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-keyring-native",
+		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-material",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility",
 		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
 	}
@@ -81,9 +81,6 @@ func TestFinalReleaseProfileBindsMultiplicityBudgetsAndCleanup(t *testing.T) {
 			assert.Equal(t, 20, check.Repeats)
 			assert.Equal(t, []string{"make", "-C", "agent-gateway", "AGENT_GATEWAY_STRESS_COUNT=20", "test-stress"}, check.Argv)
 			continue
-		}
-		if check.ID == "test-keyring-native" {
-			assert.Equal(t, []string{"agent-gateway/test/keyring-native.sh"}, check.Argv)
 		}
 		assert.Equal(t, 1, check.Repeats, check.ID)
 	}

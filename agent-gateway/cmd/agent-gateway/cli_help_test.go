@@ -53,6 +53,7 @@ func TestCLIHelpTree(t *testing.T) {
 	assert.Contains(t, root.Example, "agent-gateway doctor")
 	for _, command := range root.Commands() {
 		assert.NotEqual(t, "installation", command.Name())
+		assert.NotEqual(t, "service", command.Name())
 	}
 	initialize, _, err := root.Find([]string{"initialize"})
 	require.NoError(t, err)
@@ -96,7 +97,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:7e2556a7a401856e57e3a9d56200a2a87b8434def8908f8899681363334598f4", digest)
+	assert.Equal(t, "sha256:f52b57931dd9f10f80629d7474b9170749a70d27c936165c4bcc89f434600224", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {

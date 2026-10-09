@@ -800,6 +800,7 @@ func newCompositionOptionsWithRecoveryRoot(t *testing.T, fault func(storage.Faul
 	identity, err := store.Identity(context.Background())
 	require.NoError(t, err)
 	require.NoError(t, InitializeTraffic(context.Background(), ownership, store, identity.InstallationID))
+	require.NoError(t, SetupSecrets(context.Background(), ownership, store, testutil.NewFakeClock(compositionTime)))
 	initializing = false
 	entropy := make([]byte, 8192)
 	for index := range entropy {

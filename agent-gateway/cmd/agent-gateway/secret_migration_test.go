@@ -2,38 +2,28 @@ package main
 
 import (
 	"bytes"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestSecretMaintenanceDryRunsAreNonmutatingAndCleanupRequiresAttestation(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "gateway")
-	initializeLegacyBackupFixture(t, root, filepath.Join(root, "admin-bearer"))
-	before := treeBytes(t, root)
+func TestRemovedSecretMaintenanceCommandsHaveNoAliasesOrCompletion(t *testing.T) {
 	for _, operation := range []string{"migrate-secrets", "verify-secrets", "cleanup-native-secrets"} {
 		t.Run(operation, func(t *testing.T) {
 			command := newTestRootCmd(t)
-			out, stderr := new(bytes.Buffer), new(bytes.Buffer)
-			command.SetOut(out)
-			command.SetErr(stderr)
-			args := []string{"maintenance", operation, "--data-dir", root, "--dry-run", "--json"}
-			if operation == "cleanup-native-secrets" {
-				args = append(args, "--operator-verified")
+			command.SetOut(new(bytes.Buffer))
+			command.SetErr(new(bytes.Buffer))
+			command.SetArgs([]string{"maintenance", operation, "--confirm"})
+			require.Error(t, command.ExecuteContext(t.Context()))
+			maintenance, _, err := newTestRootCmd(t).Find([]string{"maintenance"})
+			require.NoError(t, err)
+			for _, child := range maintenance.Commands() {
+				require.NotEqual(t, operation, child.Name())
+				require.NotContains(t, child.Aliases, operation)
 			}
-			command.SetArgs(args)
-			require.NoError(t, command.ExecuteContext(t.Context()))
-			require.Contains(t, out.String(), `"dry_run":true`)
-			require.Equal(t, before, treeBytes(t, root))
+			completion := new(bytes.Buffer)
+			require.NoError(t, newTestRootCmd(t).GenBashCompletionV2(completion, true))
+			require.NotContains(t, completion.String(), operation)
 		})
 	}
-	command := newTestRootCmd(t)
-	out := new(bytes.Buffer)
-	command.SetOut(out)
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"maintenance", "cleanup-native-secrets", "--data-dir", root, "--confirm", "--json"})
-	require.Error(t, command.ExecuteContext(t.Context()))
-	require.Contains(t, out.String()+command.ErrOrStderr().(*bytes.Buffer).String(), "operator-verified")
-	require.Equal(t, before, treeBytes(t, root))
 }

@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -28,34 +27,6 @@ import (
 type clock struct{}
 
 func (clock) Now() time.Time { return time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC) }
-
-type memoryKeyring struct {
-	mu     sync.Mutex
-	values map[string]string
-}
-
-func (*memoryKeyring) Probe(context.Context, string) error { return nil }
-func (m *memoryKeyring) Set(service, user, password string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.values[service+user] = password
-	return nil
-}
-func (m *memoryKeyring) Get(service, user string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	v, ok := m.values[service+user]
-	if !ok {
-		return "", keyring.ErrNotFound
-	}
-	return v, nil
-}
-func (m *memoryKeyring) Delete(service, user string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.values, service+user)
-	return nil
-}
 
 type referenceStore struct{}
 
@@ -99,8 +70,10 @@ func fixtureWithFault(t *testing.T, fault func(storage.FaultPoint) error) (*Serv
 		_, err := tx.ExecContext(t.Context(), `CREATE TABLE test_http_grant_references(id TEXT PRIMARY KEY,credential_id TEXT,policy TEXT)`)
 		return err
 	}))
-	provider, err := keyring.NewProviderWithBackend("01ARZ3NDEKTSV4RRFFQ69G5FAV", &memoryKeyring{values: map[string]string{}})
+	require.NoError(t, keyring.SetupCustody(t.Context(), owner, store, clock{}))
+	provider, err := keyring.NewProvider("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.NoError(t, err)
+	require.NoError(t, provider.UseDatabaseCustody(t.Context(), owner, store))
 	repo, err := NewRepository(store, clock{}, rand.Reader, referenceStore{})
 	require.NoError(t, err)
 	service, err := NewService(repo, keyring.NewCoordinator(provider, store, clock{}, rand.Reader), "01ARZ3NDEKTSV4RRFFQ69G5FAV")

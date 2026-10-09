@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationRestoreRequiresNewCADespiteRetainedKeys(t *testing.T) {
+func TestIntegrationEncryptedRestoreRecoversOriginalCAIdentity(t *testing.T) {
 	ctx := audit.WithSystem(t.Context())
 	root := filepath.Join(t.TempDir(), "gateway")
 	owner, err := gatewaypaths.Acquire(root)
@@ -30,10 +30,11 @@ func TestIntegrationRestoreRequiresNewCADespiteRetainedKeys(t *testing.T) {
 	clock := fixedClock{value: acceptedFixtureTime}
 	_, err = admin.NewService(store, clock, rand.Reader).Initialize(ctx, new(captureSink))
 	require.NoError(t, err)
-	backend := &retainedHTTPKeyring{values: map[string]string{}}
-	provider, err := keyring.NewProviderWithBackend(backupTestInstallationID, backend)
+	require.NoError(t, keyring.SetupCustody(ctx, owner, store, clock))
+	provider, err := keyring.NewProvider(backupTestInstallationID)
 	require.NoError(t, err)
 	makeService := func() (*httpca.Service, *keyring.Coordinator) {
+		require.NoError(t, provider.UseDatabaseCustody(ctx, owner, store))
 		coordinator := keyring.NewCoordinator(provider, store, clock, rand.Reader)
 		service, err := httpca.New(store, coordinator, backupTestInstallationID, clock, rand.Reader)
 		require.NoError(t, err)
@@ -61,7 +62,7 @@ func TestIntegrationRestoreRequiresNewCADespiteRetainedKeys(t *testing.T) {
 	}))
 	defer clear(key)
 	require.NotEmpty(t, key)
-	manager, err := New(Options{Store: store, Layout: owner.Layout(), Clock: clock, Entropy: rand.Reader})
+	manager, err := New(Options{Ownership: owner, Store: store, Layout: owner.Layout(), Clock: clock, Entropy: rand.Reader})
 	require.NoError(t, err)
 	artifact, _, err := manager.Create(ctx, "authority", "ca-restore")
 	require.NoError(t, err)
@@ -75,12 +76,10 @@ func TestIntegrationRestoreRequiresNewCADespiteRetainedKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, original, second)
 	service.Close()
-	count := len(backend.values)
 	require.NoError(t, store.Close())
 	require.NoError(t, owner.Close())
 	_, err = Restore(ctx, RestoreOptions{Root: root, BackupID: artifact.ID, Sink: new(captureSink), Clock: clock, Entropy: rand.Reader})
 	require.NoError(t, err)
-	require.Len(t, backend.values, count, "restore must not touch keyring")
 	owner, err = gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	store, err = storage.Open(ctx, owner)
@@ -89,10 +88,10 @@ func TestIntegrationRestoreRequiresNewCADespiteRetainedKeys(t *testing.T) {
 	defer service.Close()
 	require.NoError(t, httpca.ValidateStartup(ctx, store))
 	_, err = service.Load(ctx)
-	require.Error(t, err)
+	require.NoError(t, err)
 	restored, revision, err := service.PublicCertificate(ctx)
 	require.NoError(t, err)
-	require.Equal(t, original, restored, "public metadata is history, not signing authority")
+	require.Equal(t, original, restored, "encrypted restore preserves the signing identity")
 	require.NoError(t, service.Replace(ctx, revision))
 	replacement, _, err := service.PublicCertificate(ctx)
 	require.NoError(t, err)

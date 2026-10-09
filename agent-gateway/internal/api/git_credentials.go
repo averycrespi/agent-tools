@@ -157,7 +157,7 @@ func writeGitCredentialError(w http.ResponseWriter, err error) {
 		problem = contract.ProblemConflict
 	case errors.Is(err, gitcredentials.ErrLimit), errors.Is(err, storage.ErrMutationBusy):
 		problem = contract.ProblemResourceLimit
-	case errors.As(err, &capability), errors.Is(err, keyring.ErrWorkLimit), errors.Is(err, keyring.ErrNoAuthority), errors.Is(err, keyring.ErrNotFound), errors.Is(err, keyring.ErrCandidateLimit), errors.Is(err, keyring.ErrHandleCollision), errors.Is(err, keyring.ErrDraining), errors.Is(err, keyring.ErrSecretTooLarge), errors.Is(err, keyring.ErrIncompleteGeneration), errors.Is(err, gitcredentials.ErrUnavailable):
+	case errors.As(err, &capability), errors.Is(err, keyring.ErrWorkLimit), errors.Is(err, keyring.ErrNoAuthority), errors.Is(err, keyring.ErrNotFound), errors.Is(err, keyring.ErrCandidateLimit), errors.Is(err, keyring.ErrHandleCollision), errors.Is(err, keyring.ErrDraining), errors.Is(err, keyring.ErrSecretTooLarge), errors.Is(err, keyring.ErrIncompleteGeneration), errors.Is(err, keyring.ErrCustodyUnavailable), errors.Is(err, gitcredentials.ErrUnavailable):
 		problem = contract.ProblemKeyringUnavailable
 	}
 	writeProblem(w, problem)
