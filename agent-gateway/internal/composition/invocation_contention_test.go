@@ -199,7 +199,7 @@ func TestIngressConcurrencyFourAuditWaitWorkload(t *testing.T) {
 				}
 			}
 			status := built.traffic.Status(ctx)
-			assert.False(t, status.Faulted)
+			assert.False(t, status.Faulted, "traffic=%+v incident=%+v", status, status.Incident)
 			if mode == "history-draining" {
 				assert.Empty(t, history.Records)
 				assert.EqualValues(t, 64, status.QuotaRefusals, "each start and terminal was discarded without losing execution")
