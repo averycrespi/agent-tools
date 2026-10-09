@@ -3,6 +3,8 @@ package httpca
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"io"
 	"strconv"
 	"sync"
@@ -145,7 +147,9 @@ func (s *Service) Replace(ctx context.Context, expected string) error {
 	if !s.mu.TryLock() {
 		return ErrUnavailable
 	}
-	defer s.mu.Unlock()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	var masking []string
+	defer func() { s.mu.Unlock(); finishCleanup(masking...); clear(masking) }()
 	var r record
 	if err := s.store.View(ctx, func(tx *sql.Tx) error { var err error; r, err = read(ctx, tx); return err }); err != nil {
 		return err
@@ -158,6 +162,12 @@ func (s *Service) Replace(ctx context.Context, expected string) error {
 		return err
 	}
 	defer clear(payload)
+	masking = append(masking, string(payload))
+	var generated envelope
+	if json.Unmarshal(payload, &generated) == nil {
+		masking = append(masking, string(generated.Key), base64.StdEncoding.EncodeToString(generated.Key))
+		clear(generated.Key)
+	}
 	if s.signer != nil {
 		s.signer.Close()
 		s.signer = nil

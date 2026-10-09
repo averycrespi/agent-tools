@@ -13,6 +13,23 @@ func protocolPredicate(public error, operation, facts string, values ...any) err
 	return diagnostics.WithDetail(public, diagnostics.Detail{Component: "oauth", Operation: operation, Explanation: public.Error() + "; " + fmt.Sprintf(facts, values...)})
 }
 
+type identifierFailure struct {
+	cause   error
+	role    string
+	ordinal int
+}
+
+func (failure *identifierFailure) Error() string { return failure.cause.Error() }
+func (failure *identifierFailure) Unwrap() error { return failure.cause }
+func (failure *identifierFailure) OperatorDetail() diagnostics.Detail {
+	detail := diagnostics.Snapshot("oauth", "validate metadata URL", "", failure.cause)
+	detail.Explanation = fmt.Sprintf("role=%s ordinal=%d; %s", failure.role, failure.ordinal, detail.Explanation)
+	return detail
+}
+func identifierContext(cause error, role string, ordinal int) error {
+	return &identifierFailure{cause: cause, role: role, ordinal: ordinal}
+}
+
 type metadataContextFailure struct {
 	cause           error
 	role, authority string

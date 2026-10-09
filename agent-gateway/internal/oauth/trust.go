@@ -115,7 +115,7 @@ func (fetch remoteFetcher) Fetch(ctx context.Context, rawURL string, trusted boo
 func (resolver *Resolver) Discover(ctx context.Context, input Input) (Graph, error) {
 	resourceURL, err := parseIdentifier(input.Resource, false)
 	if err != nil {
-		return Graph{}, ErrTrustRejected
+		return Graph{}, identifierContext(err, "resource", 0)
 	}
 	trusted, err := trustedOriginSet(input.TrustedOrigins)
 	if err != nil {
@@ -134,7 +134,7 @@ func (resolver *Resolver) Discover(ctx context.Context, input Input) (Graph, err
 	}
 	issuerURL, err := parseIdentifier(issuer, false)
 	if err != nil {
-		return Graph{}, ErrTrustRejected
+		return Graph{}, identifierContext(err, "selected_issuer", 0)
 	}
 	authorization, err := resolver.discoverAuthorization(ctx, issuerURL, trusted, input.AuthServerMetadataURL)
 	if err != nil {
@@ -143,16 +143,20 @@ func (resolver *Resolver) Discover(ctx context.Context, input Input) (Graph, err
 	if authorization.issuer != issuer || !contains(authorization.responseTypes, "code") || !contains(authorization.grantTypes, "authorization_code") || !contains(authorization.codeChallengeMethods, "S256") {
 		return Graph{}, protocolPredicate(ErrTrustRejected, "validate authorization metadata", "rule=authorization_metadata_contract issuer_matches=%t response_code_supported=%t authorization_code_supported=%t pkce_S256_supported=%t", authorization.issuer == issuer, contains(authorization.responseTypes, "code"), contains(authorization.grantTypes, "authorization_code"), contains(authorization.codeChallengeMethods, "S256"))
 	}
-	for _, endpoint := range []string{authorization.authorizationEndpoint, authorization.tokenEndpoint} {
-		if _, endpointErr := parseIdentifier(endpoint, true); endpointErr != nil {
-			return Graph{}, ErrTrustRejected
+	for _, endpoint := range []struct {
+		role, value string
+		optional    bool
+	}{
+		{"authorization_endpoint", authorization.authorizationEndpoint, false},
+		{"token_endpoint", authorization.tokenEndpoint, false},
+		{"registration_endpoint", authorization.registrationEndpoint, true},
+		{"revocation_endpoint", authorization.revocationEndpoint, true},
+	} {
+		if endpoint.optional && endpoint.value == "" {
+			continue
 		}
-	}
-	for _, endpoint := range []string{authorization.registrationEndpoint, authorization.revocationEndpoint} {
-		if endpoint != "" {
-			if _, endpointErr := parseIdentifier(endpoint, true); endpointErr != nil {
-				return Graph{}, ErrTrustRejected
-			}
+		if _, endpointErr := parseIdentifier(endpoint.value, true); endpointErr != nil {
+			return Graph{}, identifierContext(endpointErr, endpoint.role, 0)
 		}
 	}
 	return Graph{
@@ -175,7 +179,7 @@ func (resolver *Resolver) discoverProtected(ctx context.Context, input Input, re
 		}
 		metadataURL, err := parseIdentifier(input.ChallengeMetadata[0], true)
 		if err != nil {
-			return protectedMetadata{}, ErrTrustRejected
+			return protectedMetadata{}, identifierContext(err, "challenge_metadata", 1)
 		}
 		return resolver.fetchProtected(ctx, metadataURL.String(), input.Resource, isTrusted(metadataURL, trusted), false)
 	}
@@ -221,15 +225,18 @@ func (resolver *Resolver) fetchProtected(ctx context.Context, rawURL, expectedRe
 func (resolver *Resolver) discoverAuthorization(ctx context.Context, issuer *url.URL, trusted map[string]struct{}, override *string) (authorizationMetadata, error) {
 	urls := authorizationMetadataURLs(issuer)
 	if override != nil {
-		if _, err := parseIdentifier(*override, true); err != nil || strings.Contains(*override, "#") {
-			return authorizationMetadata{}, ErrTrustRejected
+		if _, err := parseIdentifier(*override, true); err != nil {
+			return authorizationMetadata{}, identifierContext(err, "authorization_metadata_override", 0)
+		}
+		if strings.Contains(*override, "#") {
+			return authorizationMetadata{}, identifierContext(protocolPredicate(ErrTrustRejected, "validate URL", "rule=fragment_absent"), "authorization_metadata_override", 0)
 		}
 		urls = []string{*override}
 	}
 	for index, rawURL := range urls {
 		location, err := parseIdentifier(rawURL, true)
 		if err != nil {
-			return authorizationMetadata{}, ErrTrustRejected
+			return authorizationMetadata{}, identifierContext(err, "authorization_metadata", index+1)
 		}
 		status, header, body, err := resolver.fetch.Fetch(ctx, rawURL, isTrusted(location, trusted))
 		if err != nil {
@@ -281,33 +288,54 @@ func trustedOriginSet(values []string) (map[string]struct{}, error) {
 
 func parseIdentifier(raw string, allowQuery bool) (*url.URL, error) {
 	if raw == "" || !utf8.ValidString(raw) || int64(len(raw)) > limit("oauth_url_bytes") {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=bounded_nonempty_utf8_url observed_bytes=%d allowed_bytes=%d valid_utf8=%t", len(raw), limit("oauth_url_bytes"), utf8.ValidString(raw))
 	}
 	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.Fragment != "" || (!allowQuery && parsed.RawQuery != "") || parsed.String() != raw || strings.ToLower(parsed.Hostname()) != parsed.Hostname() {
-		return nil, ErrTrustRejected
+	if err != nil {
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=url_syntax; parser input withheld")
 	}
-	if parsed.Port() == "443" {
-		return nil, ErrTrustRejected
+	rule := ""
+	switch {
+	case parsed.Scheme != "https":
+		rule = "https_scheme_required"
+	case parsed.Host == "":
+		rule = "host_required"
+	case parsed.Opaque != "":
+		rule = "hierarchical_url_required"
+	case parsed.User != nil:
+		rule = "userinfo_absent"
+	case parsed.Fragment != "":
+		rule = "fragment_absent"
+	case !allowQuery && parsed.RawQuery != "":
+		rule = "query_absent"
+	case parsed.String() != raw:
+		rule = "canonical_url_rendering"
+	case strings.ToLower(parsed.Hostname()) != parsed.Hostname():
+		rule = "lowercase_hostname"
+	case parsed.Port() == "443":
+		rule = "default_port_omitted"
+	}
+	if rule != "" {
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=%s", rule)
 	}
 	if parsed.Port() != "" {
 		port, portErr := strconv.ParseUint(parsed.Port(), 10, 16)
 		if portErr != nil || port == 0 {
-			return nil, ErrTrustRejected
+			return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=port_unsigned_16_nonzero allowed_min=1 allowed_max=65535")
 		}
 	}
 	if parsed.RawQuery != "" && int64(len(parsed.RawQuery)) > limit("oauth_query_bytes") {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=query_bytes observed_bytes=%d allowed_bytes=%d", len(parsed.RawQuery), limit("oauth_query_bytes"))
 	}
 	if parsed.Path != "" && path.Clean(parsed.Path) != parsed.Path {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=clean_path")
 	}
 	validationURL := *parsed
 	if validationURL.Path == "" {
 		validationURL.Path = "/"
 	}
 	if _, err := remote.Parse(validationURL.String(), remote.Policy{AllowQuery: allowQuery}); err != nil {
-		return nil, ErrTrustRejected
+		return nil, protocolPredicate(ErrTrustRejected, "validate URL", "rule=remote_host_and_endpoint_policy; URL contents withheld")
 	}
 	return parsed, nil
 }
@@ -357,10 +385,10 @@ func selectIssuer(values []string, desired *string, resourceOrigin string) (stri
 		return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=nonempty observed_count=0")
 	}
 	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
+	for index, value := range values {
 		parsed, err := parseIdentifier(value, false)
 		if err != nil {
-			return "", ErrTrustRejected
+			return "", identifierContext(err, "advertised_issuer", index+1)
 		}
 		if _, duplicate := seen[value]; duplicate {
 			return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=unique_issuers")
@@ -370,7 +398,7 @@ func selectIssuer(values []string, desired *string, resourceOrigin string) (stri
 	}
 	if desired != nil {
 		if _, err := parseIdentifier(*desired, false); err != nil {
-			return "", ErrTrustRejected
+			return "", identifierContext(err, "desired_issuer", 0)
 		}
 		if _, advertised := seen[*desired]; !advertised {
 			return "", protocolPredicate(ErrTrustRejected, "select issuer", "field=authorization_servers rule=pinned_issuer_advertised observed=false")

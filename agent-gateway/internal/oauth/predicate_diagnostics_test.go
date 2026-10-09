@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -33,6 +34,54 @@ func TestTokenPredicateReachesCallbackDefaultSinkWithoutReplay(t *testing.T) {
 		for _, secret := range []string{"token-canary", "state-canary", "code-canary", "verifier-value"} {
 			require.NotContains(t, output.String(), secret)
 		}
+	}
+}
+
+func TestMetadataURLPredicatesReachForegroundDefaultSink(t *testing.T) {
+	for _, test := range []struct {
+		field, value, role, rule string
+		requests                 int
+	}{
+		{"authorization_endpoint", "https://resource.example/authorize#actual-url-canary", "authorization_endpoint", "fragment_absent", 2},
+		{"token_endpoint", "http://resource.example/token?actual-url-canary", "token_endpoint", "https_scheme_required", 2},
+		{"registration_endpoint", "https://resource.example:70000/register?actual-url-canary", "registration_endpoint", "port_unsigned_16_nonzero", 2},
+		{"revocation_endpoint", "https://resource.example:0/revoke?actual-url-canary", "revocation_endpoint", "port_unsigned_16_nonzero", 2},
+		{"advertised_issuer", "https://resource.example/issuer#actual-url-canary", "advertised_issuer", "fragment_absent", 1},
+	} {
+		t.Run(test.field, func(t *testing.T) {
+			issuer := "https://resource.example/issuer"
+			var metadata map[string]any
+			require.NoError(t, json.Unmarshal([]byte(authorization(issuer)), &metadata))
+			metadata[test.field] = test.value
+			body, err := json.Marshal(metadata)
+			require.NoError(t, err)
+			advertised := issuer
+			if test.field == "advertised_issuer" {
+				advertised = test.value
+			}
+			fetch := &scriptedFetch{responses: map[string]fetchResponse{
+				"https://resource.example/.well-known/oauth-protected-resource/mcp":      {status: 200, body: protected("https://resource.example/mcp", advertised)},
+				"https://resource.example/.well-known/oauth-authorization-server/issuer": {status: 200, body: string(body)},
+			}}
+			store := &callbackFlowStore{flowStoreFake: flowStoreFake{created: flowCreateResult(contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})}}
+			service := newFlowService(store, newResolver(fetch), &flowRegistrarFake{}, zeroReader{}, "http://127.0.0.1:8210/oauth/callback", func() time.Time { return flowTime })
+			var output bytes.Buffer
+			adapter := diagnostics.New(&output, diagnostics.Warn)
+			t.Cleanup(func() { adapter.Finish(nil); <-adapter.Done() })
+			service.SetDiagnostics(adapter, nil)
+			_, err = service.Create(t.Context(), FlowRequest{ServerID: store.created.Flow.ServerID, ExpectedDesiredRevision: "1"})
+			require.Error(t, err)
+			service.Shutdown()
+			require.True(t, adapter.Finish(nil))
+			require.Len(t, fetch.requests, test.requests, "invalid metadata must not add fallback or endpoint dispatch")
+			require.Contains(t, output.String(), `"event":"oauth_failed"`)
+			require.Contains(t, output.String(), "role="+test.role)
+			require.Contains(t, output.String(), "rule="+test.rule)
+			require.NotContains(t, output.String(), "actual-url-canary")
+			if test.field == "advertised_issuer" {
+				require.Contains(t, output.String(), "ordinal=1")
+			}
+		})
 	}
 }
 

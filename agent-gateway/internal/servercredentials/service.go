@@ -57,6 +57,16 @@ func (service *Service) Prepare(ctx context.Context, request servers.CredentialR
 
 func (service *Service) Replace(ctx context.Context, plan servers.CredentialReplacementPlan, secret []byte) (servers.CredentialReplacementPublication, error) {
 	defer clear(secret)
+	masking := []string{string(secret)}
+	if plan.Fence.Kind == contract.ServerCredentialStatic {
+		if generation, err := DecodeStaticGeneration(secret); err == nil {
+			for _, value := range generation.Values {
+				masking = append(masking, value)
+			}
+		}
+	}
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { finishCleanup(masking...); clear(masking) }()
 	recordKind := keyring.RecordStaticCredential
 	if plan.Fence.Kind == contract.ServerCredentialOAuthClient {
 		recordKind = keyring.RecordOAuthClient

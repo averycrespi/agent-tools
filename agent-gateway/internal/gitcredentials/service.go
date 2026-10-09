@@ -197,7 +197,8 @@ func (s *Service) Create(ctx context.Context, def contract.GitCredentialDefiniti
 	if !s.acquire() {
 		return contract.GitCredential{}, ErrUnavailable
 	}
-	defer s.release()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.release(); finishCleanup(string(secret)) }()
 	def, err := Normalize(def)
 	if err != nil || !contract.ValidHTTPCredentialSecret(def.Recipe, secret) {
 		return contract.GitCredential{}, ErrInvalid
@@ -278,7 +279,8 @@ func (s *Service) Rotate(ctx context.Context, id, revision string, secret []byte
 	if !s.acquire() {
 		return contract.GitCredential{}, ErrUnavailable
 	}
-	defer s.release()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.release(); finishCleanup(string(secret)) }()
 	return s.rotate(ctx, id, revision, secret)
 }
 func (s *Service) rotate(ctx context.Context, id, revision string, secret []byte) (contract.GitCredential, error) {
@@ -312,7 +314,8 @@ func (s *Service) Delete(ctx context.Context, id, revision string) error {
 	if !s.acquire() {
 		return ErrUnavailable
 	}
-	defer s.release()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.release(); finishCleanup() }()
 	ns, err := keyring.NewNamespace(s.installationID, id, keyring.RecordGitCredential)
 	if err != nil {
 		return ErrInvalid

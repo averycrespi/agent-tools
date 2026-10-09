@@ -49,7 +49,8 @@ func (s *Service) Create(ctx context.Context, def Definition, secret []byte) (Re
 	if !s.acquireMutation() {
 		return Resource{}, ErrUnavailable
 	}
-	defer s.releaseMutation()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.releaseMutation(); finishCleanup(string(secret)) }()
 	canonical, err := Normalize(def)
 	if err != nil || !contract.ValidHTTPCredentialSecret(canonical.Recipe, secret) {
 		return Resource{}, ErrInvalid
@@ -66,7 +67,8 @@ func (s *Service) Rotate(ctx context.Context, id, revision string, secret []byte
 	if !s.acquireMutation() {
 		return Resource{}, ErrUnavailable
 	}
-	defer s.releaseMutation()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.releaseMutation(); finishCleanup(string(secret)) }()
 	return s.rotate(ctx, id, revision, secret)
 }
 
@@ -104,7 +106,8 @@ func (s *Service) Delete(ctx context.Context, id, revision string) error {
 	if !s.acquireMutation() {
 		return ErrUnavailable
 	}
-	defer s.releaseMutation()
+	ctx, finishCleanup := keyring.DeferCleanupDiagnostics(ctx)
+	defer func() { s.releaseMutation(); finishCleanup() }()
 	namespace, err := keyring.NewNamespace(s.installationID, id, keyring.RecordHTTPCredential)
 	if err != nil {
 		return ErrInvalid
