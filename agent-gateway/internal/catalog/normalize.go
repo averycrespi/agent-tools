@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 	"github.com/gowebpki/jcs"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -52,11 +53,13 @@ type NormalizedTool struct {
 }
 
 type NormalizedCandidate struct {
-	Tools    []NormalizedTool
-	Issues   []IssueClass
-	RawCount int64
-	Pages    int64
-	Bytes    int64
+	Rejections    []Rejection
+	RejectedNames map[string]struct{}
+	Tools         []NormalizedTool
+	Issues        []IssueClass
+	RawCount      int64
+	Pages         int64
+	Bytes         int64
 }
 
 type NormalizeOptions struct {
@@ -65,11 +68,16 @@ type NormalizeOptions struct {
 }
 
 func NormalizeCandidate(candidate Candidate, options NormalizeOptions) NormalizedCandidate {
-	result := NormalizedCandidate{Tools: make([]NormalizedTool, 0, len(candidate.Tools)), Issues: append([]IssueClass(nil), candidate.Issues...), RawCount: candidate.RawCount, Pages: candidate.Pages, Bytes: candidate.Bytes}
+	result := NormalizedCandidate{Rejections: append([]Rejection(nil), candidate.Rejections...), RejectedNames: make(map[string]struct{}), Tools: make([]NormalizedTool, 0, len(candidate.Tools)), Issues: append([]IssueClass(nil), candidate.Issues...), RawCount: candidate.RawCount, Pages: candidate.Pages, Bytes: candidate.Bytes}
 	for _, raw := range candidate.Tools {
 		normalized, err := NormalizeTool(raw, options)
 		if err != nil {
 			result.Issues = append(result.Issues, IssueDescriptorInvalid)
+			result.RejectedNames[raw.UpstreamName] = struct{}{}
+			if len(result.Rejections) < rejectionSamples {
+				detail := diagnostics.Snapshot("catalog", "normalize descriptor", "", err)
+				result.Rejections = append(result.Rejections, Rejection{Page: raw.Page, Item: raw.Item, Name: raw.UpstreamName, Rule: detail.Explanation})
+			}
 			continue
 		}
 		result.Tools = append(result.Tools, normalized)
@@ -79,41 +87,41 @@ func NormalizeCandidate(candidate Candidate, options NormalizeOptions) Normalize
 
 func NormalizeTool(tool RawTool, options NormalizeOptions) (NormalizedTool, error) {
 	if options.ServerID == "" || tool.UpstreamName == "" || tool.ExternalName == "" || !utf8.Valid(tool.Descriptor) || int64(len(tool.Descriptor)) > fixedLimit("tool_descriptor_bytes") {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, predicate(ErrDescriptorInvalid, "rule=descriptor_identity_utf8_size observed_bytes=%d allowed_bytes=%d", len(tool.Descriptor), fixedLimit("tool_descriptor_bytes"))
 	}
 	var object map[string]json.RawMessage
 	if strictjson.Decode(tool.Descriptor, &object, strictjson.Options{MaxBytes: fixedLimit("tool_descriptor_bytes"), MaxDepth: 64}) != nil || object == nil {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, predicate(ErrDescriptorInvalid, "rule=descriptor_unique_member_object_depth_64")
 	}
 	name, err := requiredString(object, "name", fixedLimit("tool_name_bytes"), false)
 	if err != nil || name != tool.UpstreamName || !validToolName(name) {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, predicate(ErrDescriptorInvalid, "field=name rule=matching_bounded_tool_identifier")
 	}
 	title, err := optionalString(object, "title", fixedLimit("tool_title_bytes"))
 	if err != nil {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, err
 	}
 	description, err := optionalString(object, "description", fixedLimit("tool_description_bytes"))
 	if err != nil {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, err
 	}
 	inputRaw, exists := object["inputSchema"]
 	if !exists {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, predicate(ErrDescriptorInvalid, "field=inputSchema rule=required")
 	}
 	outputRaw := object["outputSchema"]
 	if int64(len(inputRaw)+len(outputRaw)) > fixedLimit("tool_schema_bytes") {
-		return NormalizedTool{}, ErrDescriptorInvalid
+		return NormalizedTool{}, predicate(ErrDescriptorInvalid, "rule=tool_schema_bytes observed=%d allowed=%d", len(inputRaw)+len(outputRaw), fixedLimit("tool_schema_bytes"))
 	}
 	input, inputBindings, err := normalizeSchema(inputRaw, options.AllowHeaderBindings)
 	if err != nil {
-		return NormalizedTool{}, err
+		return NormalizedTool{}, predicate(err, "field=inputSchema")
 	}
 	var output json.RawMessage
 	if len(outputRaw) != 0 {
 		output, _, err = normalizeJSONSchema(outputRaw, false, false)
 		if err != nil {
-			return NormalizedTool{}, err
+			return NormalizedTool{}, predicate(err, "field=outputSchema")
 		}
 	}
 	annotations, err := normalizeAnnotations(object["annotations"])
@@ -139,20 +147,23 @@ func normalizeSchema(raw json.RawMessage, allowHeaders bool) (json.RawMessage, [
 
 func normalizeJSONSchema(raw json.RawMessage, allowHeaders, requireObjectType bool) (json.RawMessage, []HeaderBinding, error) {
 	if len(raw) == 0 || !utf8.Valid(raw) {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, predicate(ErrDescriptorInvalid, "rule=nonempty_utf8_schema")
 	}
 	var value any
 	if err := decodeNumbered(raw, &value); err != nil {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, predicate(ErrDescriptorInvalid, "rule=unique_member_schema_json_depth_64")
 	}
 	object, ok := value.(map[string]any)
 	// MCP output schemas are schema objects, but may describe any JSON value.
 	// Only input schemas must explicitly describe an object.
-	if !ok || (requireObjectType && object["type"] != "object") {
-		return nil, nil, ErrDescriptorInvalid
+	if !ok {
+		return nil, nil, predicate(ErrDescriptorInvalid, "rule=schema_object_required observed=%s expected=object", jsonKind(value))
+	}
+	if requireObjectType && object["type"] != "object" {
+		return nil, nil, predicate(ErrDescriptorInvalid, "keyword=type rule=input_object_type_required observed_kind=%s expected=object", jsonKind(object["type"]))
 	}
 	if dialect, exists := object["$schema"]; exists && dialect != schema2020 {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, predicate(ErrDescriptorInvalid, "keyword=$schema rule=draft_2020_12_required observed_kind=%s", jsonKind(dialect))
 	}
 	if err := validateReferences(value); err != nil {
 		return nil, nil, err
@@ -163,24 +174,24 @@ func normalizeJSONSchema(raw json.RawMessage, allowHeaders, requireObjectType bo
 		return nil, nil, err
 	}
 	if int64(len(bindings)) > fixedLimit("request_header_count") {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, predicate(ErrDescriptorInvalid, "rule=request_header_count observed=%d allowed=%d", len(bindings), fixedLimit("request_header_count"))
 	}
 	headerBytes := int64(0)
 	for _, binding := range bindings {
 		headerBytes += int64(len("Mcp-Param-") + len(binding.Header))
 	}
 	if headerBytes > fixedLimit("request_header_bytes") {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, predicate(ErrDescriptorInvalid, "rule=request_header_bytes observed=%d allowed=%d", headerBytes, fixedLimit("request_header_bytes"))
 	}
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
 	compiler.UseLoader(rejectingLoader{})
 	const location = "urn:mcp-gateway:schema"
 	if err := compiler.AddResource(location, value); err != nil {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, schemaCompilerFailure(err)
 	}
 	if _, err := compiler.Compile(location); err != nil {
-		return nil, nil, ErrDescriptorInvalid
+		return nil, nil, schemaCompilerFailure(err)
 	}
 	canonical, err := jcs.Transform(raw)
 	if err != nil {
@@ -217,10 +228,10 @@ func validateReferences(value any) error {
 			case "$ref":
 				reference, ok := member.(string)
 				if !ok || !strings.HasPrefix(reference, "#") {
-					return ErrDescriptorInvalid
+					return predicate(ErrDescriptorInvalid, "keyword=$ref rule=local_fragment_required observed_kind=%s", jsonKind(member))
 				}
 			case "$dynamicRef", "$recursiveRef":
-				return ErrDescriptorInvalid
+				return predicate(ErrDescriptorInvalid, "keyword=%s rule=unsupported_reference", key)
 			}
 			if err := validateReferences(member); err != nil {
 				return err
@@ -243,11 +254,20 @@ func collectHeaderBindings(value any, path []string, property, allow bool, seen 
 			header, ok := headerValue.(string)
 			kind, kindOK := headerKind(current["type"])
 			normalized := strings.ToLower(header)
-			if !allow || !property || !ok || !validHeaderName(header) || !kindOK {
-				return ErrDescriptorInvalid
+			if !allow {
+				return predicate(ErrDescriptorInvalid, "keyword=x-mcp-header rule=header_binding_requires_modern_http")
+			}
+			if !property {
+				return predicate(ErrDescriptorInvalid, "keyword=x-mcp-header rule=property_position_required")
+			}
+			if !ok || !validHeaderName(header) {
+				return predicate(ErrDescriptorInvalid, "keyword=x-mcp-header rule=header_token_required observed_kind=%s", jsonKind(headerValue))
+			}
+			if !kindOK {
+				return predicate(ErrDescriptorInvalid, "keyword=type rule=header_string_boolean_integer_required observed_kind=%s", jsonKind(current["type"]))
 			}
 			if _, duplicate := seen[normalized]; duplicate {
-				return ErrDescriptorInvalid
+				return predicate(ErrDescriptorInvalid, "keyword=x-mcp-header rule=case_insensitive_unique_header")
 			}
 			seen[normalized] = struct{}{}
 			*bindings = append(*bindings, HeaderBinding{Path: append([]string(nil), path...), Header: header, Kind: kind})
@@ -440,11 +460,14 @@ func normalizeAnnotations(raw json.RawMessage) (contract.NormalizedToolAnnotatio
 func requiredString(object map[string]json.RawMessage, key string, maximum int64, empty bool) (string, error) {
 	raw, exists := object[key]
 	if !exists {
-		return "", ErrDescriptorInvalid
+		return "", predicate(ErrDescriptorInvalid, "field=%s rule=required", key)
 	}
 	var value string
-	if json.Unmarshal(raw, &value) != nil || !utf8.ValidString(value) || int64(len(value)) > maximum || !empty && value == "" {
-		return "", ErrDescriptorInvalid
+	if json.Unmarshal(raw, &value) != nil || !utf8.ValidString(value) {
+		return "", predicate(ErrDescriptorInvalid, "field=%s rule=utf8_string", key)
+	}
+	if int64(len(value)) > maximum || !empty && value == "" {
+		return "", predicate(ErrDescriptorInvalid, "field=%s rule=string_length observed_bytes=%d allowed_bytes=%d empty_allowed=%t", key, len(value), maximum, empty)
 	}
 	return value, nil
 }
@@ -455,7 +478,7 @@ func optionalString(object map[string]json.RawMessage, key string, maximum int64
 		return nil, nil
 	}
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, ErrDescriptorInvalid
+		return nil, predicate(ErrDescriptorInvalid, "field=%s rule=string_required observed=null", key)
 	}
 	value, err := requiredString(object, key, maximum, true)
 	if err != nil {

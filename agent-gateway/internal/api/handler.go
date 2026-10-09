@@ -24,6 +24,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpboundary"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/oauth"
@@ -89,6 +90,7 @@ type RuntimeStatus struct {
 }
 
 type Options struct {
+	Diagnostics              diagnostics.HTTPProxyObserver
 	AuthorizationCollections AuthorizationCollectionService
 
 	InstallationID   string
@@ -127,6 +129,7 @@ type Options struct {
 }
 
 type Handler struct {
+	diagnostics             diagnostics.HTTPProxyObserver
 	inventoryEpoch          string
 	installationID          string
 	credentials             CredentialService
@@ -209,7 +212,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{diagnostics: options.Diagnostics, inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -789,6 +792,7 @@ func (handler *Handler) listBackups(writer http.ResponseWriter, request *http.Re
 	}
 	items, err := handler.backups.List(request.Context())
 	if err != nil {
+		handler.observeLocalFailure("list backup inventory", "", "inventory unavailable; preserve artifacts", err)
 		writeServiceError(writer, err)
 		return
 	}
@@ -821,6 +825,7 @@ func (handler *Handler) createBackup(writer http.ResponseWriter, request *http.R
 	}
 	item, replay, err := handler.backups.Create(request.Context(), authenticated.credential.ID, key)
 	if err != nil {
+		handler.observeLocalFailure("create backup", "", "inspect publication before retry", err, key)
 		writeServiceError(writer, err)
 		return
 	}
@@ -841,6 +846,7 @@ func (handler *Handler) getBackup(writer http.ResponseWriter, request *http.Requ
 	}
 	item, err := handler.backups.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v2/backups/"))
 	if err != nil {
+		handler.observeLocalFailure("get backup", "", "verification failed; preserve artifact", err)
 		writeServiceError(writer, err)
 		return
 	}
@@ -853,6 +859,7 @@ func (handler *Handler) deleteBackup(writer http.ResponseWriter, request *http.R
 	}
 	id := strings.TrimPrefix(request.URL.Path, "/api/v2/backups/")
 	if err := handler.backups.Delete(request.Context(), id); err != nil {
+		handler.observeLocalFailure("delete backup", id, "inspect removal before retry", err)
 		writeServiceError(writer, err)
 		return
 	}

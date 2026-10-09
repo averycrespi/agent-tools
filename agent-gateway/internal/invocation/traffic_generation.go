@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
@@ -40,7 +41,7 @@ func openTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, install
 	return openTrafficStage(ctx, ownership, installation, generation, config, create, fault, nil)
 }
 
-func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error, populate func(context.Context, *sql.DB) error) (*TrafficStore, error) {
+func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error, populate func(context.Context, *sql.DB) error) (result *TrafficStore, resultErr error) {
 	if ownership == nil || !validOpaqueInvocationID(installation) || !validOpaqueInvocationID(generation) || !config.valid() {
 		return nil, ErrInvalidInput
 	}
@@ -49,6 +50,14 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 		return nil, err
 	}
 	path := filepath.Join(layout.Root, "traffic-"+generation+".db")
+	defer func() {
+		if resultErr != nil {
+			detail := diagnostics.Snapshot("traffic", "open generation", path, resultErr)
+			detail.Explanation = "generation=" + generation + "; " + detail.Explanation
+			detail.Effect = "history unavailable; preserve rejected artifacts"
+			resultErr = diagnostics.WithDetail(resultErr, detail)
+		}
+	}()
 	trafficOwners.Lock()
 	if trafficOwners.paths[layout.Root] {
 		trafficOwners.Unlock()
@@ -145,7 +154,7 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 	var journal string
 	err = readers.QueryRowContext(ctx, `PRAGMA journal_mode`).Scan(&journal)
 	if err == nil && journal != "wal" {
-		err = ErrInvalidState
+		err = trafficPredicate("journal_mode", "matches=false expected=wal")
 	}
 	if err == nil {
 		err = s.validateTrafficContents(ctx, installation, generation)
@@ -249,7 +258,7 @@ func trafficFiles(path string, c TrafficConfig) error {
 			return err
 		}
 		if info.Size() != 0 {
-			return ErrInvalidState
+			return trafficPredicate("rollback_journal_bytes", fmt.Sprintf("observed=%d allowed=0", info.Size()))
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
@@ -275,17 +284,17 @@ func trafficFiles(path string, c TrafficConfig) error {
 		}
 		if suffix == "-shm" {
 			if info.Size() > 16<<20 {
-				return ErrInvalidState
+				return trafficPredicate("shm_bytes", fmt.Sprintf("observed=%d allowed=%d", info.Size(), 16<<20))
 			}
 			continue
 		}
 		total += info.Size()
 		if suffix == "" && info.Size() > trafficPages(c)*trafficPageSize {
-			return ErrInvalidState
+			return trafficPredicate("database_partition_bytes", fmt.Sprintf("observed=%d allowed=%d", info.Size(), trafficPages(c)*trafficPageSize))
 		}
 	}
 	if total > c.BudgetBytes {
-		return ErrInvalidState
+		return trafficPredicate("total_file_bytes", fmt.Sprintf("observed=%d allowed=%d", total, c.BudgetBytes))
 	}
 	return nil
 }
@@ -358,8 +367,24 @@ func (s *TrafficStore) validateTrafficSettings(ctx context.Context) error {
 	if err := s.db.QueryRowContext(ctx, `PRAGMA wal_autocheckpoint`).Scan(&auto); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || (version < 1 || version > 3) || pageSize != trafficPageSize || maxPages != trafficPages(s.config) || syncMode != 2 || busy != 50 || spill != 0 || auto <= 0 || foreign != 1 || journal != "wal" {
-		return ErrInvalidState
+	for _, setting := range []struct {
+		name               string
+		observed, expected int64
+	}{
+		{"application_id", app, trafficApplicationID}, {"page_size", pageSize, trafficPageSize}, {"max_page_count", maxPages, trafficPages(s.config)}, {"synchronous", syncMode, 2}, {"busy_timeout", busy, 50}, {"cache_spill", spill, 0}, {"foreign_keys", foreign, 1},
+	} {
+		if setting.observed != setting.expected {
+			return trafficPredicate(setting.name, fmt.Sprintf("observed=%d expected=%d", setting.observed, setting.expected))
+		}
+	}
+	if version < 1 || version > 3 {
+		return trafficPredicate("schema_version", fmt.Sprintf("observed=%d allowed=1..3", version))
+	}
+	if auto <= 0 {
+		return trafficPredicate("wal_autocheckpoint", fmt.Sprintf("observed=%d expected=positive", auto))
+	}
+	if journal != "wal" {
+		return trafficPredicate("journal_mode", "matches=false expected=wal")
 	}
 	return nil
 }
@@ -367,7 +392,7 @@ func (s *TrafficStore) validateTrafficSettings(ctx context.Context) error {
 func (s *TrafficStore) validateTrafficSchema(ctx context.Context, version int) error {
 	ddl := storage.TrafficSchemaVersion(version)
 	if ddl == "" {
-		return ErrInvalidState
+		return trafficPredicate("schema_version", fmt.Sprintf("observed=%d allowed=1..3", version))
 	}
 	expected := map[string]bool{}
 	for _, ddl := range strings.Split(strings.TrimSpace(ddl), "\n\n") {
@@ -384,7 +409,7 @@ func (s *TrafficStore) validateTrafficSchema(ctx context.Context, version int) e
 		}
 		key := strings.Join(strings.Fields(ddl), " ")
 		if !expected[key] {
-			err = ErrInvalidState
+			err = trafficPredicate("schema_definition", "matches=false expected=exact_versioned_definition actual_ddl=withheld")
 			break
 		}
 		delete(expected, key)
@@ -394,7 +419,7 @@ func (s *TrafficStore) validateTrafficSchema(ctx context.Context, version int) e
 		return err
 	}
 	if len(expected) != 0 {
-		return ErrInvalidState
+		return trafficPredicate("schema_completeness", fmt.Sprintf("missing_definitions=%d expected_missing=0", len(expected)))
 	}
 	return nil
 }
@@ -413,7 +438,7 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 		return err
 	}
 	if installation != storedInstallation || generation != storedGeneration || count > s.config.RetainedRecords || bytes > s.retentionBytes() || high < 0 || pruning < 0 || pruning > high {
-		return ErrInvalidState
+		return trafficPredicate("metadata_binding_and_bounds", fmt.Sprintf("installation_matches=%t generation_matches=%t records=%d allowed_records=%d bytes=%d allowed_bytes=%d high_water=%d pruning=%d expected=bound_identity_and_retention_with_0<=pruning<=high_water", installation == storedInstallation, generation == storedGeneration, count, s.config.RetainedRecords, bytes, s.retentionBytes(), high, pruning))
 	}
 	validationSelect := strings.Replace(invocationSelect, "FROM invocations", ", (SELECT bytes FROM traffic_sizes WHERE id=invocations.id) FROM invocations", 1)
 	rows, err := s.db.QueryContext(ctx, validationSelect+` ORDER BY insertion_sequence LIMIT ?`, s.config.RetainedRecords+1)
@@ -429,14 +454,14 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 			break
 		}
 		if actualCount >= s.config.RetainedRecords || record.Sequence <= previous || record.Sequence > high || !validStoredInvocation(record) {
-			err = ErrInvalidState
+			err = trafficPredicate("mcp_row", fmt.Sprintf("ordinal=%d sequence=%d previous=%d high_water=%d allowed_records=%d valid_record=%t expected=valid_record_with_increasing_bounded_sequence", actualCount+1, record.Sequence, previous, high, s.config.RetainedRecords, validStoredInvocation(record)))
 			break
 		}
 		envelope, details, _ := storedEvidence(record)
 		p := PreparedAdmission{Identity: envelope.Identity, admission: Admission{Admission: envelope.Admission, MCP: details}}
 		charge := trafficCharge(p)
 		if storedCharge != charge {
-			err = ErrInvalidState
+			err = trafficPredicate("mcp_row_charge", fmt.Sprintf("ordinal=%d observed=%d expected=%d", actualCount+1, storedCharge, charge))
 			break
 		}
 		actualCount++
@@ -465,21 +490,21 @@ func (s *TrafficStore) validateTrafficEvidence(ctx context.Context, installation
 		actualBytes += gitBytes
 	}
 	if actualCount != count || actualBytes != bytes {
-		return ErrInvalidState
+		return trafficPredicate("retention_accounting", fmt.Sprintf("observed_records=%d expected_records=%d observed_bytes=%d expected_bytes=%d", actualCount, count, actualBytes, bytes))
 	}
 	var sizeCount int64
 	if err = s.db.QueryRowContext(ctx, `SELECT count(*) FROM (SELECT 1 FROM traffic_sizes LIMIT ?)`, s.config.RetainedRecords+1).Scan(&sizeCount); err != nil {
 		return err
 	}
 	if sizeCount != mcpCount {
-		return ErrInvalidState
+		return trafficPredicate("charge_row_count", fmt.Sprintf("observed=%d expected=%d", sizeCount, mcpCount))
 	}
 	var sequence int64
 	if err = s.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name='invocations'),0)`).Scan(&sequence); err != nil {
 		return err
 	}
 	if sequence != high || high-count != pruning {
-		return ErrInvalidState
+		return trafficPredicate("sequence_and_pruning", fmt.Sprintf("observed_sequence=%d expected_sequence=%d observed_pruning=%d expected_pruning=%d", sequence, high, pruning, high-count))
 	}
 	return trafficFiles(s.path, s.config)
 }

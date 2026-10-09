@@ -7,13 +7,14 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
 func (s *TrafficStore) ObserveGit(a contract.GitTrafficAdmission) *TrafficObservation {
 	encoded, err := encodeGitAdmission(a)
 	if err != nil {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, false)
 		return nil
 	}
 	observation := &TrafficObservation{prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: a.ID, AdmittedAt: a.AdmittedAt}}, gitAdmission: encoded, bytes: gitTrafficChargeBase + int64(len(encoded))}
@@ -23,12 +24,12 @@ func (s *TrafficStore) ObserveGit(a contract.GitTrafficAdmission) *TrafficObserv
 func (s *TrafficStore) ObserveGitCompletion(observation *TrafficObservation, c contract.GitTrafficCompletion) error {
 	var a contract.GitTrafficAdmission
 	if observation == nil || observation.gitAdmission == "" || observation.httpAdmission != "" || strictjson.Decode([]byte(observation.gitAdmission), &a, strictjson.Options{MaxBytes: contract.GitTrafficAdmissionBytes, MaxDepth: 4, RejectUnknownMembers: true}) != nil {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, true)
 		return ErrInvalidInput
 	}
 	encoded, err := encodeGitCompletion(a, c)
 	if err != nil {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, true)
 		return err
 	}
 	return s.enqueueObservation(&trafficRequest{observation: *observation, gitCompletion: encoded, bytes: observation.bytes + maxTrafficCompletionBytes})

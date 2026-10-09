@@ -43,7 +43,7 @@ func renderDoctorChecks(result doctorResult, verbose bool) string {
 		}
 		line := fmt.Sprintf("%-18s %-12s %s", label, state, controlclient.TerminalSafePath(path))
 		out.WriteString(strings.TrimRight(line, " ") + "\n")
-		if verbose || check.State == "failed" || check.State == "not-ready" {
+		if verbose || check.State == "failed" || check.State == "not-ready" || check.State == "unavailable" || check.State == "not-checked" && check.Next != "" {
 			fmt.Fprintf(&out, "  %s\n", check.Detail)
 		}
 		if check.Next != "" && !shownActions[check.Next] {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -86,8 +87,17 @@ func (s *TrafficStore) validateTrafficContents(ctx context.Context, installation
 	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
 		return err
 	}
-	if app != trafficApplicationID || (version < 1 || version > 3) || pageSize != trafficPageSize || integrity != "ok" {
-		return ErrInvalidState
+	if app != trafficApplicationID {
+		return trafficPredicate("application_id", fmt.Sprintf("observed=%d expected=%d", app, trafficApplicationID))
+	}
+	if version < 1 || version > 3 {
+		return trafficPredicate("schema_version", fmt.Sprintf("observed=%d allowed=1..3", version))
+	}
+	if pageSize != trafficPageSize {
+		return trafficPredicate("page_size", fmt.Sprintf("observed=%d expected=%d", pageSize, trafficPageSize))
+	}
+	if integrity != "ok" {
+		return trafficPredicate("integrity_check", "matches=false expected=ok actual_details=withheld")
 	}
 	return s.validateTrafficEvidence(ctx, installation, generation)
 }

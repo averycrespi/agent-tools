@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -81,53 +82,71 @@ func (manager *Manager) AccountingStatus(ctx context.Context) (records, idempote
 	return records, idempotency, nil
 }
 
-func readAccountingMetadata(directory *os.File, id string) (artifactMetadata, error) {
+func readAccountingMetadata(directory *os.File, id string) (result artifactMetadata, resultErr error) {
 	root, err := openAccountingChildDirectory(directory, id)
 	if err != nil {
 		return artifactMetadata{}, err
 	}
-	defer func() { _ = root.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, root.Close()) }()
 	file, err := openAccountingFile(root, metadataFile)
 	if err != nil {
 		return artifactMetadata{}, err
 	}
-	defer func() { _ = file.Close() }()
+	defer func() { resultErr = errors.Join(resultErr, file.Close()) }()
 	var metadata artifactMetadata
-	if err := strictjson.DecodeReader(file, &metadata, strictjson.Options{MaxBytes: 8192, MaxDepth: 2, RejectUnknownMembers: true}); err != nil {
+	raw, err := io.ReadAll(io.LimitReader(file, 8193))
+	if err != nil {
 		return artifactMetadata{}, err
+	}
+	if len(raw) > 8192 {
+		return artifactMetadata{}, artifactPredicate("metadata_bytes", fmt.Sprintf("observed_prefix_bytes=%d allowed_bytes=8192", len(raw)))
+	}
+	if err := strictjson.Decode(raw, &metadata, strictjson.Options{MaxBytes: 8192, MaxDepth: 2, RejectUnknownMembers: true}); err != nil {
+		return artifactMetadata{}, artifactPredicate("metadata_json", "expected=closed_unique_object_with_declared_types allowed_depth=2 malformed_details=withheld")
 	}
 	controlLimit, _ := contract.FixedLimitByName("database_bytes")
 	if metadata.SizeBytes > controlLimit.Maximum {
-		return artifactMetadata{}, ErrInvalidArtifact
+		return artifactMetadata{}, artifactPredicate("metadata_database_bytes", fmt.Sprintf("observed=%d allowed=%d", metadata.SizeBytes, controlLimit.Maximum))
 	}
-	if metadata.ID != id || !backupIDPattern.MatchString(metadata.InstallationID) || !accountingDigest(metadata.SHA256) || !accountingDigest(metadata.AuthorityHash) || !accountingDigest(metadata.KeyHash) || !accountingDigest(metadata.InputHash) || metadata.SizeBytes <= 0 {
-		return artifactMetadata{}, ErrInvalidArtifact
+	if metadata.ID != id {
+		return artifactMetadata{}, artifactPredicate("metadata_artifact_identity", "matches=false expected=directory_ID")
+	}
+	if !backupIDPattern.MatchString(metadata.InstallationID) {
+		return artifactMetadata{}, artifactPredicate("metadata_installation", "expected=installation_ID observed=invalid")
+	}
+	for _, field := range []struct{ name, value string }{{"sha256", metadata.SHA256}, {"authority_hash", metadata.AuthorityHash}, {"key_hash", metadata.KeyHash}, {"input_hash", metadata.InputHash}} {
+		if !accountingDigest(field.value) {
+			return artifactMetadata{}, artifactPredicate("metadata_digest", "field="+field.name+" expected=32_byte_hex observed=invalid")
+		}
+	}
+	if metadata.SizeBytes <= 0 {
+		return artifactMetadata{}, artifactPredicate("metadata_database_bytes", fmt.Sprintf("observed=%d expected=positive", metadata.SizeBytes))
 	}
 	schema, err := strconv.ParseUint(metadata.SchemaVersion, 10, 64)
 	if err != nil || schema == 0 {
-		return artifactMetadata{}, ErrInvalidArtifact
+		return artifactMetadata{}, artifactPredicate("metadata_schema_version", "expected=positive_uint64_decimal observed=invalid")
 	}
 	if _, err := strconv.ParseUint(metadata.SourceRevision, 10, 64); err != nil {
-		return artifactMetadata{}, ErrInvalidArtifact
+		return artifactMetadata{}, artifactPredicate("metadata_source_revision", "expected=uint64_decimal observed=invalid")
 	}
 	if (metadata.Format == 4 && !accountingDigest(metadata.MasterKeyID)) || (metadata.Format != 4 && metadata.MasterKeyID != "") {
-		return artifactMetadata{}, ErrInvalidArtifact
+		return artifactMetadata{}, artifactPredicate("metadata_master_key", "expected=hex_identity_only_for_format_4 observed=invalid")
 	}
 	switch metadata.Format {
 	case 3, 4:
 		if metadata.History != "omitted" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
-			return artifactMetadata{}, ErrInvalidArtifact
+			return artifactMetadata{}, artifactPredicate("metadata_history", "expected=omitted_without_traffic_fields")
 		}
 	case 0:
 		if metadata.History != "" || metadata.TrafficGeneration != "" || metadata.TrafficSHA256 != "" || metadata.TrafficSizeBytes != 0 || metadata.TrafficBudgetBytes != 0 {
-			return artifactMetadata{}, ErrInvalidArtifact
+			return artifactMetadata{}, artifactPredicate("metadata_history", "expected=legacy_empty_traffic_fields")
 		}
 	case 2:
 		if metadata.History != "" || !backupIDPattern.MatchString(metadata.TrafficGeneration) || !accountingDigest(metadata.TrafficSHA256) || metadata.TrafficSizeBytes <= 0 || metadata.TrafficSizeBytes > metadata.TrafficBudgetBytes || metadata.TrafficBudgetBytes < 1<<20 || metadata.TrafficBudgetBytes > 16<<30 {
-			return artifactMetadata{}, ErrInvalidArtifact
+			return artifactMetadata{}, artifactPredicate("metadata_history", "expected=bound_generation_checksum_and_positive_bytes_within_1MiB..16GiB_budget")
 		}
 	default:
-		return artifactMetadata{}, ErrInvalidArtifact
+		return artifactMetadata{}, artifactPredicate("metadata_format", fmt.Sprintf("observed=%d allowed=0,2,3,4", metadata.Format))
 	}
 	return metadata, nil
 }

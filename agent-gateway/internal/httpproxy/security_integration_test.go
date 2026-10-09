@@ -4,6 +4,7 @@ package httpproxy
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/x509"
 	"database/sql"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/stretchr/testify/require"
 )
@@ -71,6 +73,10 @@ func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) 
 	for _, mode := range []string{"conflict", "key-loss"} {
 		t.Run(mode, func(t *testing.T) {
 			f := fixture(t)
+			var output bytes.Buffer
+			observer := diagnostics.New(&output, diagnostics.Warn)
+			t.Cleanup(func() { observer.Finish(nil); <-observer.Done() })
+			f.engine.options.Diagnostics = observer
 			var connections atomic.Int64
 			upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
 			upstream.Config.ConnState = func(_ net.Conn, state http.ConnState) {
@@ -115,6 +121,15 @@ func TestIntegrationCredentialConflictOrMissingMaterialNeverDials(t *testing.T) 
 				require.NoError(t, response.Body.Close())
 				require.NoError(t, conn.Close())
 				require.Zero(t, connections.Load())
+			}
+			require.True(t, observer.Finish(nil))
+			require.NotContains(t, output.String(), "fixture-secret")
+			require.NotContains(t, output.String(), f.credential.Bearer)
+			if mode == "key-loss" {
+				require.Contains(t, output.String(), "generation_authentication")
+				require.Contains(t, output.String(), material.ID)
+				require.Contains(t, output.String(), "dispatch=not_authorized")
+				require.Equal(t, 2, bytes.Count(output.Bytes(), []byte(`"event":"http_proxy_rejected"`)))
 			}
 		})
 	}

@@ -46,6 +46,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	result, err := e.options.Admissions.AdmitGit(r.Context(), lease, identity, request, address.Facts(), e.options.GitMaterials)
 	if err != nil || !result.DispatchAuthorized {
 		if err != nil {
+			e.observeRejection(started, result.FailureStage, result.FailureCause, diagnostics.WithDetail(err, result.FailureDetail), w)
 			if errors.Is(err, invocation.ErrTrafficCapacity) {
 				rejectCapacity(w, http.StatusServiceUnavailable)
 			} else {

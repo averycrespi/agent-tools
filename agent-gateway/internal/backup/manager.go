@@ -20,6 +20,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
@@ -43,21 +44,24 @@ var (
 type FaultPoint string
 
 const (
-	FaultCopy     FaultPoint = "copy"
-	FaultChecksum FaultPoint = "checksum"
-	FaultMetadata FaultPoint = "metadata"
-	FaultPublish  FaultPoint = "publish"
+	FaultCopy          FaultPoint = "copy"
+	FaultChecksum      FaultPoint = "checksum"
+	FaultMetadata      FaultPoint = "metadata"
+	FaultPublish       FaultPoint = "publish"
+	FaultPublishedSync FaultPoint = "published_sync"
+	FaultCleanup       FaultPoint = "cleanup"
 )
 
 type Clock interface{ Now() time.Time }
 
 type Options struct {
-	Ownership *gatewaypaths.Ownership
-	Store     *storage.Store
-	Layout    gatewaypaths.Layout
-	Clock     Clock
-	Entropy   io.Reader
-	Fault     func(FaultPoint) error
+	Diagnostics diagnostics.HTTPProxyObserver
+	Ownership   *gatewaypaths.Ownership
+	Store       *storage.Store
+	Layout      gatewaypaths.Layout
+	Clock       Clock
+	Entropy     io.Reader
+	Fault       func(FaultPoint) error
 }
 
 type Manager struct {
@@ -94,11 +98,13 @@ func New(options Options) (*Manager, error) {
 	manager := &Manager{ownership: options.Ownership, store: options.Store, layout: options.Layout, clock: options.Clock, entropy: options.Entropy, fault: options.Fault, work: make(chan struct{}, 1)}
 	if err := ensureDirectory(options.Layout.Backups); err != nil {
 		manager.inventoryErr = err
+		observeInventory(options.Diagnostics, options.Layout.Backups, err)
 		return manager, nil
 	}
 	items, _, err := manager.load(context.Background())
 	if err != nil {
 		manager.inventoryErr = err
+		observeInventory(options.Diagnostics, options.Layout.Backups, err)
 		return manager, nil
 	}
 	if len(items) > 0 {
@@ -112,10 +118,21 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	if err := validateIdempotencyKey(idempotencyKey); err != nil {
 		return contract.Backup{}, false, err
 	}
+	phase, artifactID, publication, directorySync, cleanupState, auditState := "custody verification", "none", "not_started", "not_started", "not_needed", "not_started"
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		detail := diagnostics.Snapshot("backup", "create", manager.layout.Backups, resultErr, authorityID, idempotencyKey)
+		detail.Explanation = fmt.Sprintf("backup_id=%s phase=%s publication=%s directory_sync=%s cleanup=%s outcome_audit=%s; %s", artifactID, phase, publication, directorySync, cleanupState, auditState, detail.Explanation)
+		detail.Effect = "inspect artifact; reuse original idempotency key"
+		resultErr = diagnostics.WithDetail(resultErr, detail)
+	}()
 	if err := manager.store.View(ctx, func(tx *sql.Tx) error { return requireBackupCustody(ctx, tx) }); err != nil {
 		return contract.Backup{}, false, err
 	}
 	authorityHash, keyHash := digestText(authorityID), digestText(idempotencyKey)
+	phase = "inventory and idempotency lookup"
 	items, metadata, err := manager.load(ctx)
 	if err != nil {
 		return contract.Backup{}, false, err
@@ -157,6 +174,7 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	default:
 		return contract.Backup{}, false, ErrResourceLimit
 	}
+	phase = "reserve staging headroom"
 	stageLimit, _ := contract.FixedLimitByName("database_bytes")
 	// Control copy, compaction and WAL use the control limit, not traffic.
 	headroom := 2 * stageLimit.Maximum
@@ -167,8 +185,9 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	defer releaseSpace()
 	id, err := admin.NewID(manager.clock.Now(), manager.entropy)
 	if err != nil {
-		return contract.Backup{}, false, fmt.Errorf("generate backup ID: %w", err)
+		return contract.Backup{}, false, withBackupCause("generate backup ID", err)
 	}
+	artifactID, phase = id, "attempt audit"
 	attempt, err := audit.NewAttempt(ctx, manager.clock.Now(), "backup", "create", contract.AuditTarget{Type: "backup", ID: id})
 	if err != nil {
 		return contract.Backup{}, false, err
@@ -182,21 +201,35 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 		if settled {
 			outcome = "succeeded"
 		}
+		auditState = "unconfirmed"
 		if err := audit.Finish(ctx, manager.store, attempt, manager.clock.Now(), outcome); err != nil {
-			result, replay, resultErr = contract.Backup{}, false, errors.Join(resultErr, err)
+			result, replay, resultErr = contract.Backup{}, false, errors.Join(resultErr, withBackupCause("finish backup audit", err))
+		} else {
+			auditState = "ack"
 		}
 	}()
+	phase = "create staging directory"
 	staging := filepath.Join(manager.layout.Backups, "."+id+".staging")
 	published := filepath.Join(manager.layout.Backups, id)
 	if err := os.Mkdir(staging, 0o700); err != nil {
-		return contract.Backup{}, false, fmt.Errorf("create backup staging directory: %w", err)
+		return contract.Backup{}, false, withBackupCause("create backup staging directory", err)
 	}
 	cleanup := true
 	defer func() {
 		if cleanup {
-			_ = os.RemoveAll(staging)
+			cleanupState = "unconfirmed"
+			cleanupErr := manager.fail(FaultCleanup)
+			if cleanupErr == nil {
+				cleanupErr = os.RemoveAll(staging)
+			}
+			if cleanupErr != nil {
+				resultErr = errors.Join(resultErr, withBackupCause("remove staging directory", cleanupErr))
+			} else {
+				cleanupState = "removed"
+			}
 		}
 	}()
+	phase = "copy control database"
 	if err := manager.fail(FaultCopy); err != nil {
 		return contract.Backup{}, false, err
 	}
@@ -204,21 +237,23 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	if err := manager.store.BackupControlTo(ctx, databasePath, invocation.OmitLegacyTrafficTx); err != nil {
 		return contract.Backup{}, false, err
 	}
+	phase = "verify staged database"
 	identity, err := storage.VerifyBackup(ctx, databasePath)
 	if err != nil {
-		return contract.Backup{}, false, fmt.Errorf("%w: %w", ErrInvalidArtifact, err)
+		return contract.Backup{}, false, errors.Join(ErrInvalidArtifact, err)
 	}
 	if err := gitcredentials.VerifyBackup(ctx, databasePath, identity.SchemaVersion); err != nil {
-		return contract.Backup{}, false, fmt.Errorf("%w: Git configuration: %w", ErrInvalidArtifact, err)
+		return contract.Backup{}, false, errors.Join(ErrInvalidArtifact, withBackupCause("Git configuration", err))
 	}
 	info, err := os.Stat(databasePath)
 	if err != nil {
-		return contract.Backup{}, false, fmt.Errorf("inspect backup database: %w", err)
+		return contract.Backup{}, false, withBackupCause("inspect backup database", err)
 	}
 	limit, _ := contract.FixedLimitByName("database_bytes")
 	if info.Size() > limit.Maximum {
 		return contract.Backup{}, false, ErrResourceLimit
 	}
+	phase = "checksum staged database"
 	if err := manager.fail(FaultChecksum); err != nil {
 		return contract.Backup{}, false, err
 	}
@@ -249,25 +284,34 @@ func (manager *Manager) Create(ctx context.Context, authorityID, idempotencyKey 
 	}); err != nil {
 		return contract.Backup{}, false, err
 	}
+	phase = "write metadata"
 	if err := manager.fail(FaultMetadata); err != nil {
 		return contract.Backup{}, false, err
 	}
 	if err := writeMetadata(filepath.Join(staging, metadataFile), artifact); err != nil {
 		return contract.Backup{}, false, err
 	}
+	phase = "sync staging directory"
 	if err := syncDirectory(staging); err != nil {
-		return contract.Backup{}, false, fmt.Errorf("sync staged backup: %w", err)
+		return contract.Backup{}, false, withBackupCause("sync staged backup", err)
 	}
+	phase = "publish rename"
 	if err := manager.fail(FaultPublish); err != nil {
 		return contract.Backup{}, false, err
 	}
 	if err := os.Rename(staging, published); err != nil {
-		return contract.Backup{}, false, fmt.Errorf("publish backup: %w", err)
+		return contract.Backup{}, false, withBackupCause("publish backup", err)
 	}
 	cleanup = false
-	if err := syncDirectory(manager.layout.Backups); err != nil {
-		return contract.Backup{}, false, fmt.Errorf("sync published backup: %w", err)
+	publication, cleanupState, phase, directorySync = "renamed", "retained_published", "sync published directory", "unconfirmed"
+	syncErr := manager.fail(FaultPublishedSync)
+	if syncErr == nil {
+		syncErr = syncDirectory(manager.layout.Backups)
 	}
+	if syncErr != nil {
+		return contract.Backup{}, false, withBackupCause("sync published backup", syncErr)
+	}
+	directorySync, phase = "ack", "finish outcome audit"
 	manager.mu.Lock()
 	manager.last = &createdAt
 	manager.mu.Unlock()
@@ -286,7 +330,7 @@ func (manager *Manager) Get(ctx context.Context, id string) (contract.Backup, er
 	}
 	metadata, err := manager.readArtifact(ctx, filepath.Join(manager.layout.Backups, id), id)
 	if errors.Is(err, os.ErrNotExist) && !errors.Is(err, ErrInvalidArtifact) {
-		return contract.Backup{}, ErrNotFound
+		return contract.Backup{}, diagnostics.WithDetail(ErrNotFound, diagnostics.Snapshot("backup", "get artifact", filepath.Join(manager.layout.Backups, id), err))
 	}
 	if err != nil {
 		return contract.Backup{}, err
@@ -295,6 +339,16 @@ func (manager *Manager) Get(ctx context.Context, id string) (contract.Backup, er
 }
 
 func (manager *Manager) Delete(ctx context.Context, id string) (resultErr error) {
+	phase, removal, directorySync, auditState := "validate artifact", "not_started", "not_started", "not_started"
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		detail := diagnostics.Snapshot("backup", "delete", manager.layout.Backups, resultErr)
+		detail.Explanation = fmt.Sprintf("backup_id=%s phase=%s removal=%s directory_sync=%s outcome_audit=%s; %s", diagnostics.Text(id, 64), phase, removal, directorySync, auditState, detail.Explanation)
+		detail.Effect = "inspect artifact before another delete"
+		resultErr = diagnostics.WithDetail(resultErr, detail)
+	}()
 	if _, err := manager.Get(ctx, id); err != nil {
 		return err
 	}
@@ -310,13 +364,24 @@ func (manager *Manager) Delete(ctx context.Context, id string) (resultErr error)
 		if resultErr == nil {
 			outcome = "succeeded"
 		}
-		resultErr = errors.Join(resultErr, audit.Finish(ctx, manager.store, attempt, manager.clock.Now(), outcome))
+		auditState = "unconfirmed"
+		auditErr := audit.Finish(ctx, manager.store, attempt, manager.clock.Now(), outcome)
+		if auditErr == nil {
+			auditState = "ack"
+		}
+		resultErr = errors.Join(resultErr, auditErr)
 	}()
 	path := filepath.Join(manager.layout.Backups, id)
+	phase, removal = "remove artifact", "partial_or_unknown"
 	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("delete backup: %w", err)
+		return withBackupCause("delete backup", err)
 	}
-	return syncDirectory(manager.layout.Backups)
+	removal, phase, directorySync = "ack", "sync deletion directory", "unconfirmed"
+	err = syncDirectory(manager.layout.Backups)
+	if err == nil {
+		directorySync, phase = "ack", "finish outcome audit"
+	}
+	return err
 }
 
 func (manager *Manager) WorkStatus() contract.LimitStatus {
@@ -358,20 +423,26 @@ func (manager *Manager) load(ctx context.Context) ([]contract.Backup, []artifact
 		for _, entry := range entries {
 			seen++
 			if seen > 4096 {
-				return nil, nil, ErrInvalidArtifact
+				return nil, nil, artifactPredicate("inventory_entries", fmt.Sprintf("observed=%d allowed=4096", seen))
 			}
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
 			}
-			if int64(len(items)) >= maximum.Maximum || !entry.IsDir() || !backupIDPattern.MatchString(entry.Name()) {
-				return nil, nil, ErrInvalidArtifact
+			if int64(len(items)) >= maximum.Maximum {
+				return nil, nil, artifactPredicate("inventory_records", fmt.Sprintf("observed=%d allowed=%d", len(items)+1, maximum.Maximum))
+			}
+			if !entry.IsDir() {
+				return nil, nil, artifactPredicate("inventory_entry_kind", "expected=directory observed=other")
+			}
+			if !backupIDPattern.MatchString(entry.Name()) {
+				return nil, nil, artifactPredicate("inventory_entry_name", "expected=artifact_ID observed=invalid_name_withheld")
 			}
 			artifact, err := readAccountingMetadata(directory, entry.Name())
 			if err != nil {
 				return nil, nil, err
 			}
 			if _, err := time.Parse(time.RFC3339Nano, artifact.CreatedAt); err != nil {
-				return nil, nil, ErrInvalidArtifact
+				return nil, nil, artifactPredicate("metadata_created_at", "expected=RFC3339Nano observed=invalid")
 			}
 			items = append(items, artifact.Backup)
 			metadata = append(metadata, artifact)
@@ -389,7 +460,14 @@ func (manager *Manager) readArtifact(ctx context.Context, directory, id string) 
 	return manager.readArtifactScope(ctx, directory, id, false)
 }
 
-func (manager *Manager) readArtifactScope(ctx context.Context, directory, id string, securityOnly bool) (artifactMetadata, error) {
+func (manager *Manager) readArtifactScope(ctx context.Context, directory, id string, securityOnly bool) (result artifactMetadata, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			detail := diagnostics.Snapshot("backup", "verify artifact", directory, resultErr)
+			detail.Effect = "preserve artifact; inspect metadata and local custody"
+			resultErr = diagnostics.WithDetail(resultErr, detail)
+		}
+	}()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := validateDirectory(directory); err != nil {
@@ -404,7 +482,7 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 	}
 	if _, err := time.Parse(time.RFC3339Nano, metadata.CreatedAt); err != nil {
-		return artifactMetadata{}, ErrInvalidArtifact
+		return artifactMetadata{}, artifactPredicate("metadata_created_at", "expected=RFC3339Nano observed=invalid")
 	}
 	if err := requireClosedArtifactScope(directory, securityOnly || metadata.Format >= 3); err != nil {
 		return artifactMetadata{}, err
@@ -414,16 +492,25 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 	}
 	info, err := os.Stat(databasePath)
-	if err != nil || info.Size() != metadata.SizeBytes {
-		return artifactMetadata{}, ErrInvalidArtifact
+	if err != nil {
+		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+	}
+	if info.Size() != metadata.SizeBytes {
+		return artifactMetadata{}, artifactPredicate("database_size", fmt.Sprintf("observed=%d expected=%d", info.Size(), metadata.SizeBytes))
 	}
 	digest, err := digestFile(databasePath)
-	if err != nil || digest != metadata.SHA256 {
-		return artifactMetadata{}, ErrInvalidArtifact
+	if err != nil {
+		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+	}
+	if digest != metadata.SHA256 {
+		return artifactMetadata{}, artifactPredicate("database_checksum", "matches=false expected=metadata_checksum")
 	}
 	identity, err := storage.VerifyBackup(ctx, databasePath)
-	if err != nil || identity.InstallationID != metadata.InstallationID || fmt.Sprintf("%d", identity.SchemaVersion) != metadata.SchemaVersion || fmt.Sprintf("%d", identity.Revision) != metadata.SourceRevision {
-		return artifactMetadata{}, ErrInvalidArtifact
+	if err != nil {
+		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+	}
+	if identity.InstallationID != metadata.InstallationID || fmt.Sprintf("%d", identity.SchemaVersion) != metadata.SchemaVersion || fmt.Sprintf("%d", identity.Revision) != metadata.SourceRevision {
+		return artifactMetadata{}, artifactPredicate("database_identity", fmt.Sprintf("installation_matches=%t schema_matches=%t revision_matches=%t", identity.InstallationID == metadata.InstallationID, fmt.Sprintf("%d", identity.SchemaVersion) == metadata.SchemaVersion, fmt.Sprintf("%d", identity.Revision) == metadata.SourceRevision))
 	}
 	if err := gitcredentials.VerifyBackup(ctx, databasePath, identity.SchemaVersion); err != nil {
 		return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
@@ -440,12 +527,18 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
 		}
 		info, err := os.Stat(trafficPath)
-		if err != nil || info.Size() != metadata.TrafficSizeBytes {
-			return artifactMetadata{}, ErrInvalidArtifact
+		if err != nil {
+			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+		}
+		if info.Size() != metadata.TrafficSizeBytes {
+			return artifactMetadata{}, artifactPredicate("traffic_size", fmt.Sprintf("observed=%d expected=%d", info.Size(), metadata.TrafficSizeBytes))
 		}
 		digest, err := digestFile(trafficPath)
-		if err != nil || digest != metadata.TrafficSHA256 {
-			return artifactMetadata{}, ErrInvalidArtifact
+		if err != nil {
+			return artifactMetadata{}, errors.Join(ErrInvalidArtifact, err)
+		}
+		if digest != metadata.TrafficSHA256 {
+			return artifactMetadata{}, artifactPredicate("traffic_checksum", "matches=false expected=metadata_checksum")
 		}
 	} else if metadata.Format == 0 && identity.TrafficGeneration != "" {
 		return artifactMetadata{}, ErrInvalidArtifact
@@ -457,7 +550,7 @@ func (manager *Manager) readArtifactScope(ctx context.Context, directory, id str
 				return err
 			}
 			if custody.KeyID != metadata.MasterKeyID {
-				return ErrInvalidArtifact
+				return artifactPredicate("custody_binding", "matches=false expected=metadata_master_key_identity")
 			}
 			return verifyEncryptedDomainsTx(ctx, tx)
 		}); err != nil {
@@ -512,14 +605,14 @@ func (manager *Manager) fail(point FaultPoint) error {
 		return nil
 	}
 	if err := manager.fault(point); err != nil {
-		return fmt.Errorf("backup %s failed: %w", point, err)
+		return withBackupCause("backup "+string(point)+" failed", err)
 	}
 	return nil
 }
 
 func ensureDirectory(path string) error {
 	if err := os.Mkdir(path, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
-		return fmt.Errorf("create backup directory: %w", err)
+		return withBackupCause("create backup directory", err)
 	}
 	return validateDirectory(path)
 }
@@ -538,15 +631,15 @@ func validateDirectory(path string) error {
 func writeMetadata(path string, metadata artifactMetadata) error {
 	file, err := gatewaypaths.CreateOwnerOnlyFile(path)
 	if err != nil {
-		return fmt.Errorf("create backup metadata: %w", err)
+		return withBackupCause("create backup metadata", err)
 	}
 	if err := json.NewEncoder(file).Encode(metadata); err != nil {
 		_ = file.Close()
-		return fmt.Errorf("write backup metadata: %w", err)
+		return withBackupCause("write backup metadata", err)
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()
-		return fmt.Errorf("sync backup metadata: %w", err)
+		return withBackupCause("sync backup metadata", err)
 	}
 	return file.Close()
 }
@@ -554,12 +647,12 @@ func writeMetadata(path string, metadata artifactMetadata) error {
 func digestFile(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", fmt.Errorf("open backup for digest: %w", err)
+		return "", withBackupCause("open backup for digest", err)
 	}
 	defer func() { _ = file.Close() }()
 	digest := sha256.New()
 	if _, err := io.Copy(digest, file); err != nil {
-		return "", fmt.Errorf("digest backup: %w", err)
+		return "", withBackupCause("digest backup", err)
 	}
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }

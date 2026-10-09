@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitpolicy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -445,7 +447,7 @@ func (s *Service) Acquire(ctx context.Context, ref contract.GitRevisionRef) (*Ma
 		defer clear(payload)
 		var decoded generation
 		if strictjson.Decode(payload, &decoded, strictjson.Options{MaxBytes: contract.HTTPCredentialValueBytes*6 + 64, MaxDepth: 2, RejectUnknownMembers: true}) != nil || decoded.Version != 1 {
-			return ErrUnavailable
+			return diagnostics.WithDetail(ErrUnavailable, diagnostics.Detail{Component: "git-credential", Operation: "parse generation", Resource: ref.ID, Explanation: "rule=closed_generation_v1_json_depth_2; generation values withheld"})
 		}
 		return s.store.View(ctx, func(tx *sql.Tx) error {
 			rec, err := readTx(ctx, tx, ref.ID)
@@ -456,7 +458,7 @@ func (s *Service) Acquire(ctx context.Context, ref contract.GitRevisionRef) (*Ma
 				return err
 			}
 			if !rec.Available || rec.Revision != ref.Revision || rec.handle.String != string(selected.Handle) || strconv.FormatUint(rec.materialRevision, 10) != selected.Revision || s.store.Latched() || !contract.ValidHTTPCredentialSecret(rec.Recipe, []byte(decoded.Secret)) {
-				return ErrUnavailable
+				return diagnostics.WithDetail(ErrUnavailable, diagnostics.Detail{Component: "git-credential", Operation: "fence generation", Resource: ref.ID, Explanation: fmt.Sprintf("rule=selected_material_fence available=%t expected_revision=%s observed_revision=%s binding_matches=%t expected_generation=%d observed_generation=%s latched=%t valid_material=%t", rec.Available, ref.Revision, rec.Revision, rec.handle.String == string(selected.Handle), rec.materialRevision, selected.Revision, s.store.Latched(), contract.ValidHTTPCredentialSecret(rec.Recipe, []byte(decoded.Secret)))})
 			}
 			result = &Material{ref: ref, origin: rec.Origin, recipe: rec.Recipe, secret: []byte(decoded.Secret), generation: selected.Revision}
 			return nil

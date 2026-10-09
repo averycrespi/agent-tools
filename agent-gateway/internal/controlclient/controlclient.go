@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -177,14 +178,14 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(response.Body, MaxResponseBytes+1))
 	if err != nil {
-		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, err, request.Header.Get("Authorization"), strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))}
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, fmt.Errorf("http_status=%d; response body read: %w", response.StatusCode, err), request.Header.Get("Authorization"), strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))}
 	}
 	if len(body) > MaxResponseBytes {
-		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, errors.New("response exceeds size limit"))}
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, fmt.Errorf("http_status=%d; response exceeds size limit: observed_bytes=%d allowed_bytes=%d", response.StatusCode, len(body), MaxResponseBytes))}
 	}
 	if len(body) > 0 {
 		if _, err := strictjson.ParseValue(body, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth}); err != nil {
-			return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible}
+			return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "parse response", client.address, fmt.Errorf("http_status=%d; expected bounded unique-member JSON depth<=%d; response body and parser values withheld", response.StatusCode, MaxJSONDepth))}
 		}
 	}
 	return Response{StatusCode: response.StatusCode, Header: cloneHeader(response.Header), Body: body}, nil

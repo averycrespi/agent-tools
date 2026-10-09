@@ -109,6 +109,7 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 	}
 	defer clear(secret)
 	resource, err := h.httpCredentials.Create(r.Context(), httpcredentials.Definition{Name: *input.Name, Boundary: *input.Boundary, Recipe: *input.Recipe}, secret)
+	h.observeLocalFailure("create HTTP credential", resource.ID, "publication/activation=unconfirmed; inspect current credential; do not replay", err, string(secret))
 	h.httpCredentialResult(w, resource, err, http.StatusCreated)
 }
 
@@ -153,6 +154,7 @@ func (h *Handler) httpCredentialMember(w http.ResponseWriter, r *http.Request, i
 		}
 		defer clear(secret)
 		resource, err := h.httpCredentials.Rotate(r.Context(), id, revision, secret)
+		h.observeLocalFailure("rotate HTTP credential", id, "expected_revision="+revision+"; publication/activation=unconfirmed; inspect current credential; do not replay", err, string(secret))
 		h.httpCredentialResult(w, resource, err, http.StatusOK)
 		return
 	}

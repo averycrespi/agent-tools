@@ -87,6 +87,7 @@ func TestTrafficSingleQueueBoundsInitialAndTerminal(t *testing.T) {
 				}
 				return nil
 			})
+			capture := captureLossDiagnostics(t, s)
 			p := trafficPrepared(1)
 			if bound == "bytes" {
 				p.admission.MCP.RedactedArguments = []byte(`{"value":"` + strings.Repeat("x", 7000) + `"}`)
@@ -117,6 +118,11 @@ func TestTrafficSingleQueueBoundsInitialAndTerminal(t *testing.T) {
 			require.Len(t, history.Records, 1)
 			require.Nil(t, history.Records[0].TerminalClass)
 			require.True(t, s.Healthy())
+			output := capture()
+			require.Contains(t, output, "reason=queue_full")
+			if bound == "count" {
+				require.Contains(t, output, "initial_submissions=1 terminal_submissions=1")
+			}
 		})
 	}
 }
@@ -125,6 +131,7 @@ func TestTrafficCollisionPrecedesPruningAndUncertainRollbackFaults(t *testing.T)
 	for _, uncertain := range []bool{false, true} {
 		t.Run(strconv.FormatBool(uncertain), func(t *testing.T) {
 			s, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 1; c.BatchRecords = 1 }, nil)
+			capture := captureLossDiagnostics(t, s)
 			recordMCP(t, s, trafficPrepared(1))
 			if uncertain {
 				s.fault = func(point string) error {
@@ -144,6 +151,7 @@ func TestTrafficCollisionPrecedesPruningAndUncertainRollbackFaults(t *testing.T)
 			require.Len(t, h.Records, 1)
 			require.Zero(t, h.Pruning)
 			require.Equal(t, `{"value":1e0}`, *h.Records[0].RedactedArguments)
+			require.Contains(t, capture(), "reason=identity_refusal initial_submissions=1 terminal_submissions=0")
 		})
 	}
 }
@@ -163,6 +171,7 @@ func TestTrafficPrunedInitialCanBeReplacedByTerminalSnapshot(t *testing.T) {
 
 func TestTrafficPhysicalBudgetWALReaderPressure(t *testing.T) {
 	s, _ := trafficFixture(t, func(c *TrafficConfig) { c.BudgetBytes = 1 << 20; c.BatchRecords = 1; c.RetainedRecords = 8 }, nil)
+	capture := captureLossDiagnostics(t, s)
 	recordMCP(t, s, trafficPrepared(1))
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -193,10 +202,18 @@ func TestTrafficPhysicalBudgetWALReaderPressure(t *testing.T) {
 	require.True(t, s.Healthy())
 	require.NoError(t, tx.Rollback())
 	recordMCP(t, s, trafficPrepared(101))
+	// A fresh observation after the former reader's connection closes is not a
+	// replay of a refused submission; reservation attribution must survive it.
+	recordMCP(t, s, trafficPrepared(102))
 	h, err := s.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, h.Records, 8)
 	require.Positive(t, h.Pruning)
+	found := false
+	for _, record := range h.Records {
+		found = found || record.InvocationID == invocationID(102)
+	}
+	require.True(t, found)
 	for range s.config.Readers {
 		s.readSlots <- struct{}{}
 	}
@@ -205,6 +222,8 @@ func TestTrafficPhysicalBudgetWALReaderPressure(t *testing.T) {
 	for range s.config.Readers {
 		<-s.readSlots
 	}
+	refusals := s.Status(t.Context()).QuotaRefusals
+	require.Contains(t, capture(), "reason=physical_reservation initial_submissions="+strconv.FormatInt(refusals, 10)+" terminal_submissions=0")
 }
 
 func TestTrafficSQLiteFullFaultsOnlyOptionalHistory(t *testing.T) {

@@ -35,6 +35,7 @@ func TestTrafficQueueExpiryDropsOnlyObservations(t *testing.T) {
 			close(release)
 		}
 	})
+	capture := captureLossDiagnostics(t, s)
 	big := trafficPrepared(1)
 	big.admission.MCP.RedactedArguments = []byte(`{"value":"` + strings.Repeat("x", 8100) + `"}`)
 	require.NotNil(t, s.ObserveMCP(big))
@@ -57,6 +58,7 @@ func TestTrafficQueueExpiryDropsOnlyObservations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, history.Records, 1)
 	assert.True(t, s.Healthy())
+	require.Contains(t, capture(), "reason=queue_expired initial_submissions=1 terminal_submissions=0")
 }
 
 func TestTrafficRestartValidatesEveryRowNotOnlyStructure(t *testing.T) {

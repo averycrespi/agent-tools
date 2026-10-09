@@ -46,6 +46,7 @@ func (s *TrafficStore) runTraffic() {
 	}
 }
 func (s *TrafficStore) drainTraffic() {
+	defer s.reportLoss()
 	for {
 		select {
 		case r := <-s.observations:
@@ -65,6 +66,20 @@ func (s *TrafficStore) settleTraffic(r *trafficRequest, err error) {
 	}
 	if err != nil {
 		s.dropLocked()
+		reason := diagnostics.TrafficWriterLoss
+		var failure *trafficFailure
+		typed := errors.As(err, &failure)
+		switch {
+		case errors.Is(err, ErrIdentityUnavailable):
+			reason = diagnostics.TrafficIdentity
+		case errors.Is(err, ErrTrafficCapacity):
+			reason = diagnostics.TrafficReservation
+		case !typed && errors.Is(err, ErrTrafficDeadline):
+			reason = diagnostics.TrafficQueueExpired
+		case !typed && errors.Is(err, ErrTrafficFault):
+			reason = diagnostics.TrafficUnavailable
+		}
+		s.lossLocked(reason, r.terminal())
 	} else {
 		if s.acknowledged < contract.RecordedActivityMaxCount {
 			s.acknowledged++
@@ -86,21 +101,40 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 	var observe func()
 	defer func() {
 		s.writerGate.Unlock()
+		s.reportLoss()
 		if observe != nil {
 			observe()
 		}
 	}()
 	active := make([]*trafficRequest, 0, len(batch))
+	counts := trafficBatchFacts{}
 	for _, r := range batch {
 		s.mu.Lock()
 		unavailable := s.closed || s.faulted
 		s.mu.Unlock()
 		switch {
 		case unavailable:
+			counts.unavailable++
 			s.settleTraffic(r, ErrTrafficFault)
 		case !time.Now().Before(r.expires):
+			counts.expired++
 			s.settleTraffic(r, ErrTrafficDeadline)
 		default:
+			counts.observations++
+			counts.bytes += r.bytes
+			if r.terminal() {
+				counts.completions++
+			} else {
+				counts.admissions++
+			}
+			switch {
+			case r.observation.gitAdmission != "":
+				counts.git++
+			case r.observation.httpAdmission != "":
+				counts.http++
+			default:
+				counts.mcp++
+			}
 			active = append(active, r)
 		}
 	}
@@ -114,7 +148,7 @@ func (s *TrafficStore) processTraffic(batch []*trafficRequest) {
 		err = classifyTraffic(err, "rollback", "uncertain")
 	}
 	if err != nil {
-		observe = s.failTrafficState(err, "reservation", "not_started")
+		observe = s.failTrafficState(err, "reservation", "not_started", counts)
 	}
 	if err == nil {
 		for _, event := range recorded {

@@ -26,10 +26,13 @@ type Publication struct {
 }
 
 type ActiveStatus struct {
-	State      contract.ActiveCatalogState
-	Revision   *string
-	ToolCount  int64
-	IssueCount int64
+	RetiredRejected int64 `json:"-"`
+	RetiredMissing  int64 `json:"-"`
+	RetiredUnknown  int64 `json:"-"`
+	State           contract.ActiveCatalogState
+	Revision        *string
+	ToolCount       int64
+	IssueCount      int64
 }
 
 type PublicationPhase string
@@ -45,9 +48,10 @@ const (
 )
 
 type PublicationFailure struct {
-	Phase PublicationPhase
-	Cause PublicationFailureCause
-	Err   error
+	Revision string
+	Phase    PublicationPhase
+	Cause    PublicationFailureCause
+	Err      error
 }
 
 func (failure *PublicationFailure) Error() string { return failure.Err.Error() }
@@ -56,6 +60,17 @@ func (failure *PublicationFailure) Unwrap() error { return failure.Err }
 func durableOnlyFailure(cause PublicationFailureCause, err error) error {
 	return &PublicationFailure{Phase: PublicationPhaseDurableOnly, Cause: cause, Err: err}
 }
+
+// Format underlying causes only after the registry lock has been released.
+type settlementFailure struct {
+	operation string
+	cause     error
+}
+
+func (failure *settlementFailure) Error() string {
+	return failure.operation + ": " + failure.cause.Error()
+}
+func (failure *settlementFailure) Unwrap() error { return failure.cause }
 
 type ActiveCursor struct {
 	Query      string `json:"query,omitempty"`
@@ -161,6 +176,12 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 	if err != nil {
 		return ActiveStatus{}, err
 	}
+	defer func() {
+		var failure *PublicationFailure
+		if durable.Revision != nil && errors.As(resultErr, &failure) {
+			failure.Revision = *durable.Revision
+		}
+	}()
 	if registry.afterCommit != nil {
 		registry.afterCommit()
 	}
@@ -220,7 +241,7 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 		if err := audit.Finish(ctx, registry.repository.store, attempt, registry.clock.Now(), outcome); err != nil {
 			registry.withdrawLocked(publication.Fence.ServerID, publication.RuntimeID, publication.RuntimeGeneration, contract.ActiveCatalogUnavailable)
 			result = ActiveStatus{}
-			resultErr = durableOnlyFailure(PublicationFailureStorage, err)
+			resultErr = durableOnlyFailure(PublicationFailureStorage, errors.Join(resultErr, &settlementFailure{operation: "publication audit settlement failed; active routes withdrawn", cause: err}))
 		}
 	}()
 	oldRoutes, err := registry.routes.replace(publication, tools, revision)
@@ -235,10 +256,28 @@ func (registry *ActiveRegistry) Publish(ctx context.Context, publication Publica
 		State: contract.ActiveCatalogCurrent, Revision: cloneActiveString(durable.Revision),
 		IssueCount: durable.IssueCount, Tools: tools,
 	}
+	result = activeStatus(snapshot)
+	accepted := make(map[string]bool, len(publication.Candidate.Tools))
+	for _, tool := range publication.Candidate.Tools {
+		accepted[tool.Key.UpstreamName] = true
+	}
+	for _, old := range registry.servers[publication.Fence.ServerID].Tools {
+		name := old.Record.Resource.UpstreamName
+		if accepted[name] {
+			continue
+		}
+		if _, rejected := publication.Candidate.RejectedNames[name]; rejected {
+			result.RetiredRejected++
+		} else if len(publication.Candidate.Issues) > len(publication.Candidate.RejectedNames) {
+			result.RetiredUnknown++
+		} else {
+			result.RetiredMissing++
+		}
+	}
 	registry.servers[publication.Fence.ServerID] = snapshot
 	registry.advanceLocked()
 	go withdrawCapabilities(context.WithoutCancel(ctx), oldRoutes)
-	return activeStatus(snapshot), nil
+	return result, nil
 }
 
 func (registry *ActiveRegistry) externalNameCollisionLocked(serverID string, tools []NormalizedTool) bool {
@@ -267,24 +306,25 @@ func (registry *ActiveRegistry) MarkStale(serverID, runtimeID string, issueCount
 }
 
 func (registry *ActiveRegistry) MarkStaleExact(serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
-	return registry.markStale(context.Background(), serverID, runtimeID, runtimeGeneration, issueCount)
+	ok, _ := registry.markStale(context.Background(), serverID, runtimeID, runtimeGeneration, issueCount)
+	return ok
 }
 
-func (registry *ActiveRegistry) markStale(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
+func (registry *ActiveRegistry) markStale(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) (bool, error) {
 	if registry.draining.Load() {
-		return false
+		return false, servers.ErrStaleRevision
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	if registry.draining.Load() {
-		return false
+		return false, servers.ErrStaleRevision
 	}
 	current, ok := registry.servers[serverID]
 	if !ok || current.RuntimeID != runtimeID || runtimeGeneration != 0 && current.RuntimeGeneration != runtimeGeneration || current.State == contract.ActiveCatalogAbsent || current.State == contract.ActiveCatalogUnavailable {
-		return false
+		return false, servers.ErrStaleRevision
 	}
 	if current.State == contract.ActiveCatalogStale && current.IssueCount == issueCount {
-		return true
+		return true, nil
 	}
 	return registry.fenceWithAuditLocked(audit.InheritCause(ctx, current.Cause), serverID, "fence", func() {
 		current.State = contract.ActiveCatalogStale
@@ -387,24 +427,25 @@ func (registry *ActiveRegistry) MarkUnavailable(serverID, runtimeID string, issu
 }
 
 func (registry *ActiveRegistry) MarkUnavailableExact(serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
-	return registry.markUnavailable(context.Background(), serverID, runtimeID, runtimeGeneration, issueCount)
+	ok, _ := registry.markUnavailable(context.Background(), serverID, runtimeID, runtimeGeneration, issueCount)
+	return ok
 }
 
-func (registry *ActiveRegistry) markUnavailable(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) bool {
+func (registry *ActiveRegistry) markUnavailable(ctx context.Context, serverID, runtimeID string, runtimeGeneration uint64, issueCount int64) (bool, error) {
 	if registry.draining.Load() || runtimeID == "" || issueCount < 0 {
-		return false
+		return false, servers.ErrStaleRevision
 	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 	if registry.draining.Load() {
-		return false
+		return false, servers.ErrStaleRevision
 	}
 	current, ok := registry.servers[serverID]
 	if ok && (current.RuntimeID != runtimeID || runtimeGeneration != 0 && current.RuntimeGeneration != runtimeGeneration) {
-		return false
+		return false, servers.ErrStaleRevision
 	}
 	if current.State == contract.ActiveCatalogUnavailable && current.Revision == nil && len(current.Tools) == 0 && current.IssueCount == issueCount {
-		return true
+		return true, nil
 	}
 	return registry.fenceWithAuditLocked(audit.InheritCause(ctx, current.Cause), serverID, "withdraw", func() {
 		oldRoutes := registry.routes.withdraw(serverID, runtimeID, runtimeGeneration)
@@ -422,16 +463,19 @@ func (registry *ActiveRegistry) markUnavailable(ctx context.Context, serverID, r
 	})
 }
 
-func (registry *ActiveRegistry) fenceWithAuditLocked(ctx context.Context, serverID, action string, fence func()) bool {
+func (registry *ActiveRegistry) fenceWithAuditLocked(ctx context.Context, serverID, action string, fence func()) (bool, error) {
 	attempt, err := audit.NewAttempt(audit.WithSystem(ctx), registry.clock.Now(), "catalog", action, contract.AuditTarget{Type: "server", ID: serverID})
 	if err == nil {
 		err = audit.Append(ctx, registry.repository.store, attempt)
 	}
 	fence()
-	if err != nil {
-		return false
+	if err == nil {
+		err = audit.Finish(ctx, registry.repository.store, attempt, registry.clock.Now(), "succeeded")
 	}
-	return audit.Finish(ctx, registry.repository.store, attempt, registry.clock.Now(), "succeeded") == nil
+	if err != nil {
+		return false, &settlementFailure{operation: "active " + action + " acknowledged; audit settlement failed", cause: err}
+	}
+	return true, nil
 }
 
 func (registry *ActiveRegistry) Routes() *RouteRegistry { return registry.routes }

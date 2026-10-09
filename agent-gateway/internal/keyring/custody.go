@@ -9,7 +9,9 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 
@@ -18,7 +20,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
-var ErrCustodyUnavailable = errors.New("encrypted secret custody is unavailable; inspect the installation master key and stopped setup")
+var ErrCustodyUnavailable = errors.New("encrypted secret custody is unavailable")
 
 type databaseCustody struct {
 	store *storage.Store
@@ -45,26 +47,26 @@ func SetupCustody(ctx context.Context, owner *gatewaypaths.Ownership, store *sto
 		if err = store.View(ctx, func(tx *sql.Tx) error {
 			return tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM secret_generations) OR EXISTS(SELECT 1 FROM keyring_authorities) OR EXISTS(SELECT 1 FROM keyring_candidates)`).Scan(&count)
 		}); err != nil || count != 0 {
-			return ErrCustodyUnavailable
+			return custodyError(ErrCustodyUnavailable, "inspect custody before setup", owner.Layout().Root, fmt.Sprintf("rule=empty_unconfigured_custody existing_records=%t; preserve existing artifacts", count != 0), err)
 		}
 	}
 	key, err := gatewaypaths.DurableMasterKey(owner)
 	if errors.Is(err, os.ErrNotExist) && id == "" {
 		key = make([]byte, 32)
 		if _, err = rand.Read(key); err != nil {
-			return ErrCustodyUnavailable
+			return custodyError(ErrCustodyUnavailable, "generate initial master key", owner.Layout().Root, "key publication not attempted", err)
 		}
 		defer clear(key)
 		key, err = gatewaypaths.MasterKey(owner, key)
 	}
 	if err != nil {
-		return ErrCustodyUnavailable
+		return custodyError(ErrCustodyUnavailable, "read or publish master key", filepath.Join(owner.Layout().Root, gatewaypaths.MasterKeyName), "preserve key/database artifacts; publication/durability may be unconfirmed", err)
 	}
 	defer clear(key)
 	actual := masterKeyID(key)
 	if id != "" {
 		if id != actual {
-			return ErrCustodyUnavailable
+			return custodyError(ErrCustodyUnavailable, "bind established master key", owner.Layout().Root, "rule=key_binding expected=matching observed=different; do not regenerate key", nil)
 		}
 		return nil
 	}
@@ -119,20 +121,25 @@ func (provider *Provider) UseDatabaseCustody(ctx context.Context, owner *gateway
 	if owner == nil || store == nil {
 		return ErrCustodyUnavailable
 	}
+	resource := filepath.Join(owner.Layout().Root, gatewaypaths.MasterKeyName)
 	identity, err := store.Identity(ctx)
-	if err != nil || identity.InstallationID != provider.installationID {
-		return ErrCustodyUnavailable
+	if err != nil {
+		return custodyError(ErrCustodyUnavailable, "read installation identity", resource, "established custody not changed; preserve installation", err)
+	}
+	if identity.InstallationID != provider.installationID {
+		return custodyError(ErrCustodyUnavailable, "bind installation", resource, "rule=installation_binding expected=current_provider observed=different; preserve installation", nil)
 	}
 	id, err := custodyKeyID(ctx, store)
 	if err != nil {
-		return ErrCustodyUnavailable
+		return custodyError(ErrCustodyUnavailable, "read custody identity", resource, "established configuration unknown; preserve installation", err)
 	}
+	var hasEncrypted bool
 	if err := store.View(ctx, func(tx *sql.Tx) error {
 		if err := storage.RequireNoLegacyCustodyTx(ctx, tx); err != nil {
 			return err
 		}
 		var missing bool
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM keyring_authorities a LEFT JOIN secret_generations g ON g.handle=a.handle AND g.owner=a.owner AND g.kind=a.kind WHERE g.handle IS NULL)`).Scan(&missing); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM keyring_authorities a LEFT JOIN secret_generations g ON g.handle=a.handle AND g.owner=a.owner AND g.kind=a.kind WHERE g.handle IS NULL), EXISTS(SELECT 1 FROM secret_generations WHERE custody='encrypted')`).Scan(&missing, &hasEncrypted); err != nil {
 			return err
 		}
 		if missing {
@@ -143,17 +150,20 @@ func (provider *Provider) UseDatabaseCustody(ctx context.Context, owner *gateway
 		return err
 	}
 	if id == "" {
-		return ErrCustodyUnavailable
+		if hasEncrypted {
+			return custodyError(ErrCustodyUnavailable, "read established custody identity", resource, "rule=custody_identity_required; encrypted generations exist; preserve artifacts for recovery; do not regenerate key", nil)
+		}
+		return custodyError(ErrCustodyUnavailable, "configure encrypted custody", resource, "rule=custody_identity_required; encrypted writes unconfigured; inspect stopped setup prerequisites", nil)
 	}
 	custody := &databaseCustody{store: store, keyID: id}
 	if id != "" {
 		key, err := gatewaypaths.MasterKey(owner, nil)
 		if err != nil {
-			return ErrCustodyUnavailable
+			return custodyError(ErrCustodyUnavailable, "read established master key", resource, "established_key=true; preserve database/key artifacts for recovery; do not regenerate key", err)
 		}
 		defer clear(key)
 		if masterKeyID(key) != id {
-			return ErrCustodyUnavailable
+			return custodyError(ErrCustodyUnavailable, "bind established master key", resource, "rule=key_binding expected=matching observed=different; preserve database/key artifacts; do not regenerate key", nil)
 		}
 		block, err := aes.NewCipher(key)
 		if err != nil {
@@ -190,7 +200,7 @@ func (custody *databaseCustody) write(ctx context.Context, namespace Namespace, 
 			return err
 		}
 		if count != 1 {
-			return ErrCustodyUnavailable
+			return custodyError(ErrCustodyUnavailable, "reserve encryption", namespace.owner+"/"+string(namespace.kind), "rule=matching_key_with_remaining_encryption_budget affected_rows=0 required_rows=1 limit=4294967296; inspect custody identity and encryption budget", nil)
 		}
 		// This insertion cannot overwrite an existing generation.
 		_, err = tx.ExecContext(ctx, `INSERT INTO secret_generations (handle, owner, kind, custody, version, key_id, ciphertext) VALUES (?, ?, ?, 'encrypted', 1, ?, ?)`, string(handle), namespace.owner, namespace.kind, custody.keyID, sealed)
@@ -207,17 +217,34 @@ func (custody *databaseCustody) read(ctx context.Context, namespace Namespace, h
 		return tx.QueryRowContext(ctx, `SELECT custody, version, key_id, substr(ciphertext, 1, 262173) FROM secret_generations WHERE handle = ? AND owner = ? AND kind = ?`, string(handle), namespace.owner, namespace.kind).Scan(&origin, &version, &keyID, &sealed)
 	})
 	if err != nil {
-		return nil, ErrIncompleteGeneration
+		rule := "generation read failed"
+		if errors.Is(err, sql.ErrNoRows) {
+			rule = "rule=generation_present observed=absent"
+		}
+		return nil, custodyError(ErrIncompleteGeneration, "read generation", namespace.owner+"/"+string(namespace.kind), rule, err)
 	}
 	if origin == "legacy" {
 		return nil, storage.ErrLegacyCustody
 	}
-	if origin != "encrypted" || !version.Valid || version.Int64 != 1 || !keyID.Valid || keyID.String != custody.keyID || custody.aead == nil || len(sealed) < 29 || len(sealed) > secretMaximumBytes+28 {
-		return nil, ErrIncompleteGeneration
+	resource := namespace.owner + "/" + string(namespace.kind)
+	if origin != "encrypted" {
+		return nil, custodyError(ErrIncompleteGeneration, "read generation", resource, "rule=encrypted_custody_required observed=unsupported", nil)
+	}
+	if !version.Valid || version.Int64 != 1 {
+		return nil, custodyError(ErrIncompleteGeneration, "read generation", resource, fmt.Sprintf("rule=generation_version present=%t observed=%d expected=1", version.Valid, version.Int64), nil)
+	}
+	if !keyID.Valid || keyID.String != custody.keyID {
+		return nil, custodyError(ErrIncompleteGeneration, "bind generation", resource, "rule=generation_key_binding expected=matching observed=absent_or_different; preserve artifacts", nil)
+	}
+	if custody.aead == nil {
+		return nil, custodyError(ErrCustodyUnavailable, "decrypt generation", resource, "rule=encrypted_read_configuration_required; no decryption attempted", nil)
+	}
+	if len(sealed) < 29 || len(sealed) > secretMaximumBytes+28 {
+		return nil, custodyError(ErrIncompleteGeneration, "read generation", resource, fmt.Sprintf("rule=sealed_generation_bytes observed=%d minimum=29 maximum=%d; bytes withheld", len(sealed), secretMaximumBytes+28), nil)
 	}
 	secret, err := custody.aead.Open(nil, nil, sealed, custodyBinding(namespace, handle, custody.keyID))
 	if err != nil {
-		return nil, ErrIncompleteGeneration
+		return nil, custodyError(ErrIncompleteGeneration, "authenticate generation", resource, "rule=generation_authentication; binding/ciphertext cannot be authenticated; preserve artifacts", err)
 	}
 	return secret, nil
 }

@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -21,6 +22,14 @@ const (
 	CallbackInvalid   CallbackOutcome = "invalid"
 	CallbackTransient CallbackOutcome = "transient"
 )
+
+type callbackDiagnostic struct {
+	phase     diagnostics.Phase
+	reason    diagnostics.Reason
+	cause     error
+	masking   []string
+	installed string
+}
 
 type CallbackResult struct {
 	Cause    audit.Cause `json:"-"`
@@ -46,7 +55,11 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 	if !ok {
 		return CallbackResult{Outcome: CallbackTransient}
 	}
-	defer release()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 	state := stateValues[0]
 	service.mu.Lock()
 	bundle, found := service.byState[state]
@@ -58,13 +71,20 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 	if !found {
 		return CallbackResult{Outcome: CallbackInvalid}
 	}
-	bundle.diagnosticFailure = &flowDiagnostic{phase: diagnostics.PhaseAuthorization, reason: diagnostics.ReasonUnknown}
+	bundle.diagnosticFailure = &callbackDiagnostic{phase: diagnostics.PhaseAuthorization, reason: diagnostics.ReasonUnknown, masking: []string{bundle.state, bundle.verifier}}
 	defer service.removeFlowIDs([]string{bundle.flowID})
 	defer func() {
+		release()
+		release = nil
 		if result.Outcome == CallbackSucceeded {
 			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthCompleted, diagnostics.PhaseAuthorization, diagnostics.ReasonNone)
 		} else {
-			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthFailed, bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason, bundle.diagnosticFailure.detail)
+			failure := bundle.diagnosticFailure
+			detail := diagnostics.Snapshot("oauth", "callback", bundle.serverID, failure.cause, failure.masking...)
+			if failure.installed != "" {
+				detail.Explanation = "token_installation=acknowledged revision=" + failure.installed + "; " + detail.Explanation
+			}
+			service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthFailed, failure.phase, failure.reason, detail)
 		}
 	}()
 	workCtx = audit.WithSystem(audit.WithCause(workCtx, bundle.cause))
@@ -84,6 +104,7 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCallbackValidation, newDiagnosticFailure(ErrFlowRejected, contract.ReasonProtocolInvalid, 0))
 		return result
 	}
+	bundle.diagnosticFailure.masking = append(bundle.diagnosticFailure.masking, codes[0])
 	fence := servers.OAuthTokenFence{
 		ServerID: bundle.serverID, FlowID: bundle.flowID, ExpectedDesiredRevision: bundle.desiredRevision,
 		ExpectedRegistrationRevision: bundle.registration.Revision,
@@ -112,8 +133,12 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 			return result
 		}
 		loaded, active, err := service.secrets.ReadActive(workCtx, namespace)
+		bundle.diagnosticFailure.masking = append(bundle.diagnosticFailure.masking, string(loaded))
 		if err != nil || active.Revision != bundle.authority.CredentialRevisions.OAuthClient {
 			clear(loaded)
+			if err == nil {
+				err = fmt.Errorf("oauth_client revision mismatch: observed=%s expected=%s: %w", active.Revision, bundle.authority.CredentialRevisions.OAuthClient, servers.ErrStaleRevision)
+			}
 			service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 			return result
 		}
@@ -142,6 +167,7 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 			outcome = "succeeded"
 		}
 		if err := finishOAuthEffect(workCtx, service.store, service.now(), attempt, outcome); err != nil {
+			bundle.diagnosticFailure.cause = errors.Join(bundle.diagnosticFailure.cause, &refreshSettlementFailure{operation: "callback audit settlement", cause: err})
 			result.Outcome = CallbackTransient
 		}
 	}()
@@ -152,7 +178,6 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 	)
 	clear(body)
 	if err != nil {
-		err = diagnostics.WithDetail(err, diagnostics.Snapshot("oauth", "token exchange", bundle.graph.TokenEndpoint, err, string(clientSecret), codes[0], bundle.verifier, bundle.state))
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, err)
 		return result
 	}
@@ -163,6 +188,10 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticTokenExchange, newDiagnosticFailure(err, reasonForHTTPStatus(status), status))
 		return result
 	}
+	bundle.diagnosticFailure.masking = append(bundle.diagnosticFailure.masking, token.accessToken)
+	if token.refreshToken != nil {
+		bundle.diagnosticFailure.masking = append(bundle.diagnosticFailure.masking, *token.refreshToken)
+	}
 	generation, err := encodeTokenGeneration(bundle, token, issuedAt)
 	if err != nil {
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
@@ -170,10 +199,12 @@ func (service *FlowService) HandleCallbackAt(ctx context.Context, rawQuery, call
 	}
 	defer clear(generation)
 	service.observeFlow(bundle.serverID, bundle.diagnosticAttempt, diagnostics.OAuthStage, diagnostics.PhaseOAuthInstallation, diagnostics.ReasonNone)
-	if _, err := service.secrets.ReplaceFencedAfterAuthorizationSuccess(workCtx, tokenNamespace, generation, callback); err != nil {
+	installed, err := service.secrets.ReplaceFencedAfterAuthorizationSuccess(workCtx, tokenNamespace, generation, callback)
+	if err != nil {
 		service.failConsumed(workCtx, bundle, contract.OAuthDiagnosticCredentialInstallation, err)
 		return result
 	}
+	bundle.diagnosticFailure.installed = installed.Revision
 	result.Outcome = CallbackSucceeded
 	return result
 }
@@ -212,14 +243,17 @@ func (service *FlowService) acquireCallback(ctx context.Context) (context.Contex
 
 func (service *FlowService) failConsumed(ctx context.Context, bundle flowBundle, stage contract.OAuthDiagnosticStage, cause error) {
 	diagnostic := oauthDiagnostic(bundle.flowID, stage, cause)
+	_, settlementErr := service.store.FailAuthFlow(ctx, bundle.flowID, diagnostic)
+	if settlementErr != nil {
+		cause = errors.Join(cause, &refreshSettlementFailure{operation: "flow failure settlement unacknowledged", cause: settlementErr})
+	}
 	if bundle.diagnosticFailure != nil {
-		bundle.diagnosticFailure.detail = diagnostics.Snapshot("oauth", "callback", bundle.serverID, cause, bundle.state, bundle.verifier)
+		bundle.diagnosticFailure.cause = errors.Join(bundle.diagnosticFailure.cause, cause)
 		bundle.diagnosticFailure.phase, bundle.diagnosticFailure.reason = oauthPhase(stage), diagnostics.PublicReason(&diagnostic.Reason)
 		if errors.Is(cause, context.DeadlineExceeded) {
 			bundle.diagnosticFailure.reason = diagnostics.ReasonTimeout
 		}
 	}
-	_, _ = service.store.FailAuthFlow(ctx, bundle.flowID, diagnostic)
 }
 
 func validIssuer(values []string, bundle flowBundle) bool {

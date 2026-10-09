@@ -45,7 +45,16 @@ func TestTrafficLocalCauseFormattedAfterWriterUnlock(t *testing.T) {
 	require.True(t, observer.Finish(nil))
 	require.Contains(t, output.String(), "native I/O refused")
 	var record map[string]any
-	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
+	failures := 0
+	for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
+		var candidate map[string]any
+		require.NoError(t, json.Unmarshal(line, &candidate))
+		if candidate["event"] == "traffic_failure" {
+			record = candidate
+			failures++
+		}
+	}
+	require.Equal(t, 1, failures)
 	wantResource := store.path
 	// The final encoder reserves space for the truncation marker.
 	if len(wantResource) > 160-len("...[truncated]") {

@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/stretchr/testify/assert"
@@ -37,6 +39,10 @@ func TestCallbackAuditFencesExchangeAndPreservesInitiator(t *testing.T) {
 			requester := &tokenRequester{status: http.StatusOK, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: []byte(`{"access_token":"audit-token-canary","token_type":"Bearer","expires_in":3600}`)}
 			secrets := new(tokenSecrets)
 			service := callbackService(store, requester, secrets)
+			var output bytes.Buffer
+			adapter := diagnostics.New(&output, diagnostics.Warn)
+			t.Cleanup(func() { adapter.Finish(nil); <-adapter.Done() })
+			service.SetDiagnostics(adapter, nil)
 			bundle := callbackBundle("audit-state-canary", false, contract.TokenEndpointAuthNone)
 			credential := contract.AuditCredential{ID: bundle.serverID, Fingerprint: "0123456789abcdef"}
 			bundle.cause = audit.Capture(audit.WithSystem(audit.WithOperator(t.Context(), credential, bundle.flowID)))
@@ -72,6 +78,18 @@ func TestCallbackAuditFencesExchangeAndPreservesInitiator(t *testing.T) {
 			calls := len(requester.requests)
 			assert.Equal(t, CallbackInvalid, service.HandleCallback(t.Context(), "state=audit-state-canary&code=audit-code-canary").Outcome)
 			assert.Len(t, requester.requests, calls)
+			require.True(t, adapter.Finish(nil))
+			if refusedPhase != "none" {
+				require.Contains(t, output.String(), "audit refused")
+				require.Equal(t, 1, bytes.Count(output.Bytes(), []byte(`"event":"oauth_failed"`)))
+			}
+			if refusedPhase == "outcome" {
+				require.Contains(t, output.String(), "callback audit settlement")
+				require.Contains(t, output.String(), "token_installation=acknowledged")
+			}
+			for _, secret := range []string{"audit-state-canary", "audit-code-canary", "audit-token-canary", "verifier-value"} {
+				require.NotContains(t, output.String(), secret)
+			}
 		})
 	}
 }

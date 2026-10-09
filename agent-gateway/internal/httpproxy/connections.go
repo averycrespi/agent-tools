@@ -104,7 +104,7 @@ func (e *Engine) connect(w http.ResponseWriter, r *http.Request, lease *authoriz
 	result, err := e.options.Admissions.AdmitHTTP(r.Context(), lease, identity, authorization.HTTPAccessInput{PrincipalID: lease.Binding().PrincipalID, Connect: &contract.HTTPDestinationSelector{Host: destination.Host(), Port: destination.Port()}}, address.Facts(), e.options.Materials)
 	if err != nil || !result.Evaluated || result.Execution.Transport == "" {
 		if err != nil {
-			e.observeRejection(started, result.FailureStage, result.FailureCause, err, w)
+			e.observeRejection(started, result.FailureStage, result.FailureCause, diagnostics.WithDetail(err, result.FailureDetail), w)
 			if result.FailureCause == diagnostics.Capacity {
 				rejectCapacity(w, http.StatusServiceUnavailable)
 			} else {

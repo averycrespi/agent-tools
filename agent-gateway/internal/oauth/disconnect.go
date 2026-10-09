@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/remote"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/runtimes"
@@ -39,6 +41,7 @@ func (adapter coordinatorDisconnect) WithOperation(ctx context.Context, use func
 }
 
 type DisconnectService struct {
+	diagnostics    diagnostics.HTTPProxyObserver
 	repository     disconnectRepository
 	coordinator    disconnectCoordinator
 	resolver       refreshResolver
@@ -78,7 +81,7 @@ func (service *DisconnectService) ReconcileCredentials(ctx context.Context, oper
 }
 
 func (service *DisconnectService) disconnect(ctx context.Context, operation servers.Operation, server servers.Server, authority servers.AuthorityMetadata) runtimes.CredentialLifecycleOutcome {
-	registration, _ := service.repository.OAuthRegistration(ctx, server.ID)
+	registration, registrationErr := service.repository.OAuthRegistration(ctx, server.ID)
 	configuration, oauthMode := cleanupOAuthConfiguration(server, registration)
 	kinds := cleanupKinds(operation.Kind, server, authority, oauthMode)
 	if len(kinds) == 0 && operation.Kind != contract.OperationDelete {
@@ -88,6 +91,19 @@ func (service *DisconnectService) disconnect(ctx context.Context, operation serv
 	var tokens TokenGeneration
 	var tokenLoaded bool
 	var clientSecret []byte
+	causes := registrationErr
+	invalidated := 0
+	phase, revocation := "read material and invalidate", "not_attempted"
+	defer func() {
+		if causes != nil {
+			sensitive := []string{string(clientSecret), tokens.AccessToken}
+			if tokens.RefreshToken != nil {
+				sensitive = append(sensitive, *tokens.RefreshToken)
+			}
+			service.observeDisconnect(server.ID, fmt.Sprintf("operation_id=%s phase=%s local_invalidation_ack=%d intended=%d remote_revocation=%s; ", operation.ID, phase, invalidated, len(kinds), revocation), causes, sensitive...)
+		}
+		clear(clientSecret)
+	}()
 	invalidationFailed := false
 	err := service.coordinator.WithOperation(ctx, func(admitted disconnectOperation) error {
 		if containsCleanupKind(kinds, contract.ServerCredentialOAuthTokens) && authority.OAuthTokensHandle != nil {
@@ -97,40 +113,61 @@ func (service *DisconnectService) disconnect(ctx context.Context, operation serv
 				clear(encoded)
 				tokenLoaded = err == nil
 			}
+			if err != nil {
+				causes = errors.Join(causes, withDisconnectCause("read revocation token generation", err))
+			}
 		}
 		if registration.TokenEndpointAuthMethod != contract.TokenEndpointAuthNone && authority.OAuthClientHandle != nil {
-			clientSecret, _, _ = admitted.ReadActive(ctx, service.namespace(server.ID, contract.ServerCredentialOAuthClient))
+			var readErr error
+			clientSecret, _, readErr = admitted.ReadActive(ctx, service.namespace(server.ID, contract.ServerCredentialOAuthClient))
+			if readErr != nil {
+				causes = errors.Join(causes, withDisconnectCause("read revocation client credential", readErr))
+			}
 		}
 		for _, kind := range kinds {
 			revision := credentialRevision(authority.CredentialRevisions, kind)
 			callback, callbackErr := service.repository.CredentialAuthorityCallback(servers.CredentialFence{ServerID: server.ID, Kind: kind, ExpectedDesiredRevision: operation.TargetDesiredRevision, ExpectedCredentialRevision: revision, ExpectedRegistrationRevision: authority.RegistrationRevision})
 			if callbackErr != nil {
+				causes = errors.Join(causes, withDisconnectCause("prepare "+string(kind)+" invalidation fence", callbackErr))
 				invalidationFailed = true
 				continue
 			}
 			if _, invalidateErr := admitted.InvalidateFencedExact(ctx, service.namespace(server.ID, kind), callback); invalidateErr != nil {
 				invalidationFailed = true
+				causes = errors.Join(causes, withDisconnectCause("invalidate "+string(kind)+" authority", invalidateErr))
+			} else {
+				invalidated++
 			}
 		}
 		return nil
 	})
-	defer clear(clientSecret)
-	defer clear([]byte(tokens.AccessToken))
+	causes = errors.Join(causes, err)
 	if err != nil || invalidationFailed {
 		return runtimes.CredentialLifecycleOutcome{CredentialState: contract.ServerCredentialCleanupPending, CleanupPending: true}
 	}
 
 	var observation *contract.PublicReason
 	if tokenLoaded {
-		reason := service.revoke(ctx, server.ID, configuration, registration, tokens, clientSecret)
+		phase, revocation = "remote revocation", "attempted_or_skipped_per_detail"
+		var revokeErr error
+		reason := service.revoke(ctx, server.ID, configuration, registration, tokens, clientSecret, &revokeErr)
+		causes = errors.Join(causes, revokeErr)
+		if reason == nil {
+			revocation = "http_acknowledged_not_proof_of_remote_erasure"
+		}
 		observation = reason
 	}
 	if operation.Kind == contract.OperationDelete && authority.RegistrationRevision != "0" {
 		if _, err := service.repository.InvalidateOAuthRegistrationForDelete(ctx, server.ID, authority.RegistrationRevision); err != nil {
+			phase = "invalidate registration"
+			causes = errors.Join(causes, err)
 			return runtimes.CredentialLifecycleOutcome{CredentialState: contract.ServerCredentialCleanupPending, CleanupPending: true}
 		}
 	}
-	cleanup := service.cleanupOnly(ctx, server.ID, authority)
+	phase = "physical retained generation cleanup"
+	var cleanupErr error
+	cleanup := service.cleanupOnly(ctx, server.ID, authority, &cleanupErr)
+	causes = errors.Join(causes, cleanupErr)
 	if cleanup.CleanupPending {
 		return cleanup
 	}
@@ -138,25 +175,47 @@ func (service *DisconnectService) disconnect(ctx context.Context, operation serv
 	return cleanup
 }
 
-func (service *DisconnectService) cleanupOnly(ctx context.Context, serverID string, authority servers.AuthorityMetadata) runtimes.CredentialLifecycleOutcome {
+func (service *DisconnectService) cleanupOnly(ctx context.Context, serverID string, authority servers.AuthorityMetadata, details ...*error) runtimes.CredentialLifecycleOutcome {
 	err := service.coordinator.WithOperation(ctx, func(admitted disconnectOperation) error {
 		var failures []error
 		for _, kind := range []contract.ServerCredentialKind{contract.ServerCredentialStatic, contract.ServerCredentialOAuthClient, contract.ServerCredentialOAuthTokens} {
 			if cleanupErr := admitted.CleanupCandidates(ctx, service.namespace(serverID, kind)); cleanupErr != nil {
-				failures = append(failures, cleanupErr)
+				failures = append(failures, withDisconnectCause("cleanup "+string(kind)+" retained generations", cleanupErr))
 			}
 		}
 		return errors.Join(failures...)
 	})
+	if len(details) != 0 {
+		*details[0] = err
+	} else if err != nil {
+		service.observeDisconnect(serverID, "cleanup_only=true remote_revocation=not_attempted; ", err)
+	}
 	if err != nil {
 		return runtimes.CredentialLifecycleOutcome{CredentialState: contract.ServerCredentialCleanupPending, CleanupPending: true}
 	}
 	return runtimes.CredentialLifecycleOutcome{CredentialState: contract.ServerCredentialAbsent}
 }
 
-func (service *DisconnectService) revoke(ctx context.Context, serverID string, configuration servers.AuthFlowOAuthConfiguration, registration servers.OAuthRegistrationAuthority, tokens TokenGeneration, clientSecret []byte) (observation *contract.PublicReason) {
+func (service *DisconnectService) revoke(ctx context.Context, serverID string, configuration servers.AuthFlowOAuthConfiguration, registration servers.OAuthRegistrationAuthority, tokens TokenGeneration, clientSecret []byte, details ...*error) (observation *contract.PublicReason) {
+	var causes error
+	attempted, acknowledged := 0, 0
+	defer func() {
+		if len(details) == 0 {
+			return
+		}
+		if causes != nil {
+			secrets := []string{string(clientSecret), tokens.AccessToken}
+			if tokens.RefreshToken != nil {
+				secrets = append(secrets, *tokens.RefreshToken)
+			}
+			detail := diagnostics.Snapshot("oauth", "remote revocation", serverID, causes, secrets...)
+			detail.Explanation = fmt.Sprintf("remote_requests=%d HTTP_200_ack=%d remote_effect=unknown; %s", attempted, acknowledged, detail.Explanation)
+			*details[0] = diagnostics.WithDetail(causes, detail)
+		}
+	}()
 	attempt, err := beginOAuthEffect(ctx, service.repository, time.Now(), "revoke", contract.AuditTarget{Type: "server", ID: serverID})
 	if err != nil {
+		causes = fmt.Errorf("revocation attempt audit: %w", err)
 		reason := contract.ReasonRevocationFailed
 		return &reason
 	}
@@ -166,34 +225,43 @@ func (service *DisconnectService) revoke(ctx context.Context, serverID string, c
 			outcome = "unknown"
 		}
 		if err := finishOAuthEffect(ctx, service.repository, time.Now(), attempt, outcome); err != nil {
+			causes = errors.Join(causes, fmt.Errorf("revocation outcome audit: %w", err))
 			reason := contract.ReasonRevocationFailed
 			observation = &reason
 		}
 	}()
 	graph, err := service.resolver.Discover(ctx, Input{Resource: registration.ResourceURL, DesiredIssuer: &registration.Issuer, TrustedOrigins: configuration.Authentication.TrustedOrigins})
 	if err != nil {
+		causes = fmt.Errorf("discover revocation endpoint: %w", err)
 		reason := contract.ReasonRevocationFailed
 		return &reason
 	}
 	if graph.RevocationEndpoint == "" {
+		causes = errors.New("revocation skipped: metadata has no revocation endpoint")
 		reason := contract.ReasonRevocationUnsupported
 		return &reason
 	}
 	method, ok := selectRevocationMethod(graph.RevocationEndpointAuthMethodsSupported, len(clientSecret) != 0)
 	if !ok {
+		causes = errors.New("revocation skipped: no supported client authentication method")
 		reason := contract.ReasonRevocationFailed
 		return &reason
 	}
-	failed := false
-	if tokens.RefreshToken != nil && *tokens.RefreshToken != "" {
-		failed = service.revokeToken(ctx, graph, registration.ClientID, method, clientSecret, *tokens.RefreshToken, "refresh_token") != nil
-	}
-	if tokens.AccessToken != "" && (tokens.RefreshToken == nil || tokens.AccessToken != *tokens.RefreshToken) {
-		if err := service.revokeToken(ctx, graph, registration.ClientID, method, clientSecret, tokens.AccessToken, "access_token"); err != nil {
-			failed = true
+	revoke := func(token, hint string) {
+		attempted++
+		if err := service.revokeToken(ctx, graph, registration.ClientID, method, clientSecret, token, hint); err != nil {
+			causes = errors.Join(causes, err)
+		} else {
+			acknowledged++
 		}
 	}
-	if failed {
+	if tokens.RefreshToken != nil && *tokens.RefreshToken != "" {
+		revoke(*tokens.RefreshToken, "refresh_token")
+	}
+	if tokens.AccessToken != "" && (tokens.RefreshToken == nil || tokens.AccessToken != *tokens.RefreshToken) {
+		revoke(tokens.AccessToken, "access_token")
+	}
+	if causes != nil {
 		reason := contract.ReasonRevocationFailed
 		return &reason
 	}
@@ -208,7 +276,9 @@ func (service *DisconnectService) revokeToken(ctx context.Context, graph Graph, 
 	defer clear(body)
 	status, _, _, err := service.requester.Request(ctx, graph.RevocationEndpoint, graph.AllowsRestrictedEndpoint(graph.RevocationEndpoint), header, body, limit("oauth_response_body_bytes"), nil)
 	if err != nil || status != http.StatusOK {
-		return ErrTokenRejected
+		detail := diagnostics.Snapshot("oauth", "revoke "+hint, graph.RevocationEndpoint, err, string(secret), token, header.Get("Authorization"))
+		detail.Explanation = fmt.Sprintf("token_kind=%s response_status=%d expected_status=200 dispatch=handed_to_requester remote_effect=unknown; %s", hint, status, detail.Explanation)
+		return diagnostics.WithDetail(ErrTokenRejected, detail)
 	}
 	return nil
 }

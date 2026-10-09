@@ -7,13 +7,14 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/activity"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
 func (s *TrafficStore) ObserveHTTP(admission contract.HTTPTrafficAdmission) *TrafficObservation {
 	encoded, err := encodeHTTPAdmission(admission)
 	if err != nil {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, false)
 		return nil
 	}
 	observation := &TrafficObservation{prepared: PreparedAdmission{Identity: activity.Identity{InvocationID: admission.ID, AdmittedAt: admission.AdmittedAt}}, httpAdmission: encoded, recorded: httpRecordedAdmission(admission), bytes: httpTrafficChargeBase + int64(len(encoded))}
@@ -24,12 +25,12 @@ func (s *TrafficStore) ObserveHTTP(admission contract.HTTPTrafficAdmission) *Tra
 func (s *TrafficStore) ObserveHTTPCompletion(observation *TrafficObservation, completion contract.HTTPTrafficCompletion) error {
 	var admission contract.HTTPTrafficAdmission
 	if observation == nil || observation.httpAdmission == "" || observation.gitAdmission != "" || strictjson.Decode([]byte(observation.httpAdmission), &admission, strictjson.Options{MaxBytes: contract.HTTPTrafficAdmissionBytes, MaxDepth: 12, RejectUnknownMembers: true}) != nil {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, true)
 		return ErrInvalidInput
 	}
 	encoded, err := encodeHTTPCompletion(admission, completion)
 	if err != nil {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, true)
 		return err
 	}
 	return s.enqueueObservation(&trafficRequest{observation: *observation, httpCompletion: encoded, recorded: recordedTerminal(observation.recorded.protocol, completion.Outcome), bytes: observation.bytes + maxTrafficCompletionBytes})

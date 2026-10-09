@@ -2,16 +2,21 @@ package invocation
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitwire"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 )
 
 type GitAdmissionResult struct {
+	FailureStage                  diagnostics.Stage
+	FailureCause                  diagnostics.Cause
+	FailureDetail                 diagnostics.Detail
 	Execution                     authorization.GitExecution
 	Evaluated, DispatchAuthorized bool
 	Material                      *gitcredentials.Material
@@ -35,11 +40,28 @@ func (result GitAdmissionResult) Settle() {
 }
 
 func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorization.Lease, identity PreparedAdmission, request *gitwire.Request, facts httppolicy.AddressFacts, materials *gitcredentials.Service) (result GitAdmissionResult, err error) {
+	stage := diagnostics.ProxyEvaluation
+	var failure error
+	defer func() {
+		if err != nil {
+			if failure == nil {
+				failure = err
+			}
+			resource := ""
+			if result.Execution.Material != nil {
+				resource = result.Execution.Material.Credential.ID
+			}
+			result.FailureStage, result.FailureCause = stage, httpAdmissionCause(failure)
+			result.FailureDetail = diagnostics.Snapshot("git-admission", "acquire/confirm material", resource, failure)
+			result.FailureDetail.Effect = "dispatch=not_authorized; fallback=not_attempted"
+		}
+	}()
 	if c == nil {
 		return result, ErrInvalidInput
 	}
 	evaluation, err := c.authority.EvaluateGitAdmission(ctx, lease, identity.InvocationID, identity.AdmittedAt, request, facts)
 	if err != nil {
+		failure = err
 		return result, authorization.ErrAdmissionUnavailable
 	}
 	result.Execution, result.Evaluated = evaluation.Execution, true
@@ -50,7 +72,7 @@ func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorizatio
 		} else {
 			result.Material, materialErr = materials.Acquire(ctx, evaluation.Execution.Material.Credential)
 			if materialErr == nil && result.Material.Generation() != evaluation.Execution.Material.Generation {
-				materialErr = gitcredentials.ErrUnavailable
+				materialErr = diagnostics.WithDetail(gitcredentials.ErrUnavailable, diagnostics.Detail{Component: "git-admission", Operation: "compare generation", Explanation: fmt.Sprintf("rule=material_generation expected=%s observed=%s", evaluation.Execution.Material.Generation, result.Material.Generation())})
 			}
 		}
 	}
@@ -72,11 +94,14 @@ func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorizatio
 	}
 	if evaluation.Candidate == nil || materialErr != nil {
 		if materialErr != nil {
+			stage, failure = diagnostics.ProxyMaterial, materialErr
 			return result, authorization.ErrAdmissionUnavailable
 		}
 		return result, nil
 	}
+	stage = diagnostics.ProxyConfirmation
 	if err = c.authority.ConfirmGit(ctx, evaluation.Candidate, identity.InvocationID, request, materials); err != nil {
+		failure = err
 		return result, authorization.ErrAdmissionUnavailable
 	}
 	result.DispatchAuthorized = true

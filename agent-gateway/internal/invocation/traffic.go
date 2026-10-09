@@ -80,6 +80,7 @@ type trafficRequest struct {
 // No caller waits for persistence and an uncertain write never gets replayed.
 type TrafficStore struct {
 	diagnostics              diagnostics.TrafficObserver
+	lossPending              diagnostics.TrafficLossCounts
 	optional                 *trafficLifecycle
 	db                       *sql.DB
 	readerDB                 *sql.DB
@@ -145,12 +146,12 @@ func (s *TrafficStore) BeginDrain() {
 func (s *TrafficStore) ObserveMCP(prepared PreparedAdmission) *TrafficObservation {
 	prepared.admission = cloneAdmissionEvidence(prepared.admission)
 	if !validPreparedAdmission(prepared) {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, false)
 		return nil
 	}
 	observation := &TrafficObservation{prepared: prepared, recorded: mcpRecordedAdmission(prepared), bytes: trafficCharge(prepared)}
 	if observation.bytes > 16384 {
-		s.drop()
+		s.drop(diagnostics.TrafficOversized, false)
 		return nil
 	}
 	s.observeInitial(observation)
@@ -168,20 +169,32 @@ func (s *TrafficStore) enqueueObservation(r *trafficRequest) error {
 		return ErrTrafficFault
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	refuse := func(err error) error { s.dropLocked(); return err }
+	if !s.closed && !s.faulted && !s.draining && s.optional != nil && s.optional.target != nil {
+		target := s.optional.target
+		s.mu.Unlock()
+		return target.enqueueObservation(r)
+	}
+	defer func() { s.mu.Unlock(); s.reportLoss() }()
+	refuse := func(err error, reason diagnostics.TrafficLossReason) error {
+		s.dropLocked()
+		s.lossLocked(reason, r.terminal())
+		return err
+	}
 	if s.closed || s.faulted || s.draining {
-		return refuse(ErrTrafficFault)
+		return refuse(ErrTrafficFault, diagnostics.TrafficUnavailable)
 	}
 	if s.optional != nil {
-		if s.optional.target == nil {
-			return refuse(ErrTrafficFault)
+		reason := diagnostics.TrafficUnavailable
+		if s.optional.state == "disabled" {
+			reason = diagnostics.TrafficDisabled
 		}
-		return s.optional.target.enqueueObservation(r)
+		return refuse(ErrTrafficFault, reason)
 	}
-	if s.queued >= s.config.QueueRecords || s.queuedBytes+r.bytes > s.config.QueueBytes ||
-		r.bytes > s.config.BatchBytes || r.bytes > maxTrafficRecordBytes+maxTrafficCompletionBytes {
-		return refuse(ErrTrafficCapacity)
+	if r.bytes > s.config.BatchBytes || r.bytes > maxTrafficRecordBytes+maxTrafficCompletionBytes {
+		return refuse(ErrTrafficCapacity, diagnostics.TrafficOversized)
+	}
+	if s.queued >= s.config.QueueRecords || s.queuedBytes+r.bytes > s.config.QueueBytes {
+		return refuse(ErrTrafficCapacity, diagnostics.TrafficQueueFull)
 	}
 	r.expires = time.Now().Add(s.config.QueueLifetime)
 	s.queued++
@@ -195,13 +208,15 @@ func (s *TrafficStore) enqueueObservation(r *trafficRequest) error {
 	s.observations <- r
 	return nil
 }
-func (s *TrafficStore) drop() {
+func (s *TrafficStore) drop(reason diagnostics.TrafficLossReason, terminal bool) {
 	if s == nil {
 		return
 	}
 	s.mu.Lock()
 	s.dropLocked()
+	s.lossLocked(reason, terminal)
 	s.mu.Unlock()
+	s.reportLoss()
 }
 func (s *TrafficStore) dropLocked() {
 	if s.quotaRefusals < int64(contract.RecordedActivityMaxCount) {
@@ -220,7 +235,7 @@ func (s *TrafficStore) dropLocked() {
 func (s *TrafficStore) ObserveMCPCompletion(observation *TrafficObservation, completion activity.Completion, diagnostic *contract.FailureDiagnostics) error {
 	diagnosticJSON, err := encodeFailureDiagnostics(completion.Class, diagnostic)
 	if err != nil || observation == nil || observation.httpAdmission != "" || observation.gitAdmission != "" || !validTrafficCompletion(observation.prepared, completion) {
-		s.drop()
+		s.drop(diagnostics.TrafficInvalid, true)
 		return ErrInvalidInput
 	}
 	return s.enqueueObservation(&trafficRequest{observation: *observation, completion: &completion, diagnosticJSON: diagnosticJSON,

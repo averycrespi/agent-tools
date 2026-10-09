@@ -3,6 +3,7 @@ package invocation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
@@ -20,6 +21,7 @@ type HTTPAdmissionResult struct {
 	Material           *httpcredentials.Material
 	FailureStage       diagnostics.Stage
 	FailureCause       diagnostics.Cause
+	FailureDetail      diagnostics.Detail
 	observation        *TrafficObservation
 	owner              *httpExecutionOwner
 }
@@ -54,6 +56,12 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 				failure = err
 			}
 			result.FailureStage, result.FailureCause = stage, httpAdmissionCause(failure)
+			resource := ""
+			if result.Execution.Material != nil {
+				resource = result.Execution.Material.Credential.ID
+			}
+			result.FailureDetail = diagnostics.Snapshot("http-admission", "acquire/confirm material", resource, failure)
+			result.FailureDetail.Effect = "dispatch=not_authorized; fallback=not_attempted"
 		}
 	}()
 	if c == nil {
@@ -72,7 +80,7 @@ func (c *AdmissionCoordinator) AdmitHTTP(ctx context.Context, lease *authorizati
 		} else {
 			result.Material, materialErr = materials.Acquire(ctx, evaluation.Execution.Material.Credential)
 			if materialErr == nil && result.Material.Generation() != evaluation.Execution.Material.Generation {
-				materialErr = httpcredentials.ErrUnavailable
+				materialErr = diagnostics.WithDetail(httpcredentials.ErrUnavailable, diagnostics.Detail{Component: "http-admission", Operation: "compare generation", Explanation: fmt.Sprintf("rule=material_generation expected=%s observed=%s", evaluation.Execution.Material.Generation, result.Material.Generation())})
 			}
 		}
 	}

@@ -102,7 +102,7 @@ func (manager *Manager) observeCatalog(candidate Candidate, outcome CatalogOutco
 		if outcome.OAuthChallenge.Kind == downstream.OAuthChallengeStepUp {
 			facts.Disposition = diagnostics.DispositionOperatorAuthentication
 		}
-	case outcome.State == contract.ActiveCatalogCurrent:
+	case outcome.State == contract.ActiveCatalogCurrent && outcome.Reason == nil && outcome.Phase == CatalogPublicationInstalled && outcome.DiagnosticDetail == (diagnostics.Detail{}):
 		facts.Event, facts.Reason, facts.Disposition = diagnostics.UpstreamRecovered, diagnostics.ReasonNone, diagnostics.DispositionHealthy
 	case outcome.DiagnosticRetryDelay > 0:
 		facts.Disposition = diagnostics.DispositionRetryScheduled
