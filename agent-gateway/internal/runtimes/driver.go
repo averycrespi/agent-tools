@@ -80,12 +80,12 @@ func (driver *ConcreteDriver) Reconcile(ctx context.Context, candidate Candidate
 	defer func() {
 		outcome.DiagnosticPhase = phase
 		if outcome.DiagnosticDetail != (diagnostics.Detail{}) {
-			resource := candidate.Server.DisplayName + " (" + candidate.Server.ID + ")"
+			resource := diagnostics.Text(candidate.Server.DisplayName, 48) + " (" + candidate.Server.ID + ")"
 			switch configured := desired.(type) {
 			case contract.StreamableHTTPTransport:
-				resource = candidate.Server.ID + " " + configured.URL
+				resource += " " + configured.URL
 			case contract.StdioTransport:
-				resource = candidate.Server.ID + " " + configured.Executable
+				resource += " " + configured.Executable
 			}
 			outcome.DiagnosticDetail.Resource = diagnostics.Text(resource, 160)
 		}
