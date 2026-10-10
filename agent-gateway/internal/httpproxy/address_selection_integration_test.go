@@ -274,7 +274,8 @@ func TestIntegrationAddressSelectionGitPostWriteWire(t *testing.T) {
 	observed := f.engine.options.Observations.Status().Protocols[diagnostics.Git]
 	require.EqualValues(t, 1, observed.Executions)
 	require.EqualValues(t, 1, observed.Results[diagnostics.Unknown])
-	// Retained evidence never contains credential or command bytes.
+	// Bounded requested refs survive a post-write failure, but no upstream
+	// outcome is inferred and credentials/raw commands remain excluded.
 	require.Eventually(t, func() bool {
 		h, err := f.traffic.GitHistory(t.Context(), 0, 10)
 		return err == nil && len(h.Records) == 1 && h.Records[0].Completion != nil
@@ -284,5 +285,11 @@ func TestIntegrationAddressSelectionGitPostWriteWire(t *testing.T) {
 	encoded, err := json.Marshal(history)
 	require.NoError(t, err)
 	require.False(t, bytes.Contains(encoded, []byte("selected-git-canary")))
-	require.False(t, bytes.Contains(encoded, []byte("refs/heads/private")))
+	require.False(t, bytes.Contains(encoded, []byte(strings.Repeat("1", 40))))
+	require.False(t, bytes.Contains(encoded, []byte(strings.Repeat("0", 40))))
+	require.False(t, bytes.Contains(encoded, []byte("report-status")))
+	record := history.Records[0]
+	require.Equal(t, &contract.GitTrafficRefEvidence{State: "complete", Refs: []contract.GitTrafficRequestedRef{{Name: "refs/heads/private", Action: "delete"}}}, record.Admission.RefEvidence)
+	require.Nil(t, record.Completion.RefOutcomes)
+	require.Empty(t, record.Completion.ReportedResult)
 }
