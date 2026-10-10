@@ -76,9 +76,11 @@ function useGitDetail<T>(
 ) {
   const [value, setValue] = useState<T>();
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     let current = true;
     setError(false);
+    setLoading(path !== undefined);
     if (path === undefined) return;
     void props.session
       .runProtected(async (context) => {
@@ -94,16 +96,26 @@ function useGitDetail<T>(
         if (await context.sessionLost(response)) return;
         if (!response.ok) throw new Error("Read unavailable");
         const result = await decode(response);
-        if (current) setValue(result);
+        if (current) {
+          setValue(result);
+          setLoading(false);
+        }
       })
       .catch(() => {
-        if (current) setError(true);
+        if (current) {
+          setError(true);
+          setLoading(false);
+        }
       });
     return () => {
       current = false;
     };
   }, [path, props.view.generation]);
-  return { value, error };
+  return { value, error, loading };
+}
+interface GitAcknowledgment {
+  from: string;
+  to: string;
 }
 export function GitConfiguration(props: Props & { kind: GitKind }) {
   const { kind } = props,
@@ -115,7 +127,8 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
     kind === "repositories" &&
       props.view.viewKey === props.resolved.canonicalFragment,
   );
-  const { value, error } = useGitDetail(
+  const [acknowledgment, setAcknowledgment] = useState<GitAcknowledgment>();
+  const { value, error, loading } = useGitDetail(
     props,
     selected && selected !== "new"
       ? `/api/v2/git/${kind}/${selected}`
@@ -325,7 +338,9 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         choices={choices}
         resource={value}
         mode="edit"
-        unavailable={error}
+        unavailable={error || loading}
+        acknowledgment={acknowledgment}
+        onAcknowledged={setAcknowledgment}
       />
       {kind === "credentials" && (
         <GitEditor
@@ -333,7 +348,9 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
           choices={choices}
           resource={value}
           mode="rotate"
-          unavailable={error}
+          unavailable={error || loading}
+          acknowledgment={acknowledgment}
+          onAcknowledged={setAcknowledgment}
         />
       )}
       <GitEditor
@@ -341,7 +358,8 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         choices={choices}
         resource={value}
         mode="delete"
-        unavailable={error}
+        unavailable={error || loading}
+        acknowledgment={acknowledgment}
       />
     </div>
   );
@@ -652,23 +670,8 @@ function GitCollection(
     </div>
   );
 }
-function GitEditor({
-  kind,
-  choices,
-  resource,
-  mode,
-  unavailable = false,
-  coverage,
-  ...props
-}: Props & {
-  coverage?: GitCoverageSource;
-  kind: GitKind;
-  choices: GitChoices;
-  resource?: GitResource;
-  mode: "create" | "edit" | "rotate" | "delete";
-  unavailable?: boolean;
-}) {
-  const [draft, setDraft] = useState(() => ({
+function gitDraft(resource?: GitResource) {
+  return {
     name: resource?.name ?? "",
     url: resource?.url ?? "",
     aliases: resource?.aliases ?? [],
@@ -682,13 +685,51 @@ function GitEditor({
     origin: resource?.origin ?? "",
     header: resource?.recipe?.header ?? "Authorization",
     prefix: resource?.recipe?.prefix ?? "Bearer ",
-  }));
+  };
+}
+function gitDraftKey(draft: ReturnType<typeof gitDraft>): string {
+  return JSON.stringify({
+    ...draft,
+    // Toggle selections are a set, independent of the order they were clicked.
+    refs: draft.refs.map((rule) => ({
+      ...rule,
+      actions: [...rule.actions].sort(),
+    })),
+  });
+}
+function GitEditor({
+  kind,
+  choices,
+  resource,
+  mode,
+  unavailable = false,
+  coverage,
+  acknowledgment,
+  onAcknowledged,
+  ...props
+}: Props & {
+  coverage?: GitCoverageSource;
+  acknowledgment?: GitAcknowledgment | undefined;
+  onAcknowledged?: (value: GitAcknowledgment) => void;
+  kind: GitKind;
+  choices: GitChoices;
+  resource?: GitResource;
+  mode: "create" | "edit" | "rotate" | "delete";
+  unavailable?: boolean;
+}) {
+  const [baseline, setBaseline] = useState(() => gitDraft(resource));
+  const [draft, setDraft] = useState(() => gitDraft(resource));
+  const [hasSecret, setHasSecret] = useState(false);
+  const metadata = mode === "create" || mode === "edit",
+    material =
+      kind === "credentials" && (mode === "create" || mode === "rotate");
+  const dirty =
+    (metadata && gitDraftKey(draft) !== gitDraftKey(baseline)) || hasSecret;
   const aliasesEdited = useRef(false);
   const [expected, setExpected] = useState(
     resource ? gitETag(kind, resource) : null,
   );
-  const [dirty, setDirty] = useState(false),
-    [confirming, setConfirming] = useState(false),
+  const [confirming, setConfirming] = useState(false),
     [inputError, setInputError] = useState<string>();
   const [secret] = useState(() => props.sinks.createWriteOnly()),
     [controller] = useState(() => props.mutations.create<GitResource | null>());
@@ -708,15 +749,50 @@ function GitEditor({
   );
   const changedRevision =
     resource !== undefined && expected !== gitETag(kind, resource);
+  const processedAcknowledgment = useRef<string>();
   const blocked =
     unavailable ||
     changedRevision ||
     mutation.state === "submitting" ||
     mutation.state === "uncertain" ||
     mutation.availability === "storage_latched";
-  const metadata = mode === "create" || mode === "edit",
-    material =
-      kind === "credentials" && (mode === "create" || mode === "rotate");
+  useEffect(() => {
+    // Only the exact acknowledged local transition can rebase a pristine neighbor.
+    // An external revision, a retained draft or reviewed/in-flight action cannot.
+    if (
+      !resource ||
+      unavailable ||
+      !acknowledgment ||
+      acknowledgment.to !== gitETag(kind, resource) ||
+      processedAcknowledgment.current === acknowledgment.to
+    )
+      return;
+    processedAcknowledgment.current = acknowledgment.to;
+    if (
+      !dirty &&
+      !confirming &&
+      mutation.state === "editing" &&
+      acknowledgment.from === expected
+    ) {
+      setExpected(acknowledgment.to);
+      const next = gitDraft(resource);
+      setBaseline(next);
+      setDraft(next);
+    }
+  }, [
+    resource,
+    unavailable,
+    dirty,
+    confirming,
+    mutation.state,
+    acknowledgment,
+    expected,
+    kind,
+  ]);
+  const clearSecret = () => {
+    secret.clear();
+    setHasSecret(false);
+  };
   const title =
     mode === "rotate"
       ? "Rotate secret"
@@ -738,7 +814,6 @@ function GitEditor({
       }
       return { ...d, [key]: value };
     });
-    setDirty(true);
   };
   const field = (
     key:
@@ -854,18 +929,26 @@ function GitEditor({
     return undefined;
   };
   const review = () => {
+    if (blocked) return;
     const error = validate();
     setInputError(error);
     if (error) {
-      secret.clear();
+      clearSecret();
     } else setConfirming(true);
   };
   const submit = () => {
     setConfirming(false);
+    if (blocked) {
+      clearSecret();
+      setInputError(
+        "Current facts changed or are unavailable. Review them before confirming a new action.",
+      );
+      return;
+    }
     const error = validate();
     if (error) {
       setInputError(error);
-      secret.clear();
+      clearSecret();
       return;
     }
     const element = document.getElementById(secretID);
@@ -899,16 +982,22 @@ function GitEditor({
           mode === "delete" ? null : decodeGitResponse(kind, response),
       });
       const pending = controller.submit();
-      secret.clear();
+      clearSecret();
       void pending.then((outcome) => {
         if (outcome.kind === "acknowledged") {
-          setDirty(false);
           controller.abandon();
           if (mode === "delete") navigate(`#/git/${kind}`, true);
           else if (mode === "create" && outcome.value)
             navigate(`#/git/${kind}/${outcome.value.id}`, true);
           else {
-            if (outcome.value) setExpected(gitETag(kind, outcome.value));
+            if (outcome.value) {
+              const to = gitETag(kind, outcome.value);
+              if (expected) onAcknowledged?.({ from: expected, to });
+              setExpected(to);
+              const next = gitDraft(outcome.value);
+              setBaseline(next);
+              setDraft(next);
+            }
             props.onRefresh();
           }
         } else if (
@@ -918,7 +1007,7 @@ function GitEditor({
           props.onRefresh();
       });
     } catch {
-      secret.clear();
+      clearSecret();
       setInputError(
         "Change could not be prepared. Refresh and review current metadata before making a new decision.",
       );
@@ -938,11 +1027,12 @@ function GitEditor({
           e.preventDefault();
           review();
         }}
-        onInput={() => setDirty(true)}
       >
         <fieldset
           class="git-mutation-fields"
-          disabled={mutation.state === "submitting"}
+          disabled={
+            mutation.state === "submitting" || mutation.state === "uncertain"
+          }
         >
           {metadata && kind !== "grants" && field("name", "Name")}
           {metadata && kind === "repositories" && (
@@ -1258,6 +1348,7 @@ function GitEditor({
               value={secret}
               label="Secret"
               hint="Write-only. Cleared on submission or cancellation."
+              onInput={(value) => setHasSecret(value.length > 0)}
             />
           )}
           {metadata &&
@@ -1277,12 +1368,18 @@ function GitEditor({
           )}
           {changedRevision && (
             <StateNotice state="warning" title="Revision changed">
-              <p>Review the current facts above against your retained draft.</p>
+              <p>
+                This resource changed since this form was prepared. Compare the
+                current facts above with your draft. Use reviewed revision keeps
+                your draft and uses that revision for your next confirmation; it
+                does not save, rotate, delete, or retry anything.
+              </p>
               <button
                 type="button"
                 disabled={unavailable || mutation.state === "uncertain"}
                 onClick={() => {
                   setExpected(gitETag(kind, resource!));
+                  setBaseline(gitDraft(resource));
                   controller.abandon();
                 }}
               >
@@ -1300,6 +1397,27 @@ function GitEditor({
             </StateNotice>
           )}
           <div class="form-actions">
+            {dirty && (
+              <button
+                type="button"
+                disabled={
+                  unavailable ||
+                  mutation.state === "submitting" ||
+                  mutation.state === "uncertain"
+                }
+                onClick={() => {
+                  const next = gitDraft(resource);
+                  setDraft(next);
+                  setBaseline(next);
+                  setExpected(resource ? gitETag(kind, resource) : null);
+                  clearSecret();
+                  setInputError(undefined);
+                  controller.abandon();
+                }}
+              >
+                Discard changes
+              </button>
+            )}
             <button
               ref={button}
               type="submit"
@@ -1445,7 +1563,7 @@ function GitEditor({
         returnFocus={button as unknown as RefObject<HTMLElement>}
         onCancel={() => {
           setConfirming(false);
-          secret.clear();
+          clearSecret();
         }}
         onConfirm={submit}
       />

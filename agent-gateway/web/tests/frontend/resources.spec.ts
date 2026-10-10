@@ -65,7 +65,7 @@ const entities = [
         refs: [
           {
             ref: { kind: "exact", value: "refs/heads/main" },
-            actions: ["update"],
+            actions: ["create", "update"],
           },
         ],
       },
@@ -586,9 +586,7 @@ for (const entity of entities) {
           fields.map((field) => field.getBoundingClientRect().top),
         );
       expect(new Set(toggles).size).toBe(1);
-      await expect(
-        page.getByLabel("Create", { exact: true }),
-      ).not.toBeChecked();
+      await expect(page.getByLabel("Create", { exact: true })).toBeChecked();
       await expect(page.getByLabel("Update", { exact: true })).toBeChecked();
       await expect(
         page.getByLabel("Delete", { exact: true }),
@@ -599,6 +597,31 @@ for (const entity of entities) {
         page.getByLabel("Canonical HTTPS destination"),
       ).toHaveAttribute("readonly", "");
     await capture(page, "detail-edit", true);
+    if (entity.path.startsWith("git/")) {
+      const input = page.getByLabel(
+        entity.path.endsWith("grants") ? "Description (optional)" : "Name",
+        { exact: true },
+      );
+      await input.fill("Temporary metadata");
+      await input.fill(entity.name);
+      if (entity.path.endsWith("grants")) {
+        await page.getByLabel("Create", { exact: true }).click();
+        await page.getByLabel("Create", { exact: true }).click();
+      }
+      await page
+        .getByRole("link", {
+          name: `Back to Git ${entity.path.split("/")[1]}`,
+          exact: true,
+        })
+        .click();
+      await expect(page.getByRole("table")).toContainText(entity.name);
+      await nav(`/${id}`);
+      await input.fill("Discarded metadata");
+      await page
+        .getByRole("button", { name: "Discard changes", exact: true })
+        .click();
+      await expect(input).toHaveValue(entity.name);
+    }
     if (entity.path.endsWith("credentials")) {
       await page
         .getByLabel("Secret", { exact: true })

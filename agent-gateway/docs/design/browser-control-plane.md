@@ -26,8 +26,20 @@ and exact/prefix selectors. Expired grants and unavailable credentials are expli
 Credential values never enter drafts, confirmation, storage or read APIs. Exact
 ETag conflicts retain drafts for deliberate revision review; uncertain mutations
 remain blocked without replay. Git mutation form controls are disabled while a
-request is in flight, so acknowledgement cannot discard newer, unsubmitted edits.
-Drafts remain dirty until acknowledgement; rejection preserves navigation protection.
+request is in flight or its outcome is uncertain. A confirmed local edit/rotation
+records its exact old/new revision transition. Only after a successful detail read
+matches that result may pristine neighboring forms on the old revision adopt it;
+retained drafts, reviewed actions, rejected/in-flight/uncertain actions and other
+external revisions remain protected. A failed refresh blocks writes, including
+handoff from an open confirmation, without treating it as a failed mutation.
+**Use reviewed revision** keeps the safe draft and adopts the displayed concurrency
+precondition for the next confirmation; it does not save, rotate, delete or retry.
+Metadata dirty state compares values with the form's baseline, not input history;
+returning to that baseline or explicitly choosing **Discard changes** clears it.
+Discard uses current safe facts and does not submit a mutation. Revision mismatch
+alone is not an unsaved edit. Write-only presence is tracked without copying the
+secret into draft state and clears with submission/cancellation. Rejection preserves
+real metadata drafts, not already-cleared secret input.
 Resource identity and primary status stay outside the single neutral detail task.
 Git metadata and confirmation facts use shared aligned rows; admission-time
 references remain an unboxed disclosure inside the recorded-exchange task.
