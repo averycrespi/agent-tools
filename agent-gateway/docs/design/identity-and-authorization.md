@@ -300,7 +300,10 @@ one dispatch of that same request owner. Equal retained summaries cannot
 substitute another prefix. Cancellation, revocation, edits, drain and control-storage
 health failure before confirmation refuse without reevaluation. Authority and
 storage ownership never span client body reads, secret provider I/O or network
-work. Ref names, OIDs and request binding remain memory-only.
+work. OIDs and request binding remain memory-only. History deliberately retains
+only the bounded ref-name/action prefix defined by the
+[public evidence contract](public-contract.md#git-configuration-resources);
+retained evidence never becomes dispatch authority.
 
 Startup and staged backup/restore validate the complete retained Git graph,
 canonical policy, capacities, timestamps, origins, overlap and references. Restore

@@ -29,13 +29,20 @@ import (
 func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 	pkt := func(s string) string { return fmt.Sprintf("%04x%s", len(s)+4, s) }
 	full := pkt("unpack ok\n") + pkt("ok refs/heads/private-a\n") + pkt("ng refs/heads/private-b secret-message-canary\n") + "0000"
-	for _, mode := range []string{"partial", "success", "failure", "truncated", "missing", "gzip", "unsupported_encoding", "sideband", "interrupted"} {
+	for _, mode := range []string{"partial", "success", "failure", "truncated", "missing", "gzip", "unsupported_encoding", "sideband", "interrupted", "http401", "http403"} {
 		t.Run(mode, func(t *testing.T) {
 			f := fixture(t)
 			wire := []byte(full)
 			want := "reported_partial"
 			encoding := ""
+			status := http.StatusOK
 			switch mode {
+			case "http401":
+				status = http.StatusUnauthorized
+				want = ""
+			case "http403":
+				status = http.StatusForbidden
+				want = ""
 			case "success":
 				wire = []byte(pkt("unpack ok\n") + pkt("ok refs/heads/private-a\n") + pkt("ok refs/heads/private-b\n") + "0000")
 				want = "reported_success"
@@ -81,6 +88,7 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 				if mode == "interrupted" {
 					w.Header().Set("Content-Length", fmt.Sprint(len(wire)+10))
 				}
+				w.WriteHeader(status)
 				_, _ = w.Write(wire)
 			}))
 			t.Cleanup(func() {
@@ -114,7 +122,7 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			require.NoError(t, err)
 			response, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "POST"})
 			require.NoError(t, err)
-			require.Equal(t, 200, response.StatusCode)
+			require.Equal(t, status, response.StatusCode)
 			got, readErr := io.ReadAll(response.Body)
 			if mode == "interrupted" {
 				require.Error(t, readErr)
@@ -144,6 +152,20 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			r := history.Records[0]
 			require.NotNil(t, r.Completion)
 			require.Equal(t, want, r.Completion.ReportedResult)
+			require.Equal(t, &contract.GitTrafficRefEvidence{State: "complete", Refs: []contract.GitTrafficRequestedRef{{Name: "refs/heads/private-a", Action: "delete"}, {Name: "refs/heads/private-b", Action: "delete"}}}, r.Admission.RefEvidence)
+			switch want {
+			case "reported_success":
+				require.Equal(t, []string{"ok", "ok"}, r.Completion.RefOutcomes)
+			case "reported_failure":
+				require.Equal(t, []string{"ng", "ng"}, r.Completion.RefOutcomes)
+			case "reported_partial":
+				require.Equal(t, []string{"ok", "ng"}, r.Completion.RefOutcomes)
+			default:
+				require.Nil(t, r.Completion.RefOutcomes)
+			}
+			if status >= 400 {
+				require.Equal(t, "Failed", contract.GitTrafficOutcome(r))
+			}
 			require.Equal(t, "outcome_unknown", r.Completion.Outcome)
 			observed := f.engine.options.Observations.Status()
 			require.EqualValues(t, 1, observed.Protocols[diagnostics.HTTP].Requests)
@@ -181,8 +203,8 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			require.Equal(t, "Original name", r.Admission.Policy.RepositoryName)
 			raw, err := json.Marshal(r)
 			require.NoError(t, err)
-			require.NotContains(t, string(raw), "private-a")
-			require.NotContains(t, string(raw), "private-b")
+			require.Contains(t, string(raw), "refs/heads/private-a")
+			require.Contains(t, string(raw), "refs/heads/private-b")
 			require.NotContains(t, string(raw), "secret-message")
 			require.NotContains(t, string(raw), strings.Repeat("1", 40))
 			httpHistory, err := f.traffic.HTTPHistory(t.Context(), 0, 10)

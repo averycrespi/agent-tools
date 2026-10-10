@@ -28,6 +28,9 @@ func validGitTrafficRef(ref contract.GitRevisionRef) bool {
 }
 func validGitTraffic(item contract.GitTrafficRecord) bool {
 	a := item.Admission
+	if !contract.ValidGitTrafficRefs(a) {
+		return false
+	}
 	if !validGitTrafficRef(a.Principal) || !validGitTrafficRef(a.AgentCredential) || !validCanonicalRevision(a.ProfileRevision) || a.ProfileRevision == "0" || !validCanonicalRevision(a.AuthorizationRevision) || a.AuthorizationRevision == "0" {
 		return false
 	}
@@ -76,6 +79,9 @@ func validGitTraffic(item contract.GitTrafficRecord) bool {
 		return false
 	}
 	if c := item.Completion; c != nil {
+		if !contract.ValidGitTrafficOutcomes(a, *c) {
+			return false
+		}
 		completed, valid := httpResponseTime(c.CompletedAt)
 		if !valid || completed.Before(evaluated) || c.Status != 0 && (c.Status < 100 || c.Status > 599) || c.TransferComplete && c.Status == 0 || !slices.Contains([]string{"", "credential_unavailable", "authorization_unavailable"}, c.Failure) || c.Failure != "" && c.Outcome != "prestart_failure" {
 			return false
@@ -167,7 +173,7 @@ func gitTrafficListTable(body []byte) (controlclient.Table, error) {
 	if page.Items == nil || len(page.Items) > 100 || page.NextCursor != nil && (len(*page.NextCursor) == 0 || len(*page.NextCursor) > 512 || len(page.Items) == 0) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	table := controlclient.Table{Headers: []string{"ADMITTED", "REPOSITORY", "EXCHANGE", "ADMISSION", "TRANSPORT", "UPSTREAM REPORT", "ID"}, NextCursor: page.NextCursor}
+	table := controlclient.Table{Headers: []string{"ADMITTED", "REPOSITORY", "EXCHANGE", "OUTCOME", "ADMISSION", "TRANSPORT", "UPSTREAM REPORT", "ID"}, NextCursor: page.NextCursor}
 	seen := map[string]bool{}
 	for _, item := range page.Items {
 		if !validGitTraffic(item) || seen[item.Admission.ID] {
@@ -176,7 +182,7 @@ func gitTrafficListTable(body []byte) (controlclient.Table, error) {
 		seen[item.Admission.ID] = true
 		d, t, r := gitTrafficFacts(item)
 		a := item.Admission
-		table.Rows = append(table.Rows, []string{a.AdmittedAt, a.Repository.ID, gitTrafficLabel(a.Operation), d, t, r, a.ID})
+		table.Rows = append(table.Rows, []string{a.AdmittedAt, a.Repository.ID, gitTrafficLabel(a.Operation), contract.GitTrafficOutcome(item), d, t, r, a.ID})
 	}
 	return table, nil
 }
@@ -190,7 +196,27 @@ func gitTrafficItemTable(body []byte) (controlclient.Table, error) {
 	}
 	a := item.Admission
 	d, t, r := gitTrafficFacts(item)
-	table := controlclient.Table{Headers: []string{"FIELD", "VALUE"}, Rows: [][]string{{"ID", a.ID}, {"Repository", a.Repository.ID + " revision " + a.Repository.Revision}, {"Agent", a.Principal.ID}, {"Exchange", gitTrafficLabel(a.Operation)}, {"Commands", strconv.Itoa(a.Commands)}, {"Admission", d}, {"Transport", t}, {"Upstream report", r}, {"Evidence", "Admission references describe historical policy, not current authority. Reports are not independently verified effects. Reconcile uncertain pushes with the remote before deciding on another operation."}}}
+	table := controlclient.Table{Headers: []string{"FIELD", "VALUE"}, Rows: [][]string{{"ID", a.ID}, {"Repository", a.Repository.ID + " revision " + a.Repository.Revision}, {"Agent", a.Principal.ID}, {"Exchange", gitTrafficLabel(a.Operation)}, {"Commands", strconv.Itoa(a.Commands)}, {"Outcome", contract.GitTrafficOutcome(item)}, {"Admission", d}, {"Transport", t}, {"Upstream report", r}, {"Evidence", "Admission references describe historical policy, not current authority. Reports are not independently verified effects. Reconcile uncertain pushes with the remote before deciding on another operation."}}}
+	if a.Operation == "push" {
+		state := "Unavailable (legacy record)"
+		if e := a.RefEvidence; e != nil {
+			state = fmt.Sprintf("%s: %d of %d requested refs", e.State, len(e.Refs), a.Commands)
+			for i, ref := range e.Refs {
+				outcome := "Unknown"
+				if !a.Allowed {
+					outcome = "Not dispatched"
+				} else if c := item.Completion; c != nil && len(c.RefOutcomes) > i {
+					if c.RefOutcomes[i] == "ok" {
+						outcome = "Reported success"
+					} else {
+						outcome = "Reported failure"
+					}
+				}
+				table.Rows = append(table.Rows, []string{"Requested ref", fmt.Sprintf("%s | %s | %s", ref.Name, ref.Action, outcome)})
+			}
+		}
+		table.Rows = append(table.Rows, []string{"Ref evidence", state})
+	}
 	if p := a.Policy; p != nil {
 		table.Rows = append(table.Rows, []string{"Repository at admission", p.RepositoryName}, []string{"Canonical destination at admission", p.RepositoryURL}, []string{"Create/update/delete commands", fmt.Sprintf("%d / %d / %d", p.Creates, p.Updates, p.Deletes)}, []string{"Applicable grant references retained", fmt.Sprintf("%d of %d", len(p.Grants), p.GrantCount)})
 		for _, g := range p.Grants {

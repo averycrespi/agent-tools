@@ -86,20 +86,7 @@ func Overlaps(a, b string) bool {
 }
 
 func ValidRef(value string) bool {
-	if len(value) > contract.GitRefBytes || !strings.HasPrefix(value, "refs/") || strings.Count(value, "/") < 2 || strings.Contains(value, "..") || strings.Contains(value, "@{") || strings.HasSuffix(value, ".") {
-		return false
-	}
-	for _, b := range []byte(value) {
-		if b < 0x21 || b > 0x7e || strings.ContainsRune("~^:?*[\\", rune(b)) {
-			return false
-		}
-	}
-	for _, segment := range strings.Split(value, "/") {
-		if segment == "" || strings.HasPrefix(segment, ".") || strings.HasSuffix(segment, ".lock") {
-			return false
-		}
-	}
-	return true
+	return contract.ValidGitRefName(value)
 }
 
 func Normalize(policy contract.GitPolicy) (contract.GitPolicy, error) {

@@ -1,4 +1,5 @@
 import type { RefObject } from "preact";
+import { oppositeGitAlias, validGitAliases } from "./git-alias";
 import type { GitTrafficController } from "./git-traffic-history";
 import { gitTrafficOptions, validGitTrafficQuery } from "./git-traffic-query";
 import {
@@ -42,6 +43,7 @@ import {
   decodeGitTraffic,
   gitETag,
   gitFacts,
+  gitOutcome,
   gitID,
   gitLabels,
   type GitKind,
@@ -673,6 +675,7 @@ function GitEditor({
     header: resource?.recipe?.header ?? "Authorization",
     prefix: resource?.recipe?.prefix ?? "Bearer ",
   }));
+  const aliasesEdited = useRef(false);
   const [expected, setExpected] = useState(
     resource ? gitETag(kind, resource) : null,
   );
@@ -714,7 +717,19 @@ function GitEditor({
     key: K,
     value: (typeof draft)[K],
   ) => {
-    setDraft((d) => ({ ...d, [key]: value }));
+    if (key === "aliases") aliasesEdited.current = true;
+    setDraft((d) => {
+      if (
+        key === "url" &&
+        kind === "repositories" &&
+        mode === "create" &&
+        !aliasesEdited.current
+      ) {
+        const alias = oppositeGitAlias(String(value));
+        return { ...d, url: String(value), aliases: alias ? [alias] : [] };
+      }
+      return { ...d, [key]: value };
+    });
     setDirty(true);
   };
   const field = (
@@ -780,6 +795,8 @@ function GitEditor({
           (draft.credential !== "" && !gitID.test(draft.credential)))
       )
         return "Use HTTPS destinations and a valid optional Git credential ID.";
+      if (kind === "repositories" && !validGitAliases(draft.url, draft.aliases))
+        return "Aliases must be distinct from each other and the canonical destination.";
       if (
         kind === "grants" &&
         (!gitID.test(draft.principal) || !gitID.test(draft.repository))
@@ -1486,12 +1503,14 @@ export function GitTrafficView(
                 ? "stale"
                 : !a.allowed
                   ? "neutral"
-                  : f.transport === "Complete"
+                  : ["HTTP success", "Reported success"].includes(
+                        gitOutcome(value),
+                      )
                     ? "current"
                     : "warning"
             }
           >
-            {`Transport: ${f.transport}`}
+            {gitOutcome(value)}
           </StatusLabel>
         </div>
         <p class="technical-value">{a.id}</p>
@@ -1574,6 +1593,62 @@ export function GitTrafficView(
             Transport completion does not prove a valid local checkout.
             Discovery and probes are not completed pushes.
           </p>
+        )}
+        {a.operation === "push" && (
+          <section aria-label="Targeted refs">
+            <h2>Targeted refs</h2>
+            {!a.ref_evidence ? (
+              <p>Ref evidence unavailable (legacy record).</p>
+            ) : (
+              <>
+                <p>
+                  {a.ref_evidence.refs.length} of {a.commands} requested refs
+                  retained
+                  {a.ref_evidence.state === "truncated"
+                    ? "; truncated — omitted refs and their outcomes are unavailable."
+                    : "."}
+                </p>
+                <div
+                  class="table-region table-resource"
+                  role="region"
+                  aria-label="Targeted ref evidence"
+                  tabindex={0}
+                >
+                  <table>
+                    <caption>Requested operations and upstream claims</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Ref</th>
+                        <th scope="col">Requested action</th>
+                        <th scope="col">Upstream outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {a.ref_evidence.refs.map((ref, i) => (
+                        <tr key={ref.name}>
+                          <th scope="row" data-label="Ref">
+                            <span class="technical-value">{ref.name}</span>
+                          </th>
+                          <td data-label="Requested action">
+                            {sentenceCase(ref.action)}
+                          </td>
+                          <td data-label="Upstream outcome">
+                            {!a.allowed
+                              ? "Not dispatched"
+                              : c?.ref_outcomes?.[i] === "ok"
+                                ? "Reported success"
+                                : c?.ref_outcomes?.[i] === "ng"
+                                  ? "Reported failure"
+                                  : "Unknown"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
         )}
         <details>
           <summary>Admission-time policy references</summary>
@@ -1852,13 +1927,27 @@ function GitTrafficCollection(
             ),
           },
           {
+            key: "outcome",
+            label: "Outcome",
+            role: "status",
+            render: (r) => (
+              <StatusLabel
+                state={
+                  ["HTTP success", "Reported success"].includes(gitOutcome(r))
+                    ? "current"
+                    : "warning"
+                }
+              >
+                {gitOutcome(r)}
+              </StatusLabel>
+            ),
+          },
+          {
             key: "admission",
             label: "Admission",
             role: "status",
             render: (r) => (
-              <StatusLabel state={r.admission.allowed ? "current" : "neutral"}>
-                {gitFacts(r).admission}
-              </StatusLabel>
+              <StatusLabel state="neutral">{gitFacts(r).admission}</StatusLabel>
             ),
           },
           {

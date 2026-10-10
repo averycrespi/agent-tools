@@ -320,9 +320,11 @@ bound. Negotiated report-status/report-status-v2 basic status and side-band-64k
 channel-1 framing are supported; progress is discarded and channel-3 fatal or
 unsupported v2 option records leave the report unknown. Every requested command
 must appear exactly once, with no foreign refs, and both inner/outer flushes and
-exact terminal framing must be complete. Ref/OID/message data never leaves the
-request-local owner. Complete upstream reports distinguish reported success,
-failure and partial success, never independently verified effects.
+exact terminal framing must be complete. Only the bounded requested ref/action
+prefix and aligned fixed `ok`/`ng` outcomes may leave the request-local owner;
+OID/message data never does. Incomplete reports supply no per-ref outcomes.
+Complete upstream reports distinguish reported success, failure and partial
+success, never independently verified effects.
 
 Observed pushes explicitly request `Accept-Encoding: identity`; any unexpected
 encoding, automatic decompression, unsupported content type, non-200 status,
@@ -338,9 +340,11 @@ repository coordinates and unsupported request content are not retained.
 Optional admission-time policy facts hold configured repository name/canonical
 URL, at most four applicable grant references and their total, and create/update/
 delete counts. These are immutable historical configuration, not current labels
-or observed refs. Public API, CLI and browser history expose admission, transport
-and upstream-report evidence separately; absent historical additions remain
-unavailable/unknown. No guessed CONNECT link, raw capture, traffic-to-grant action
+or observed refs. Separately, bounded observed ref names and requested actions
+are retained under the [public evidence contract](public-contract.md#git-configuration-resources).
+Public API, CLI and browser history expose request outcome, admission, transport
+and upstream-report evidence separately; HTTP failures are Failed even when
+transport completed. Absent historical additions remain unavailable/unknown. No guessed CONNECT link, raw capture, traffic-to-grant action
 or automatic retry is introduced.
 
 ## Governed invocation and audit evidence

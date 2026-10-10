@@ -55,7 +55,10 @@ func TestGitExactRequestCandidateAndPolicyConfirmation(t *testing.T) {
 				request = gitRequest(t, repo, profile, "refs/heads/team/b")
 				substitute, err := r.EvaluateGitAdmission(t.Context(), lease, id(88), formatAuthorizationTime(testNow), request, httppolicy.AddressFacts{Complete: true, Addresses: []netip.Addr{netip.MustParseAddr("93.184.216.34")}})
 				require.NoError(t, err)
-				require.Equal(t, evaluation.Evidence, substitute.Evidence, "retained summaries deliberately cannot bind ref controls")
+				require.NotEqual(t, evaluation.Evidence.RefEvidence, substitute.Evidence.RefEvidence)
+				// Even identical retained evidence cannot replace the exact request owner.
+				substitute.Evidence.RefEvidence = evaluation.Evidence.RefEvidence
+				require.Equal(t, evaluation.Evidence, substitute.Evidence)
 			case "repository":
 				def := repo.GitRepositoryDefinition
 				def.Name = "edited"

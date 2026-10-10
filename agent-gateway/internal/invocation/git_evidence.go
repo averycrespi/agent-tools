@@ -18,6 +18,9 @@ func validGitRef(ref contract.GitRevisionRef) bool {
 	return validOpaqueInvocationID(ref.ID) && gitpolicy.ValidRevision(ref.Revision)
 }
 func encodeGitAdmission(a contract.GitTrafficAdmission) (string, error) {
+	if !contract.ValidGitTrafficRefs(a) {
+		return "", ErrInvalidInput
+	}
 	admitted, ok := parseCanonicalInvocationTimestamp(a.AdmittedAt)
 	evaluated, valid := parseCanonicalInvocationTimestamp(a.EvaluatedAt)
 	if !ok || !valid || evaluated.Before(admitted) || !validOpaqueInvocationID(a.ID) || !validGitRef(a.Principal) || !validGitRef(a.AgentCredential) || !gitpolicy.ValidRevision(a.ProfileRevision) || !gitpolicy.ValidRevision(a.AuthorizationRevision) || a.Commands < 0 || a.Commands > contract.GitRequestedRefs {
@@ -62,6 +65,9 @@ func encodeGitAdmission(a contract.GitTrafficAdmission) (string, error) {
 	return string(raw), nil
 }
 func encodeGitCompletion(a contract.GitTrafficAdmission, c contract.GitTrafficCompletion) (string, error) {
+	if !contract.ValidGitTrafficOutcomes(a, c) {
+		return "", ErrInvalidInput
+	}
 	completed, ok := parseCanonicalInvocationTimestamp(c.CompletedAt)
 	evaluated, valid := parseCanonicalInvocationTimestamp(a.EvaluatedAt)
 	if !ok || !valid || completed.Before(evaluated) || !a.Allowed || c.BytesSent < 0 || c.BytesReceived < 0 || c.DurationMS < 0 || c.Status != 0 && (c.Status < 100 || c.Status > 599) {

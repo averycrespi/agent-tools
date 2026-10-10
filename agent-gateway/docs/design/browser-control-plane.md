@@ -39,7 +39,13 @@ secondary ID beside the control so a narrow native selector cannot hide their
 identity. Bounded snapshot traversals cover all choices, not just page one; loading and failure preserve drafts, and a missing
 or incompatible selected credential never silently becomes None. Relationship
 names also appear in lists, details and confirmation. Alias and push-rule editors
-share grouped add/remove rows and form-action spacing.
+share grouped add/remove rows and form-action spacing. During repository creation,
+a valid canonical HTTPS destination automatically populates its opposite terminal
+`.git` spelling as an explicit editable alias. Canonical edits update this suggestion
+until the operator edits/adds/removes an alias; then further canonical edits never
+undo that deliberate choice. Review shows both canonical destination and aliases;
+duplicate/self aliases are refused. Existing repositories are not changed, and
+the backend does not infer URL equivalence.
 
 Git resource tables explicitly request name ascending (repositories/credentials)
 or description ascending (grants), with **Unnamed Git grant** fallback and
@@ -55,7 +61,7 @@ Repository views share one authorized routing-profile read, never one per row.
 An active profile missing the exact normalized canonical HTTPS origin shows
 **Not routed** beside the destination and in detail/create review, with a contextual
 **Git routing** link. Explicit same-origin `.git` aliases have the same coverage;
-no alias is added automatically. Loading, unavailable/stale profile and inactive
+routing coverage never itself changes aliases. Loading, unavailable/stale profile and inactive
 routing are distinct from uncovered. Origin coverage says nothing about grants,
 material readiness or successful access. It does not block saving. Invalid draft
 coordinates have unknown coverage rather than an inferred match.
@@ -73,12 +79,20 @@ the selected page and lookahead. Filter/Reset and detail return start newest
 while preserving preference/pause. Stale history discards incompatible rows before
 one newest read, with a generic history-changed warning rather than claiming a
 known pruning or replacement cause.
-It shows admission separately from transport and upstream report. Historical
+The table and detail primary status show request outcome separately from admission,
+transport and upstream report: Denied, Failed (including HTTP 401/403), Unknown,
+Incomplete, HTTP success for nonpush exchanges, or upstream-reported push success,
+failure or partial success. HTTP status codes remain on detail. Allowed admission
+and completed transport never use the primary success indicator for a failed push. Historical
 configured labels, references and counts are not current authority. Missing
 completion/report is unknown; discovery and probes are not pushes. Reported
 success/failure/partial success is not independent verification of remote effects.
 Incomplete/unknown pushes require remote reconciliation, not a retry shortcut.
-No observed refs/OIDs, arbitrary upstream messages or secrets enter the browser.
+The detail shows bounded requested ref names/actions and only actually known
+per-ref upstream claims as inert text. Denied refs say Not dispatched, never changed.
+Truncated and legacy-unavailable evidence are explicit; unknown entries are never
+inferred from aggregate reports or current configuration. OIDs, arbitrary upstream
+messages and secrets never enter the browser.
 
 ## HTTP credential administration
 

@@ -114,10 +114,17 @@ async function fillCreate(page: Page, path: string) {
     await page
       .getByLabel("Canonical HTTPS destination", { exact: true })
       .fill("https://example.invalid/team/created");
-    await page.getByRole("button", { name: "Add alias", exact: true }).click();
-    await page
-      .getByLabel("Alias 1", { exact: true })
-      .fill("https://example.invalid/team/created.git");
+    await expect(page.getByLabel("Alias 1", { exact: true })).toHaveValue(
+      "https://example.invalid/team/created.git",
+    );
+    const canonical = page.getByLabel("Canonical HTTPS destination", {
+      exact: true,
+    });
+    await canonical.fill("https://example.invalid/team/alternate.git");
+    await expect(page.getByLabel("Alias 1", { exact: true })).toHaveValue(
+      "https://example.invalid/team/alternate",
+    );
+    await canonical.fill("https://example.invalid/team/created");
   }
   if (path === "git/credentials")
     await page
@@ -481,6 +488,37 @@ for (const entity of entities) {
         .selectOption("block_destination");
     }
     if (entity.path === "git/repositories") {
+      const canonical = page.getByLabel("Canonical HTTPS destination", {
+        exact: true,
+      });
+      const alias = page.getByLabel("Alias 1", { exact: true });
+      await alias.fill("https://example.invalid/team/deliberate");
+      await canonical.fill("https://example.invalid/team/changed.git");
+      await expect(alias).toHaveValue(
+        "https://example.invalid/team/deliberate",
+      );
+      await capture(page, "create-alias-edited");
+      await page
+        .getByRole("button", { name: "Remove alias 1", exact: true })
+        .click();
+      await canonical.fill("https://example.invalid/team/created");
+      await expect(alias).toHaveCount(0);
+      await capture(page, "create-alias-removed");
+      await page
+        .getByRole("button", { name: "Add alias", exact: true })
+        .click();
+      await alias.fill("https://example.invalid/team/created");
+      await page
+        .getByRole("button", { name: "Review and create", exact: true })
+        .click();
+      await expect(
+        page.getByText(
+          "Aliases must be distinct from each other and the canonical destination.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await alias.fill("https://example.invalid/team/created.git");
       await page.getByLabel("Git credential", { exact: true }).selectOption(id);
       await capture(page, "create-selected-credential");
     }

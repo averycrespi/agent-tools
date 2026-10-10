@@ -336,11 +336,35 @@ rotate is exactly `{secret}`. `GitCredential` contains `id`, `name`, `origin`,
 owner retains the established 4,096-byte prefix-plus-secret bound and protected
 generation lifecycle; see [Git credentials](downstream-servers.md#scoped-git-credentials).
 
-Minimal Git admission/completion evidence is durable in traffic schema 3, with
-no public Git history route in this delivery. It retains only bounded safe
-identity/revision, operation/command-count, decision/material and transport facts;
-no observed refs, OIDs, request prefixes, packs or arbitrary upstream messages.
-Missing terminal is unknown and HTTP 200 never represents Git mutation success.
+Git admission/completion evidence is durable in traffic schema 3 and exposed by
+`GET /api/v2/git/traffic` and `GET /api/v2/git/traffic/{id}`. Alongside bounded
+identity/revision, policy, decision/material and transport facts, push admission
+may contain `ref_evidence:{state,refs:[{name,action}]}`. `action` is exactly
+`create`, `update` or `delete`; `name` uses the supported ASCII Git ref grammar.
+`state` is `complete` only when every requested command is represented, otherwise
+`truncated`. Retain a request-order prefix of at most eight refs and 1,536 encoded
+JSON bytes for the entire evidence object (including HTML escaping). Shorten that
+prefix further if necessary to fit the unchanged 8,192-byte admission envelope.
+A truncated empty prefix is explicit unavailability, not a zero-command push.
+The aggregate command count remains the requested total; omitted refs and their
+outcomes are unavailable. No OIDs, request prefixes, packs, headers, credentials,
+command fingerprints or arbitrary upstream messages are retained.
+
+Completion optionally contains `ref_outcomes`, an array of `ok`/`ng` upstream
+claims aligned exactly with the retained admission prefix. These fixed tokens
+keep the entire completion within the unchanged 512-byte budget. It is present
+only after validation of a complete request-bound supported HTTP-200 report and
+complete upload/response; absent or incomplete reports provide no per-ref result.
+Never infer these entries from aggregate `reported_result`. A truncated ref list
+may coexist with a complete aggregate upstream report; it does not make omitted
+per-ref evidence available. Denied requests have no completion or mutation claim.
+Legacy records omit the new fields and remain explicitly unavailable, not rebuilt
+from current repository state. Readers accept legacy absence and validate new
+closed fields, limits, alignment and aggregate consistency. This is an additive
+API/history contract change without DDL, charge, retention or replay changes;
+older strict clients must upgrade before reading new records, and older binaries
+cannot validate new evidence. Missing terminal is unknown and HTTP 200 alone never
+represents Git mutation success or independently verified repository effects.
 
 ## Invocation history queries
 

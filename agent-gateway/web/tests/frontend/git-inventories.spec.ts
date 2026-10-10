@@ -61,7 +61,7 @@ test("git-inventory-routing", async ({ page, frontend }) => {
       expect(request.postDataJSON()).toMatchObject({
         name: "Unrouted creation",
         url: "https://example.invalid/team/new",
-        aliases: [],
+        aliases: ["https://example.invalid/team/new.git"],
         credential_id: null,
       });
       return route.fulfill({
@@ -70,7 +70,7 @@ test("git-inventory-routing", async ({ page, frontend }) => {
           ...repo,
           name: "Unrouted creation",
           url: "https://example.invalid:443/team/new",
-          aliases: [],
+          aliases: ["https://example.invalid:443/team/new.git"],
         },
         headers: { ETag: `"git-repository-${id}-1"` },
       });

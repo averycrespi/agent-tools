@@ -87,10 +87,9 @@ export async function runGit(
   await page
     .getByLabel("Canonical HTTPS destination", { exact: true })
     .fill("https://example.com/team/workshop");
-  await page.getByRole("button", { name: "Add alias", exact: true }).click();
-  await page
-    .getByLabel("Alias 1", { exact: true })
-    .fill("https://example.com/team/workshop.git");
+  await expect(page.getByLabel("Alias 1", { exact: true })).toHaveValue(
+    "https://example.com/team/workshop.git",
+  );
   await capture("repository-alias-added");
   await page
     .getByRole("button", { name: "Review and create", exact: true })

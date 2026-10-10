@@ -161,7 +161,15 @@ export async function runSystemAdministrationCanary(
     await page.evaluate((target) => {
       window.location.hash = target;
     }, hash);
-    await page.locator(`[data-testid="${testID}"]`).waitFor();
+    const panel = page.getByTestId(testID);
+    await panel.waitFor();
+    if (testID === "system-status-panel") {
+      // The wrapper mounts before the real status read publishes its content.
+      await expect(panel).toHaveAttribute("data-panel-status", "current");
+      await expect(
+        panel.getByRole("heading", { name: "Gateway status", exact: true }),
+      ).toBeVisible();
+    }
     rendered += ` ${(await page.locator("body").textContent()) ?? ""}`;
   }
   for (const phrase of [

@@ -3,6 +3,7 @@ package authorization
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"slices"
 	"sync/atomic"
@@ -122,6 +123,7 @@ func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id,
 			allowed = allowed && network
 			evidence := contract.GitTrafficAdmission{ID: id, AdmittedAt: admittedAt, EvaluatedAt: binding.EvaluatedAt, Principal: contract.GitRevisionRef{ID: lease.binding.PrincipalID, Revision: lease.binding.PrincipalRevision}, AgentCredential: contract.GitRevisionRef{ID: lease.binding.CredentialID, Revision: lease.binding.CredentialRevision}, Repository: contract.GitRevisionRef{ID: supplied.ID, Revision: supplied.Revision}, AliasRevision: supplied.AliasRevision, ProfileRevision: profile.Revision, AuthorizationRevision: binding.AuthorizationRevision, Operation: request.Operation(), Commands: len(request.Actions()), Allowed: allowed, PrivateGrant: private}
 			evidence.Policy = policyFacts
+			evidence.RefEvidence = gitpolicy.TrafficRefs(request.Actions())
 			if allowed && repo.resource.CredentialID != nil {
 				material, e := gitMaterialTx(ctx, tx, *repo.resource.CredentialID)
 				switch {
@@ -133,6 +135,18 @@ func (r *Repository) EvaluateGitAdmission(ctx context.Context, lease *Lease, id,
 					return e
 				default:
 					evidence.Material = &material
+				}
+			}
+			// Ref visibility must not displace admission facts or exceed the
+			// existing immutable history envelope (including JSON escaping).
+			if refs := evidence.RefEvidence; refs != nil {
+				for len(refs.Refs) > 0 {
+					raw, _ := json.Marshal(evidence)
+					if len(raw) <= contract.GitTrafficAdmissionBytes {
+						break
+					}
+					refs.State = "truncated"
+					refs.Refs = refs.Refs[:len(refs.Refs)-1]
 				}
 			}
 			out.Evidence = evidence

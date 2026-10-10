@@ -49,6 +49,14 @@ test("shell", async ({ page, frontend }) => {
     "data-session-lifecycle",
     "authenticated",
   );
+  const gitLinks = page.locator('nav a[href^="#/git/"]');
+  await expect(gitLinks).toHaveText([
+    "Routing",
+    "Credentials",
+    "Repositories",
+    "Grants",
+    "Traffic",
+  ]);
   await capture(page, "authenticated", true);
   await page.locator(".skip-link").focus();
   await expect(page.locator(".skip-link")).toBeInViewport();
@@ -64,6 +72,13 @@ test("shell", async ({ page, frontend }) => {
   await capture(page, "invalid-location");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await expect(gitLinks).toHaveText([
+    "Routing",
+    "Credentials",
+    "Repositories",
+    "Grants",
+    "Traffic",
+  ]);
   await capture(page, "navigation-open");
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 900 });

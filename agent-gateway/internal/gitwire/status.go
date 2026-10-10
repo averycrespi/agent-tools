@@ -6,13 +6,15 @@ import (
 	"strings"
 )
 
-// StatusObserver is request-local and never exposes wire bytes, refs or messages.
+// StatusObserver is request-local and exposes only validated request-bound
+// outcomes, never wire bytes or messages.
 // Observation failure does not interfere with forwarding the live response.
 type StatusObserver struct {
 	refs     map[string]bool
 	sideband bool
 	data     []byte
 	invalid  bool
+	outcomes map[string]string
 }
 
 func (r *Request) ObserveStatus() *StatusObserver {
@@ -38,6 +40,7 @@ func (o *StatusObserver) Write(p []byte) (int, error) {
 // Result is usable only after a complete identity-encoded HTTP 200 transfer.
 // Even a complete report is an upstream claim, not verified repository effects.
 func (o *StatusObserver) Result() string {
+	o.outcomes = nil
 	if o.invalid {
 		return "unknown"
 	}
@@ -71,6 +74,7 @@ func (o *StatusObserver) Result() string {
 		return "unknown"
 	}
 	seen := make(map[string]bool)
+	outcomes := make(map[string]string)
 	passed := 0
 	for _, p := range packets[1:] {
 		line := string(bytes.TrimSuffix(p, []byte{'\n'}))
@@ -95,13 +99,16 @@ func (o *StatusObserver) Result() string {
 			return "unknown"
 		}
 		seen[ref] = true
+		outcomes[ref] = kind
 	}
 	if unpack != "unpack ok" {
 		if passed != 0 {
 			return "unknown"
 		}
+		o.outcomes = outcomes
 		return "reported_failure"
 	}
+	o.outcomes = outcomes
 	if passed == len(o.refs) {
 		return "reported_success"
 	}
@@ -109,6 +116,23 @@ func (o *StatusObserver) Result() string {
 		return "reported_failure"
 	}
 	return "reported_partial"
+}
+
+// RefOutcomes returns only the retained request-order prefix after Result has
+// validated the entire report. Invalid/incomplete reports supply no per-ref claim.
+func (o *StatusObserver) RefOutcomes(refs []string) []string {
+	if o.outcomes == nil || len(refs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		result, ok := o.outcomes[ref]
+		if !ok {
+			return nil
+		}
+		out = append(out, result)
+	}
+	return out
 }
 
 func statusPackets(data []byte) ([][]byte, bool) {

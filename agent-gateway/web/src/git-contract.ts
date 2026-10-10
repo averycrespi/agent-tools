@@ -186,6 +186,10 @@ export interface GitTraffic {
     allowed: boolean;
     rejection?: string;
     denial?: string;
+    ref_evidence?: {
+      state: "complete" | "truncated";
+      refs: { name: string; action: "create" | "update" | "delete" }[];
+    };
     policy?: {
       repository_name: string;
       repository_url: string;
@@ -207,6 +211,7 @@ export interface GitTraffic {
     duration_ms: number;
     transfer_complete: boolean;
     reported_result?: string;
+    ref_outcomes?: ("ok" | "ng")[];
     failure?: string;
   };
 }
@@ -258,7 +263,14 @@ export function decodeGitTraffic(value: unknown): GitTraffic {
       "commands",
       "allowed",
     ],
-    ["policy", "material", "private_grant", "rejection", "denial"],
+    [
+      "policy",
+      "material",
+      "private_grant",
+      "rejection",
+      "denial",
+      "ref_evidence",
+    ],
   );
   if (
     !id(a.id) ||
@@ -339,6 +351,47 @@ export function decodeGitTraffic(value: unknown): GitTraffic {
     )
       return fail();
   }
+  if (a.ref_evidence !== undefined) {
+    const e = object(a.ref_evidence, ["state", "refs"]);
+    // Match Go's escaped JSON evidence budget, including HTML-safe characters.
+    const encoded = JSON.stringify(e).replace(
+      /[<>&]/g,
+      (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+    );
+    if (
+      a.operation !== "push" ||
+      !["complete", "truncated"].includes(String(e.state)) ||
+      !Array.isArray(e.refs) ||
+      e.refs.length > 8 ||
+      e.refs.length > Number(a.commands) ||
+      (e.state === "complete") !== (e.refs.length === a.commands) ||
+      new TextEncoder().encode(encoded).length > 1536
+    )
+      return fail();
+    const names = new Set<string>();
+    const counts = { create: 0, update: 0, delete: 0 };
+    for (const value of e.refs) {
+      const r = object(value, ["name", "action"]);
+      if (
+        typeof r.name !== "string" ||
+        !validGitRefName(r.name) ||
+        names.has(r.name) ||
+        !["create", "update", "delete"].includes(String(r.action))
+      )
+        return fail();
+      names.add(r.name);
+      counts[r.action as keyof typeof counts]++;
+    }
+    if (a.policy !== undefined) {
+      const p = a.policy as Record<string, number>;
+      if (
+        counts.create > p.creates! ||
+        counts.update > p.updates! ||
+        counts.delete > p.deletes!
+      )
+        return fail();
+    }
+  }
   if (a.material !== undefined) {
     const m = object(a.material, ["credential", "generation"]);
     ref(m.credential);
@@ -364,7 +417,7 @@ export function decodeGitTraffic(value: unknown): GitTraffic {
         "duration_ms",
         "transfer_complete",
       ],
-      ["status", "reported_result", "failure"],
+      ["status", "reported_result", "failure", "ref_outcomes"],
     );
     if (
       !a.allowed ||
@@ -407,6 +460,29 @@ export function decodeGitTraffic(value: unknown): GitTraffic {
         !c.transfer_complete)
     )
       return fail();
+    if (c.ref_outcomes !== undefined) {
+      const refs = a.ref_evidence as GitTraffic["admission"]["ref_evidence"];
+      if (
+        !refs ||
+        !Array.isArray(c.ref_outcomes) ||
+        c.ref_outcomes.length === 0 ||
+        c.ref_outcomes.length !== refs.refs.length ||
+        c.reported_result === undefined ||
+        c.outcome !== "outcome_unknown" ||
+        c.ref_outcomes.some((x) => x !== "ok" && x !== "ng")
+      )
+        return fail();
+      const passed = c.ref_outcomes.filter((x) => x === "ok").length;
+      if (
+        (c.reported_result === "reported_success" &&
+          passed !== c.ref_outcomes.length) ||
+        (c.reported_result === "reported_failure" && passed !== 0) ||
+        (refs.state === "complete" &&
+          c.reported_result === "reported_partial" &&
+          (passed === 0 || passed === c.ref_outcomes.length))
+      )
+        return fail();
+    }
     if (
       c.failure !== undefined &&
       !["credential_unavailable", "authorization_unavailable"].includes(
@@ -433,6 +509,36 @@ export const gitLabels: Record<string, string> = {
   reported_failure: "Reported failure",
   reported_partial: "Reported partial success",
 };
+function validGitRefName(value: string): boolean {
+  return (
+    value.length <= 1024 &&
+    value.startsWith("refs/") &&
+    value.split("/").length >= 3 &&
+    !value.includes("..") &&
+    !value.includes("@{") &&
+    !value.endsWith(".") &&
+    !/[\x00-\x20\x7f-\uffff~^:?*\[\\\\]/.test(value) &&
+    value
+      .split("/")
+      .every((s) => s !== "" && !s.startsWith(".") && !s.endsWith(".lock"))
+  );
+}
+
+export function gitOutcome(r: GitTraffic): string {
+  const a = r.admission,
+    c = r.completion;
+  if (!a.allowed) return "Denied";
+  if (!c) return "Unknown";
+  if (c.outcome === "prestart_failure" || (c.status ?? 0) >= 400)
+    return "Failed";
+  if (!c.transfer_complete) return "Incomplete";
+  if (a.operation === "push")
+    return c.reported_result ? gitLabels[c.reported_result]! : "Unknown";
+  return (c.status ?? 0) >= 200 && (c.status ?? 0) < 300
+    ? "HTTP success"
+    : "Unknown";
+}
+
 export function gitFacts(r: GitTraffic): {
   admission: string;
   transport: string;
