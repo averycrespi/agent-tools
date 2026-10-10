@@ -504,14 +504,8 @@ function stateForLimit(limit: LimitView): "current" | "warning" {
   return limit.saturated ? "warning" : "current";
 }
 
-function keyringGuidance(capability: string): string {
-  if (capability === "locked")
-    return "The operating-system keyring was locked at startup. This is not a live credential check.";
-  if (capability === "interaction_required")
-    return "The operating-system keyring required interaction at startup. This is not a live credential check.";
-  if (capability === "absent" || capability === "unsupported")
-    return "Configure a supported operating-system keyring before managing credentials.";
-  return "Check operating-system keyring availability and Gateway process access. Status records startup capability only.";
+function credentialStorageGuidance(): string {
+  return "Check Gateway access to the encrypted credential database and its master-key file. Status records startup capability only, not a live credential check.";
 }
 
 function SystemTabs({ current }: { current: SystemTab }) {
@@ -641,9 +635,9 @@ function StatusPanel({
               {status.keyring !== "ready" && (
                 <StateNotice
                   state="warning"
-                  title="Credentials at startup need attention"
+                  title="Credential storage needs attention"
                 >
-                  <p>{keyringGuidance(status.keyring)}</p>
+                  <p>{credentialStorageGuidance()}</p>
                 </StateNotice>
               )}
               {saturatedLimits.length > 0 && (
@@ -662,7 +656,7 @@ function StatusPanel({
             aria-labelledby="system-status-title"
             data-testid="system-status-operational"
           >
-            <h2 id="system-status-title">Gateway status</h2>
+            <h3 id="system-status-title">Gateway status</h3>
             <dl class="operator-status-grid">
               <div>
                 <dt>Process</dt>
@@ -787,101 +781,143 @@ function StatusPanel({
                           ? "No measured pressure"
                           : "Capacity unavailable"}
                     </span>
-                    <span>
-                      Database:{" "}
-                      {measurementText(
-                        status.traffic.health?.database_measurement,
-                      )}
-                    </span>
-                    <span>
-                      WAL:{" "}
-                      {measurementText(status.traffic.health?.wal_measurement)}
-                    </span>
-                    <span>
-                      Free space:{" "}
-                      {measurementText(
-                        status.traffic.health?.free_space_measurement,
-                      )}
-                    </span>
-                    <span>
-                      Budget: {formatStorageBytes(status.traffic.budgetBytes)}
-                    </span>
-                    <span>
-                      Pruned records:{" "}
-                      {status.traffic.health?.accounting_available
-                        ? status.traffic.prunedRecords.toLocaleString()
-                        : "Unavailable"}
-                    </span>
+                    <dl class="detail-facts storage-details">
+                      <div>
+                        <dt>Database</dt>
+                        <dd>
+                          {measurementText(
+                            status.traffic.health?.database_measurement,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>WAL</dt>
+                        <dd>
+                          {measurementText(
+                            status.traffic.health?.wal_measurement,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Free space</dt>
+                        <dd>
+                          {measurementText(
+                            status.traffic.health?.free_space_measurement,
+                          )}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Budget</dt>
+                        <dd>
+                          {formatStorageBytes(status.traffic.budgetBytes)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Pruned records</dt>
+                        <dd>
+                          {status.traffic.health?.accounting_available
+                            ? status.traffic.prunedRecords.toLocaleString()
+                            : "Unavailable"}
+                        </dd>
+                      </div>
+                    </dl>
                     {status.traffic.recovery && (
                       <>
-                        <span>
-                          Recording:{" "}
-                          {sentenceCase(status.traffic.recovery.health)}
-                        </span>
-                        <span>
-                          Last acknowledged:{" "}
-                          {status.traffic.recovery.lastAcknowledged ? (
-                            <UserTime
-                              value={status.traffic.recovery.lastAcknowledged}
-                            />
-                          ) : (
-                            "Not observed"
-                          )}
-                        </span>
+                        <dl class="detail-facts storage-details">
+                          <div>
+                            <dt>Recording</dt>
+                            <dd>
+                              {sentenceCase(status.traffic.recovery.health)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Last acknowledged</dt>
+                            <dd>
+                              {status.traffic.recovery.lastAcknowledged ? (
+                                <UserTime
+                                  value={
+                                    status.traffic.recovery.lastAcknowledged
+                                  }
+                                />
+                              ) : (
+                                "Not observed"
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
                         {status.traffic.recovery.incident && (
                           <>
-                            <span>
-                              Incident:{" "}
-                              {sentenceCase(
-                                status.traffic.recovery.incident.cause,
-                              )}{" "}
-                              ·{" "}
-                              {sentenceCase(
-                                status.traffic.recovery.incident.stage,
-                              )}{" "}
-                              ·{" "}
-                              {sentenceCase(
-                                status.traffic.recovery.incident.settlement,
+                            <dl class="detail-facts storage-details">
+                              <div>
+                                <dt>Incident</dt>
+                                <dd>
+                                  {sentenceCase(
+                                    status.traffic.recovery.incident.cause,
+                                  )}{" "}
+                                  ·{" "}
+                                  {sentenceCase(
+                                    status.traffic.recovery.incident.stage,
+                                  )}{" "}
+                                  ·{" "}
+                                  {sentenceCase(
+                                    status.traffic.recovery.incident.settlement,
+                                  )}
+                                </dd>
+                              </div>
+                              {(status.traffic.recovery.incident
+                                .recoveryCause !==
+                                status.traffic.recovery.incident.cause ||
+                                status.traffic.recovery.incident
+                                  .recoveryStage !==
+                                  status.traffic.recovery.incident.stage) && (
+                                <div>
+                                  <dt>Recovery blocker</dt>
+                                  <dd>
+                                    {sentenceCase(
+                                      status.traffic.recovery.incident
+                                        .recoveryCause,
+                                    )}{" "}
+                                    ·{" "}
+                                    {sentenceCase(
+                                      status.traffic.recovery.incident
+                                        .recoveryStage,
+                                    )}
+                                  </dd>
+                                </div>
                               )}
-                            </span>
-                            {(status.traffic.recovery.incident.recoveryCause !==
-                              status.traffic.recovery.incident.cause ||
-                              status.traffic.recovery.incident.recoveryStage !==
-                                status.traffic.recovery.incident.stage) && (
-                              <span>
-                                Recovery blocker:{" "}
-                                {sentenceCase(
-                                  status.traffic.recovery.incident
-                                    .recoveryCause,
-                                )}{" "}
-                                ·{" "}
-                                {sentenceCase(
-                                  status.traffic.recovery.incident
-                                    .recoveryStage,
-                                )}
-                              </span>
-                            )}
-                            <span>
-                              First failure:{" "}
-                              <UserTime
-                                value={
-                                  status.traffic.recovery.incident.firstFailure
-                                }
-                              />
-                            </span>
-                            <span>
-                              {status.traffic.recovery.incident.affected}{" "}
-                              affected ·{" "}
-                              {status.traffic.recovery.incident.discarded}{" "}
-                              discarded submissions
-                            </span>
-                            {status.traffic.recovery.incident.sqliteCode >
-                              0 && (
-                              <span>
-                                SQLite code:{" "}
-                                {status.traffic.recovery.incident.sqliteCode}
-                              </span>
-                            )}
+                              <div>
+                                <dt>First failure</dt>
+                                <dd>
+                                  <UserTime
+                                    value={
+                                      status.traffic.recovery.incident
+                                        .firstFailure
+                                    }
+                                  />
+                                </dd>
+                              </div>
+                              <div>
+                                <dt>Affected submissions</dt>
+                                <dd>
+                                  {status.traffic.recovery.incident.affected}{" "}
+                                  affected ·{" "}
+                                  {status.traffic.recovery.incident.discarded}{" "}
+                                  discarded submissions
+                                </dd>
+                              </div>
+                              {status.traffic.recovery.incident.sqliteCode >
+                                0 && (
+                                <div>
+                                  <dt>SQLite code</dt>
+                                  <dd>
+                                    {
+                                      status.traffic.recovery.incident
+                                        .sqliteCode
+                                    }
+                                  </dd>
+                                </div>
+                              )}
+                            </dl>
                             <span>
                               {trafficRecoveryAction(status.traffic.recovery)}
                             </span>
@@ -892,29 +928,55 @@ function StatusPanel({
                     {status.traffic.health && (
                       <>
                         {status.traffic.health.pressure_reason !== "none" && (
-                          <span>
-                            Pressure reason:{" "}
-                            {sentenceCase(
-                              status.traffic.health.pressure_reason,
-                            )}
-                          </span>
+                          <dl class="detail-facts storage-details">
+                            <div>
+                              <dt>Pressure reason</dt>
+                              <dd>
+                                {sentenceCase(
+                                  status.traffic.health.pressure_reason,
+                                )}
+                              </dd>
+                            </div>
+                          </dl>
                         )}
-                        <span>
-                          {status.traffic.health.delivery.accepted} accepted ·{" "}
-                          {status.traffic.health.delivery.acknowledged}{" "}
-                          acknowledged ·{" "}
-                          {status.traffic.health.delivery.discarded} discarded
-                          submissions
-                        </span>
-                        <span>
-                          Queue: {status.traffic.health.delivery.queue_records}/
-                          {status.traffic.health.delivery.queue_record_limit}{" "}
-                          records · {status.traffic.health.delivery.queue_bytes}
-                          /{status.traffic.health.delivery.queue_byte_limit}{" "}
-                          bytes ·{" "}
-                          {status.traffic.health.delivery.completion_records}{" "}
-                          completions
-                        </span>
+                        <dl class="detail-facts storage-details">
+                          <div>
+                            <dt>Submissions</dt>
+                            <dd>
+                              {status.traffic.health.delivery.accepted} accepted
+                              · {status.traffic.health.delivery.acknowledged}{" "}
+                              acknowledged ·{" "}
+                              {status.traffic.health.delivery.discarded}{" "}
+                              discarded
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Queue records</dt>
+                            <dd>
+                              {status.traffic.health.delivery.queue_records} /{" "}
+                              {
+                                status.traffic.health.delivery
+                                  .queue_record_limit
+                              }
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Queue bytes</dt>
+                            <dd>
+                              {status.traffic.health.delivery.queue_bytes} /{" "}
+                              {status.traffic.health.delivery.queue_byte_limit}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Completions</dt>
+                            <dd>
+                              {
+                                status.traffic.health.delivery
+                                  .completion_records
+                              }
+                            </dd>
+                          </div>
+                        </dl>
                       </>
                     )}
                   </dd>
@@ -929,31 +991,48 @@ function StatusPanel({
                   />
                   {status.diagnostics && (
                     <>
-                      <span>
-                        {status.diagnostics.accepted} accepted ·{" "}
-                        {status.diagnostics.written} written ·{" "}
-                        {status.diagnostics.dropped} dropped ·{" "}
-                        {status.diagnostics.invalid} invalid
-                      </span>
-                      <span>
-                        Queue: {status.diagnostics.queue_records}/
-                        {status.diagnostics.queue_limit} records ·{" "}
-                        {status.diagnostics.queue_bytes} reserved bytes
-                        {status.diagnostics.writing
-                          ? " · Write outstanding"
-                          : ""}
-                      </span>
-                      <span>
-                        {status.diagnostics.write_failures} write failures ·
-                        Last successful write:{" "}
-                        {status.diagnostics.last_successful_write ? (
-                          <UserTime
-                            value={status.diagnostics.last_successful_write}
-                          />
-                        ) : (
-                          "Not observed"
-                        )}
-                      </span>
+                      <dl class="detail-facts storage-details">
+                        <div>
+                          <dt>Submissions</dt>
+                          <dd>
+                            {status.diagnostics.accepted} accepted ·{" "}
+                            {status.diagnostics.written} written ·{" "}
+                            {status.diagnostics.dropped} dropped ·{" "}
+                            {status.diagnostics.invalid} invalid
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Queue records</dt>
+                          <dd>
+                            {status.diagnostics.queue_records} /{" "}
+                            {status.diagnostics.queue_limit}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>Reserved bytes</dt>
+                          <dd>{status.diagnostics.queue_bytes}</dd>
+                        </div>
+                        <div>
+                          <dt>Write outstanding</dt>
+                          <dd>{status.diagnostics.writing ? "Yes" : "No"}</dd>
+                        </div>
+                        <div>
+                          <dt>Write failures</dt>
+                          <dd>{status.diagnostics.write_failures}</dd>
+                        </div>
+                        <div>
+                          <dt>Last successful write</dt>
+                          <dd>
+                            {status.diagnostics.last_successful_write ? (
+                              <UserTime
+                                value={status.diagnostics.last_successful_write}
+                              />
+                            ) : (
+                              "Not observed"
+                            )}
+                          </dd>
+                        </div>
+                      </dl>
                       {["failed", "pressure", "unavailable"].includes(
                         status.diagnostics.state,
                       ) && (
@@ -967,7 +1046,7 @@ function StatusPanel({
                 </dd>
               </div>
               <div>
-                <dt>Credentials at startup</dt>
+                <dt>Credential storage</dt>
                 <dd>
                   <FactStatus
                     value={status.keyring}
@@ -1037,27 +1116,55 @@ function StatusPanel({
                   )}
                   {status.observations.overflow ? " · Counters saturated" : ""}
                 </p>
-                <dl class="technical-details-grid">
-                  {status.observations.protocols.map((p) => (
-                    <div key={p.protocol}>
-                      <dt>
-                        {p.protocol === "http"
-                          ? "HTTP (includes Git)"
-                          : p.protocol === "git"
-                            ? "Git (HTTP subset)"
-                            : p.protocol === "connect"
-                              ? "CONNECT (separate)"
-                              : "MCP"}
-                      </dt>
-                      <dd>
-                        {p.requests} requests · {p.executions} execution
-                        pipelines · {p.results[0]} succeeded · {p.results[1]}{" "}
-                        prestart failures · {p.results[2]} failed ·{" "}
-                        {p.results[3]} unknown · {p.results[4]} nonmutating
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
+                <p class="overview-context">
+                  HTTP includes Git; CONNECT is separate. Rows are not additive.
+                </p>
+                <ComparisonTable caption="Request activity">
+                  <thead>
+                    <tr>
+                      <th scope="col" class="activity-protocol">
+                        Protocol
+                      </th>
+                      {[
+                        "Requests",
+                        "Execution pipelines",
+                        "Succeeded",
+                        "Prestart failures",
+                        "Failed",
+                        "Unknown",
+                        "Nonmutating",
+                      ].map((label) => (
+                        <th scope="col" class="column-count" key={label}>
+                          {label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {["mcp", "http", "connect", "git"].map((protocol) => {
+                      const p = status.observations!.protocols.find(
+                        (entry) => entry.protocol === protocol,
+                      );
+                      return (
+                        <tr key={protocol}>
+                          <th scope="row" class="activity-protocol">
+                            {protocol === "git"
+                              ? "Git"
+                              : protocol.toUpperCase()}
+                          </th>
+                          {(p
+                            ? [p.requests, p.executions, ...p.results]
+                            : Array(7).fill("Unavailable")
+                          ).map((value, index) => (
+                            <td class="column-count" key={index}>
+                              {value}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </ComparisonTable>
               </>
             )}
           </section>

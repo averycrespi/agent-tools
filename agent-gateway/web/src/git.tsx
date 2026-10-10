@@ -1,5 +1,6 @@
 import type { RefObject } from "preact";
 import { oppositeGitAlias, validGitAliases } from "./git-alias";
+import { gitOriginCovered } from "./git-routing-contract";
 import type { GitTrafficController } from "./git-traffic-history";
 import { gitTrafficOptions, validGitTrafficQuery } from "./git-traffic-query";
 import {
@@ -192,13 +193,20 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             <>
               <div>
                 <dt>Canonical destination</dt>
+                <dd>{value.url}</dd>
+              </div>
+              <div>
+                <dt>Origin enabled</dt>
                 <dd>
-                  {value.url}
-                  <GitCoverage
-                    source={coverage}
-                    destination={value.url!}
-                    contextual
-                  />
+                  {coverage.loading || coverage.error || !coverage.profile
+                    ? "Unavailable"
+                    : gitOriginCovered(value.url!, coverage.profile) ===
+                        undefined
+                      ? "Unavailable"
+                      : coverage.profile.active &&
+                          gitOriginCovered(value.url!, coverage.profile)
+                        ? "Yes"
+                        : "No"}
                 </dd>
               </div>
               <div>
@@ -484,7 +492,7 @@ function GitCollection(
                       label: "HTTPS origin",
                       type: "text" as const,
                       value: (r: GitResource) => r.origin!,
-                      placeholder: "Literal origin substring",
+                      placeholder: "Destination",
                     },
                     {
                       key: "status",
@@ -1455,6 +1463,11 @@ export function GitTrafficView(
   props: Props & { controller: GitTrafficController },
 ) {
   const selected = props.resolved.location.segments[1];
+  const repositories = useGitChoices(
+    props.session,
+    props.view.generation,
+    "traffic",
+  );
   const { value, error } = useGitDetail(
     props,
     selected ? `/api/v2/git/traffic/${selected}` : undefined,
@@ -1468,7 +1481,8 @@ export function GitTrafficView(
       return item;
     },
   );
-  if (!selected) return <GitTrafficCollection {...props} />;
+  if (!selected)
+    return <GitTrafficCollection {...props} repositories={repositories} />;
   if (!value)
     return (
       <StateNotice
@@ -1528,9 +1542,9 @@ export function GitTrafficView(
             </dd>
           </div>
           <div>
-            <dt>Repository at admission</dt>
+            <dt>Repository</dt>
             <dd>
-              {a.policy?.repository_name ?? (a.repository.id || "Unavailable")}
+              <RecordedRepository item={value} choices={repositories} />
             </dd>
           </div>
           {a.policy && (
@@ -1540,7 +1554,7 @@ export function GitTrafficView(
             </div>
           )}
           <div>
-            <dt>Exchange</dt>
+            <dt>Operation</dt>
             <dd>{gitLabels[a.operation]}</dd>
           </div>
           <div>
@@ -1723,8 +1737,31 @@ export function GitTrafficView(
     </div>
   );
 }
+function RecordedRepository({
+  item,
+  choices,
+}: {
+  item: GitTraffic;
+  choices: GitChoices;
+}) {
+  const id = item.admission.repository.id;
+  const name = item.admission.policy?.repository_name || id || "Unavailable";
+  const available =
+    !choices.loading &&
+    !choices.error &&
+    choices.repositories.some((repository) => repository.id === id);
+  return (
+    <TableIdentity
+      primary={
+        available ? <a href={`#/git/repositories/${id}`}>{name}</a> : name
+      }
+      secondary={id || undefined}
+    />
+  );
+}
+
 function GitTrafficCollection(
-  props: Props & { controller: GitTrafficController },
+  props: Props & { controller: GitTrafficController; repositories: GitChoices },
 ) {
   const navigate = useUnsavedChanges(false);
   const [current, setCurrent] = useState(props.controller.snapshot());
@@ -1776,8 +1813,8 @@ function GitTrafficCollection(
             {key === "admission" && (
               <input
                 type="search"
-                aria-label="Recorded repository name or ID"
-                placeholder="Recorded repository name or ID"
+                aria-label="Repo name or ID"
+                placeholder="Repo name or ID"
                 value={draft.filter_repository ?? ""}
                 onInput={(event) =>
                   setDraft({
@@ -1814,6 +1851,10 @@ function GitTrafficCollection(
         ))}
         <button
           type="button"
+          disabled={
+            !Object.values(draft).some(Boolean) &&
+            !Object.values(query).some(Boolean)
+          }
           onClick={() => {
             setDraft({});
             apply({});
@@ -1892,7 +1933,7 @@ function GitTrafficCollection(
           },
           {
             key: "exchange",
-            label: "Exchange",
+            label: "Operation",
             role: "identity",
             render: (r) => (
               <TableIdentity
@@ -1912,18 +1953,10 @@ function GitTrafficCollection(
           },
           {
             key: "repository",
-            label: "Repository at admission",
+            label: "Repository",
             role: "relation",
             render: (r) => (
-              <TableIdentity
-                primary={
-                  r.admission.policy?.repository_name ??
-                  (r.admission.repository.id || "Unavailable")
-                }
-                secondary={
-                  r.admission.policy ? r.admission.repository.id : undefined
-                }
-              />
+              <RecordedRepository item={r} choices={props.repositories} />
             ),
           },
           {

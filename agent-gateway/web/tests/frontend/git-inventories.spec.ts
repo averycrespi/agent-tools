@@ -123,28 +123,30 @@ test("git-inventory-routing", async ({ page, frontend }) => {
   await expect(
     page.getByRole("heading", { name: repo.name, exact: true }),
   ).toBeFocused();
-  await expect(page.getByText("Not routed", { exact: true })).toBeVisible();
+  const originEnabled = page
+    .locator(".detail-facts > div")
+    .filter({ has: page.locator("dt", { hasText: /^Origin enabled$/ }) })
+    .locator("dd");
+  await expect(originEnabled).toHaveText("No");
   await expect(
     page.getByRole("link", { name: "Git routing", exact: true }),
-  ).toHaveAttribute("href", "#/git/routing");
+  ).toHaveCount(0);
+  await expect(page.locator("main")).not.toContainText(
+    "Coverage does not establish",
+  );
   await capture(page, "detail-not-routed", true);
   coverage = "covered";
   await page.getByTestId("manual-refresh").click();
-  await expect(page.getByText("Origin enabled", { exact: true })).toBeVisible();
+  await expect(originEnabled).toHaveText("Yes");
   await expect(page.getByText("Not routed", { exact: true })).toHaveCount(0);
   await capture(page, "detail-covered");
   coverage = "error";
   await page.getByTestId("manual-refresh").click();
-  await expect(page.getByText("Routing stale", { exact: true })).toBeVisible();
-  await expect(page.getByText("Origin enabled", { exact: true })).toHaveCount(
-    0,
-  );
+  await expect(originEnabled).toHaveText("Unavailable");
   await capture(page, "routing-stale");
   coverage = "inactive";
   await page.getByTestId("manual-refresh").click();
-  await expect(
-    page.getByText("Routing inactive", { exact: true }),
-  ).toBeVisible();
+  await expect(originEnabled).toHaveText("No");
   await capture(page, "routing-inactive");
   coverage = "error";
   await page.goto("about:blank");

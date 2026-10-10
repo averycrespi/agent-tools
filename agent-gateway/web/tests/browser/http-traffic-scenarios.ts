@@ -1110,7 +1110,29 @@ export async function runHTTPTraffic(
   });
   await page.setViewportSize({ width: 1280, height: 900 });
   connectCases = true;
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  const reset = page.getByRole("button", { name: "Reset", exact: true });
+  await page
+    .getByRole("searchbox", { name: "Destination host", exact: true })
+    .fill("example");
+  await expect(reset).toBeEnabled();
+  await reset.click();
+  await expect(reset).toBeDisabled();
+  const filters = page.getByRole("group", {
+    name: "HTTP traffic filters",
+    exact: true,
+  });
+  for (const input of await filters.getByRole("searchbox").all()) {
+    await input.fill("example");
+    await expect(reset).toBeEnabled();
+    await reset.click();
+    await expect(reset).toBeDisabled();
+  }
+  for (const select of await filters.getByRole("combobox").all()) {
+    await select.selectOption({ index: 1 });
+    await expect(reset).toBeEnabled();
+    await reset.click();
+    await expect(reset).toBeDisabled();
+  }
   await page.getByRole("button", { name: "Refresh current view" }).click();
   await expect(
     page.getByText("3 HTTP traffic records loaded", { exact: true }),
@@ -1195,7 +1217,9 @@ export async function runHTTPTraffic(
   await page
     .getByRole("link", { name: "Back to HTTP traffic", exact: true })
     .click();
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await expect(reset).toBeEnabled();
+  await reset.click();
+  await expect(reset).toBeDisabled();
   await page.locator(`a[href*="/http/traffic/${id(6)}"]`).click();
   await expect(page.getByText("CONNECT denied", { exact: true })).toHaveCount(
     2,

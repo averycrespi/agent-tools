@@ -2923,6 +2923,30 @@ export async function runInvocations(
   )
     fail("invocation capture was not explained inert item-only content");
 
+  const resourceFact = (label: string) =>
+    page
+      .getByTestId("invocation-detail")
+      .locator(".detail-facts > div")
+      .filter({
+        has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }),
+      })
+      .locator("dd");
+  await expect(resourceFact("Agent").locator(".table-primary a")).toHaveText(
+    "Build agent",
+  );
+  await expect(resourceFact("Agent").locator(".table-identifier")).toHaveText(
+    invocationIDs.principal,
+  );
+  await expect(resourceFact("Grant").locator(".table-primary a")).toHaveText(
+    "Grant",
+  );
+  await expect(resourceFact("Grant").locator(".table-identifier")).toHaveText(
+    invocationIDs.grant,
+  );
+  await expect(resourceFact("Tool").locator(".table-identifier")).toHaveCount(
+    0,
+  );
+  await expect(resourceFact("Server")).toHaveCount(0);
   await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
   await captureDetailLayout(page, "invocation-missing-terminal");
   await compareBaseline("invocation-missing-terminal");
@@ -2945,6 +2969,21 @@ export async function runInvocations(
   await page.getByTestId("manual-refresh").click();
   await expect(page.getByTestId("failure-diagnostics")).toContainText(
     "Server reported (unverified)",
+  );
+  await expect(
+    resourceFact("Tool").locator(".table-primary a"),
+  ).toHaveAttribute(
+    "href",
+    `#/mcp/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
+  );
+  await expect(resourceFact("Tool").locator(".table-identifier")).toHaveText(
+    invocationIDs.tool,
+  );
+  await expect(resourceFact("Server").locator(".table-primary a")).toHaveText(
+    "Server",
+  );
+  await expect(resourceFact("Server").locator(".table-identifier")).toHaveText(
+    invocationIDs.server,
   );
   for (const text of [
     "Gateway observed",
@@ -3326,7 +3365,7 @@ export async function runSystemStatus(
     "Needs attention",
     "Gateway is not ready",
     "Storage mutations are unavailable",
-    "Credentials at startup need attention",
+    "Credential storage needs attention",
     "1 resource limit is saturated",
     "Recovery required",
     "Technical details",
@@ -3347,7 +3386,7 @@ export async function runSystemStatus(
   await expect(
     statusPanel
       .getByTestId("system-status-material")
-      .getByText("Credentials at startup", { exact: true }),
+      .getByText("Credential storage", { exact: true }),
   ).toBeVisible();
   await expect(
     statusPanel
@@ -3507,13 +3546,17 @@ export async function runSystemStatus(
     await expect(statusPanel).not.toContainText("Optional traffic history");
     await expect(page.getByText("HTTP proxy", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("Database: 1,048,576 bytes", { exact: true }),
-    ).toBeVisible();
+      statusPanel
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^Database$/ }) })
+        .locator("dd"),
+    ).toHaveText("1,048,576 bytes");
     await expect(
-      page.getByText("WAL: 65,536 bytes", {
-        exact: true,
-      }),
-    ).toBeVisible();
+      statusPanel
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^WAL$/ }) })
+        .locator("dd"),
+    ).toHaveText("65,536 bytes");
     await expect(
       page.getByText("2 active requests/streams · 1 opaque tunnels", {
         exact: true,
@@ -3559,11 +3602,13 @@ export async function runSystemStatus(
     };
     await page.getByTestId("manual-refresh").click();
     await expect(
-      statusPanel.getByText(
-        `Recording: ${health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " ")}`,
-        { exact: true },
-      ),
-    ).toBeVisible();
+      statusPanel
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^Recording$/ }) })
+        .locator("dd"),
+    ).toHaveText(
+      health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " "),
+    );
     if (health !== "healthy")
       await expect(
         statusPanel.getByText("3 affected · 3 discarded submissions", {
@@ -3572,7 +3617,7 @@ export async function runSystemStatus(
       ).toBeVisible();
     if (health === "recovering")
       await expect(statusPanel).toContainText(
-        "Recovery blocker: Locked · Validation",
+        "Recovery blockerLocked · Validation",
       );
     if (health === "recovered")
       await expect(statusPanel).toContainText(
@@ -3601,10 +3646,21 @@ export async function runSystemStatus(
     },
   };
   await page.getByTestId("manual-refresh").click();
+  const storageFact = (label: string) =>
+    statusPanel
+      .locator(".storage-details > div")
+      .filter({
+        has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }),
+      })
+      .locator("dd");
+  await expect(storageFact("Database")).toHaveText("Unavailable");
+  await expect(storageFact("WAL")).toHaveText("Absent");
+  await expect(storageFact("Pruned records")).toHaveText("Unavailable");
+  await expect(storageFact("Write outstanding")).toHaveText("Yes");
   await expect(
-    page.getByText("Database: Unavailable", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("WAL: Absent", { exact: true })).toBeVisible();
+    statusPanel.getByTestId("system-status-material").locator("details"),
+  ).toHaveCount(0);
+  await expect(statusPanel).not.toContainText("operating-system keyring");
   await expect(statusPanel.getByTestId("system-status-issues")).toHaveCount(0);
   await expect(
     page.getByText(
@@ -3623,12 +3679,48 @@ export async function runSystemStatus(
   await expect(
     activity.getByRole("heading", { name: "Request activity" }),
   ).toBeVisible();
-  await expect(activity.locator("dt")).toHaveText([
+  await expect(activity.getByRole("rowheader")).toHaveText([
     "MCP",
-    "HTTP (includes Git)",
-    "CONNECT (separate)",
-    "Git (HTTP subset)",
+    "HTTP",
+    "CONNECT",
+    "Git",
   ]);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(
+    activity.getByRole("rowheader", { name: "CONNECT", exact: true }),
+  ).toHaveCSS("white-space", "nowrap");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(activity.getByRole("columnheader")).toHaveText([
+    "Protocol",
+    "Requests",
+    "Execution pipelines",
+    "Succeeded",
+    "Prestart failures",
+    "Failed",
+    "Unknown",
+    "Nonmutating",
+  ]);
+  await expect(activity).toContainText(
+    "HTTP includes Git; CONNECT is separate. Rows are not additive.",
+  );
+  for (const protocol of currentStatus.observations.protocols) {
+    const row = activity.getByRole("row").filter({
+      has: page.getByRole("rowheader", {
+        name:
+          protocol.protocol === "git" ? "Git" : protocol.protocol.toUpperCase(),
+        exact: true,
+      }),
+    });
+    await expect(row.locator("td")).toHaveText(
+      [protocol.requests, protocol.executions, ...protocol.results].map(String),
+    );
+    expect(
+      await row
+        .locator("td")
+        .first()
+        .evaluate((node) => getComputedStyle(node).textAlign),
+    ).toBe("right");
+  }
   await expect(activity.locator("details")).toHaveCount(0);
   for (const removed of [
     "Process observations",
@@ -3638,7 +3730,7 @@ export async function runSystemStatus(
   ])
     await expect(statusPanel).not.toContainText(removed);
   await captureDetailLayout(page, "request-activity");
-  const activityFacts = () => activity.locator("dd");
+  const activityFacts = () => activity.locator("td");
   currentStatus = structuredClone(currentStatus);
   currentStatus = {
     ...currentStatus,
@@ -3657,19 +3749,13 @@ export async function runSystemStatus(
   };
   await page.getByTestId("manual-refresh").click();
   await expect(activity).toContainText("Since restart");
-  await expect(activityFacts()).toHaveText(
-    Array(4).fill(
-      "0 requests · 0 execution pipelines · 0 succeeded · 0 prestart failures · 0 failed · 0 unknown · 0 nonmutating",
-    ),
-  );
+  await expect(activityFacts()).toHaveText(Array(28).fill("0"));
   await captureDetailLayout(page, "request-activity-restart");
   currentStatus.observations.overflow = true;
   currentStatus.observations.protocols[0]!.requests = Number.MAX_SAFE_INTEGER;
   await page.getByTestId("manual-refresh").click();
   await expect(activity).toContainText("Counters saturated");
-  await expect(activityFacts().first()).toContainText(
-    "9007199254740991 requests",
-  );
+  await expect(activityFacts().first()).toContainText("9007199254740991");
   await captureDetailLayout(page, "request-activity-overflow");
   currentStatus.observations.coverage = "unavailable";
   currentStatus.diagnostics.state = "unavailable";

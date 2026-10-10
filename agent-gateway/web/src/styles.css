@@ -292,9 +292,9 @@ button.danger-action:hover,
 .navigation-group-label {
   display: block;
   padding: 0 10px 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2687,10 +2687,35 @@ button.sort-button:not(:disabled):hover {
 }
 
 .audit-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   align-items: start;
-  gap: 16px;
+}
+
+.audit-filter-grid .form-field > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.storage-details {
+  width: 100%;
+  margin: 0;
+}
+
+.storage-details > div {
+  padding: 3px 0;
+}
+
+.storage-details dd {
+  font-size: 12px;
+}
+
+.table-region .activity-protocol {
+  white-space: nowrap;
 }
 
 .audit-filter-grid .form-field {
@@ -2708,8 +2733,10 @@ button.sort-button:not(:disabled):hover {
 
 .audit-filter-grid input,
 .audit-filter-grid select {
+  flex: none;
   width: 100%;
   min-width: 0;
+  max-width: none;
 }
 
 .audit-filter-actions {
@@ -2721,6 +2748,7 @@ button.sort-button:not(:disabled):hover {
 }
 
 .audit-filter-grid .form-field {
+  flex: 1 1 10rem;
   min-width: 0;
   margin-top: 0;
 }

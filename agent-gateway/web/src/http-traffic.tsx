@@ -716,6 +716,10 @@ function TrafficFilters({
         ))}
         <button
           type="button"
+          disabled={
+            !Object.values(draft).some(Boolean) &&
+            !Object.values(query).some(Boolean)
+          }
           onClick={() => {
             setDraft({});
             apply({});

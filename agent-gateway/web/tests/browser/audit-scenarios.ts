@@ -614,9 +614,35 @@ export async function runAudit(
   await expect(page.getByText("More filters", { exact: true })).toHaveCount(0);
   const target = page.getByLabel("Target", { exact: true });
   await expect(target).toBeVisible();
+  await expect(target).toHaveAttribute("placeholder", "Name or ID");
+  for (const width of [1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    const height = await target.evaluate(
+      (node) => node.getBoundingClientRect().height,
+    );
+    expect(
+      height,
+      "compact target input must not inherit a vertical flex basis",
+    ).toBeLessThanOrEqual(42);
+    expect(height).toBeGreaterThanOrEqual(36);
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(
+    page.getByText("Current names or literal partial IDs.", { exact: true }),
+  ).toHaveCount(0);
   const filters = page.getByRole("form", { name: "Filter audit history" });
   await expect(filters.getByRole("combobox")).toHaveCount(4);
   await expect(filters.getByRole("textbox")).toHaveCount(1);
+  expect(
+    await filters
+      .locator("label")
+      .evaluateAll((labels) =>
+        labels.every((label) => label.getBoundingClientRect().height <= 1),
+      ),
+  ).toBe(true);
+  for (const select of await filters.getByRole("combobox").all()) {
+    await expect(select.locator("option:checked")).toContainText(": any");
+  }
   await expect(page.locator('input[type="datetime-local"]')).toHaveCount(0);
   await expect(page.getByLabel("Credential ID", { exact: true })).toHaveCount(
     0,
