@@ -5,6 +5,11 @@ import {
 import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
+import { protocolSummaryFixture } from "../protocol-summary-fixture.ts";
+import {
+  decodeProtocolActivity,
+  type ActivityWindow,
+} from "../../src/protocol-summary.ts";
 import {
   captureOverviewLayout,
   prepareOverviewBaseline,
@@ -68,14 +73,43 @@ export async function runOverviewInvocationSystemCanary(
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Gateway status",
-    "Active MCP catalog tools",
-    "Configured MCP servers",
-    "Pending MCP decisions",
+    "HTTP",
+    "Git",
+    "MCP",
+    "Pending MCP requests",
   ])
     if (!body.includes(phrase))
       fail(`Overview workflow canary omitted ${phrase}`);
   if (body.includes("redacted_arguments"))
     fail("Overview workflow canary exposed invocation capture");
+  // Public contract against the real Gateway, independent of mocked rendering.
+  for (const window of ["15m", "1h", "24h"]) {
+    const response = await context.request.get(
+      `${baseURL}/api/v2/protocol-activity?window=${window}`,
+      { headers: { Authorization: `Bearer ${bearer}`, Cookie: "" } },
+    );
+    expect(response.status()).toBe(200);
+    expect(response.headers()["cache-control"]).toBe("no-store");
+    const summary = decodeProtocolActivity(await response.json());
+    expect(summary.window).toBe(window);
+    expect(
+      summary.counts,
+      "real Gateway retained-history snapshot",
+    ).not.toBeNull();
+    if (summary.counts !== null)
+      for (const path of ["http/traffic", "git/traffic", "mcp/invocations"]) {
+        const query = new URLSearchParams({
+          from: summary.from,
+          until: summary.until,
+          limit: "1",
+        });
+        const history = await context.request.get(
+          `${baseURL}/api/v2/${path}?${query}`,
+          { headers: { Authorization: `Bearer ${bearer}`, Cookie: "" } },
+        );
+        expect(history.status()).toBe(200);
+      }
+  }
 
   await page.locator('#primary-navigation a[href="#/mcp/invocations"]').click();
   await page.locator('[data-testid="invocations-view"]').waitFor();
@@ -1210,6 +1244,79 @@ export async function runOverview(
   let invocationReads = 0;
   let activityReads = 0;
   let catalogReads = 0;
+  let protocolMode: "current" | "partial" | "unavailable" | "error" = "current";
+  const protocolWindows: string[] = [];
+  await page.route("**/api/v2/protocol-activity?*", async (route) => {
+    const window = new URL(route.request().url()).searchParams.get(
+      "window",
+    ) as ActivityWindow;
+    expect(["15m", "1h", "24h"]).toContain(window);
+    protocolWindows.push(window);
+    if (protocolMode === "error")
+      return route.fulfill({
+        status: 503,
+        json: {
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        },
+      });
+    const summary = protocolSummaryFixture(window);
+    if (protocolMode === "unavailable") {
+      summary.coverage = "unavailable";
+      summary.counts = null;
+    } else {
+      if (protocolMode === "partial") summary.coverage = "partial";
+      summary.counts!.http = {
+        ...summary.counts!.http,
+        total: 107,
+        success: 100,
+        failed: 2,
+        denied: 3,
+        unknown: 2,
+      };
+      summary.counts!.git = {
+        ...summary.counts!.git,
+        total: 8,
+        success: 1,
+        reported_success: 1,
+        reported_partial: 1,
+        failed: 1,
+        denied: 1,
+        unknown: 2,
+        incomplete: 1,
+      };
+      summary.counts!.mcp = {
+        ...summary.counts!.mcp,
+        total: 13,
+        success: 7,
+        failed: 2,
+        denied: 1,
+        rejected: 1,
+        unknown: 2,
+      };
+    }
+    await route.fulfill({ json: summary });
+  });
+  for (const path of [
+    "http/credentials",
+    "http/grants",
+    "git/credentials",
+    "git/repositories",
+    "git/grants",
+    "mcp/grants",
+  ]) {
+    await page.route(`**/api/v2/${path}?limit=1`, (route) =>
+      route.fulfill({
+        json: {
+          items: [{}],
+          total_count: 123,
+          offset: 0,
+          next_cursor: "inventory-next",
+        },
+      }),
+    );
+  }
   let customHeaders: unknown = { "X-MCP-Toolsets": "repos,issues" };
   const screenshots = await mkdtemp(join(tmpdir(), "overview-headers-"));
   const compareBaseline = prepareOverviewBaseline(page);
@@ -1269,6 +1376,10 @@ export async function runOverview(
     }
     const status = {
       ...overviewStatusFixture(),
+      backup: {
+        state: "idle",
+        last_completed_at: "2026-10-03T10:23:45.000000000Z",
+      },
       ...(reportedStatus
         ? {
             endpoints: {
@@ -1743,7 +1854,7 @@ export async function runOverview(
   for (const text of [
     "not ready",
     "Recovery required",
-    "Credentials at startup: unavailable",
+    "Credential storage: unavailable",
     "Capacity saturated; additional work may be rejected.",
     "80% capacity pressure; headroom for additional work is limited.",
     "64 / 64",
@@ -1752,8 +1863,8 @@ export async function runOverview(
     "Overview agent",
     "5 shown; more need attention",
     "5 shown; more pending",
-    "9 Configured MCP servers",
-    "8 Active MCP catalog tools",
+    "Servers9",
+    "Tools8",
     "6 pending",
   ]) {
     if (!body.includes(text)) fail(`Overview omitted ${text}`);
@@ -1844,6 +1955,12 @@ export async function runOverview(
         .getAttribute("href")) !== href
     )
       fail(`Overview omitted contextual condition link ${name}`);
+  await source("servers")
+    .getByText("Servers needing attention", { exact: true })
+    .click();
+  await source("requests")
+    .getByText("Oldest pending requests", { exact: true })
+    .click();
   await source("servers").locator("li a").first().focus();
   await page.keyboard.press("Tab");
   if (
@@ -1858,9 +1975,9 @@ export async function runOverview(
     "Gateway status",
     "Storage and security",
     "Resource usage",
-    "MCP attention",
-    "Pending MCP decisions",
-    "MCP inventory",
+    "HTTP",
+    "Git",
+    "MCP",
   ]);
   await expect(source("status")).toContainText("Not reported");
   reportedStatus = true;
@@ -1997,11 +2114,11 @@ export async function runOverview(
     "HTTP connections0 / 256",
     "HTTP requests0 / 128",
     "Control storageReady",
-    "Credentials at startupReady",
+    "Credential storageReady",
     "0 servers flagged",
     "0 pending",
-    "1 Configured MCP servers",
-    "1 Active MCP catalog tools",
+    "Servers1",
+    "Tools1",
   ])
     if (!quiet.includes(text)) fail(`Quiet Overview omitted ${text}`);
   if (
@@ -2044,6 +2161,23 @@ export async function runOverview(
       ).toBeLessThanOrEqual(1);
   }
   await assertCardAlignment();
+  const backupStyle = await source("material")
+    .locator(".overview-backup-time")
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return [style.fontSize, style.fontWeight];
+    });
+  expect(backupStyle).toEqual(
+    await source("material")
+      .getByText("Idle", { exact: true })
+      .evaluate((node) => {
+        const style = getComputedStyle(node);
+        return [style.fontSize, style.fontWeight];
+      }),
+  );
+  await expect(
+    source("material").getByText("Credential storage", { exact: true }),
+  ).not.toHaveAttribute("title", /./);
   await expect(
     source("material").getByText("Idle", { exact: true }),
   ).toHaveAttribute("data-state", "neutral");
@@ -2056,6 +2190,89 @@ export async function runOverview(
     await expect(overview).not.toContainText(removed);
   await capture("quiet");
   await compareBaseline("quiet");
+  const selector = page.getByRole("combobox", {
+    name: "Recent activity window",
+  });
+  await expect(selector).toHaveValue("1h");
+  expect(protocolWindows).toContain("1h");
+  for (const window of ["15m", "24h", "1h"] as const) {
+    await selector.selectOption(window);
+    await expect.poll(() => protocolWindows.at(-1)).toBe(window);
+    for (const [protocol, total] of [
+      ["http", 107],
+      ["git", 8],
+      ["mcp", 13],
+    ] as const) {
+      const path =
+        protocol === "mcp" ? "mcp/invocations" : `${protocol}/traffic`;
+      const link = overview.locator(`a[href^="#/${path}?filter_from="]`);
+      await expect(link).toContainText(String(total));
+      await expect(link).toHaveAttribute(
+        "href",
+        new RegExp(encodeURIComponent(protocolSummaryFixture(window).from)),
+      );
+      if (protocol === "http")
+        await expect(link).toHaveAttribute("href", /filter_type=request/);
+    }
+  }
+  for (const [protocol, path] of [
+    ["http", "http/traffic"],
+    ["git", "git/traffic"],
+    ["mcp", "mcp/invocations"],
+  ] as const) {
+    let requested = "";
+    await page.route(`**/api/v2/${path}?*`, async (route) => {
+      requested = route.request().url();
+      await route.fulfill({ json: { items: [], next_cursor: null } });
+    });
+    await overview.locator(`a[href^="#/${path}?filter_from="]`).click();
+    await expect(page.locator(".history-window")).toContainText(
+      "Admission window:",
+    );
+    await expect
+      .poll(() => new URL(requested || baseURL).searchParams.get("from"))
+      .toBe(protocolSummaryFixture().from);
+    if (protocol === "http")
+      expect(new URL(requested).searchParams.get("type")).toBe("request");
+    await captureFrontend(page, `overview-history-${protocol}`, true);
+    await page.evaluate(() => {
+      window.location.hash = "#/overview";
+    });
+    await assertCurrent("servers");
+    await assertCurrent("requests");
+    await expect(
+      overview.locator('a[href^="#/http/traffic?filter_from="]'),
+    ).toBeVisible();
+    await page.unroute(`**/api/v2/${path}?*`);
+  }
+  await expect(
+    overview
+      .locator(".protocol-inventory")
+      .getByRole("link", { name: "123", exact: true }),
+  ).toHaveCount(6);
+  protocolMode = "partial";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    overview.getByText("Partially retained history", { exact: true }),
+  ).toHaveCount(3);
+  await capture("protocol-partial");
+  protocolMode = "error";
+  await page.getByTestId("manual-refresh").click();
+  await expect(overview.getByText(/stale; current counts unknown/)).toHaveCount(
+    3,
+  );
+  await capture("protocol-stale");
+  protocolMode = "unavailable";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    overview.getByText("Recent history unavailable", { exact: true }),
+  ).toHaveCount(3);
+  await capture("protocol-unavailable");
+  protocolMode = "current";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    overview.locator('a[href^="#/http/traffic?filter_from="]'),
+  ).toContainText("107");
 
   for (const headers of [null, [], "invalid", { "X-MCP-Toolsets": 7 }]) {
     customHeaders = headers;
@@ -2076,7 +2293,7 @@ export async function runOverview(
     customHeaders = headers;
     await page.locator('[data-testid="manual-refresh"]').click();
     await assertCurrent("servers");
-    if (!(await sourceText("inventory")).includes("1 Configured MCP servers"))
+    if (!(await sourceText("mcp")).includes("Servers1"))
       fail("Valid HTTP headers prevented complete server counts");
   }
 
@@ -2088,8 +2305,8 @@ export async function runOverview(
       ?.textContent?.includes("No servers configured"),
   );
   if (
-    !(await sourceText("inventory")).includes("0 Configured MCP servers") ||
-    !(await sourceText("inventory")).includes("0 Active MCP catalog tools")
+    !(await sourceText("mcp")).includes("Servers0") ||
+    !(await sourceText("mcp")).includes("Tools0")
   )
     fail("Empty inventory counts misleading");
   await capture("empty");
@@ -2211,7 +2428,7 @@ export async function runOverview(
   await assertCurrent("status");
   await assertCurrent("servers");
   if (
-    !(await sourceText("requests")).includes("Read unavailable") ||
+    !(await sourceText("requests")).includes("Unavailable") ||
     (await sourceText("requests")).includes("No pending")
   )
     fail("Unavailable initial queue appeared empty-success");

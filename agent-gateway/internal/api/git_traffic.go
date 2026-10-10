@@ -26,12 +26,13 @@ func (h *Handler) gitTrafficCollection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for key, values := range query {
-		if !slices.Contains([]string{"cursor", "limit", "operation", "repository", "admission", "transport", "report", "search_locale"}, key) || len(values) != 1 || values[0] == "" {
+		if !slices.Contains([]string{"from", "until", "cursor", "limit", "operation", "repository", "admission", "transport", "report", "search_locale"}, key) || len(values) != 1 || values[0] == "" {
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
 	}
 	q := contract.GitTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor"), Filters: contract.GitTrafficFilters{
+		From: query.Get("from"), Until: query.Get("until"),
 		Operation: query.Get("operation"), Repository: query.Get("repository"), Admission: query.Get("admission"), Transport: query.Get("transport"), Report: query.Get("report"), SearchLocale: query.Get("search_locale"),
 	}}
 	if raw := query.Get("limit"); raw != "" {
@@ -40,6 +41,10 @@ func (h *Handler) gitTrafficCollection(w http.ResponseWriter, r *http.Request) {
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
+	}
+	if !contract.ValidHistoryRange(q.Filters.From, q.Filters.Until) {
+		writeProblem(w, contract.ProblemMalformedRequest)
+		return
 	}
 	page, err := h.gitTraffic.ListGit(r.Context(), q)
 	if err != nil {

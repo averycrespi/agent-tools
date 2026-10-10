@@ -10,7 +10,7 @@ import (
 )
 
 func validGitTrafficFilters(f contract.GitTrafficFilters) bool {
-	return validSearchText(f.Repository) && validSearchLocale(f.SearchLocale) &&
+	return contract.ValidHistoryRange(f.From, f.Until) && validSearchText(f.Repository) && validSearchLocale(f.SearchLocale) &&
 		slices.Contains([]string{"", "read_discovery", "read", "push_discovery", "probe", "push", "invalid"}, f.Operation) &&
 		slices.Contains([]string{"", "allowed", "blocked"}, f.Admission) &&
 		slices.Contains([]string{"", "not_dispatched", "unknown", "prestart_failure", "complete", "incomplete"}, f.Transport) &&
@@ -26,6 +26,10 @@ const gitReportPredicate = `CASE WHEN json_extract(admission,'$.operation')!='pu
 func selectGitTraffic(ctx context.Context, tx *sql.Tx, q contract.GitTrafficQuery, cursor invocationCursor) ([]int64, error) {
 	clauses := []string{"insertion_sequence<=?", "(?=0 OR insertion_sequence<?)"}
 	args := []any{cursor.UpperSequence, cursor.NextSequence, cursor.NextSequence}
+	if q.Filters.From != "" {
+		clauses = append(clauses, "json_extract(admission,'$.admitted_at')>=? AND json_extract(admission,'$.admitted_at')<?")
+		args = append(args, q.Filters.From, q.Filters.Until)
+	}
 	for _, f := range []struct{ expression, value string }{
 		{"json_extract(admission,'$.operation')", q.Filters.Operation},
 		{"CASE WHEN json_extract(admission,'$.allowed')=1 THEN 'allowed' ELSE 'blocked' END", q.Filters.Admission},

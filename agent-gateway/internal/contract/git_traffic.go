@@ -77,6 +77,7 @@ type GitTrafficCompletion struct {
 	Failure     string   `json:"failure,omitempty"`
 }
 type GitTrafficFilters struct {
+	From, Until  string
 	Operation    string
 	Repository   string
 	Admission    string

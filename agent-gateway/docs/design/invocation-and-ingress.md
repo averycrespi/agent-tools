@@ -465,7 +465,11 @@ automatic retry or execution reconstruction is permitted. Retention has no live-
 pins. Execution retains its own finite bounds and releases material/opaque origins
 only after actual settlement, independently of every capture outcome.
 
-### Process-local recorded activity
+### Retained protocol summaries
+
+The invocation read owner aggregates Overview's HTTP request, Git exchange and MCP invocation populations in one bounded traffic-store read snapshot. It filters canonical admission timestamps, not insertion order or terminal arrival, and never scans browser-loaded pages, current authority or captured arguments. Git uses the existing request outcome projection and preserves upstream-report uncertainty. Ordinary HTTP requests exclude recognized Git and CONNECT; this does not change System's separate HTTP-includes-Git observation semantics. Optional read cancellation produces unavailable counts without faulting recording or manufacturing a partial total. Retained-only completeness remains unknown; known store-wide loss/pruning/pending writes mark partial coverage. [The public contract](public-contract.md#overview-protocol-activity) owns windows, paired history filters and category definitions.
+
+## Process-local recorded activity
 
 The composition-selected `TrafficStore` constructs one memory-only observer before its writer starts. Writer settlement records successful committed MCP/HTTP insertions and first terminal updates, not live attempts or enqueue acceptance. A terminal that reconstructs a lost initial row contributes both committed facts. Duplicate/late observations do not recount unchanged facts. Failed or uncertain persistence contributes nothing even if SQL is readable. No ingress, response or authorization hook adds another count. Dedicated Git writes remain outside this MCP/HTTP-only summary. None of these counts proves exactly-once downstream effects.
 

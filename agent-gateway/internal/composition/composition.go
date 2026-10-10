@@ -80,6 +80,7 @@ type ControlAPIDependencies struct {
 	HTTPTraffic   *invocation.ReadService
 	Audit         *audit.Repository
 
+	ProtocolActivity *invocation.ReadService
 	RecordedActivity func() contract.RecordedActivitySummary
 
 	HTTPPolicies    *authorization.Repository
@@ -232,7 +233,7 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil || built.gitCredentials == nil || built.traffic == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{Diagnostics: built.httpDiagnostics, AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, GitTraffic: built.invocationReads, RecordedActivity: built.traffic.RecordedActivity, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
+	return ControlAPIDependencies{Diagnostics: built.httpDiagnostics, AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, GitTraffic: built.invocationReads, ProtocolActivity: built.invocationReads, RecordedActivity: built.traffic.RecordedActivity, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
 }
 func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&

@@ -50,6 +50,7 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/admin-authority`                            | `GET`                | admin bearer                                      |
 | `/api/v2/admin-credentials/{id}/rotation-completion` | `POST`               | admin bearer                                      |
 | `/api/v2/system-status`                              | `GET`                | admin bearer or session                           |
+| `/api/v2/protocol-activity`                          | `GET`                | admin bearer or session                           |
 | `/api/v2/recorded-activity`                          | `GET`                | admin bearer or session                           |
 | `/api/v2/backups`                                    | `GET, POST`          | admin bearer or session                           |
 | `/api/v2/backups/{id}`                               | `DELETE, GET`        | admin bearer or session                           |
@@ -108,6 +109,16 @@ refusal. Neither is a control-security failure. See [storage and recovery](stora
 New backup representations additionally carry `history:"omitted"` for distinct format-3/4
 security artifacts. Legacy representations omit it; full artifact reads retain their
 original verification requirements. Inventory remains metadata-only.
+
+## Overview protocol activity
+
+`GET /api/v2/protocol-activity?window=1h` is an authenticated, bodyless, `no-store` retained-history read. The closed `window` selector accepts `15m`, `1h` (default), and `24h`. Unknown, duplicate, empty selectors and bodies are rejected. `ProtocolActivity` returns `window`, `from`, `until`, `coverage`, and nullable `counts`. Bounds are fixed-width UTC nanoseconds; each recorded admission in `[from, until)` contributes once, classified using its current retained terminal evidence, not its completion time. HTTP includes only ordinary request records, not recognized Git, CONNECT, or unclassifiable admissions. Git counts recorded exchanges, not inferred end-to-end commands or requested refs. MCP counts invocations. The existing System observations and recorded-activity endpoint retain their independent semantics.
+
+`counts` has `http`, `git`, and `mcp`, each with `total`, `success`, `other`, `reported_success`, `failed`, `denied`, `rejected`, `unknown`, `incomplete`, and `reported_partial`. Categories are disjoint and sum to total. HTTP success requires a recorded successful transfer and 2xx response; clean 1xx/3xx responses are `other`. Recorded HTTP error statuses or prestart/upstream failures are failures, never success from transport alone. MCP policy denials differ from admission rejection (including authorization unavailability), execution failure, success and missing/unknown terminal evidence. Git mirrors the existing request outcome projection: denials, prestart/HTTP failures, incomplete transfers, unknown evidence, nonpush HTTP success, and supported upstream-reported push success/partial success; reported push failure contributes to failed. Discovery is not a completed push, and an upstream report is not independent verification of remote effects.
+
+`coverage=retained` means exact retained counts, **not complete activity coverage**. Optional history cannot prove continuity across restarts. Known store-wide pruning, discarded observations, queued writes, or degraded recording yields `partial`; this is not a window-specific loss count. An unreadable or over-budget aggregation yields `unavailable` with `counts=null`, never zeros or a truncated aggregate. Zero means no matching retained records. The invocation owner aggregates within one read snapshot, without current-authority joins or payload hydration. Its caller deadline is half the existing traffic read lifetime, so an expensive optional summary cancels without faulting recording. No schema, writer, automatic retry, or persistent counters are added.
+
+HTTP traffic, Git traffic and MCP invocation collection reads accept paired `from` and `until` bounds in exactly `YYYY-MM-DDTHH:mm:ss.nnnnnnnnnZ` form, at most 24 hours apart, with an exclusive upper bound. Filters apply before pagination and bind cursors. Overview history links use these exact returned bounds; HTTP additionally applies `type=request`. Missing one bound, invalid instants, reverse/empty ranges and noncanonical timestamps are rejected.
 
 ## Recorded activity summary
 

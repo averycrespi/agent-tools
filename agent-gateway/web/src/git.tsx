@@ -32,7 +32,7 @@ import {
 import type { SessionClient } from "./session";
 import type { SensitiveSinkCoordinator } from "./sinks";
 import { WriteOnlyField } from "./sinks-ui";
-import { UserTime } from "./time";
+import { UserTime, HistoryWindow } from "./time";
 import {
   readCollectionPage,
   useCollectionPage,
@@ -1803,6 +1803,7 @@ function GitTrafficCollection(
           onChange={(live) => props.controller.setLive(live)}
         />
       </div>
+      <HistoryWindow query={query} />
       <div
         class="table-filters collection-query-filters"
         role="group"

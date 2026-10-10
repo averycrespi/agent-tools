@@ -15,7 +15,7 @@ import {
   type OperationalState,
 } from "./primitives";
 import type { SessionClient } from "./session";
-import { UserTime } from "./time";
+import { UserTime, HistoryWindow } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -1316,6 +1316,7 @@ function InvocationFilters({
   };
   return (
     <>
+      <HistoryWindow query={query} />
       <div
         class="table-filters collection-query-filters"
         role="group"

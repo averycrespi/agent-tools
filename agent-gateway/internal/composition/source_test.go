@@ -361,6 +361,16 @@ var _ invocation.Service
 			want:     "internal/invocation/reads.go: prohibited S4 SQL table invocations",
 		},
 		{
+			name: "protocol summary cannot mutate evidence", path: "internal/invocation/protocol_activity.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/protocol_activity.go: prohibited S4 SQL table invocations",
+		},
+		{
+			name: "protocol summary cannot join authority", path: "internal/invocation/protocol_activity.go",
+			contents: "package invocation\nfunc join() { _ = `SELECT invocations.id FROM invocations JOIN principals ON 1 = 1` }\n",
+			want:     "internal/invocation/protocol_activity.go: prohibited S4 SQL table invocations",
+		},
+		{
 			name: "S4 mutation in search owner", path: "internal/invocation/search.go",
 			contents: "package invocation\nfunc mutate() { _ = `UPDATE invocations SET terminal_class = NULL` }\n",
 			want:     "internal/invocation/search.go: prohibited S4 SQL table invocations",
@@ -709,7 +719,7 @@ func s4SQLViolations(source productionSource) []string {
 		switch source.path {
 		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go", "internal/invocation/traffic_migration.go":
 			return true
-		case "internal/invocation/reads.go", "internal/invocation/history_export.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
+		case "internal/invocation/protocol_activity.go", "internal/invocation/reads.go", "internal/invocation/history_export.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}

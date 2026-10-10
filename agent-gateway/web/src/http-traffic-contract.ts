@@ -8,6 +8,7 @@ import {
   validatePolicy,
 } from "./http-policy-response.ts";
 
+import { validActivityRange } from "./protocol-summary.ts";
 export const trafficOptions = {
   type: ["request", "connect", "invalid"],
   decision: ["allow", "block", "intercept", "invalid"],
@@ -23,21 +24,26 @@ export const trafficOptions = {
 export function validHTTPTrafficQuery(
   query: Readonly<Record<string, string>>,
 ): boolean {
-  return Object.entries(query).every(([key, value]) => {
-    if (key === "filter_principal_id" || key === "filter_connect_id")
-      return idPattern.test(value);
-    if (key === "filter_destination" || key === "filter_principal")
+  return (
+    validActivityRange(query) &&
+    Object.entries(query).every(([key, value]) => {
+      if (key === "filter_from" || key === "filter_until") return true;
+      if (key === "filter_principal_id" || key === "filter_connect_id")
+        return idPattern.test(value);
+      if (key === "filter_destination" || key === "filter_principal")
+        return (
+          new TextEncoder().encode(value).byteLength <= 256 &&
+          !/[\p{Cc}\p{Cf}]/u.test(value)
+        );
+      const options =
+        trafficOptions[key.slice(7) as keyof typeof trafficOptions];
       return (
-        new TextEncoder().encode(value).byteLength <= 256 &&
-        !/[\p{Cc}\p{Cf}]/u.test(value)
+        key.startsWith("filter_") &&
+        options !== undefined &&
+        (options as readonly string[]).includes(value)
       );
-    const options = trafficOptions[key.slice(7) as keyof typeof trafficOptions];
-    return (
-      key.startsWith("filter_") &&
-      options !== undefined &&
-      (options as readonly string[]).includes(value)
-    );
-  });
+    })
+  );
 }
 function id(value: unknown): string {
   if (typeof value !== "string" || !idPattern.test(value))

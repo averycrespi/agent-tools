@@ -127,6 +127,7 @@ func (t HTTPTermination) Valid(outcome, method, source string) bool {
 const HTTPOutcomeInterceptionSelected = "interception_selected"
 
 type HTTPTrafficFilters struct {
+	From, Until  string
 	Principal    string `json:"principal,omitempty"`
 	SearchLocale string `json:"search_locale,omitempty"`
 	ConnectID    string `json:"connect_id,omitempty"`

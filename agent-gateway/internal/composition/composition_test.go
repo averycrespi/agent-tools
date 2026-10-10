@@ -44,6 +44,7 @@ func TestInvocationReadComposition(t *testing.T) {
 	require.True(t, ok)
 	assert.Same(t, built.invocationReads, controlAPI.Invocations)
 	assert.Same(t, built.invocationReads, controlAPI.GitTraffic)
+	assert.Same(t, built.invocationReads, controlAPI.ProtocolActivity)
 	assert.Same(t, built.invocationReads, controlAPI.HTTPTraffic)
 	require.Eventually(t, func() bool { return built.traffic.Healthy() }, 5*time.Second, time.Millisecond)
 	gitPage, err := controlAPI.GitTraffic.ListGit(t.Context(), contract.GitTrafficQuery{Limit: 1})
