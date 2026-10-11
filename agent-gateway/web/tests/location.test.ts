@@ -40,6 +40,18 @@ const owned = ["operations", "auth-flows", "descriptors"].map(
 );
 const routes = [...collections, ...details, ...creates, ...owned];
 
+test("System attention is a closed canonical tab location", () => {
+  const fragment = "#/system?tab=needs-attention";
+  const location = parseFragment(fragment);
+  assert.ok(location);
+  assert.equal(serializeLocation(location), fragment);
+  assert.equal(
+    parseFragment("#/system?tab=needs-attention&filter_name=a"),
+    undefined,
+  );
+  assert.equal(parseFragment("#/system/needs-attention"), undefined);
+});
+
 test("table queries round-trip authoritative filters and exact grant context only", () => {
   for (const fragment of [
     "#/agents?filter_http_default=allow&filter_visibility=all&sort=name&direction=descending",

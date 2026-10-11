@@ -6,6 +6,7 @@ import {
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
 import { createHash } from "node:crypto";
+import { overviewServer } from "./fixtures.ts";
 import {
   visualArtifactInventory,
   visualDestinations,
@@ -487,6 +488,56 @@ export async function runAccessibilityKeyboardResponsive(
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
+  let attentionMode: "populated" | "empty" | "error" = "populated";
+  await page.route("**/api/v2/mcp/servers?*", async (route) => {
+    if (attentionMode === "error")
+      return route.fulfill({ json: { unavailable: true } });
+    await route.fulfill({
+      json: {
+        items:
+          attentionMode === "empty"
+            ? []
+            : Array.from({ length: 4 }, (_, i) =>
+                overviewServer(
+                  `01ARZ3NDEKTSV4RRFFQ69G5FB${i}`,
+                  `Server ${i} ${"Long name ".repeat(20)}`,
+                  "degraded",
+                ),
+              ),
+        next_cursor: null,
+      },
+    });
+  });
+  await page.getByTestId("manual-refresh").click();
+  const attention = page.getByTestId("needs-attention");
+  await expect(attention.locator("li")).toHaveCount(3);
+  await expect(attention).toContainText("1 more");
+  for (const [theme, width] of [
+    ["light", 1440],
+    ["dark", 320],
+  ] as const) {
+    await page.getByTestId("theme-preference").selectOption(theme);
+    await page.setViewportSize({ width, height: 900 });
+    await scan(`attention-preview-${theme}`);
+    await attention.getByRole("link", { name: "View all" }).click();
+    await expect(attention.locator("li")).toHaveCount(4);
+    await scan(`attention-full-${theme}`);
+    await page.goBack();
+    await expect(attention.locator("li")).toHaveCount(3);
+  }
+  attentionMode = "empty";
+  await page.getByTestId("manual-refresh").click();
+  await expect(attention).toContainText("Nothing needs attention");
+  await scan("attention-empty");
+  attentionMode = "error";
+  await page.getByTestId("manual-refresh").click();
+  await expect(attention).toContainText("Attention data unavailable");
+  await expect(attention).not.toContainText("Nothing needs attention");
+  await scan("attention-error");
+  await page.unroute("**/api/v2/mcp/servers?*");
+  await page.getByTestId("theme-preference").selectOption("system");
+  await page.evaluate(() => localStorage.removeItem("agent_gateway_theme"));
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.evaluate(() => {
     window.location.hash = "#/system?tab=admin-credentials";
   });

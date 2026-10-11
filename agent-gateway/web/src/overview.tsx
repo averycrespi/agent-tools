@@ -33,8 +33,8 @@ import {
 } from "./primitives";
 import type { SessionClient } from "./session";
 
-import { capacityState } from "./resource-utilization";
-import { formatUserTime, UserTime } from "./time";
+import { attentionItems } from "./attention";
+import { UserTime } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -129,11 +129,12 @@ export interface StatusView {
   legacyProtocol: string;
   agentAuth: string;
 }
-interface ServerView {
+export interface ServerView {
   id: string;
   name: string;
   desired: string;
   runtime: string;
+  reason: string | null;
   credential: string;
   catalog: string;
   activeToolCount: number;
@@ -555,7 +556,7 @@ function decodeServer(value: unknown): ServerView {
     "authentication_required",
     "deleted",
   ]);
-  nullableString(runtime.reason);
+  const reason = nullableString(runtime.reason);
   nullableString(runtime.runtime_id);
   const reconciliation = validateLimit(runtime.reconciliation);
   const dispatch = validateLimit(runtime.dispatch);
@@ -605,6 +606,7 @@ function decodeServer(value: unknown): ServerView {
     name: stringValue(item.display_name),
     desired,
     runtime: runtimeState,
+    reason,
     credential,
     catalog: activeCatalog,
     activeToolCount,
@@ -792,9 +794,11 @@ export class OverviewController {
     setStorageLatched: (latched: boolean) => void,
   ) {
     const matches = (key: string) => key === "#/overview";
+    const attentionMatches = (key: string) =>
+      matches(key) || key === "#/system?tab=needs-attention";
     views.registerPanel({
       id: "overview-status",
-      matches,
+      matches: attentionMatches,
       invalidations: ["system_status"],
       read: async (context) =>
         decodeStatus(
@@ -808,7 +812,7 @@ export class OverviewController {
     });
     views.registerPanel({
       id: "overview-servers",
-      matches,
+      matches: attentionMatches,
       invalidations: ["servers", "catalog"],
       read: readServers,
       publish: (servers) => {
@@ -818,7 +822,7 @@ export class OverviewController {
     });
     views.registerPanel({
       id: "overview-requests",
-      matches,
+      matches: attentionMatches,
       invalidations: ["grant_requests"],
       read: async (context) =>
         decodeRequestPage(
@@ -980,16 +984,6 @@ function Panel({
   );
 }
 
-function attentionReason(server: ServerView): string {
-  if (server.credential !== "ready" && server.credential !== "not_required")
-    return `Credentials ${sentenceCase(server.credential).toLowerCase()}`;
-  if (server.runtime !== "active")
-    return `Runtime ${sentenceCase(server.runtime).toLowerCase()}`;
-  if (server.catalog !== "current")
-    return `Active catalog ${sentenceCase(server.catalog).toLowerCase()}`;
-  return "Capacity saturated";
-}
-
 function ReadinessFact({
   label,
   value,
@@ -1019,23 +1013,52 @@ function ReadinessFact({
   );
 }
 
-function WaitingTime({ value }: { value: string }) {
-  const elapsed = Date.now() - new Date(value).getTime();
-  const minutes = Math.floor(elapsed / 60000);
-  const label =
-    !Number.isFinite(elapsed) || elapsed < 0
-      ? "Waiting time unavailable"
-      : minutes < 1
-        ? "Waiting less than a minute"
-        : minutes < 60
-          ? `Waiting about ${minutes} min`
-          : minutes < 1440
-            ? `Waiting about ${Math.floor(minutes / 60)} h`
-            : `Waiting about ${Math.floor(minutes / 1440)} d`;
+export function NeedsAttention({
+  controller,
+  view,
+  preview = false,
+}: {
+  controller: OverviewController;
+  view: ViewSnapshot;
+  preview?: boolean;
+}) {
+  const [snapshot, setSnapshot] = useState(controller.snapshot());
+  useEffect(() => controller.subscribe(setSnapshot), [controller]);
+  const { items, complete, notice } = attentionItems(snapshot, view);
   return (
-    <time dateTime={value} title={`Submitted ${formatUserTime(value)}`}>
-      {label}
-    </time>
+    <section
+      class={`panel ${preview ? "overview-panel attention-preview" : "attention-detail"}`}
+      data-testid="needs-attention"
+      aria-labelledby="needs-attention-title"
+    >
+      <h2 id="needs-attention-title">Needs attention</h2>
+      {notice && (
+        <p class="overview-evidence" role="status">
+          {notice}
+        </p>
+      )}
+      {complete && items.length === 0 && <p>Nothing needs attention</p>}
+      <ul
+        class="attention-list"
+        data-testid="overview-requests"
+        data-panel-status={
+          view.panels["overview-requests"]?.status ?? "loading"
+        }
+      >
+        {(preview ? items.slice(0, 3) : items).map((item) => (
+          <li key={item.id}>
+            <a href={item.href}>{item.label}</a>
+            {!preview && <p>{item.explanation}</p>}
+          </li>
+        ))}
+      </ul>
+      {preview && (
+        <footer>
+          <a href="#/system?tab=needs-attention">View all</a>
+          {complete && items.length > 3 && <span>{items.length - 3} more</span>}
+        </footer>
+      )}
+    </section>
   );
 }
 
@@ -1051,50 +1074,14 @@ export function Overview({
   useEffect(() => controller.subscribe(setSnapshot), [controller]);
   const panel = (id: string) => view.panels[id];
   const status = snapshot.status;
-  const pools = [
-    ...(status?.limits ?? [])
-      .filter(
-        (item) =>
-          item.name === "mcp_work" || item.name === "downstream_dispatch",
-      )
-      .map((item) => ({
-        ...item,
-        label: item.name === "mcp_work" ? "MCP requests" : "Downstream calls",
-      })),
-    ...(status?.httpProxy
-      ? [
-          {
-            ...status.httpProxy.connections,
-            name: "http_regular" as const,
-            label: "HTTP connections",
-          },
-          {
-            ...status.httpProxy.work,
-            name: "http_regular" as const,
-            label: "HTTP requests",
-          },
-        ]
-      : []),
-  ];
-  const pressure = pools
-    .filter((item) => capacityState(item) !== undefined)
-    .sort((a, b) => Number(b.saturated) - Number(a.saturated));
+
   const configuredServers = snapshot.servers?.items.length ?? 0;
   const activeTools =
     snapshot.servers?.items.reduce(
       (total, server) => total + BigInt(server.activeToolCount),
       0n,
     ) ?? 0;
-  const serversNeedingAttention =
-    snapshot.servers?.items.filter((server) => server.attention) ?? [];
   const current = (id: string) => panel(id)?.status === "current";
-  const sourceNotice = (id: string) =>
-    panel(id)?.hasValue && !current(id) ? (
-      <p class="overview-evidence">
-        {panel(id)?.status === "error" ? "Refresh failed." : "Data stale."}{" "}
-        Showing the last read; current state is unknown.
-      </p>
-    ) : null;
   const inventory = (
     key: string,
     label: string,
@@ -1118,7 +1105,7 @@ export function Overview({
           "Incomplete"
         ) : (
           <>
-            <a href={href}>{count.toLocaleString()}</a>
+            {count.toLocaleString()}
             {!current(source) && (
               <span class="overview-evidence"> · stale</span>
             )}
@@ -1140,40 +1127,22 @@ export function Overview({
     if (!summary.counts)
       return <p class="overview-evidence">Recent history unavailable</p>;
     const counts = summary.counts[protocol];
-    const outcomes = [
-      ["success", protocol === "mcp" ? "Succeeded" : "HTTP success"],
-      ...(protocol === "git"
-        ? [
-            ["reported_success", "Reported push success"],
-            ["reported_partial", "Reported partial push"],
-          ]
-        : []),
-      ...(protocol === "http" ? [["other", "Other responses"]] : []),
-      ["failed", "Failed"],
-      ["denied", "Denied"],
-      ...(protocol === "mcp" ? [["rejected", "Not admitted"]] : []),
-      ["unknown", "Unknown"],
-      ["incomplete", "Incomplete"],
-    ] as const;
+
     return (
       <div class="protocol-activity">
-        <p class="overview-headline">
-          <a href={activityHref(protocol, summary)}>
-            <strong>{counts.total.toLocaleString()}</strong>{" "}
-            {protocol === "http"
-              ? "requests"
-              : protocol === "git"
-                ? "recorded operations"
-                : "invocations"}
-          </a>
-        </p>
-        <dl class="protocol-outcomes">
-          {outcomes.map(([key, label]) => (
-            <div key={key}>
-              <dt>{label}</dt>
-              <dd>{counts[key as keyof typeof counts].toLocaleString()}</dd>
-            </div>
-          ))}
+        <dl class="overview-facts">
+          <div>
+            <dt>
+              <a href={activityHref(protocol, summary)}>
+                {protocol === "http"
+                  ? "Requests"
+                  : protocol === "git"
+                    ? "Operations"
+                    : "Invocations"}
+              </a>
+            </dt>
+            <dd>{counts.total.toLocaleString()}</dd>
+          </div>
         </dl>
         <p class="overview-context">
           {summary.coverage === "partial"
@@ -1183,9 +1152,6 @@ export function Overview({
             ? " · stale; current counts unknown"
             : ""}
         </p>
-        {protocol === "git" && (
-          <p class="overview-context">Discovery is not a completed push.</p>
-        )}
       </div>
     );
   };
@@ -1239,7 +1205,6 @@ export function Overview({
                 </p>
               </StateNotice>
             )}
-            <a href="#/system">System status</a>
           </div>
         )}
       </Panel>
@@ -1349,65 +1314,10 @@ export function Overview({
                 </p>
               </StateNotice>
             )}
-            <a href="#/system">System status</a>
           </div>
         )}
       </Panel>
-      <Panel
-        id="overview-capacity"
-        title="Resource usage"
-        panel={panel("overview-status")}
-      >
-        {status !== undefined && (
-          <div class="overview-stack">
-            <p class="overview-context">In use / limit</p>
-            <dl class="overview-facts overview-pools">
-              {pools.map((item) => (
-                <div key={item.label}>
-                  <dt>{item.label}</dt>
-                  <dd>
-                    <strong>
-                      {item.inUse.toLocaleString()} /{" "}
-                      {item.limit.toLocaleString()}
-                    </strong>
-                    {item.limit === 0 ? " · N/A" : ""}
-                    {item.saturated
-                      ? " · Saturated"
-                      : capacityState(item) === "pressure"
-                        ? " · 80% pressure"
-                        : ""}
-                  </dd>
-                </div>
-              ))}
-              {!status.httpProxy && (
-                <div>
-                  <dt>HTTP pools</dt>
-                  <dd>Not reported</dd>
-                </div>
-              )}
-            </dl>
-            {pressure.length > 0 && (
-              <div class="overview-capacity">
-                <ul class="overview-conditions">
-                  {pressure.slice(0, 3).map((item) => (
-                    <li key={item.label}>
-                      <strong>{item.label}</strong>: {item.inUse} / {item.limit}
-                      {" — "}
-                      {capacityState(item) === "saturated"
-                        ? "Capacity saturated; additional work may be rejected."
-                        : "80% capacity pressure; headroom for additional work is limited."}
-                    </li>
-                  ))}
-                </ul>
-                {pressure.length > 3 && (
-                  <p>{pressure.length - 3} additional pool under pressure.</p>
-                )}
-              </div>
-            )}
-            <a href="#/system?tab=resource-limits">Resource limits</a>
-          </div>
-        )}
-      </Panel>
+      <NeedsAttention controller={controller} view={view} preview />
       <div class="protocol-toolbar">
         <h2>Protocol activity</h2>
         <label>
@@ -1457,7 +1367,11 @@ export function Overview({
         aria-labelledby="overview-mcp-title"
       >
         <h2 id="overview-mcp-title">MCP</h2>
-        <dl class="overview-facts protocol-inventory">
+        <dl
+          class="overview-facts protocol-inventory"
+          data-testid="overview-servers"
+          data-panel-status={panel("overview-servers")?.status ?? "loading"}
+        >
           {inventory(
             "servers",
             "Servers",
@@ -1477,143 +1391,6 @@ export function Overview({
           {inventory("mcpGrants", "Grants", "#/mcp/grants")}
         </dl>
         {activity("mcp")}
-        <div
-          class="protocol-attention"
-          data-testid="overview-servers"
-          data-attention={serversNeedingAttention.length > 0 ? "true" : "false"}
-          data-panel-status={panel("overview-servers")?.status ?? "loading"}
-        >
-          {sourceNotice("overview-servers")}
-          <h3>
-            <a href="#/mcp/servers">MCP attention</a>
-          </h3>
-          {!snapshot.servers && (
-            <p>
-              {panel("overview-servers")?.status === "error"
-                ? "Unavailable"
-                : "Loading…"}
-            </p>
-          )}
-          {snapshot.servers !== undefined && (
-            <>
-              <p class="overview-headline">
-                <a href="#/mcp/servers">
-                  <strong>{serversNeedingAttention.length}</strong> servers
-                  flagged
-                </a>
-                {!current("overview-servers")
-                  ? " · last known; current state unknown"
-                  : !snapshot.servers.complete
-                    ? " · loaded; incomplete"
-                    : ""}
-              </p>
-              {!snapshot.servers.complete && (
-                <p class="overview-evidence">
-                  Server traversal incomplete; additional affected servers may
-                  exist.
-                </p>
-              )}
-              {serversNeedingAttention.length === 0 ? (
-                <p>
-                  {!current("overview-servers")
-                    ? ""
-                    : !snapshot.servers.complete
-                      ? "No affected servers among those loaded."
-                      : configuredServers === 0
-                        ? "No servers configured."
-                        : ""}
-                </p>
-              ) : (
-                <details>
-                  <summary>Servers needing attention</summary>
-                  <ul class="overview-triage-list">
-                    {serversNeedingAttention.slice(0, 5).map((item) => (
-                      <li key={item.id} data-testid="overview-server-row">
-                        <a href={`#/mcp/servers/${item.id}`}>{item.name}</a>
-                        <p>{attentionReason(item)}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              )}
-              {serversNeedingAttention.length > 5 && (
-                <p>5 shown; more need attention.</p>
-              )}
-            </>
-          )}
-        </div>
-        <div
-          class="protocol-attention"
-          data-testid="overview-requests"
-          data-attention={
-            (snapshot.requests?.total ?? 0) > 0 ? "true" : "false"
-          }
-          data-panel-status={panel("overview-requests")?.status ?? "loading"}
-        >
-          {sourceNotice("overview-requests")}
-          <h3>
-            <a href="#/mcp/access-requests">Pending MCP requests</a>
-          </h3>
-          {!snapshot.requests && (
-            <p>
-              {panel("overview-requests")?.status === "error"
-                ? "Unavailable"
-                : "Loading…"}
-            </p>
-          )}
-          {snapshot.requests !== undefined && (
-            <>
-              <p class="overview-headline">
-                <a href="#/mcp/access-requests">
-                  <strong>{snapshot.requests.total}</strong> pending
-                </a>
-                {current("overview-requests")
-                  ? ""
-                  : " · last known; current queue unknown"}
-              </p>
-              {snapshot.requests.items.length === 0 ? (
-                <p>
-                  {!current("overview-requests")
-                    ? ""
-                    : snapshot.requests.complete
-                      ? ""
-                      : "No pending requests loaded; queue incomplete."}
-                </p>
-              ) : (
-                <details>
-                  <summary>Oldest pending requests</summary>
-                  <ol
-                    class="overview-triage-list overview-decisions"
-                    aria-label="Pending access requests, oldest first"
-                  >
-                    {snapshot.requests.items.slice(0, 5).map((item) => (
-                      <li key={item.id} data-testid="overview-request-row">
-                        <div class="overview-requester">
-                          {item.principalName || `Agent ${item.principalID}`}
-                        </div>
-                        <a href={`#/mcp/access-requests/${item.id}`}>
-                          Review access to {item.target}
-                          {item.serverName ? ` · ${item.serverName}` : ""}
-                        </a>
-                        <p>
-                          <WaitingTime value={item.createdAt} />
-                        </p>
-                      </li>
-                    ))}
-                  </ol>
-                </details>
-              )}
-              {(!snapshot.requests.complete ||
-                snapshot.requests.items.length > 5) &&
-                snapshot.requests.items.length > 0 && (
-                  <p>
-                    {Math.min(5, snapshot.requests.items.length)} shown; more
-                    pending.
-                  </p>
-                )}
-            </>
-          )}
-        </div>
       </section>
     </div>
   );

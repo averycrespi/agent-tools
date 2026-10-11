@@ -70,6 +70,7 @@ const serverTabs = new Set([
 const systemTabs = new Set([
   "status",
   "resource-limits",
+  "needs-attention",
   "admin-credentials",
   "backups",
 ]);

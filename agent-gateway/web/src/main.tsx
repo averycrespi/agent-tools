@@ -907,6 +907,7 @@ function App() {
           ) : destination === "system" ? (
             <System
               controller={systemController}
+              overview={overviewController}
               session={sessionClient}
               mutations={mutationCoordinator}
               sinks={sensitiveSinkCoordinator}

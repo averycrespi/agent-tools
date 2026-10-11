@@ -13,7 +13,13 @@ type HistoryState = HistoryProgress & {
 };
 import { parseFragment } from "./location";
 import { measurementText, trafficRecoveryAction } from "./observation-health";
-import { decodeStatus, type LimitView, type StatusView } from "./overview";
+import {
+  decodeStatus,
+  NeedsAttention,
+  type OverviewController,
+  type LimitView,
+  type StatusView,
+} from "./overview";
 import type {
   MutationController,
   MutationCoordinator,
@@ -52,7 +58,12 @@ function formatStorageBytes(bytes: number): string {
 type Listener = (status: StatusView | undefined) => void;
 type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
 type BackupListener = (backups: Backup[] | undefined) => void;
-type SystemTab = "status" | "resource-limits" | "admin-credentials" | "backups";
+type SystemTab =
+  | "status"
+  | "resource-limits"
+  | "needs-attention"
+  | "admin-credentials"
+  | "backups";
 type CredentialStatus = "active" | "revoked" | "expired";
 type AdminCredential = {
   id: string;
@@ -297,6 +308,7 @@ function tab(viewKey: string): SystemTab {
   );
   if (
     selected === "resource-limits" ||
+    selected === "needs-attention" ||
     selected === "admin-credentials" ||
     selected === "backups"
   )
@@ -512,6 +524,7 @@ function SystemTabs({ current }: { current: SystemTab }) {
   const items: ReadonlyArray<[SystemTab, string, string]> = [
     ["status", "Status", "#/system"],
     ["resource-limits", "Resource limits", "#/system?tab=resource-limits"],
+    ["needs-attention", "Needs attention", "#/system?tab=needs-attention"],
     [
       "admin-credentials",
       "Admin credentials",
@@ -2166,6 +2179,7 @@ function AdminCredentials({
 
 export function System({
   controller,
+  overview,
   session,
   mutations,
   sinks,
@@ -2173,6 +2187,7 @@ export function System({
   onRefresh,
 }: {
   controller: SystemController;
+  overview: OverviewController;
   session: SessionClient;
   mutations: MutationCoordinator;
   sinks: SensitiveSinkCoordinator;
@@ -2198,6 +2213,8 @@ export function System({
         <StatusPanel status={status} view={view} />
       ) : current === "resource-limits" ? (
         <ResourceLimits status={status} view={view} />
+      ) : current === "needs-attention" ? (
+        <NeedsAttention controller={overview} view={view} />
       ) : current === "admin-credentials" ? (
         <AdminCredentials
           credentials={credentials}
