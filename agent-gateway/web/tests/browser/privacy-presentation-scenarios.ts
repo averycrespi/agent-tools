@@ -6,7 +6,11 @@ import {
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
 import { createHash } from "node:crypto";
-import { overviewServer } from "./fixtures.ts";
+import {
+  invocationFixture,
+  invocationIDs,
+  overviewServer,
+} from "./fixtures.ts";
 import {
   visualArtifactInventory,
   visualDestinations,
@@ -535,6 +539,80 @@ export async function runAccessibilityKeyboardResponsive(
   await expect(attention).not.toContainText("Nothing needs attention");
   await scan("attention-error");
   await page.unroute("**/api/v2/mcp/servers?*");
+  const invocationPath = `/api/v2/mcp/invocations/${invocationIDs.missing}`;
+  const serverName = "Server " + "long recognition name ".repeat(10).trim();
+  const grantDescription =
+    "Grant " + "long recognition description ".repeat(8).trim();
+  await page.route(`**${invocationPath}`, async (route) => {
+    expect(route.request().method()).toBe("GET");
+    await route.fulfill({
+      json: {
+        ...invocationFixture(
+          invocationIDs.missing,
+          "terminal",
+          "succeeded",
+          "downstream",
+        ),
+        redacted_arguments: null,
+        recognition: {
+          server: { server_id: invocationIDs.server, display_name: serverName },
+          grant: {
+            grant_id: invocationIDs.grant,
+            description: grantDescription,
+          },
+        },
+      },
+    });
+  });
+  await page.evaluate((id) => {
+    location.hash = `#/mcp/invocations/${id}`;
+  }, invocationIDs.missing);
+  const invocation = page.getByTestId("invocation-detail");
+  await expect(invocation).toBeVisible();
+  for (const [theme, width] of [
+    ["light", 1440],
+    ["dark", 320],
+  ] as const) {
+    await page.getByTestId("theme-preference").selectOption(theme);
+    await page.setViewportSize({ width, height: 900 });
+    const grantLink = invocation.getByRole("link", {
+      name: grantDescription,
+      exact: true,
+    });
+    const serverLink = invocation.getByRole("link", {
+      name: serverName,
+      exact: true,
+    });
+    await expect(grantLink).toHaveAttribute(
+      "href",
+      `#/mcp/grants/${invocationIDs.grant}`,
+    );
+    await expect(serverLink).toHaveAttribute(
+      "href",
+      `#/mcp/servers/${invocationIDs.server}`,
+    );
+    await grantLink.focus();
+    await page.keyboard.press("Tab");
+    await expect(serverLink).toBeFocused();
+    await expect(
+      invocation
+        .locator(".table-identifier")
+        .filter({ hasText: invocationIDs.server }),
+    ).toHaveText(invocationIDs.server);
+    await expect(
+      invocation
+        .locator(".table-identifier")
+        .filter({ hasText: invocationIDs.grant }),
+    ).toHaveText(invocationIDs.grant);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    await scan(`invocation-recognition-long-${theme}-${width}`);
+    scriptedAssertions += 6;
+  }
+  await page.unroute(`**${invocationPath}`);
   await page.getByTestId("theme-preference").selectOption("system");
   await page.evaluate(() => localStorage.removeItem("agent_gateway_theme"));
   await page.setViewportSize({ width: 1440, height: 900 });
