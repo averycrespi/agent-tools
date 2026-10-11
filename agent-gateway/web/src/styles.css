@@ -589,6 +589,10 @@ textarea[readonly] {
   gap: 8px;
 }
 
+.form-actions > .form-submit-action {
+  margin-top: 0;
+}
+
 .history-export-actions,
 .history-export-status:not(:empty) {
   margin-bottom: 16px;
@@ -1130,7 +1134,7 @@ textarea[readonly] {
   .overview-panel[data-testid="overview-requests"] {
     grid-column: span 1;
   }
-  .overview-panel[data-testid="overview-capacity"] {
+  .overview-panel.attention-preview {
     grid-column: 1 / -1;
   }
 }
@@ -1236,18 +1240,48 @@ textarea[readonly] {
   text-align: right;
 }
 .protocol-card .protocol-inventory {
-  margin-bottom: 16px;
-  min-height: 120px;
+  margin-bottom: 0;
   align-content: start;
 }
-@media (max-width: 760px) {
-  .protocol-card .protocol-inventory {
-    min-height: 0;
-  }
-}
 .protocol-activity {
-  border-top: 1px solid var(--line);
+  margin-top: 8px;
+}
+.attention-preview > h2,
+.attention-detail > h2 {
+  margin: 0 0 16px;
+}
+.attention-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 16px;
+  overflow-wrap: anywhere;
+}
+.attention-list a {
+  font-weight: 600;
+}
+.attention-list p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+.attention-preview footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
   padding-top: 16px;
+}
+@media (min-width: 1201px) {
+  .attention-preview {
+    contain: size;
+  }
+  .attention-preview .attention-list a {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
 }
 .protocol-activity .overview-headline a {
   color: var(--text);
@@ -2011,7 +2045,9 @@ button.sort-button:not(:disabled):hover {
   padding: 8px 0 18px;
 }
 
-.detail-context > .technical-value {
+.server-context > .technical-value,
+.detail-context > .technical-value,
+.tool-heading .technical-value {
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 14px;
@@ -2100,8 +2136,8 @@ button.sort-button:not(:disabled):hover {
   margin-top: 0;
 }
 
-.tool-heading p {
-  margin-top: 6px;
+.tool-heading > div {
+  min-width: 0;
 }
 
 .tool-annotations {

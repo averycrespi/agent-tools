@@ -12,7 +12,7 @@ func TestHTTPTrafficReadsSeparateDomainsAndBindCursors(t *testing.T) {
 	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
-	reader, err := NewReadService(audits, authority)
+	reader, err := NewReadService(audits, authority, nil, nil)
 	require.NoError(t, err)
 	for n := 1; n <= 3; n++ {
 		observation := recordHTTP(t, traffic, httpTrafficAdmission(n))

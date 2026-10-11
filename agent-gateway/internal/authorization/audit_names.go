@@ -8,6 +8,21 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
+// InvocationGrantDescription reads one current description without policy or credentials.
+// An existing undescribed grant returns a pointer to an empty string.
+func (repository *Repository) InvocationGrantDescription(ctx context.Context, id string) (*string, error) {
+	var description *string
+	err := repository.view(ctx, func(tx *sql.Tx) error {
+		target := contract.AuditTarget{Type: "grant", ID: id}
+		names, err := repository.AuditTargetNamesTx(ctx, tx, []contract.AuditTarget{target})
+		if value, ok := names[target]; err == nil && ok {
+			description = &value
+		}
+		return err
+	})
+	return description, err
+}
+
 // AuditTargetNamesTx projects current recognition without hydrating policy or credentials.
 func (repository *Repository) AuditTargetNamesTx(ctx context.Context, tx *sql.Tx, targets []contract.AuditTarget) (map[contract.AuditTarget]string, error) {
 	if tx == nil || len(targets) > contract.AuditRetention {

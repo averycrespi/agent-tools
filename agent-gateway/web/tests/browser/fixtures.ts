@@ -91,7 +91,7 @@ export function overviewServer(id: string, name: string, state: string) {
     credential_state: "not_required",
     runtime: {
       state,
-      reason: state === "active" ? null : "transport_failure",
+      reason: state === "active" ? null : "configuration_invalid",
       runtime_id: state === "active" ? "runtime-1" : null,
       reconciliation: { in_use: 0, limit: 1, saturated: false },
       dispatch: { in_use: 0, limit: 4, saturated: false },

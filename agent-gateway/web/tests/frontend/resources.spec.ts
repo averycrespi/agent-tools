@@ -70,7 +70,7 @@ const entities = [
           },
         ],
       },
-      expires_at: null,
+      expires_at: "2030-10-01T12:00:37.123456789Z",
       state: "active",
     },
   },
@@ -100,7 +100,7 @@ const entities = [
         type: "block_destination",
         destination: { host: "example.invalid", port: 443 },
       },
-      expires_at: null,
+      expires_at: "2030-10-01T12:00:37.123456789Z",
       state: "active",
     },
   },
@@ -280,6 +280,8 @@ for (const entity of entities) {
               : "Pending synthetic draft",
           );
           expect(payload).not.toHaveProperty("secret");
+          if (entity.path.endsWith("grants"))
+            expect(payload.expires_at).toBe("2030-10-01T12:00:37.123456789Z");
         }
         if (mutationMode === "pending")
           await new Promise<void>((resolve) => {
@@ -655,6 +657,77 @@ for (const entity of entities) {
       await expect(
         page.getByLabel("Canonical HTTPS destination"),
       ).toHaveAttribute("readonly", "");
+    const ordinary = page.getByRole("button", {
+      name: "Review changes",
+      exact: true,
+    });
+    const metadataInput = page.getByLabel(
+      entity.path.endsWith("grants") ? "Description (optional)" : "Name",
+      { exact: true },
+    );
+    await expect(ordinary).toBeDisabled();
+    await expect(ordinary).toHaveClass(/primary-action/);
+    await metadataInput.fill("Changed metadata");
+    await expect(ordinary).toBeEnabled();
+    await metadataInput.fill(entity.name);
+    await expect(ordinary).toBeDisabled();
+    if (entity.path.endsWith("credentials")) {
+      await page
+        .getByLabel("Header name", { exact: true })
+        .fill("authorization");
+      await expect(ordinary).toBeDisabled();
+      await page
+        .getByLabel("Header name", { exact: true })
+        .fill("Authorization");
+    }
+    if (entity.path === "git/credentials") {
+      await page
+        .getByLabel("HTTPS origin", { exact: true })
+        .fill("https://EXAMPLE.invalid");
+      await expect(ordinary).toBeDisabled();
+      await page
+        .getByLabel("HTTPS origin", { exact: true })
+        .fill("https://example.invalid:443");
+    }
+    if (entity.path.endsWith("grants")) {
+      const expiry = page.getByLabel(
+        entity.path.startsWith("http")
+          ? "Expires (optional)"
+          : "Expiry (optional)",
+        { exact: true },
+      );
+      const originalExpiry = await expiry.inputValue();
+      await expiry.fill("2031-01-01T12:00");
+      await expect(ordinary).toBeEnabled();
+      await expiry.fill(originalExpiry);
+      await expect(ordinary).toBeDisabled();
+    } else {
+      await metadataInput.fill("");
+      await expect(ordinary).toBeEnabled();
+      await ordinary.click();
+      expect(
+        await metadataInput.evaluate(
+          (input: HTMLInputElement) => input.validity.valueMissing,
+        ),
+      ).toBe(true);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+      await metadataInput.fill(entity.name);
+    }
+    if (entity.path === "http/grants") {
+      await page
+        .getByLabel("Grant type", { exact: true })
+        .selectOption("block_requests");
+      await page
+        .getByLabel("Path match", { exact: true })
+        .selectOption("exact");
+      await page
+        .getByLabel("Path", { exact: true })
+        .fill("/ignored-after-toggle");
+      await page
+        .getByLabel("Grant type", { exact: true })
+        .selectOption("block_destination");
+      await expect(ordinary).toBeDisabled();
+    }
     await capture(page, "detail-edit", true);
     if (entity.path.startsWith("git/")) {
       const input = page.getByLabel(
@@ -809,10 +882,12 @@ for (const entity of entities) {
       ).toBeVisible();
       await expect(editField).toHaveValue("Retained synthetic draft");
       await expect(
-        page.getByRole("button", {
-          name: "Use reviewed revision; keep draft",
-          exact: true,
-        }),
+        page
+          .getByRole("button", {
+            name: "Use reviewed revision; keep draft",
+            exact: true,
+          })
+          .first(),
       ).toBeDisabled();
       expect(writes).toBe(1);
       await capture(page, "conflict-refresh-unavailable");
@@ -823,6 +898,7 @@ for (const entity of entities) {
           name: "Use reviewed revision; keep draft",
           exact: true,
         })
+        .first()
         .click();
       await expect(editField).toHaveValue("Retained synthetic draft");
       await expect(
@@ -857,16 +933,31 @@ for (const entity of entities) {
           : "referencing_repositories"]: [{ id }],
       });
       await nav(`/${id}`);
-      if (entity.path.startsWith("http"))
+      await expect(
+        page.getByRole("button", { name: "Review deletion", exact: true }),
+      ).toBeDisabled();
+      const warning = page
+        .locator(".state-notice")
+        .filter({ hasText: "Credential is referenced" });
+      await expect(warning).toBeVisible();
+      if (entity.path.startsWith("git")) {
+        await expect(warning).toContainText("Synthetic repository");
+        await expect(warning).toContainText(
+          "Deleted repositories retain their references",
+        );
+        // A retained reference still blocks when its repository is no longer listed.
+        await page.route("**/api/v2/git/repositories?*", (route) =>
+          route.fulfill({
+            json: { items: [], next_cursor: null, total_count: 0, offset: 0 },
+          }),
+        );
+        await page.getByTestId("manual-refresh").click();
+        await expect(warning).toContainText("Resource unavailable");
+        await expect(warning).toContainText(id);
         await expect(
           page.getByRole("button", { name: "Review deletion", exact: true }),
         ).toBeDisabled();
-      else
-        await expect(
-          page
-            .getByRole("link", { name: "Synthetic repository", exact: true })
-            .first(),
-        ).toBeVisible();
+      }
       await capture(page, "detail-unavailable-material-referenced", true);
     }
     mode = "error";

@@ -13,7 +13,7 @@ func TestTrafficHTTPTerminationHistoricalAndRestart(t *testing.T) {
 	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
 	s, owner := trafficFixture(t, nil, nil)
 	repository.traffic = s
-	reader, err := NewReadService(repository, authority)
+	reader, err := NewReadService(repository, authority, nil, nil)
 	require.NoError(t, err)
 	clean := httpTrafficCompletion()
 	clean.ResponseSource = "upstream"

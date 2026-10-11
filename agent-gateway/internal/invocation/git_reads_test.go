@@ -11,7 +11,7 @@ func TestGitTrafficReadsBindHistoryAndPreserveReports(t *testing.T) {
 	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
-	reader, err := NewReadService(audits, authority)
+	reader, err := NewReadService(audits, authority, nil, nil)
 	require.NoError(t, err)
 	for n := 1; n <= 3; n++ {
 		a := gitTrafficAdmission(n)
@@ -56,7 +56,7 @@ func TestGitTrafficFiltersSelectRecordedHistory(t *testing.T) {
 	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
-	reader, err := NewReadService(audits, authority)
+	reader, err := NewReadService(audits, authority, nil, nil)
 	require.NoError(t, err)
 	for n := 1; n <= 5; n++ {
 		a := gitTrafficAdmission(n)

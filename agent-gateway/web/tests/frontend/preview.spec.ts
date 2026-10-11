@@ -161,6 +161,18 @@ test("http-preview", async ({ page, frontend }) => {
   });
   const submit = page.getByRole("button", { name: "Test access", exact: true });
   await expect(submit).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Test HTTP access",
+  );
+  const urlInput = page.getByLabel("URL", { exact: true });
+  await expect(urlInput).toHaveValue("");
+  await expect(urlInput).toHaveAttribute(
+    "placeholder",
+    "https://api.example.com/v1/resource",
+  );
+  await expect(
+    page.getByText(/Policy only\. No request is sent/),
+  ).toBeVisible();
   await capture(page, "blank");
   await submit.click();
   expect(calls).toBe(0);

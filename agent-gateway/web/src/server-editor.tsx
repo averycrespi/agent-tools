@@ -239,6 +239,20 @@ function canonical(value: unknown): string {
   }
   return JSON.stringify(value);
 }
+function canonicalTransport(value: unknown): string {
+  const transport = jsonRecord(value);
+  if (transport.kind !== "streamable_http") return canonical(transport);
+  const authentication = jsonRecord(transport.authentication);
+  if (authentication.mode !== "oauth") return canonical(transport);
+  // Trust origins are unordered; stdio arguments and other arrays are not.
+  return canonical({
+    ...transport,
+    authentication: {
+      ...authentication,
+      trusted_origins: [...(authentication.trusted_origins as string[])].sort(),
+    },
+  });
+}
 function headerRecord(items: readonly PairItem[]): Record<string, string> {
   const result = Object.create(null) as Record<string, string>;
   const seen = new Set<string>();
@@ -1624,9 +1638,21 @@ export function ServerEditor({
     controller.snapshot(),
   );
   const submitButton = useRef<HTMLButtonElement>(null);
-  const navigate = useUnsavedChanges(
-    canonical(draft) !== canonical(initialDraft.current),
-  );
+  const submittedValues = (value: Draft) =>
+    canonical({
+      display_name: value.displayName,
+      enabled: value.enabled,
+      transport: canonicalTransport(transportFromDraft(value)),
+    });
+  const dirty = (() => {
+    try {
+      return submittedValues(draft) !== submittedValues(initialDraft.current);
+    } catch {
+      // Invalid changed drafts must still expose the existing field validation.
+      return canonical(draft) !== canonical(initialDraft.current);
+    }
+  })();
+  const navigate = useUnsavedChanges(dirty);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
@@ -1726,7 +1752,7 @@ export function ServerEditor({
         throw new Error("Refresh the current server revision before editing.");
       const behavioral =
         draft.enabled !== (server.desiredState === "enabled") ||
-        canonical(transport) !== canonical(server.transport);
+        canonicalTransport(transport) !== canonicalTransport(server.transport);
       const body = behavioral
         ? { display_name: draft.displayName, enabled: draft.enabled, transport }
         : { display_name: draft.displayName };
@@ -1841,9 +1867,11 @@ export function ServerEditor({
         )}
         <button
           ref={submitButton}
-          class={`${create ? "create-action" : "safe-action"} form-submit-action`}
+          class={`${create ? "create-action" : "primary-action"} form-submit-action`}
           type="submit"
-          disabled={disabled}
+          disabled={
+            disabled || (!create && !dirty) || mutation.state === "uncertain"
+          }
           data-testid="server-editor-submit"
         >
           {create ? "Review and create" : "Save settings"}

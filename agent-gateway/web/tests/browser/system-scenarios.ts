@@ -2,7 +2,11 @@ import {
   recoveryStates,
   trafficRecoveryFixture,
 } from "./traffic-recovery-fixture.ts";
-import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
+import {
+  capture,
+  captureScreenshot,
+  hasCaptureOwner,
+} from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
 import { protocolSummaryFixture } from "../protocol-summary-fixture.ts";
@@ -62,13 +66,8 @@ export async function runOverviewInvocationSystemCanary(
         ?.getAttribute("data-freshness") === "current",
   );
   await page.locator('[data-testid="overview-grid"]').waitFor();
-  await page.waitForFunction(() =>
-    ["overview-status", "overview-servers", "overview-requests"].every(
-      (id) =>
-        document
-          .querySelector(`[data-testid="${id}"]`)
-          ?.getAttribute("data-panel-status") === "current",
-    ),
+  await expect(page.getByTestId("needs-attention")).not.toContainText(
+    "Loading attention data",
   );
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
@@ -76,7 +75,7 @@ export async function runOverviewInvocationSystemCanary(
     "HTTP",
     "Git",
     "MCP",
-    "Pending MCP requests",
+    "Needs attention",
   ])
     if (!body.includes(phrase))
       fail(`Overview workflow canary omitted ${phrase}`);
@@ -1406,6 +1405,10 @@ export async function runOverview(
               active_tunnels: 0,
             },
             traffic: {
+              health:
+                statusMode === "quiet" ? "healthy" : "operator_action_required",
+              last_acknowledged: "",
+              incident: null,
               state: statusMode === "quiet" ? "ready" : "faulted",
               ready: statusMode === "quiet",
               faulted: statusMode !== "quiet",
@@ -1511,7 +1514,10 @@ export async function runOverview(
               );
               if (index === 0)
                 server.credential_state = "reauthentication_required";
-              else server.catalog.active_state = "unavailable";
+              else {
+                server.runtime.state = "degraded";
+                server.runtime.reason = "configuration_invalid";
+              }
               return server;
             }),
             {
@@ -1760,6 +1766,7 @@ export async function runOverview(
   let overviewPhase = "initial";
   const overview = page.locator('[data-testid="overview-grid"]');
   const source = (id: string) => page.locator(`[data-testid="overview-${id}"]`);
+  const attention = page.getByTestId("needs-attention");
   const sourceText = async (id: string) =>
     (await source(id).textContent()) ?? "";
   const assertCurrent = async (id: string) => {
@@ -1850,79 +1857,18 @@ export async function runOverview(
   heldStatus = false;
   releaseHeldStatus?.();
   await assertCurrent("status");
-  const body = (await overview.textContent()) ?? "";
-  for (const text of [
-    "not ready",
-    "Recovery required",
-    "Credential storage: unavailable",
-    "Capacity saturated; additional work may be rejected.",
-    "80% capacity pressure; headroom for additional work is limited.",
-    "64 / 64",
-    "858993460 / 1073741824",
-    "Needs operator attention",
-    "Overview agent",
-    "5 shown; more need attention",
-    "5 shown; more pending",
-    "Servers9",
-    "Tools8",
-    "6 pending",
-  ]) {
-    if (!body.includes(text)) fail(`Overview omitted ${text}`);
-  }
-  for (const text of [
-    "POSTURE-01",
-    "SERVERS-01",
-    "REQUESTS-01",
-    "AUDIT-01",
-    "Recent invocations",
-    "Missing terminal evidence",
-    "Deleted server history",
-    "stopped-process recovery",
-    "Affected server 6",
-  ])
-    if (body.includes(text)) fail(`Overview retained ${text}`);
-  if (
-    (await overview
-      .locator(".panel-code, .fact-card, .compact-record-fields, button")
-      .count()) !== 0
-  )
-    fail(
-      "Overview retained ornamental inventory, diagnostics or inline mutations",
-    );
-  const serverLinks = await source("servers")
-    .locator("li a")
-    .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
-  if (
-    serverLinks.join("|") !==
-    ["FA1", "FB0", "FB1", "FB2", "FB3"]
-      .map((suffix) => `#/mcp/servers/01ARZ3NDEKTSV4RRFFQ69G5${suffix}`)
-      .join("|")
-  )
-    fail("Server preview changed eligibility, order or five-item bound");
-  const reasons = await source("servers").locator("li p").allTextContents();
-  if (
-    reasons.join("|") !==
-    "Runtime degraded|Credentials reauthentication required|Active catalog unavailable|Active catalog unavailable|Active catalog unavailable"
-  )
-    fail("Server reasons were not specific observed states");
-  const requestLinks = await source("requests")
-    .locator("li a")
-    .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
-  if (
-    requestLinks.join("|") !==
-    Array.from(
-      { length: 5 },
-      (_, index) => `#/mcp/access-requests/01ARZ3NDEKTSV4RRFFQ69G5FC${index}`,
-    ).join("|")
-  )
-    fail(
-      "Request preview re-sorted queue timestamps or lost bounds/review links",
-    );
-  if (
-    (await source("requests").locator("time").count()) !== 5 ||
-    !(await sourceText("requests")).includes("Waiting about")
-  )
-    fail("Request waiting time missing");
+  await expect(overview).toContainText("Servers9");
+  await expect(overview).toContainText("Tools8");
+  await expect(attention.locator("li")).toHaveCount(3);
+  await expect(attention.locator("li a").first()).toHaveText(
+    "Control storage recovery required",
+  );
+  await expect(attention).toContainText("Attention data incomplete");
+  await expect(attention.locator("footer")).not.toContainText("more");
+  await expect(
+    overview.locator(".protocol-outcomes, details, .overview-pools"),
+  ).toHaveCount(0);
+  await expect(overview.locator(".protocol-card dd a")).toHaveCount(0);
   if ((await page.locator("script").count()) !== 1)
     fail("Overview rendered active content");
   if (
@@ -1947,7 +1893,6 @@ export async function runOverview(
     ["status", "Inspect System", "#/system"],
     ["material", "Inspect storage status", "#/system"],
     ["material", "Inspect keyring status", "#/system"],
-    ["capacity", "Resource limits", "#/system?tab=resource-limits"],
   ] as const)
     if (
       (await source(sourceID)
@@ -1955,26 +1900,14 @@ export async function runOverview(
         .getAttribute("href")) !== href
     )
       fail(`Overview omitted contextual condition link ${name}`);
-  await source("servers")
-    .getByText("Servers needing attention", { exact: true })
-    .click();
-  await source("requests")
-    .getByText("Oldest pending requests", { exact: true })
-    .click();
-  await source("servers").locator("li a").first().focus();
+  await attention.locator("li a").first().focus();
   await page.keyboard.press("Tab");
-  if (
-    !(await source("servers")
-      .locator("li a")
-      .nth(1)
-      .evaluate((link) => link === document.activeElement))
-  )
-    fail("Server links not keyboard reachable in queue order");
+  await expect(attention.locator("li a").nth(1)).toBeFocused();
   await expect(overview.locator(":scope > .overview-panel")).toHaveCount(6);
   await expect(overview.locator(":scope > .overview-panel h2")).toHaveText([
     "Gateway status",
     "Storage and security",
-    "Resource usage",
+    "Needs attention",
     "HTTP",
     "Git",
     "MCP",
@@ -1982,13 +1915,9 @@ export async function runOverview(
   await expect(source("status")).toContainText("Not reported");
   reportedStatus = true;
   await page.getByTestId("manual-refresh").click();
-  await expect(source("capacity")).toContainText("HTTP connections230 / 256");
-  await expect(source("capacity")).toContainText("HTTP requests128 / 128");
-  await expect(
-    source("capacity").locator(".overview-conditions li strong"),
-  ).toHaveText(["MCP requests", "HTTP requests", "Downstream calls"]);
-  await expect(source("capacity")).toContainText(
-    "1 additional pool under pressure",
+  await expect(attention).toContainText("8 more");
+  await expect(attention.locator("li a").nth(1)).toHaveText(
+    "Traffic recording needs attention",
   );
   await expect(source("material")).toContainText("Traffic storageFaulted");
   await assertCardAlignment();
@@ -2016,13 +1945,13 @@ export async function runOverview(
   ).toHaveCount(0);
   await expect(
     source("status").getByRole("link", { name: "System status", exact: true }),
-  ).toHaveAttribute("href", "#/system");
+  ).toHaveCount(0);
   await expect(
     source("material").getByRole("link", {
       name: "System status",
       exact: true,
     }),
-  ).toHaveAttribute("href", "#/system");
+  ).toHaveCount(0);
   if (!hasCaptureOwner(page)) {
     const accessibility = await new AxeBuilder({ page })
       .include('[data-testid="overview-grid"]')
@@ -2034,6 +1963,61 @@ export async function runOverview(
   }
   await capture("attention");
   await compareBaseline("attention");
+  await attention.getByRole("link", { name: "View all" }).click();
+  await expect(page).toHaveURL(/#\/system\?tab=needs-attention$/);
+  await expect(
+    page.getByRole("navigation", { name: "System sections" }).getByRole("link"),
+  ).toHaveText([
+    "Status",
+    "Resource limits",
+    "Needs attention",
+    "Admin credentials",
+    "Backups",
+  ]);
+  await expect(attention.locator("li")).toHaveCount(11);
+  await expect(
+    attention.getByRole("link", { name: "6 pending MCP requests" }),
+  ).toHaveAttribute("href", "#/mcp/access-requests");
+  await expect(attention).toContainText("Configuration invalid");
+  await expect(attention.locator("li a").nth(3)).toHaveText(
+    `literal-<script>${"S".repeat(180)}`,
+  );
+  await expect(page.getByTestId("system-status-panel")).toHaveCount(0);
+  await captureFrontend(page, "overview-system-attention", true);
+  for (const color of ["light", "dark"]) {
+    await page.getByTestId("theme-preference").selectOption(color);
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect
+        .poll(() =>
+          page.evaluate(
+            () => document.documentElement.scrollWidth <= innerWidth,
+          ),
+        )
+        .toBe(true);
+      if (!hasCaptureOwner(page)) {
+        const scan = await new AxeBuilder({ page }).analyze();
+        expect(
+          scan.violations.filter(
+            (item) => item.impact === "serious" || item.impact === "critical",
+          ),
+        ).toEqual([]);
+      }
+      await page.screenshot({
+        path: join(screenshots, `system-attention-${color}-${width}.png`),
+        fullPage: true,
+      });
+    }
+  }
+  await page.getByTestId("theme-preference").selectOption("system");
+  await page.evaluate(() => localStorage.removeItem("agent_gateway_theme"));
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goBack();
+  await expect(overview).toBeVisible();
+  await page.goForward();
+  await expect(attention.locator("li")).toHaveCount(11);
+  await page.goBack();
+  await expect(overview).toBeVisible();
   for (const fault of ["total", "offset", "cursor", "label"] as const) {
     queueFault = fault;
     await page.getByTestId("manual-refresh").click();
@@ -2041,9 +2025,8 @@ export async function runOverview(
       "data-panel-status",
       "error",
     );
-    await expect(source("requests")).toContainText(
-      "last known; current queue unknown",
-    );
+    await expect(attention).toContainText("Attention data unavailable");
+    await expect(attention.locator("footer")).not.toContainText("more");
     await assertCurrent("servers");
   }
   queueFault = undefined;
@@ -2056,11 +2039,7 @@ export async function runOverview(
   serverMode = "stale";
   staleRestarted = false;
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("1 servers flagged"),
-  );
+  await expect(source("servers")).toContainText("Servers1");
   if (
     !staleRestarted ||
     ((await page.locator("body").textContent()) ?? "").includes(
@@ -2071,25 +2050,15 @@ export async function runOverview(
 
   serverMode = "partial";
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("loaded; incomplete"),
-  );
-  if (
-    !(await sourceText("servers")).includes(
-      "additional affected servers may exist",
-    ) ||
-    !(await sourceText("servers")).includes("loaded; incomplete")
-  )
-    fail("Partial traversal implied an exhaustive count");
+  await expect(attention).toContainText("Attention data incomplete");
+  await expect(attention.locator("footer")).not.toContainText("more");
+  await expect(source("servers")).toContainText("Incomplete");
   await capture("partial");
   serverMode = "saturated";
   await page.getByTestId("manual-refresh").click();
-  await expect(source("servers")).toContainText("Capacity saturated");
-  await expect(
-    source("servers").getByTestId("overview-server-row"),
-  ).toHaveCount(1);
+  await expect(source("servers")).toContainText("Servers1");
+  await expect(attention).not.toContainText("Quiet server");
+  await expect(attention).not.toContainText("saturated");
   await capture("capacity-only-attention");
   serverMode = "partial";
 
@@ -2097,11 +2066,7 @@ export async function runOverview(
   serverMode = "quiet";
   requestMode = "quiet";
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("0 servers flagged"),
-  );
+  await expect(attention).toContainText("Nothing needs attention");
   await assertCurrent("status");
   await assertCurrent("requests");
   const quiet = (await overview.textContent()) ?? "";
@@ -2111,12 +2076,9 @@ export async function runOverview(
     "MCP ingressReady",
     "HTTP proxyReady",
     "Traffic storageReady",
-    "HTTP connections0 / 256",
-    "HTTP requests0 / 128",
     "Control storageReady",
     "Credential storageReady",
-    "0 servers flagged",
-    "0 pending",
+    "Nothing needs attention",
     "Servers1",
     "Tools1",
   ])
@@ -2136,25 +2098,19 @@ export async function runOverview(
   async function assertCardAlignment() {
     await page.setViewportSize({ width: 1440, height: 1000 });
     const cardGeometry = await Promise.all(
-      ["status", "material", "capacity"].map(async (id) => {
-        const card = source(id);
+      [source("status"), source("material"), attention].map(async (card) => {
         const box = await card.boundingBox();
         const heading = await card
           .getByRole("heading", { level: 2 })
-          .boundingBox();
-        const footer = await card
-          .locator(".overview-stack > a")
-          .last()
           .boundingBox();
         return {
           top: box!.y,
           bottom: box!.y + box!.height,
           heading: heading!.y,
-          footer: footer!.y,
         };
       }),
     );
-    for (const key of ["top", "bottom", "heading", "footer"] as const)
+    for (const key of ["top", "bottom", "heading"] as const)
       expect(
         Math.max(...cardGeometry.map((c) => c[key])) -
           Math.min(...cardGeometry.map((c) => c[key])),
@@ -2206,7 +2162,14 @@ export async function runOverview(
       const path =
         protocol === "mcp" ? "mcp/invocations" : `${protocol}/traffic`;
       const link = overview.locator(`a[href^="#/${path}?filter_from="]`);
-      await expect(link).toContainText(String(total));
+      await expect(link.locator("../../dd")).toHaveText(String(total));
+      await expect(link).toHaveText(
+        protocol === "http"
+          ? "Requests"
+          : protocol === "git"
+            ? "Operations"
+            : "Invocations",
+      );
       await expect(link).toHaveAttribute(
         "href",
         new RegExp(encodeURIComponent(protocolSummaryFixture(window).from)),
@@ -2249,7 +2212,7 @@ export async function runOverview(
     overview
       .locator(".protocol-inventory")
       .getByRole("link", { name: "123", exact: true }),
-  ).toHaveCount(6);
+  ).toHaveCount(0);
   protocolMode = "partial";
   await page.getByTestId("manual-refresh").click();
   await expect(
@@ -2272,7 +2235,7 @@ export async function runOverview(
   await page.getByTestId("manual-refresh").click();
   await expect(
     overview.locator('a[href^="#/http/traffic?filter_from="]'),
-  ).toContainText("107");
+  ).toHaveText("Requests");
 
   for (const headers of [null, [], "invalid", { "X-MCP-Toolsets": 7 }]) {
     customHeaders = headers;
@@ -2299,11 +2262,8 @@ export async function runOverview(
 
   serverMode = "empty";
   await page.locator('[data-testid="manual-refresh"]').click();
-  await page.waitForFunction(() =>
-    document
-      .querySelector('[data-testid="overview-servers"]')
-      ?.textContent?.includes("No servers configured"),
-  );
+  await expect(source("servers")).toContainText("Servers0");
+  await expect(attention).toContainText("Nothing needs attention");
   if (
     !(await sourceText("mcp")).includes("Servers0") ||
     !(await sourceText("mcp")).includes("Tools0")
@@ -2323,12 +2283,8 @@ export async function runOverview(
           ?.getAttribute("data-panel-status") === "error",
       failed,
     );
-    if (
-      !(await sourceText(failed)).includes(
-        "Refresh failed. Showing the last read; current state is unknown.",
-      )
-    )
-      fail(`Isolated ${failed} error omitted evidence boundary`);
+    await expect(attention).toContainText("Attention data unavailable");
+    await expect(attention).not.toContainText("Nothing needs attention");
     if ((await sourceText(failed)).includes("in the current read"))
       fail(`Isolated ${failed} error retained current reassurance`);
     for (const other of ["status", "servers", "requests"].filter(
@@ -2350,24 +2306,8 @@ export async function runOverview(
     }),
   );
   await page.reload();
-  await page.waitForFunction(() =>
-    ["status", "servers", "requests"].every((id) =>
-      document
-        .querySelector(`[data-testid="overview-${id}"]`)
-        ?.textContent?.includes(
-          "Data stale. Showing the last read; current state is unknown.",
-        ),
-    ),
-  );
-  for (const id of ["status", "servers", "requests"]) {
-    if (
-      !(await sourceText(id)).includes(
-        "Data stale. Showing the last read; current state is unknown.",
-      ) ||
-      (await sourceText(id)).includes("in the current read")
-    )
-      fail(`Stale ${id} claimed current reassurance`);
-  }
+  await expect(attention).toContainText("Attention data stale");
+  await expect(attention).not.toContainText("Nothing needs attention");
   await capture("stale");
   await page.unroute("**/api/v2/events");
   await page.reload();
@@ -2427,11 +2367,8 @@ export async function runOverview(
   );
   await assertCurrent("status");
   await assertCurrent("servers");
-  if (
-    !(await sourceText("requests")).includes("Unavailable") ||
-    (await sourceText("requests")).includes("No pending")
-  )
-    fail("Unavailable initial queue appeared empty-success");
+  await expect(attention).toContainText("Attention data unavailable");
+  await expect(attention).not.toContainText("Nothing needs attention");
   await capture("unavailable");
   if (invocationReads !== 0)
     fail("Overview invocation reads returned after reload");
@@ -2598,7 +2535,13 @@ export async function runInvocations(
       "decision",
       "outcome",
       "search_locale",
+      "from",
+      "until",
     ]);
+    if (query.has("from")) {
+      expect(query.get("from")).toBe("2026-08-28T00:00:00.000000000Z");
+      expect(query.get("until")).toBe("2026-08-29T00:00:00.000000000Z");
+    }
     if (
       query.get("limit") !== "50" ||
       [...query.keys()].some((key) => !allowed.has(key)) ||
@@ -2820,7 +2763,72 @@ export async function runInvocations(
     ["Admitted", "Invocation", "Agent", "Authorization", "Outcome"],
     "Invocation",
   );
+  const resetFilters = page.getByRole("button", { name: "Reset", exact: true });
+  const draftTool = page.getByLabel("Tool", { exact: true });
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
+  await expect(resetFilters).toBeDisabled();
+  await liveSwitch.uncheck();
+  await expect(resetFilters).toBeDisabled();
+  await liveSwitch.check();
+  await expect(resetFilters).toBeDisabled();
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await draftTool.fill("unapplied");
+  await expect(resetFilters).toBeEnabled();
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await resetFilters.click();
+  await expect(draftTool).toHaveValue("");
+  await expect(resetFilters).toBeDisabled();
+  await page.clock.runFor(400);
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await draftTool.fill("x".repeat(257));
+  await page.clock.runFor(400);
+  await expect(
+    page.getByText(/Filters must fit 256 UTF-8 bytes/),
+  ).toBeVisible();
+  await expect(resetFilters).toBeEnabled();
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await resetFilters.click();
+  await expect(resetFilters).toBeDisabled();
+  await expect(page.getByText(/Filters must fit 256 UTF-8 bytes/)).toHaveCount(
+    0,
+  );
+  await page.clock.resume();
+  await draftTool.fill("x".repeat(257));
+  await expect(
+    page.getByText(/Filters must fit 256 UTF-8 bytes/),
+  ).toBeVisible();
+  await capture(page, "reset-invalid-draft");
+  const outcomeDraft = page.getByLabel("Outcome", { exact: true });
+  await outcomeDraft.selectOption("invalid_params");
+  await expect(draftTool).toHaveValue("x".repeat(257));
+  await outcomeDraft.selectOption("");
+  await expect(resetFilters).toBeEnabled();
+  await expect(draftTool).toHaveValue("x".repeat(257));
+  await resetFilters.click();
+  await expect(resetFilters).toBeDisabled();
+  await capture(page, "reset-cleared");
+  await page.getByLabel("Agent", { exact: true }).fill("Build");
+  await expect(page).toHaveURL(/filter_principal=Build/);
+  await page.getByLabel("Agent", { exact: true }).fill("");
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await expect(resetFilters).toBeDisabled();
+  await page.evaluate(() => {
+    location.hash = "#/mcp/invocations?filter_principal=Build";
+  });
+  await expect(page.getByLabel("Agent", { exact: true })).toHaveValue("Build");
+  await expect(resetFilters).toBeEnabled();
+  await resetFilters.click();
+  await expect(resetFilters).toBeDisabled();
+  await page.evaluate(() => {
+    location.hash =
+      "#/mcp/invocations?filter_from=2026-08-28T00%3A00%3A00.000000000Z&filter_until=2026-08-29T00%3A00%3A00.000000000Z";
+  });
+  await expect(resetFilters).toBeEnabled();
+  await resetFilters.click();
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await expect(resetFilters).toBeDisabled();
+  await expect(page.getByTestId("invocation-row")).toHaveCount(2);
   if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
     fail("invocation live mode was not enabled by default");
   if (
@@ -3040,6 +3048,8 @@ export async function runInvocations(
     fail("invocation tool filter was not persisted in the URL");
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(toolFilter).toHaveValue("");
+  await expect(resetFilters).toBeDisabled();
+  await expect(liveSwitch).toBeChecked();
   const storage = await browserStorage(page);
   if (JSON.stringify(storage).includes("namespace.allowed"))
     fail("invocation filter entered browser storage");
@@ -3155,7 +3165,7 @@ export async function runInvocations(
     invocationIDs.principal,
   );
   await expect(resourceFact("Grant").locator(".table-primary a")).toHaveText(
-    "Grant",
+    invocationIDs.grant,
   );
   await expect(resourceFact("Grant").locator(".table-identifier")).toHaveText(
     invocationIDs.grant,
@@ -3197,7 +3207,7 @@ export async function runInvocations(
     invocationIDs.tool,
   );
   await expect(resourceFact("Server").locator(".table-primary a")).toHaveText(
-    "Server",
+    invocationIDs.server,
   );
   await expect(resourceFact("Server").locator(".table-identifier")).toHaveText(
     invocationIDs.server,
@@ -3574,7 +3584,8 @@ export async function runSystemStatus(
     .locator('nav[aria-label="System sections"] a')
     .allTextContents();
   if (
-    systemTabs.join("|") !== "Status|Resource limits|Admin credentials|Backups"
+    systemTabs.join("|") !==
+    "Status|Resource limits|Needs attention|Admin credentials|Backups"
   )
     fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [

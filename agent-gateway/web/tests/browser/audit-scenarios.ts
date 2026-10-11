@@ -27,14 +27,19 @@ export async function runAudit(
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
   if (evidence === "api") {
-    const realResponse = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === "/api/v2/audit-events" &&
-        response.status() === 200,
-    );
-    await page.locator('a[href="#/audit-log"]').click();
+    // Consume the matching response before a later refresh can retire its body.
+    const realResponse = page
+      .waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/v2/audit-events" &&
+          response.status() === 200,
+      )
+      .then((response) => response.json());
+    const [, real] = await Promise.all([
+      page.locator('a[href="#/audit-log"]').click(),
+      realResponse,
+    ]);
     await expect(page.getByTestId("audit-row").first()).toBeVisible();
-    const real = await (await realResponse).json();
     const realPage = decodeAuditPage(real);
     if (realPage.items.length === 0)
       fail("Real audit API had no produced events");
@@ -143,7 +148,13 @@ export async function runAudit(
         body: JSON.stringify({
           event: {
             ...fixture(3),
-            detail: { reason: "interrupted", problem: null },
+            ...(mode === "pending-detail"
+              ? { phase: "attempt", outcome: "pending" }
+              : {}),
+            detail: {
+              reason: mode === "pending-detail" ? null : "interrupted",
+              problem: null,
+            },
           },
           history: history(),
           target_recognition: recognition([fixture(3)]),
@@ -219,17 +230,19 @@ export async function runAudit(
               },
             }),
           )
-        : mode === "selected-outside"
-          ? [fixture(2, "offline_maintenance")]
-          : mode === "empty" || mode === "loading"
-            ? []
-            : mode === "replaced"
-              ? [fixture(5, "offline_maintenance")]
-              : mode === "stale" && restarted
-                ? [fixture(4)]
-                : url.searchParams.has("cursor")
-                  ? [fixture(1, "operator")]
-                  : [fixture(3), fixture(2, "offline_maintenance")];
+        : mode === "pending-detail"
+          ? [{ ...fixture(3), phase: "attempt", outcome: "pending" }]
+          : mode === "selected-outside"
+            ? [fixture(2, "offline_maintenance")]
+            : mode === "empty" || mode === "loading"
+              ? []
+              : mode === "replaced"
+                ? [fixture(5, "offline_maintenance")]
+                : mode === "stale" && restarted
+                  ? [fixture(4)]
+                  : url.searchParams.has("cursor")
+                    ? [fixture(1, "operator")]
+                    : [fixture(3), fixture(2, "offline_maintenance")];
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -819,7 +832,7 @@ export async function runAudit(
   ).toEqual(["neutral", "current", "error", "neutral", "warning"]);
   await expect(
     page.getByTestId("audit-row").first().locator('[data-label="Outcome"]'),
-  ).toHaveText("Attempted — unconfirmed");
+  ).toHaveText("Pending");
   await expect(
     page.getByTestId("audit-row").locator('[data-label="Performer"]'),
   ).not.toContainText([id(9), id(9), id(9), id(9), id(9)]);
@@ -835,6 +848,40 @@ export async function runAudit(
   await page.getByTestId("theme-preference").selectOption("dark");
   await capture("outcomes-targets-dark", 390);
   await page.getByTestId("theme-preference").selectOption("system");
+  await page.getByLabel("Outcome", { exact: true }).selectOption("pending");
+  await expect.poll(() => queries.at(-1)?.get("outcome")).toBe("pending");
+  await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue(
+    "pending",
+  );
+  mode = "pending-detail";
+  await page.evaluate((eventID) => {
+    location.hash = `#/audit-log/${eventID}?filter_outcome=pending`;
+  }, id(3));
+  await expect(
+    page.getByTestId("detail-context").locator(".status-label"),
+  ).toHaveText("Pending");
+  await expect(
+    page.getByText(/The action was attempted; its outcome is unconfirmed/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Pending does not mean it is still executing/),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/does not establish success, rollback, or safe replay/),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Related events", exact: true })
+      .locator('[data-label="Outcome"]'),
+  ).toHaveText("Pending");
+  await capture("pending-detail", 1440);
+  await page
+    .getByRole("link", { name: "Back to Audit Log", exact: true })
+    .click();
+  await expect(page.getByLabel("Outcome", { exact: true })).toHaveValue(
+    "pending",
+  );
+  await page.getByRole("button", { name: "Reset", exact: true }).click();
   mode = "custody-setup";
   await page.getByLabel("Event", { exact: true }).selectOption("keyring.setup");
   await expect.poll(() => queries.at(-1)?.get("category")).toBe("keyring");

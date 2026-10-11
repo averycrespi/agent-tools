@@ -347,7 +347,9 @@ export async function runHTTPGrants(
       await expect(grantReview).toContainText(creds[0]!.id);
       await expect(grantReview.locator("time")).toHaveAttribute(
         "datetime",
-        await page.evaluate(() => new Date("2030-01-01T12:00").toISOString()),
+        await page.evaluate(() =>
+          new Date("2030-01-01T12:00").toISOString().replace(/\.000Z$/, "Z"),
+        ),
       );
       await expect(grantReview).toContainText("Local/private accessDisabled");
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -464,7 +466,11 @@ export async function runHTTPGrants(
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("link", { name: "Test access", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Test access", level: 1, exact: true }),
+    page.getByRole("heading", {
+      name: "Test HTTP access",
+      level: 1,
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("combobox", { name: "Method", exact: true }),
@@ -1026,8 +1032,7 @@ export async function runHTTPGrants(
     "duplicate-member",
     "invalid-idna",
   ]) {
-    const draft =
-      fault === "identity" ? "Retained local draft" : `Retained draft ${fault}`;
+    const draft = `Retained draft ${fault}`;
     // Isolate each acknowledgement fault from the previous save's pending
     // invalidation reads, which intentionally disable mutation controls.
     await page.reload();

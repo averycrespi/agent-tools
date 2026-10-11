@@ -39,7 +39,7 @@ func TestHTTPHistoricalSelectorsSurviveEditAndDeletion(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, authority.DeleteHTTPGrant(t.Context(), updated.ID, updated.Revision))
 	waitTraffic(t, audits.traffic)
-	reader, err := NewReadService(audits, authority)
+	reader, err := NewReadService(audits, authority, nil, nil)
 	require.NoError(t, err)
 	item, err := reader.GetHTTP(t.Context(), identity.InvocationID)
 	require.NoError(t, err)

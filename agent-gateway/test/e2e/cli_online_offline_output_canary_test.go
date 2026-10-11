@@ -29,6 +29,8 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(status.Stdout, &snapshot))
 	assert.Equal(t, contract.ProcessReady, snapshot.System.Process.State)
 
+	// Optional traffic history opens independently of process readiness.
+	waitTrafficStatus(t, harness, func(s *contract.TrafficStatus) bool { return s.Ready })
 	invocations := runOnlineCLI(t, harness, bearerPath, true, "mcp", "invocation", "list", "--limit", "1", "--output", "json")
 	var page contract.InvocationPage
 	require.NoError(t, json.Unmarshal(invocations.Stdout, &page))

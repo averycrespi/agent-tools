@@ -1,4 +1,5 @@
 import type { RefObject } from "preact";
+import { normalizedGitLocator, submittedExpiry } from "./edit-values";
 import { oppositeGitAlias, validGitAliases } from "./git-alias";
 import { gitOriginCovered } from "./git-routing-contract";
 import type { GitTrafficController } from "./git-traffic-history";
@@ -690,11 +691,24 @@ function gitDraft(resource?: GitResource) {
 function gitDraftKey(draft: ReturnType<typeof gitDraft>): string {
   return JSON.stringify({
     ...draft,
-    // Toggle selections are a set, independent of the order they were clicked.
-    refs: draft.refs.map((rule) => ({
-      ...rule,
-      actions: [...rule.actions].sort(),
-    })),
+    url: normalizedGitLocator(draft.url),
+    aliases: draft.aliases.map(normalizedGitLocator).sort(),
+    origin: normalizedGitLocator(`${draft.origin}/repository`).replace(
+      /\/repository$/,
+      "",
+    ),
+    header: draft.header.toLowerCase(),
+    // Both rule order and toggle order are normalized by the policy owner.
+    refs: draft.refs
+      .map((rule) => ({
+        ...rule,
+        actions: [...rule.actions].sort(),
+      }))
+      .sort((a, b) =>
+        `${a.ref.kind}:${a.ref.value}`.localeCompare(
+          `${b.ref.kind}:${b.ref.value}`,
+        ),
+      ),
   });
 }
 function GitEditor({
@@ -750,7 +764,12 @@ function GitEditor({
   const changedRevision =
     resource !== undefined && expected !== gitETag(kind, resource);
   const processedAcknowledgment = useRef<string>();
+  const referenced =
+    mode === "delete" &&
+    kind === "credentials" &&
+    (resource?.referencing_repositories?.length ?? 0) > 0;
   const blocked =
+    referenced ||
     unavailable ||
     changedRevision ||
     mutation.state === "submitting" ||
@@ -936,7 +955,7 @@ function GitEditor({
     return undefined;
   };
   const review = () => {
-    if (blocked) return;
+    if (blocked || (mode === "edit" && !dirty)) return;
     const error = validate();
     setInputError(error);
     if (error) {
@@ -1375,9 +1394,10 @@ function GitEditor({
                     onInput={(e) =>
                       change(
                         "expires",
-                        e.currentTarget.value
-                          ? new Date(e.currentTarget.value).toISOString()
-                          : "",
+                        submittedExpiry(
+                          e.currentTarget.value,
+                          baseline.expires,
+                        ) ?? "",
                       )
                     }
                   />
@@ -1440,6 +1460,26 @@ function GitEditor({
               automatic retry.
             </StateNotice>
           )}
+          {referenced && (
+            <StateNotice state="warning" title="Credential is referenced">
+              <p>
+                Remove credential references from repositories before deleting
+                this credential. Deleted repositories retain their references;
+                deleting a repository does not release them.
+              </p>
+              <ul>
+                {resource?.referencing_repositories?.map((ref) => (
+                  <li key={ref.id}>
+                    <GitRelationship
+                      id={ref.id}
+                      kind="repositories"
+                      choices={choices}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </StateNotice>
+          )}
           <div class="form-actions">
             {dirty && (
               <button
@@ -1465,8 +1505,8 @@ function GitEditor({
             <button
               ref={button}
               type="submit"
-              class={`${mode === "delete" ? "danger-action" : mode === "create" ? "create-action" : ""} form-submit-action`}
-              disabled={blocked}
+              class={`${mode === "delete" ? "danger-action" : mode === "create" ? "create-action" : mode === "edit" ? "primary-action" : ""} form-submit-action`}
+              disabled={blocked || (mode === "edit" && !dirty)}
             >
               {mode === "create"
                 ? "Review and create"
@@ -2026,10 +2066,6 @@ function GitTrafficCollection(
           Reset
         </button>
       </div>
-      <p class="table-filter-hint">
-        Search recorded repository names with typo tolerance or literal partial
-        IDs.
-      </p>
       {invalid && (
         <StateNotice state="error" title="Invalid repository search" />
       )}

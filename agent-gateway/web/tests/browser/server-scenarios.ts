@@ -195,7 +195,7 @@ export async function runServerManagementCanary(
       .count()) !== 0 ||
     (await serverStatus
       .getByRole("button", { name: "Copy server ID" })
-      .count()) !== 1 ||
+      .count()) !== 0 ||
     (await serverStatus
       .locator('code[data-testid="server-id"]')
       .evaluate((element) => element.getClientRects().length)) !== 1 ||
@@ -280,15 +280,22 @@ export async function runServerManagementCanary(
       .locator(".detail-section")
       .getByRole("heading", { name: "Technical details", exact: true }),
   ).toBeVisible();
-  await serverStatus.getByRole("button", { name: "Copy server ID" }).click();
-  await page.waitForFunction(() => {
-    const status = document.querySelector(
-      ".copyable-value-status",
-    )?.textContent;
-    return (
-      status === "Server ID copied." || status === "Could not copy server ID."
-    );
-  });
+  await expect(
+    serverStatus.getByRole("button", { name: "Copy server ID" }),
+  ).toHaveCount(0);
+  const selectedID = await serverStatus
+    .getByTestId("server-id")
+    .evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const text = selection.toString();
+      selection.removeAllRanges();
+      return text;
+    });
+  expect(selectedID).toBe(serverID);
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=settings`;
   }, serverID);
@@ -529,6 +536,17 @@ export async function runServerCreateUpdate(
         contentType: "application/json",
         headers: { ETag: `"server-${serverID}-5"` },
         body: JSON.stringify(mutationBody(operation())),
+      });
+    },
+  );
+  await page.route(
+    `${baseURL}/api/v2/mcp/servers/${serverID}/operations?*`,
+    async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(emptyOperationResponse(route.request().url())),
       });
     },
   );
@@ -1105,6 +1123,14 @@ export async function runServerCreateUpdate(
     fail(
       "stdio edit form hid configured settings or retained create-only guidance",
     );
+  const saveSettings = page.getByTestId("server-editor-submit");
+  await expect(saveSettings).toBeDisabled();
+  await expect(saveSettings).toHaveClass(/primary-action/);
+  const originalName = await page.locator("#server-display-name").inputValue();
+  await page.locator("#server-display-name").fill("Temporary server name");
+  await expect(saveSettings).toBeEnabled();
+  await page.locator("#server-display-name").fill(originalName);
+  await expect(saveSettings).toBeDisabled();
   await capture(page, "settings-stdio", true);
   await page.locator("#server-display-name").fill("Display only draft");
   await page.locator('[data-testid="server-editor-submit"]').click();
@@ -1168,6 +1194,7 @@ export async function runServerCreateUpdate(
   )
     fail(`updates did not use fresh ETags: ${etags.join(",")}`);
   await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await page.getByRole("link", { name: "Back to server operations" }).click();
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await page.locator("#server-display-name").fill("Uncertain settings draft");
   uncertainUpdate = true;
@@ -1276,7 +1303,7 @@ async function assertOAuthScopeEditing(
           client_id: "fixture-client",
           token_endpoint_auth_method: "none",
         },
-        trusted_origins: [],
+        trusted_origins: ["https://first.example", "https://second.example"],
         request_offline_access: false,
         callback_uri: "http://localhost:3118/callback",
         scopes: ["fixture.read"],
@@ -1284,6 +1311,7 @@ async function assertOAuthScopeEditing(
     },
   };
   const submitted: Record<string, unknown>[] = [];
+  const metadataPatches: Record<string, unknown>[] = [];
   await page.route(
     `${baseURL}/api/v2/mcp/servers/${serverID}`,
     async (route) => {
@@ -1296,9 +1324,20 @@ async function assertOAuthScopeEditing(
         });
         return;
       }
-      const body = route.request().postDataJSON() as {
-        transport: { authentication: Record<string, unknown> };
-      };
+      const body = route.request().postDataJSON();
+      if (!body.transport) {
+        metadataPatches.push(body);
+        await route.fulfill({
+          status: 400,
+          contentType: "application/problem+json",
+          json: {
+            status: 400,
+            code: "invalid_request",
+            title: "Synthetic metadata rejection",
+          },
+        });
+        return;
+      }
       submitted.push(body.transport.authentication);
       await route.fulfill({
         status: 400,
@@ -1330,6 +1369,30 @@ async function assertOAuthScopeEditing(
     fail(
       "OAuth edit form hid configured overrides or retained create-only guidance",
     );
+  const save = page.getByTestId("server-editor-submit");
+  await expect(save).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Remove oauth origin 1", exact: true })
+    .click();
+  await expect(save).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Add OAuth origin", exact: true })
+    .click();
+  await page
+    .getByTestId("server-oauth-origin")
+    .nth(1)
+    .fill("https://first.example");
+  await expect(save).toBeDisabled();
+  await page.locator("#server-display-name").fill("Metadata-only change");
+  await save.click();
+  await expect(
+    page.getByText("Synthetic metadata rejection", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(metadataPatches).toEqual([{ display_name: "Metadata-only change" }]);
+  expect(submitted).toHaveLength(0);
+  await page.locator("#server-display-name").fill("OAuth scope editing");
+  await expect(save).toBeDisabled();
   await capture(page, "settings-oauth-configured", true);
   const submit = async () => {
     const previous = submitted.length;
@@ -1623,6 +1686,45 @@ export async function runServerOperations(
     "Operation",
   );
   const operationsView = page.locator('[data-testid="server-activity-view"]');
+  const headingGap = await page
+    .getByTestId("operation-list")
+    .evaluate((list) => {
+      const heading = list.querySelector("h2")!.getBoundingClientRect();
+      const filters = list
+        .querySelector(".table-filters")!
+        .getBoundingClientRect();
+      return filters.top - heading.bottom;
+    });
+  expect(headingGap).toBeGreaterThanOrEqual(16);
+  const assertStandaloneOperation = async (id: string) => {
+    const detail = page.getByTestId("operation-detail");
+    await expect(detail).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Server sections" }),
+    ).toHaveCount(0);
+    await expect(page.getByTestId("server-context")).toHaveCount(0);
+    await expect(page.getByTestId("server-operations-view")).not.toContainText(
+      "Server:",
+    );
+    await expect(detail.locator("h1")).toHaveText("Refresh tools");
+    await expect(detail.locator(".technical-value")).toHaveText(id);
+    const back = detail.getByRole("link", {
+      name: "Back to server operations",
+    });
+    await expect(back).toHaveAttribute(
+      "href",
+      `#/mcp/servers/${serverID}?tab=operations`,
+    );
+    expect(
+      await back.evaluate((link) =>
+        Boolean(
+          link.compareDocumentPosition(
+            document.querySelector("#operation-detail-title")!,
+          ) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ),
+    ).toBe(true);
+  };
   if (
     (await operationsView
       .locator('[data-testid="operation-row"]')
@@ -1682,6 +1784,7 @@ export async function runServerOperations(
         ?.getAttribute("data-freshness") === "current",
   );
   await page.waitForTimeout(100);
+  await assertStandaloneOperation(operationIDs[0]);
   await captureDetailLayout(page, "server-operation-scheduled");
   const controlledClock = hasCaptureOwner(page);
   if (controlledClock) {
@@ -1775,9 +1878,22 @@ export async function runServerOperations(
   )
     fail("operation detail retained unrelated navigation or actions");
 
-  await page.evaluate((id) => {
-    window.location.hash = `#/mcp/servers/${id}?tab=operations`;
-  }, serverID);
+  await page.getByRole("link", { name: "Back to server operations" }).click();
+  await page.locator('[data-testid="operation-list"]').waitFor();
+  await page.getByTestId("operation-row").first().getByRole("link").click();
+  await assertStandaloneOperation(operationIDs[5]);
+  await page.goBack();
+  await expect(page.getByTestId("operation-list")).toBeVisible();
+  await page.goForward();
+  await assertStandaloneOperation(operationIDs[5]);
+  await page.evaluate(
+    ({ serverID, id }) => {
+      window.location.hash = `#/mcp/servers/${serverID}/operations/${id}`;
+    },
+    { serverID, id: operationIDs[4] },
+  );
+  await assertStandaloneOperation(operationIDs[4]);
+  await page.getByRole("link", { name: "Back to server operations" }).click();
   await page.locator('[data-testid="operation-list"]').waitFor();
   await page.locator('[data-testid="start-operation-reload"]').click();
   await page.locator('[data-testid="operation-start-confirm-cancel"]').click();
@@ -3345,6 +3461,7 @@ export async function runServerCatalogReads(
   let serverRestarted = false;
   let descriptorRestarted = false;
   let catalogRestarted = false;
+  let detailToolName = "retired-tool";
   const activeServer = serverReadFixture(serverReadIDs.active, {
     name: "Authority required",
     desired: "enabled",
@@ -3413,7 +3530,7 @@ export async function runServerCatalogReads(
             descriptorReadFixture(
               serverReadIDs.retiredTool,
               serverReadIDs.active,
-              "retired-tool",
+              detailToolName,
               true,
             ),
           ),
@@ -3982,7 +4099,7 @@ export async function runServerCatalogReads(
     page.getByRole("link", { name: activeServer.display_name, exact: true }),
   ).toHaveAttribute("href", `#/mcp/servers/${serverReadIDs.active}`);
   await expect(page.locator("#descriptor-detail-title")).toHaveText(
-    "MCP Tool: server.retired-tool",
+    "server.retired-tool",
   );
   if (
     await page.evaluate(
@@ -4014,6 +4131,31 @@ export async function runServerCatalogReads(
       "descriptor detail omitted structured evidence or contextual navigation",
     );
 
+  const toolFacts = page.locator('[aria-labelledby="tool-evidence-title"]');
+  await expect(toolFacts.locator("dl").first().locator("dt")).toHaveText([
+    "Server",
+    "Description",
+  ]);
+  await expect(toolFacts.locator(".table-primary a")).toHaveText(
+    activeServer.display_name,
+  );
+  await expect(toolFacts.locator(".table-identifier")).toHaveText(
+    serverReadIDs.active,
+  );
+  await expect(
+    toolFacts.locator("dd").filter({ hasText: /^Descriptor retired-tool$/ }),
+  ).toBeVisible();
+  await expect(page.getByTestId("detail-context")).not.toContainText(
+    "Descriptor retired-tool",
+  );
+  await expect(
+    page.getByTestId("detail-context").locator("h1 + .technical-value"),
+  ).toHaveText(serverReadIDs.retiredTool);
+  expect(
+    await toolFacts
+      .locator(".table-primary a")
+      .evaluate((link) => Number(getComputedStyle(link).fontWeight)),
+  ).toBeGreaterThanOrEqual(600);
   await expect(
     page.getByRole("heading", { name: "Server hints", exact: true }),
   ).toBeVisible();
@@ -4025,6 +4167,30 @@ export async function runServerCatalogReads(
   ).toHaveCount(0);
   await captureStateFeedback(page, "tool-schema-summary");
   await captureTableState(page, "retired-tool-detail");
+  await page.getByRole("link", { name: "Back to server tools" }).click();
+  await expect(page.getByTestId("descriptor-list")).toBeVisible();
+  detailToolName = `retired-${"long-tool-name-".repeat(8)}tool`;
+  const originalServerName = activeServer.display_name;
+  activeServer.display_name =
+    `Catalog server ${"long display name ".repeat(8)}`.trim();
+  await page.evaluate(
+    ({ serverID, toolID }) => {
+      window.location.hash = `#/mcp/servers/${serverID}/descriptors/${toolID}`;
+    },
+    { serverID: serverReadIDs.active, toolID: serverReadIDs.retiredTool },
+  );
+  await expect(page.locator("#descriptor-detail-title")).toHaveText(
+    `server.${detailToolName}`,
+  );
+  await expect(toolFacts.locator(".table-primary a")).toHaveText(
+    activeServer.display_name,
+  );
+  await expect(
+    page.getByRole("navigation", { name: "Server sections" }),
+  ).toHaveCount(0);
+  await capture(page, "tool-detail-long-names", true);
+  activeServer.display_name = originalServerName;
+  detailToolName = "retired-tool";
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}?tab=tools`;
@@ -4050,7 +4216,7 @@ export async function runServerCatalogReads(
     "Tool",
   );
   const toolNames = await page
-    .locator('[data-testid="catalog-row"] th[scope="row"]')
+    .locator('[data-testid="catalog-row"] th[scope="row"] .table-primary')
     .allTextContents();
   if (
     toolNames.map((name) => name.trim()).join("|") !==
@@ -4061,6 +4227,11 @@ export async function runServerCatalogReads(
       .getAttribute("aria-sort")) !== "ascending"
   )
     fail(`catalog did not default to Tool ascending: ${toolNames}`);
+  await expect(
+    page.locator(
+      '[data-testid="catalog-row"] th[scope="row"] .table-identifier',
+    ),
+  ).toHaveText([serverReadIDs.retiredTool, serverReadIDs.currentTool]);
   for (const phrase of [
     "Active administrative catalog",
     "Process generation",

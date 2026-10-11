@@ -958,9 +958,10 @@ function GrantDescriptionEditor({
           </StateNotice>
         )}
         <button
-          class="button-safe form-submit-action"
+          class="primary-action form-submit-action"
           type="submit"
           disabled={
+            description === (grant.description ?? "") ||
             mutation.state === "submitting" ||
             mutation.state === "uncertain" ||
             mutation.availability === "storage_latched"

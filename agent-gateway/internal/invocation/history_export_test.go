@@ -14,7 +14,7 @@ func TestHistoryExportByteBoundReturnsHonestCoverage(t *testing.T) {
 	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.BudgetBytes = 64 << 20 }, nil)
 	repository.traffic = traffic
-	reader, err := NewReadService(repository, authority)
+	reader, err := NewReadService(repository, authority, nil, nil)
 	require.NoError(t, err)
 	for i := 1; i <= 128; i++ {
 		prepared := trafficPrepared(i)
@@ -42,7 +42,7 @@ func TestHistoryExportTraversesInitialBoundaryWithoutChasingArrivals(t *testing.
 	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 512 }, nil)
 	repository.traffic = traffic
-	reader, err := NewReadService(repository, authority)
+	reader, err := NewReadService(repository, authority, nil, nil)
 	require.NoError(t, err)
 	for i := 1; i <= 300; i++ {
 		switch i % 3 {
@@ -79,7 +79,7 @@ func TestHistoryExportBoundDoesNotHidePruning(t *testing.T) {
 	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 2 }, nil)
 	repository.traffic = traffic
-	reader, err := NewReadService(repository, authority)
+	reader, err := NewReadService(repository, authority, nil, nil)
 	require.NoError(t, err)
 	recordMCP(t, traffic, trafficPrepared(1))
 	recordHTTP(t, traffic, httpTrafficAdmission(2))
@@ -101,7 +101,7 @@ func TestHistoryExportSeparatesSnapshotCoverageFromExecution(t *testing.T) {
 	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	repository.traffic = traffic
-	reader, err := NewReadService(repository, authority)
+	reader, err := NewReadService(repository, authority, nil, nil)
 	require.NoError(t, err)
 	empty, err := reader.ExportHistory(t.Context(), 0, 256)
 	require.NoError(t, err)

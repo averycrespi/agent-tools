@@ -86,6 +86,8 @@ MCP invocation reads have moved from `/api/v2/invocations` and its item resource
 
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned separately snapshotted principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
 
+Item reads additionally return a detail-only `recognition` sidecar with nullable `server` (`server_id`, `display_name`) and `grant` (`grant_id`, `description`). These are current control metadata, not admission-time evidence. After closing the traffic snapshot, the service makes at most one targeted owner-local read per recorded downstream server and grant, under one shared 500 ms deadline. No inventory traversal, cross-store SQL, write-time enrichment or schema migration occurs. Server reads exclude deleted resources; existing undescribed grants return an empty description. Missing or unavailable metadata yields a null relationship without failing the retained item or asserting deletion. Gateway-local/unresolved targets do not acquire server recognition, and absent grant IDs do not acquire grants. Labels retain their 256-byte UTF-8 bounds. Clients validate sidecar identities against the recorded relationship, reject extra fields and mismatches, and fall back to recorded IDs for null recognition or older responses omitting the sidecar. Recorded IDs, tool/requested/upstream names, authorization, timestamps, capture bytes, history exports and collection projections remain unchanged.
+
 ## Optional history export
 
 `GET` on `/api/v2/history/export` uses administrator bearer/session authority, bodyless

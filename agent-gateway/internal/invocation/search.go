@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -67,16 +68,26 @@ type PrincipalDisplayNames interface {
 	PrincipalDisplayNames(context.Context) (map[string]string, error)
 }
 
+type ServerRecognition interface {
+	InvocationServerName(context.Context, string) (*string, error)
+}
+
+type GrantRecognition interface {
+	InvocationGrantDescription(context.Context, string) (*string, error)
+}
+
 type ReadService struct {
 	repository *Repository
 	names      PrincipalDisplayNames
+	servers    ServerRecognition
+	grants     GrantRecognition
 }
 
-func NewReadService(repository *Repository, names PrincipalDisplayNames) (*ReadService, error) {
+func NewReadService(repository *Repository, names PrincipalDisplayNames, servers ServerRecognition, grants GrantRecognition) (*ReadService, error) {
 	if repository == nil || names == nil {
 		return nil, errors.New("invocation read dependencies are incomplete")
 	}
-	return &ReadService{repository: repository, names: names}, nil
+	return &ReadService{repository: repository, names: names, servers: servers, grants: grants}, nil
 }
 
 func (service *ReadService) List(ctx context.Context, query contract.InvocationListQuery) (contract.InvocationPage, error) {
@@ -84,7 +95,32 @@ func (service *ReadService) List(ctx context.Context, query contract.InvocationL
 }
 
 func (service *ReadService) Get(ctx context.Context, id string) (contract.Invocation, error) {
-	return service.repository.Get(ctx, id)
+	item, err := service.repository.Get(ctx, id)
+	if err != nil {
+		return item, err
+	}
+	// Finish the traffic read before owner-local control reads. Optional labels
+	// have one shared deadline and never make retained evidence unavailable.
+	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	item.Recognition = &contract.InvocationRecognition{}
+	if item.Target != nil && item.Target.Kind == contract.InvocationTargetDownstream && service.servers != nil {
+		name, err := service.servers.InvocationServerName(ctx, item.Target.ServerID)
+		if err == nil && name != nil && validRecognitionLabel(*name, false) {
+			item.Recognition.Server = &contract.InvocationServerRecognition{ServerID: item.Target.ServerID, DisplayName: *name}
+		}
+	}
+	if item.Authorization != nil && item.Authorization.GrantID != nil && service.grants != nil {
+		description, err := service.grants.InvocationGrantDescription(ctx, *item.Authorization.GrantID)
+		if err == nil && description != nil && validRecognitionLabel(*description, true) {
+			item.Recognition.Grant = &contract.InvocationGrantRecognition{GrantID: *item.Authorization.GrantID, Description: *description}
+		}
+	}
+	return item, nil
+}
+
+func validRecognitionLabel(value string, empty bool) bool {
+	return (empty || value != "") && len(value) <= 256 && utf8.ValidString(value)
 }
 
 func searchDigest(value any) string {

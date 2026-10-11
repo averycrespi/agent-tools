@@ -18,7 +18,7 @@ func TestHTTPTrafficAuthoritativeSearchIntegration(t *testing.T) {
 	audits.traffic = traffic
 	agent, other, missing := invocationID(80), invocationID(81), invocationID(82)
 	names := &readNames{names: map[string]string{agent: "Café Investigator", other: agent + " unrelated"}}
-	reader, err := NewReadService(audits, names)
+	reader, err := NewReadService(audits, names, nil, nil)
 	require.NoError(t, err)
 	for n := 1; n <= 55; n++ {
 		admission := httpTrafficAdmission(n)

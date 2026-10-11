@@ -8,6 +8,20 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
+// InvocationServerName reads one current nondeleted name without traffic SQL.
+func (repository *Repository) InvocationServerName(ctx context.Context, id string) (*string, error) {
+	var name *string
+	err := repository.store.View(ctx, func(tx *sql.Tx) error {
+		target := contract.AuditTarget{Type: "server", ID: id}
+		names, err := repository.AuditTargetNamesTx(ctx, tx, []contract.AuditTarget{target})
+		if value, ok := names[target]; err == nil && ok {
+			name = &value
+		}
+		return err
+	})
+	return name, err
+}
+
 // AuditTargetNamesTx reads live names in the audit reader's snapshot.
 func (repository *Repository) AuditTargetNamesTx(ctx context.Context, tx *sql.Tx, targets []contract.AuditTarget) (map[contract.AuditTarget]string, error) {
 	if tx == nil || len(targets) > contract.AuditRetention {

@@ -649,7 +649,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 	if err := check("invocation_validation"); err != nil {
 		return nil, err
 	}
-	built.invocationReads, err = invocation.NewReadService(built.invocationRepository, built.authorization)
+	built.invocationReads, err = invocation.NewReadService(built.invocationRepository, built.authorization, built.servers, built.authorization)
 	if err != nil {
 		return nil, fmt.Errorf("construct invocation reads: %w", err)
 	}

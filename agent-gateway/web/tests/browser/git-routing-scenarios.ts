@@ -44,9 +44,22 @@ export async function runGitRouting(
     }
     await page.setViewportSize({ width: 1280, height: 900 });
   };
-  const review = () =>
-    page.getByRole("button", { name: "Review changes", exact: true }).click();
+  const review = async (valid = true) => {
+    const button = page.getByRole("button", {
+      name: "Review changes",
+      exact: true,
+    });
+    if (!valid) return button.click();
+    // A queued invalidation can start a read between pointer activation and submit.
+    // Only re-open the local review; never retry the consequential confirmation.
+    await expect(async () => {
+      if (await page.getByRole("dialog").isVisible()) return;
+      await button.click();
+      await expect(page.getByRole("dialog")).toBeVisible({ timeout: 300 });
+    }).toPass({ timeout: 5000, intervals: [100, 250] });
+  };
   const confirm = async () => {
+    await expect(page.getByRole("dialog")).toBeVisible();
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Save routing", exact: true })
@@ -88,7 +101,7 @@ export async function runGitRouting(
   await capture("empty");
   await page.getByRole("button", { name: "Add origin", exact: true }).click();
   await page.getByLabel("Origin 1", { exact: true }).fill("http://github.com");
-  await review();
+  await review(false);
   await expect(
     page.getByText("Check HTTPS origins", { exact: true }),
   ).toBeVisible();
@@ -171,6 +184,12 @@ export async function runGitRouting(
   await page
     .getByRole("button", { name: "Use reviewed revision", exact: true })
     .click();
+  await expect(
+    page.getByText("Review current revision", { exact: true }),
+  ).not.toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Review changes", exact: true }),
+  ).toBeEnabled();
 
   let releaseSave!: () => void;
   const heldSave = new Promise<void>((r) => {

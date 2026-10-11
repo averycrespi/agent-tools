@@ -119,6 +119,10 @@ interface Props {
 export function HTTPCredentials(props: Props) {
   const selected = props.resolved.location.segments[1];
   const [detail, setDetail] = useState<Credential>();
+  const [acknowledgment, setAcknowledgment] = useState<{
+    from: string;
+    to: string;
+  }>();
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
@@ -253,6 +257,8 @@ export function HTTPCredentials(props: Props) {
       <CredentialEditor
         {...props}
         key={`${detail.id}-edit`}
+        acknowledgment={acknowledgment}
+        onAcknowledged={setAcknowledgment}
         credential={detail}
         mode="edit"
         unavailable={error || loading}
@@ -260,6 +266,8 @@ export function HTTPCredentials(props: Props) {
       <CredentialEditor
         {...props}
         key={`${detail.id}-rotate`}
+        acknowledgment={acknowledgment}
+        onAcknowledged={setAcknowledgment}
         credential={detail}
         mode="rotate"
         unavailable={error || loading}
@@ -267,6 +275,8 @@ export function HTTPCredentials(props: Props) {
       <CredentialEditor
         {...props}
         key={`${detail.id}-delete`}
+        acknowledgment={acknowledgment}
+        onAcknowledged={setAcknowledgment}
         credential={detail}
         mode="delete"
         unavailable={error || loading}
@@ -420,7 +430,11 @@ function CredentialEditor({
   onRefresh,
   view,
   unavailable = false,
+  acknowledgment,
+  onAcknowledged,
 }: Props & {
+  acknowledgment?: { from: string; to: string } | undefined;
+  onAcknowledged?: (value: { from: string; to: string }) => void;
   credential?: Credential;
   unavailable?: boolean;
   mode: "create" | "edit" | "rotate" | "delete";
@@ -441,22 +455,53 @@ function CredentialEditor({
     controller.snapshot(),
   );
   const [confirming, setConfirming] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [materialDirty, setDirty] = useState(false);
+  const [baseline, setBaseline] = useState(credential);
+  const metadataChanged =
+    baseline === undefined ||
+    JSON.stringify({
+      name,
+      host: host.toLowerCase(),
+      port,
+      wildcard,
+      header: header.toLowerCase(),
+      prefix,
+    }) !==
+      JSON.stringify({
+        name: baseline.name,
+        host: baseline.boundary.host.toLowerCase(),
+        port: String(baseline.boundary.port),
+        wildcard: baseline.boundary.allow_wildcard,
+        header: baseline.recipe.header.toLowerCase(),
+        prefix: baseline.recipe.prefix,
+      });
+  const dirty = mode === "edit" ? metadataChanged : materialDirty;
   const [inputError, setInputError] = useState<string>();
   const [blockedVersion, setBlockedVersion] = useState<number>();
   const [reviewRequired, setReviewRequired] = useState(false);
   const [expectedETag, setExpectedETag] = useState(() =>
     credential === undefined ? null : etag(credential),
   );
+  const processedAcknowledgment = useRef<string>();
   useEffect(() => {
     if (
       credential === undefined ||
-      dirty ||
-      reviewRequired ||
-      confirming ||
-      mutation.state === "submitting"
+      unavailable ||
+      expectedETag === etag(credential)
     )
       return;
+    if (expectedETag !== etag(credential)) {
+      if (
+        acknowledgment?.from !== expectedETag ||
+        acknowledgment.to !== etag(credential) ||
+        processedAcknowledgment.current === acknowledgment.to
+      )
+        return;
+      processedAcknowledgment.current = acknowledgment.to;
+    }
+    if (dirty || reviewRequired || confirming || mutation.state !== "editing")
+      return;
+    setBaseline(credential);
     setExpectedETag(etag(credential));
     setName(credential.name);
     setHost(credential.boundary.host);
@@ -464,7 +509,16 @@ function CredentialEditor({
     setWildcard(credential.boundary.allow_wildcard);
     setHeader(credential.recipe.header);
     setPrefix(credential.recipe.prefix);
-  }, [credential, dirty, reviewRequired, confirming, mutation.state]);
+  }, [
+    credential,
+    dirty,
+    reviewRequired,
+    confirming,
+    mutation.state,
+    acknowledgment,
+    expectedETag,
+    unavailable,
+  ]);
   const button = useRef<HTMLButtonElement>(null);
   const navigate = useUnsavedChanges(dirty);
   const inputID = `http-credential-secret-${mode}`;
@@ -480,8 +534,10 @@ function CredentialEditor({
   const material = mode === "create" || mode === "rotate";
   const recipeReadOnly =
     mode === "edit" && (credential?.referencing_grants.length ?? 0) > 0;
+  const stale = credential !== undefined && expectedETag !== etag(credential);
   const blocked =
     unavailable ||
+    stale ||
     reviewRequired ||
     mutation.state === "submitting" ||
     mutation.state === "uncertain" ||
@@ -535,6 +591,7 @@ function CredentialEditor({
     );
   };
   const review = () => {
+    if (blocked || (mode === "edit" && !dirty)) return;
     const error = validationError();
     setInputError(undefined);
     if (error === undefined) setConfirming(true);
@@ -602,6 +659,12 @@ function CredentialEditor({
     void pending.then((outcome) => {
       if (outcome.kind === "acknowledged") {
         setDirty(false);
+        if (outcome.value) {
+          if (expectedETag)
+            onAcknowledged?.({ from: expectedETag, to: etag(outcome.value) });
+          setBaseline(outcome.value);
+          setExpectedETag(etag(outcome.value));
+        }
         setReviewRequired(false);
         controller.abandon();
         if (mode === "delete") navigate("#/http/credentials", true);
@@ -740,14 +803,16 @@ function CredentialEditor({
           )}
           {mode === "delete" &&
             (credential?.referencing_grants.length ?? 0) > 0 && (
-              <p>Remove referencing grants before deleting this credential.</p>
+              <StateNotice state="warning" title="Credential is referenced">
+                Remove referencing grants before deleting this credential.
+              </StateNotice>
             )}
           {inputError !== undefined && (
             <StateNotice state="error" title="Check credential fields">
               <p>{inputError}</p>
             </StateNotice>
           )}
-          {reviewRequired && (
+          {(reviewRequired || stale) && (
             <StateNotice
               state="warning"
               title="Review current credential revision"
@@ -767,6 +832,7 @@ function CredentialEditor({
                 onClick={() => {
                   if (credential === undefined) return;
                   setExpectedETag(etag(credential));
+                  setBaseline(credential);
                   setReviewRequired(false);
                   controller.abandon();
                 }}
@@ -795,9 +861,9 @@ function CredentialEditor({
             class={
               mode === "delete"
                 ? "danger-action form-submit-action"
-                : `${mode === "create" ? "create-action " : ""}form-submit-action`
+                : `${mode === "create" ? "create-action " : mode === "edit" ? "primary-action " : ""}form-submit-action`
             }
-            disabled={blocked}
+            disabled={blocked || (mode === "edit" && !dirty)}
           >
             {mode === "create"
               ? "Review and create"

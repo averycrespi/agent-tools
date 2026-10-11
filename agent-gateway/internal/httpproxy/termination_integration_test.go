@@ -58,7 +58,7 @@ func (w *terminationWriter) Write(b []byte) (int, error) {
 
 func assertTermination(t *testing.T, f *proxyFixture, expected contract.HTTPTermination, outcome string) {
 	t.Helper()
-	reader, err := invocation.NewReadService(f.engine.options.Evidence, f.authority)
+	reader, err := invocation.NewReadService(f.engine.options.Evidence, f.authority, nil, nil)
 	require.NoError(t, err)
 	var item contract.HTTPTrafficSummary
 	require.Eventually(t, func() bool {
