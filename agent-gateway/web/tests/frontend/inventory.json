@@ -22,7 +22,7 @@
     "server-auth-flows.tsx": "927c5a263705fc0e84454da2e1d88397c5e8cafa1331964bd73946e4e8730b2c",
     "server-credentials.tsx": "284d44979ead9450dcd7e1fcdb7131f0a647273920fa35ca30fd039a6bfe8927",
     "server-destructive.tsx": "e791c5576ee662f6d982dc9ea4e7c7d53e1efb533b21e8547c3f6c7b6b0c42b1",
-    "server-editor.tsx": "ac2d29390eb414490a0db4a4d94be8fb8d9578db4461db1c4b06835a4979ee10",
+    "server-editor.tsx": "f5c4cc85d61b7bc2beba7a7abf90bc9eb0b705e212bb656e5f2f1e375e4ce88e",
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
     "server-reads.tsx": "397b1bd49346dd94629510321b440cee7b9ac1cbd1f850b64a090cca59822cb3",
     "sinks-ui.tsx": "909c10148e7213c91e1b435be7a0805d3b899a0464b51ff47053bda244880406",

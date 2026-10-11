@@ -1284,7 +1284,7 @@ async function assertOAuthScopeEditing(
           client_id: "fixture-client",
           token_endpoint_auth_method: "none",
         },
-        trusted_origins: [],
+        trusted_origins: ["https://first.example", "https://second.example"],
         request_offline_access: false,
         callback_uri: "http://localhost:3118/callback",
         scopes: ["fixture.read"],
@@ -1292,6 +1292,7 @@ async function assertOAuthScopeEditing(
     },
   };
   const submitted: Record<string, unknown>[] = [];
+  const metadataPatches: Record<string, unknown>[] = [];
   await page.route(
     `${baseURL}/api/v2/mcp/servers/${serverID}`,
     async (route) => {
@@ -1304,9 +1305,20 @@ async function assertOAuthScopeEditing(
         });
         return;
       }
-      const body = route.request().postDataJSON() as {
-        transport: { authentication: Record<string, unknown> };
-      };
+      const body = route.request().postDataJSON();
+      if (!body.transport) {
+        metadataPatches.push(body);
+        await route.fulfill({
+          status: 400,
+          contentType: "application/problem+json",
+          json: {
+            status: 400,
+            code: "invalid_request",
+            title: "Synthetic metadata rejection",
+          },
+        });
+        return;
+      }
       submitted.push(body.transport.authentication);
       await route.fulfill({
         status: 400,
@@ -1338,6 +1350,30 @@ async function assertOAuthScopeEditing(
     fail(
       "OAuth edit form hid configured overrides or retained create-only guidance",
     );
+  const save = page.getByTestId("server-editor-submit");
+  await expect(save).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Remove oauth origin 1", exact: true })
+    .click();
+  await expect(save).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Add OAuth origin", exact: true })
+    .click();
+  await page
+    .getByTestId("server-oauth-origin")
+    .nth(1)
+    .fill("https://first.example");
+  await expect(save).toBeDisabled();
+  await page.locator("#server-display-name").fill("Metadata-only change");
+  await save.click();
+  await expect(
+    page.getByText("Synthetic metadata rejection", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(metadataPatches).toEqual([{ display_name: "Metadata-only change" }]);
+  expect(submitted).toHaveLength(0);
+  await page.locator("#server-display-name").fill("OAuth scope editing");
+  await expect(save).toBeDisabled();
   await capture(page, "settings-oauth-configured", true);
   const submit = async () => {
     const previous = submitted.length;

@@ -239,6 +239,20 @@ function canonical(value: unknown): string {
   }
   return JSON.stringify(value);
 }
+function canonicalTransport(value: unknown): string {
+  const transport = jsonRecord(value);
+  if (transport.kind !== "streamable_http") return canonical(transport);
+  const authentication = jsonRecord(transport.authentication);
+  if (authentication.mode !== "oauth") return canonical(transport);
+  // Trust origins are unordered; stdio arguments and other arrays are not.
+  return canonical({
+    ...transport,
+    authentication: {
+      ...authentication,
+      trusted_origins: [...(authentication.trusted_origins as string[])].sort(),
+    },
+  });
+}
 function headerRecord(items: readonly PairItem[]): Record<string, string> {
   const result = Object.create(null) as Record<string, string>;
   const seen = new Set<string>();
@@ -1628,7 +1642,7 @@ export function ServerEditor({
     canonical({
       display_name: value.displayName,
       enabled: value.enabled,
-      transport: transportFromDraft(value),
+      transport: canonicalTransport(transportFromDraft(value)),
     });
   const dirty = (() => {
     try {
@@ -1738,7 +1752,7 @@ export function ServerEditor({
         throw new Error("Refresh the current server revision before editing.");
       const behavioral =
         draft.enabled !== (server.desiredState === "enabled") ||
-        canonical(transport) !== canonical(server.transport);
+        canonicalTransport(transport) !== canonicalTransport(server.transport);
       const body = behavioral
         ? { display_name: draft.displayName, enabled: draft.enabled, transport }
         : { display_name: draft.displayName };
