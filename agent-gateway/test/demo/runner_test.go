@@ -206,7 +206,7 @@ func (s *demoSubject) stopped(t *testing.T, retained bool) testutil.ProcessResul
 	if retained {
 		require.Len(t, roots, 1)
 	} else {
-		require.Empty(t, roots)
+		require.Empty(t, roots, "demo diagnostic: %s", result.Stderr)
 	}
 	data, err := os.ReadFile(filepath.Join(s.parent, "default-installation-sentinel"))
 	require.NoError(t, err)
@@ -536,10 +536,19 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.NoError(t, s.process.Signal(syscall.SIGTERM))
 		s.stopped(t, false)
 		for _, scenario := range []string{"seed", "fixture", "gateway", "timeout"} {
-			s := startDemo(t, "curated", scenario, "")
-			result := s.stopped(t, false)
-			require.NotContains(t, string(result.Stdout), "Demo Gateway ready")
+			t.Run(scenario, func(t *testing.T) {
+				s := startDemo(t, "curated", scenario, "")
+				result := s.stopped(t, false)
+				require.NotContains(t, string(result.Stdout), "Demo Gateway ready")
+			})
 		}
+	})
+	t.Run("Gateway readiness timeout", func(t *testing.T) {
+		// Curated startup can time out during native Git preparation instead.
+		s := startDemo(t, "empty", "timeout", "")
+		result := s.stopped(t, false)
+		require.NotContains(t, string(result.Stdout), "Demo Gateway ready")
+		require.Contains(t, string(result.Stderr), "Gateway readiness deadline exceeded or interrupted")
 	})
 	t.Run("listener reuse after connection close", func(t *testing.T) {
 		listener, err := net.Listen("tcp4", "127.0.0.1:0")

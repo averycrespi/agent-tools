@@ -54,6 +54,9 @@ func waitUntil(ctx context.Context, children []*child, label string, check func(
 		}
 		for _, c := range children {
 			if err := c.check(ctx); err != nil {
+				if ctx.Err() != nil {
+					return errors.New(label + " deadline exceeded or interrupted")
+				}
 				return err
 			}
 		}
@@ -83,14 +86,15 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	}
 	children := []*child{}
 	defer func() {
-		failed := false
+		var failures []string
 		for i := len(children) - 1; i >= 0; i-- {
 			if err := children[i].finish(context.Background(), 0, false); err != nil {
-				failed = true
+				// finish returns fixed supervisor categories, never child output.
+				failures = append(failures, err.Error())
 			}
 		}
-		if failed {
-			result = errors.New("cleanup unconfirmed; retained " + root)
+		if len(failures) != 0 {
+			result = errors.New("cleanup unconfirmed; retained " + root + ": " + strings.Join(failures, "; "))
 			return
 		}
 		if err := opts.remove(root); err != nil {
