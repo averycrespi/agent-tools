@@ -50,7 +50,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		generatedScript = "agent-gateway/web/scripts/verify-generated.mjs"
 		supplyScript    = "agent-gateway/web/scripts/verify-supply-chain.mjs"
 	)
-	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/seed_http.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go"}
+	demoDefinitions := []string{"agent-gateway/scripts/serve-demo.sh", "agent-gateway/test/demo/main.go", "agent-gateway/test/demo/client.go", "agent-gateway/test/demo/seed.go", "agent-gateway/test/demo/seed_http.go", "agent-gateway/test/demo/fixture.go", "agent-gateway/test/demo/process.go", "agent-gateway/test/demo/runner_test.go", "agent-gateway/test/demo/seed_git.go", "agent-gateway/test/demo/fixture_git.go", "agent-gateway/test/demo/git_test.go", "agent-gateway/internal/httpproxy/fixture_trust.go", "agent-gateway/internal/httpproxy/fixture_trust_e2e.go"}
 	commonDefinitions := []string{makefile, manifest, dagDefinition, "agent-gateway/test/acceptance/suite_selection.go", "agent-gateway/test/acceptance/cmd/main.go"}
 	defaultCleanup := []string{"processes", "listeners", "temporary roots"}
 	leaf := func(id string, behaviorIDs []string, timeout, budget time.Duration, repeats, processStarts, browserStarts int, artifacts []string, extraDefinitions ...string) purposeEvidenceLeaf {
@@ -69,7 +69,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 		"test-integration": leaf("test-integration", []string{"tier.integration.compatibility", "cli.compatibility", "cli.help_and_errors", "cli.security_boundary"}, 5*time.Minute, 15*time.Minute, 1, 0, 0, []string{"real SQLite and filesystem test output"}),
 		"test-harness":     leaf("test-harness", []string{"tier.harness.selftests", "product.compatibility.release_evidence", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"runner and fixture self-test output"}),
 		"test-material":    leaf("test-material", []string{"tier.material.encrypted"}, 5*time.Minute, 6*time.Minute, 1, 0, 0, []string{"deterministic credential-material results"}),
-		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 11, 0, []string{"curated and empty demo public outcomes, privacy and lifecycle cleanup"}, demoDefinitions...),
+		"test-serve-demo":  leaf("test-serve-demo", []string{"tier.harness.temporary", "security.tests.artifacts"}, 5*time.Minute, 6*time.Minute, 1, 18, 0, []string{"curated and empty demo public outcomes, Git fixture trust negatives, privacy and lifecycle cleanup"}, demoDefinitions...),
 		"test-e2e":         leaf("test-e2e", []string{"tier.e2e.complete", "product.cli.command_tree", "product.cli.operator_parity"}, 5*time.Minute, 6*time.Minute, 1, 67, 0, []string{"real-binary output", "process cleanup records"}),
 		"test-security":    leaf("test-security", []string{"tier.security.privacy", "product.privacy.secret_boundaries", "security.tests.artifacts"}, 30*time.Second, 60*time.Second, 1, 0, 0, []string{"source and sink scan output"}),
 		"test-stress": leaf("test-stress", []string{

@@ -24,7 +24,7 @@ func demoAgentFile(label string) string {
 	return strings.ReplaceAll(strings.ToLower(label), " ", "-") + "-bearer"
 }
 
-func seed(ctx context.Context, c *client, root, proxy string, endpoints map[string]string, children []*child, command func(string, []string) error) error {
+func seed(ctx context.Context, c *client, root, proxy string, endpoints map[string]string, children *[]*child, command func(string, []string) error) error {
 	servers := map[string]string{}
 	for _, kind := range []string{"workshop", "library"} {
 		label := map[string]string{"workshop": "Workshop", "library": "Library"}[kind]
@@ -36,7 +36,7 @@ func seed(ctx context.Context, c *client, root, proxy string, endpoints map[stri
 			return c.err
 		}
 		servers[kind] = id
-		err := waitUntil(ctx, children, "fixture catalog", func() (bool, error) {
+		err := waitUntil(ctx, *children, "fixture catalog", func() (bool, error) {
 			server := c.get("mcp/servers/" + id)
 			return text(server, "runtime", "state") == "active" && text(server, "catalog", "active_state") == "current" && value(server, "catalog", "active_tool_count") == float64(len(tools[kind])), c.err
 		})
@@ -138,5 +138,8 @@ func seed(ctx context.Context, c *client, root, proxy string, endpoints map[stri
 	if c.err != nil {
 		return c.err
 	}
-	return seedHTTP(c, proxy, endpoints["workshop"], principals["Explorer"], agents["Explorer"], children)
+	if err := seedHTTP(c, proxy, endpoints["workshop"], principals["Explorer"], agents["Explorer"], *children); err != nil {
+		return err
+	}
+	return seedGit(c, root, proxy, endpoints["git"], principals, children)
 }

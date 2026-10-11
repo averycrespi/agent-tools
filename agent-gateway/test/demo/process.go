@@ -109,7 +109,9 @@ kill -KILL -$$
 			exited <- commandResult{-1, errors.New("invalid command status")}
 			return
 		}
-		if code >= 128 {
+		// Git uses exit 128 for ordinary fatal errors, including denied access.
+		// Shell signal exits begin at 128 + signal (there is no signal zero).
+		if code > 128 {
 			code = -1
 		}
 		exited <- commandResult{code: code}

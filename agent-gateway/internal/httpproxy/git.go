@@ -106,7 +106,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	if request.Operation() == "push" {
 		header.Set("Accept-Encoding", "identity")
 	}
-	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Execution.PrivateNetwork, e.roots)
+	response, err := address.ProxyExchange(r.Context(), request.Target(), header, upload, r.ContentLength, result.Execution.PrivateNetwork, e.upstreamRoots(request.Target()))
 	if err != nil {
 		e.observeFailure(w, diagnostics.ProxyExchange, err)
 		reject(w, upstreamStatus(err))

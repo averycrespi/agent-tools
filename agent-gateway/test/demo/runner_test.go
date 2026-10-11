@@ -66,6 +66,18 @@ func TestDemoHelper(t *testing.T) {
 	if scenario == "timeout" {
 		opts.startupTimeout = 200 * time.Millisecond
 	}
+	if strings.HasPrefix(scenario, "git-trust-") {
+		opts.start = func(label string, argv, env []string) (*child, error) {
+			if label == "Gateway" {
+				for _, variable := range env {
+					if strings.HasPrefix(variable, "HOME=") {
+						alterDemoGitTrust(t, strings.TrimPrefix(variable, "HOME="), scenario)
+					}
+				}
+			}
+			return startChild(label, argv, env)
+		}
+	}
 	opts.configureClient = func(c *client) {
 		original := c.http.Transport
 		until := time.Now().Add(2 * time.Second)
@@ -217,7 +229,7 @@ func testClient(t *testing.T, listen, root string) *client {
 
 func checkSupervisor(t *testing.T) {
 	t.Helper()
-	for _, script := range []string{"printf finished; exit 0", "sleep 60 & printf finished; exit 0", "printf failed; exit 7", "trap '' TERM; printf ready; while :; do :; done", "yes output"} {
+	for _, script := range []string{"printf finished; exit 0", "sleep 60 & printf finished; exit 0", "printf failed; exit 7", "printf git-denied; exit 128", "trap '' TERM; printf ready; while :; do :; done", "yes output"} {
 		c, err := startChild("supervisor fixture", []string{"/bin/sh", "-c", script}, os.Environ())
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, c.finish(context.Background(), 0, false)) })
@@ -233,6 +245,9 @@ func checkSupervisor(t *testing.T) {
 		case strings.Contains(script, "failed"):
 			require.ErrorContains(t, c.finish(t.Context(), time.Second, true), "failed or timed out")
 			require.Equal(t, 7, c.code)
+		case strings.Contains(script, "git-denied"):
+			require.NoError(t, c.finish(t.Context(), time.Second, false))
+			require.Equal(t, 128, c.code)
 		case script == "yes output":
 			require.Eventually(t, c.stdout.exceeded, 2*time.Second, 10*time.Millisecond)
 			require.ErrorContains(t, c.finish(t.Context(), 0, false), "exceeded output bound")
@@ -306,7 +321,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 		s := startDemo(t, "curated", "", "")
 		root, manifest := s.ready(t)
 		require.Equal(t, "curated", manifest.Dataset)
-		require.Len(t, manifest.Fixtures, 2)
+		require.Len(t, manifest.Fixtures, 3)
 		c := testClient(t, s.listen, root)
 		require.Len(t, rows(c.get("mcp/servers"), "items"), 2)
 		require.Len(t, rows(c.get("mcp/grants"), "items"), 13)
@@ -342,8 +357,8 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Equal(t, true, value(credential, "available"))
 		require.Equal(t, "demo.invalid", text(credential, "boundary", "host"))
 		require.Len(t, rows(credential, "referencing_grants"), 1)
-		require.Len(t, rows(c.get("http/grants"), "items"), 3)
-		history := rows(c.get("http/traffic"), "items")
+		require.Len(t, rows(c.get("http/grants"), "items"), 5)
+		history := rows(c.get("http/traffic?type=request"), "items")
 		require.Len(t, history, 2)
 		outcomes := []string{}
 		for _, item := range history {
@@ -361,7 +376,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 		before := rows(c.get("mcp/invocations"), "items")
 		time.Sleep(200 * time.Millisecond)
 		require.Equal(t, before, rows(c.get("mcp/invocations"), "items"), "background activity")
-		require.Equal(t, history, rows(c.get("http/traffic"), "items"), "background HTTP activity")
+		require.Equal(t, history, rows(c.get("http/traffic?type=request"), "items"), "background HTTP activity")
 		require.True(t, contentIs(c.call(explorer, "demo_workshop.add", object{"a": 40, "b": 2}), "42"))
 		require.Eventually(t, func() bool {
 			return len(rows(c.get("mcp/invocations"), "items")) == len(before)+1
@@ -370,6 +385,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 		require.Equal(t, "downstream_failure", text(c.call(explorer, "demo_workshop.controlled_error", object{}), "error", "data", "code"))
 		require.True(t, contentIs(c.call(reader, "demo_library.lookup", object{"document": "welcome"}), documents["welcome"]))
 		require.NoError(t, c.err)
+		verifyDemoGit(t, c, root, manifest)
 		verifyDemoRequestApprovals(t, c, root)
 		// Scan after the last submitted history work actually settles. Scoped
 		// SQLite handles may remove WAL/SHM between directory enumeration and
@@ -398,6 +414,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			}
 			return nil
 		}))
+		sinks = append(sinks, filepath.Join(root, "git-upstream-secret"))
 		for _, sink := range sinks {
 			info, err = os.Stat(sink)
 			require.NoError(t, err)
@@ -420,7 +437,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 				return nil
 			}))
 		}
-		pid := manifest.Processes["workshop fixture"]
+		pid := manifest.Processes["git fixture"]
 		pgid, err := syscall.Getpgid(pid)
 		require.NoError(t, err)
 		require.Equal(t, pid, pgid)
@@ -442,6 +459,20 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.Error(t, err)
 		}
 	})
+	t.Run("Git trust rejects unsafe or unmatched material", func(t *testing.T) {
+		for _, scenario := range []string{"malformed", "permissions", "symlink", "hardlink", "wrong-host", "wrong-origin", "untrusted"} {
+			t.Run(scenario, func(t *testing.T) {
+				s := startDemo(t, "curated", "git-trust-"+scenario, "")
+				result := s.stopped(t, false)
+				require.NotContains(t, string(result.Stdout), "Demo Gateway ready")
+				if scenario == "wrong-origin" || scenario == "untrusted" {
+					require.Contains(t, string(result.Stderr), "Git allowed discovery failed")
+				} else {
+					require.Contains(t, string(result.Stderr), "Gateway exited unexpectedly")
+				}
+			})
+		}
+	})
 	t.Run("empty fresh runs and signals", func(t *testing.T) {
 		roots, bearers := map[string]bool{}, map[string]bool{}
 		for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP} {
@@ -455,7 +486,7 @@ func TestServeDemoLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			bearers[bearer] = true
 			c := testClient(t, s.listen, root)
-			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations", "http/credentials", "http/grants", "http/traffic"} {
+			for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations", "http/credentials", "http/grants", "http/traffic", "git/credentials", "git/repositories", "git/grants", "git/traffic"} {
 				require.Empty(t, rows(c.get(collection), "items"))
 			}
 			require.NoError(t, c.err)

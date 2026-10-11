@@ -4,7 +4,6 @@ package httpproxy
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"io"
 	"net"
@@ -54,7 +53,7 @@ type Engine struct {
 	principals  map[string]int
 	server      *http.Server
 	// Fixture-only trust/timer seams are not public configuration.
-	roots     *x509.CertPool
+	fixtureTrust
 	afterFunc func(time.Duration, func()) func()
 }
 
@@ -66,6 +65,9 @@ func New(options Options) (*Engine, error) {
 		options.Observations = diagnostics.NewObservations()
 	}
 	e := &Engine{options: options, connections: make(map[net.Conn]struct{}), principals: make(map[string]int), afterFunc: func(d time.Duration, f func()) func() { t := time.AfterFunc(d, f); return func() { t.Stop() } }}
+	if err := e.loadFixtureTrust(); err != nil {
+		return nil, err
+	}
 	e.server = e.newServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { e.handle(w, r, nil) }))
 	return e, nil
 }
@@ -384,7 +386,7 @@ func (e *Engine) handle(w http.ResponseWriter, r *http.Request, inside *intercep
 		outgoingBody = requestBody
 	}
 	completion.Outcome = "outcome_unknown"
-	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Execution.PrivateNetwork, e.roots)
+	response, err := address.ProxyExchange(r.Context(), target, header, outgoingBody, r.ContentLength, result.Execution.PrivateNetwork, e.upstreamRoots(target))
 	if err != nil {
 		completion.Termination = termination(r.Context(), "exchange", err)
 		e.observeFailure(w, diagnostics.ProxyExchange, err)

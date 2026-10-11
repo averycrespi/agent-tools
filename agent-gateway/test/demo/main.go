@@ -15,7 +15,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -145,13 +144,22 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	if err = proxyProbe.Close(); err != nil {
 		return errors.New("demo proxy probe close failed")
 	}
+	seedCtx, cancel := context.WithTimeout(ctx, opts.startupTimeout)
+	defer cancel()
+	endpoints := map[string]string{}
+	if dataset == "curated" {
+		if err = prepareGitRepository(seedCtx, root, &children); err != nil {
+			return err
+		}
+		if err = startDemoFixture(seedCtx, "git", root, env, opts, &children, endpoints); err != nil {
+			return err
+		}
+	}
 	gateway, err := opts.start("Gateway", []string{binary, "serve", "--data-dir", filepath.Join(root, "data"), "--listen", listen, "--http-proxy-listen", proxy}, env)
 	if err != nil {
 		return err
 	}
 	children = append(children, gateway)
-	seedCtx, cancel := context.WithTimeout(ctx, opts.startupTimeout)
-	defer cancel()
 	bearer, err := readBearer(filepath.Join(root, "admin-bearer"))
 	if err != nil {
 		return err
@@ -179,46 +187,17 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	if err != nil {
 		return err
 	}
-	endpoints := map[string]string{}
 	if dataset == "curated" {
-		executable, exeErr := os.Executable()
-		if exeErr != nil {
-			return errors.New("demo executable lookup failed")
-		}
 		for _, kind := range []string{"workshop", "library"} {
-			endpoint := filepath.Join(root, kind+"-port")
-			argv := append([]string{executable}, opts.fixturePrefix...)
-			argv = append(argv, "--fixture", kind, endpoint)
-			fixture, startErr := opts.start(kind+" fixture", argv, env)
-			if startErr != nil {
-				return startErr
-			}
-			children = append(children, fixture)
-			err = waitUntil(seedCtx, children, "fixture startup", func() (bool, error) {
-				data, readErr := os.ReadFile(endpoint)
-				if errors.Is(readErr, os.ErrNotExist) {
-					return false, nil
-				}
-				if readErr != nil {
-					return false, errors.New("fixture endpoint read failed")
-				}
-				port := string(data)
-				n, parseErr := strconv.Atoi(port)
-				if parseErr != nil || n < 1 || n > 65535 {
-					return false, nil
-				}
-				endpoints[kind] = port
-				return true, nil
-			})
-			if err != nil {
+			if err = startDemoFixture(seedCtx, kind, root, env, opts, &children, endpoints); err != nil {
 				return err
 			}
 		}
-		if err = seed(seedCtx, c, root, proxy, endpoints, children, command); err != nil {
+		if err = seed(seedCtx, c, root, proxy, endpoints, &children, command); err != nil {
 			return err
 		}
 	} else {
-		for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations", "http/credentials", "http/grants", "http/traffic"} {
+		for _, collection := range []string{"mcp/servers", "principals", "mcp/grants", "mcp/grant-requests", "mcp/invocations", "http/credentials", "http/grants", "http/traffic", "git/credentials", "git/repositories", "git/grants", "git/traffic"} {
 			response := c.get(collection)
 			c.require(value(response, "items") != nil && len(rows(response, "items")) == 0, "empty dataset contains records")
 		}
@@ -240,7 +219,7 @@ func run(ctx context.Context, listen, dataset string, out io.Writer, opts option
 	var output strings.Builder
 	fmt.Fprintf(&output, "\nDemo Gateway ready (%s)\n  URL:          http://%s/\n  Run root:     %s\n  Data:         %s\n  Admin bearer: %s\n", dataset, listen, root, filepath.Join(root, "data"), filepath.Join(root, "admin-bearer"))
 	if dataset == "curated" {
-		fmt.Fprintf(&output, "  Explorer:     %s (all demo tools)\n  Reader:       %s (echo/lookup; arithmetic requires approval)\n  Disabled:     %s (authentication denied)\nUse an MCP client with an Authorization bearer read from its protected file at /mcp.\nTools: demo_workshop.echo/add/controlled_error and demo_library.lookup.\n", filepath.Join(root, "explorer-bearer"), filepath.Join(root, "reader-bearer"), filepath.Join(root, "disabled-bearer"))
+		fmt.Fprintf(&output, "  Explorer:     %s (all demo tools)\n  Reader:       %s (echo/lookup; arithmetic requires approval)\n  Disabled:     %s (authentication denied)\nUse an MCP client with an Authorization bearer read from its protected file at /mcp.\nTools: demo_workshop.echo/add/controlled_error and demo_library.lookup.\nGit: local Demo Notes repository; Explorer discovery succeeds, Reader discovery is denied.\n", filepath.Join(root, "explorer-bearer"), filepath.Join(root, "reader-bearer"), filepath.Join(root, "disabled-bearer"))
 		for _, request := range pendingDemoRequests {
 			fmt.Fprintf(&output, "  %s: %s (pending approval)\n", request.label, filepath.Join(root, demoAgentFile(request.label)))
 		}
@@ -255,7 +234,11 @@ func entry(args []string, out, stderr io.Writer, opts options) int {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer cancel()
 	if len(args) == 3 && args[0] == "--fixture" {
-		if err := serveFixture(ctx, args[1], args[2]); err != nil {
+		serve := serveFixture
+		if args[1] == "git" {
+			serve = func(ctx context.Context, _, endpoint string) error { return serveGitFixture(ctx, endpoint) }
+		}
+		if err := serve(ctx, args[1], args[2]); err != nil {
 			_, _ = fmt.Fprintln(stderr, "serve-demo: fixture failed")
 			return 1
 		}
