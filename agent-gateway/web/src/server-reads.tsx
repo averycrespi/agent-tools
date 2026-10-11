@@ -1465,7 +1465,9 @@ function ServerNavigation({
             {fresh ? presentation.label : `Last known · ${presentation.label}`}
           </StatusLabel>
         </div>
-        <CopyableValue value={server.id} label="server ID" testID="server-id" />
+        <p class="technical-value">
+          <code data-testid="server-id">{server.id}</code>
+        </p>
       </header>
       <ServerTabs serverID={serverID} current={current} />
     </>
@@ -1775,6 +1777,7 @@ function CatalogRows({
                   {descriptor.externalName}
                 </a>
               }
+              secondary={descriptor.id}
             />
           ),
         },
@@ -2254,7 +2257,9 @@ export function ServerReads({
           aria-labelledby="operation-list-title"
           data-testid="operation-list"
         >
-          <h2 id="operation-list-title">Operation history</h2>
+          <div class="panel-heading">
+            <h2 id="operation-list-title">Operation history</h2>
+          </div>
           <ServerCollectionTable
             session={session}
             resolved={resolved}
@@ -2273,16 +2278,8 @@ export function ServerReads({
       </div>
     );
   if (operationItem !== null) {
-    const serverID = operationItem[1]!;
     return (
       <div class="domain-view" data-testid="server-operations-view">
-        <ServerNavigation
-          server={snapshot.server}
-          serverID={serverID}
-          fresh={panel?.status === "current"}
-          current="operations"
-          compact
-        />
         <ReadPanel panel={panel}>
           {snapshot.server !== undefined &&
             snapshot.serverETag !== undefined && (
@@ -2320,11 +2317,9 @@ export function ServerReads({
                     <div class="detail-context-heading tool-heading">
                       <div>
                         <h1 id="descriptor-detail-title" tabindex={-1}>
-                          MCP Tool: {descriptor.externalName}
+                          {descriptor.externalName}
                         </h1>
-                        {typeof document.description === "string" && (
-                          <p>{document.description}</p>
-                        )}
+                        <p class="technical-value">{descriptor.id}</p>
                       </div>
                       <StatusLabel
                         state={
@@ -2340,7 +2335,6 @@ export function ServerReads({
                           : "Retired"}
                       </StatusLabel>
                     </div>
-                    <p class="technical-value">{descriptor.id}</p>
                   </header>
                   {descriptor.retiredAt !== null && (
                     <p>Historical evidence; not callable</p>
@@ -2354,12 +2348,23 @@ export function ServerReads({
                       <div>
                         <dt>Server</dt>
                         <dd>
-                          <a href={`#/mcp/servers/${descriptor.serverID}`}>
-                            {snapshot.server?.displayName ??
-                              `Server ${descriptor.serverID}`}
-                          </a>
+                          <TableIdentity
+                            primary={
+                              <a href={`#/mcp/servers/${descriptor.serverID}`}>
+                                {snapshot.server?.displayName ??
+                                  `Server ${descriptor.serverID}`}
+                              </a>
+                            }
+                            secondary={descriptor.serverID}
+                          />
                         </dd>
                       </div>
+                      {typeof document.description === "string" && (
+                        <div>
+                          <dt>Description</dt>
+                          <dd>{document.description}</dd>
+                        </div>
+                      )}
                     </dl>
                     <h3>Catalog evidence</h3>
                     <dl class="tool-metadata">

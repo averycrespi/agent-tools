@@ -86,7 +86,7 @@ The detail convention sweep covers all 13 routed families and the three server-o
 | Git grants `git/grants/{id}`                 | Single header ID/focus; readonly named relationships; create/edit push toggles in one wrapping row                                                   |
 | Git traffic `git/traffic/{id}`               | Action-first recorded exchange title/ID/focus; primary request outcome distinct from admission, transport and upstream report; bounded targeted refs |
 | MCP tool `mcp/servers/{id}/descriptors/{id}` | Standalone tool header/descriptor ID/focus without server tabs; Back to server tools, named Server fact, inert schemas                               |
-| Operation `mcp/servers/{id}/operations/{id}` | Compact linked parent, action-first heading/focus and secondary ID; lifecycle timing                                                                 |
+| Operation `mcp/servers/{id}/operations/{id}` | Standalone action-first heading/focus and secondary ID; Back to server operations without parent mini-heading/tabs; lifecycle timing                 |
 | OAuth `mcp/servers/{id}/auth-flows/{id}`     | Compact linked parent, authorization heading/focus and secondary ID; lifecycle timing, diagnostics and cancellation                                  |
 
 Singleton Git Routing, policy preview, System embedded records and review/secret dialogs have no invented primary ID. Shared readonly styling also covers policy evidence textareas; temporary disabled controls retain their separate semantics. Collection filters, ordering and pagination are outside this detail sweep.

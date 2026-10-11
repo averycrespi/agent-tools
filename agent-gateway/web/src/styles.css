@@ -2045,7 +2045,9 @@ button.sort-button:not(:disabled):hover {
   padding: 8px 0 18px;
 }
 
-.detail-context > .technical-value {
+.server-context > .technical-value,
+.detail-context > .technical-value,
+.tool-heading .technical-value {
   margin: 5px 0 0;
   color: var(--muted);
   font-size: 14px;
@@ -2134,8 +2136,8 @@ button.sort-button:not(:disabled):hover {
   margin-top: 0;
 }
 
-.tool-heading p {
-  margin-top: 6px;
+.tool-heading > div {
+  min-width: 0;
 }
 
 .tool-annotations {

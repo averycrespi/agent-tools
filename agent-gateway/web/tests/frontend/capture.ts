@@ -62,7 +62,9 @@ export async function capture(
     await expect(identity).toContainText(recordID!);
     await expect(
       identity
-        .locator(":scope > .technical-value, :scope > .copyable-value code")
+        .locator(
+          ":scope > .technical-value, :scope > .copyable-value code, :scope > .tool-heading > div > h1 + .technical-value",
+        )
         .filter({ hasText: new RegExp(`^${recordID}$`) }),
     ).toHaveCount(1);
     const firstTask = identity.locator("xpath=following-sibling::section[1]");
