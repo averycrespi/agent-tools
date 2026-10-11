@@ -963,6 +963,13 @@ export async function runPrincipals(
   }, firstID);
   await page.getByText("Build agent", { exact: true }).waitFor();
 
+  const ordinarySave = page.getByTestId("principal-editor-submit");
+  await expect(ordinarySave).toBeDisabled();
+  await expect(ordinarySave).toHaveClass(/primary-action/);
+  await page.getByTestId("principal-display-name").fill("Temporary agent");
+  await expect(ordinarySave).toBeEnabled();
+  await page.getByTestId("principal-display-name").fill("Build agent");
+  await expect(ordinarySave).toBeDisabled();
   await page
     .locator('[data-testid="principal-display-name"]')
     .fill("Renamed agent");
@@ -2224,6 +2231,13 @@ export async function runGrantReadsCreate(
   });
   if (saveDescriptionGap < 16)
     fail(`grant description submit spacing collapsed: ${saveDescriptionGap}px`);
+  await expect(saveDescription).toBeDisabled();
+  await expect(saveDescription).toHaveClass(/primary-action/);
+  const originalDescription = await descriptionEditor.inputValue();
+  await descriptionEditor.fill("Temporary description");
+  await expect(saveDescription).toBeEnabled();
+  await descriptionEditor.fill(originalDescription);
+  await expect(saveDescription).toBeDisabled();
   await descriptionEditor.fill("Updated reporting access");
   await saveDescription.click();
   await page.waitForTimeout(100);

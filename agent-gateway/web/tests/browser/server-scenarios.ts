@@ -1105,6 +1105,14 @@ export async function runServerCreateUpdate(
     fail(
       "stdio edit form hid configured settings or retained create-only guidance",
     );
+  const saveSettings = page.getByTestId("server-editor-submit");
+  await expect(saveSettings).toBeDisabled();
+  await expect(saveSettings).toHaveClass(/primary-action/);
+  const originalName = await page.locator("#server-display-name").inputValue();
+  await page.locator("#server-display-name").fill("Temporary server name");
+  await expect(saveSettings).toBeEnabled();
+  await page.locator("#server-display-name").fill(originalName);
+  await expect(saveSettings).toBeDisabled();
   await capture(page, "settings-stdio", true);
   await page.locator("#server-display-name").fill("Display only draft");
   await page.locator('[data-testid="server-editor-submit"]').click();

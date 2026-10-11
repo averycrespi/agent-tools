@@ -301,9 +301,12 @@ test("git-rotation-reconciliation", async ({ page, frontend }) => {
   );
   await expect(
     edit.getByRole("button", { name: "Review changes", exact: true }),
-  ).toBeEnabled();
-  // Neighbor submission actually uses the acknowledged current revision.
+  ).toBeDisabled();
+  // Pristine remains disabled; a real edit uses the acknowledged revision.
   await name.fill("Saved metadata");
+  await expect(
+    edit.getByRole("button", { name: "Review changes", exact: true }),
+  ).toBeEnabled();
   await edit
     .getByRole("button", { name: "Review changes", exact: true })
     .click();

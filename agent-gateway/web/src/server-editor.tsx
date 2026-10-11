@@ -1624,9 +1624,21 @@ export function ServerEditor({
     controller.snapshot(),
   );
   const submitButton = useRef<HTMLButtonElement>(null);
-  const navigate = useUnsavedChanges(
-    canonical(draft) !== canonical(initialDraft.current),
-  );
+  const submittedValues = (value: Draft) =>
+    canonical({
+      display_name: value.displayName,
+      enabled: value.enabled,
+      transport: transportFromDraft(value),
+    });
+  const dirty = (() => {
+    try {
+      return submittedValues(draft) !== submittedValues(initialDraft.current);
+    } catch {
+      // Invalid changed drafts must still expose the existing field validation.
+      return canonical(draft) !== canonical(initialDraft.current);
+    }
+  })();
+  const navigate = useUnsavedChanges(dirty);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
   useEffect(() => {
@@ -1841,9 +1853,11 @@ export function ServerEditor({
         )}
         <button
           ref={submitButton}
-          class={`${create ? "create-action" : "safe-action"} form-submit-action`}
+          class={`${create ? "create-action" : "primary-action"} form-submit-action`}
           type="submit"
-          disabled={disabled}
+          disabled={
+            disabled || (!create && !dirty) || mutation.state === "uncertain"
+          }
           data-testid="server-editor-submit"
         >
           {create ? "Review and create" : "Save settings"}

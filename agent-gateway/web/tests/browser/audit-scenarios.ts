@@ -27,14 +27,19 @@ export async function runAudit(
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
   if (evidence === "api") {
-    const realResponse = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === "/api/v2/audit-events" &&
-        response.status() === 200,
-    );
-    await page.locator('a[href="#/audit-log"]').click();
+    // Consume the matching response before a later refresh can retire its body.
+    const realResponse = page
+      .waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/v2/audit-events" &&
+          response.status() === 200,
+      )
+      .then((response) => response.json());
+    const [, real] = await Promise.all([
+      page.locator('a[href="#/audit-log"]').click(),
+      realResponse,
+    ]);
     await expect(page.getByTestId("audit-row").first()).toBeVisible();
-    const real = await (await realResponse).json();
     const realPage = decodeAuditPage(real);
     if (realPage.items.length === 0)
       fail("Real audit API had no produced events");

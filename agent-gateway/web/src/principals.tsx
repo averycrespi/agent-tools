@@ -723,12 +723,13 @@ function PrincipalEditor({
       {notice !== undefined && <StateNotice state="empty" title={notice} />}
       <button
         ref={submitButton}
-        class={`${create ? "create-action" : "safe-action"} form-submit-action`}
+        class={`${create ? "create-action" : "primary-action"} form-submit-action`}
         data-testid="principal-editor-submit"
         form="principal-editor-form"
         type="submit"
         disabled={
           disabled ||
+          (!create && !dirty) ||
           stale ||
           mutation.requiresRefresh ||
           mutation.state === "uncertain"

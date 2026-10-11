@@ -285,7 +285,7 @@ export async function exerciseGrantDetails(
   await capture("detail-saved-read-failed");
   await page.unroute(url);
   await page.getByRole("button", { name: "Refresh current view" }).click();
-  await expect(review).toBeEnabled();
+  await expect(review).toBeDisabled();
   await expect(
     page.getByText("Grant saved; refresh unavailable", { exact: true }),
   ).toHaveCount(0);

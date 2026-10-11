@@ -106,6 +106,22 @@ test("git-routing", async ({ page, frontend }) => {
   await expect(page.getByText("Routing saved", { exact: true })).toBeVisible();
   expect(origins).toEqual(["https://example.invalid:443"]);
   await capture(page, "saved");
+  const reviewButton = page.getByRole("button", {
+    name: "Review changes",
+    exact: true,
+  });
+  await expect(reviewButton).toBeDisabled();
+  await expect(reviewButton).toHaveClass(/primary-action/);
+  await page
+    .getByLabel("Origin 1", { exact: true })
+    .fill("https://EXAMPLE.invalid");
+  await expect(reviewButton).toBeDisabled();
+  await page.getByRole("button", { name: "Add origin", exact: true }).click();
+  await expect(reviewButton).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Remove origin 2", exact: true })
+    .click();
+  await expect(reviewButton).toBeDisabled();
   await page.getByRole("button", { name: "Add origin", exact: true }).click();
   await page
     .getByLabel("Origin 2", { exact: true })

@@ -347,7 +347,9 @@ export async function runHTTPGrants(
       await expect(grantReview).toContainText(creds[0]!.id);
       await expect(grantReview.locator("time")).toHaveAttribute(
         "datetime",
-        await page.evaluate(() => new Date("2030-01-01T12:00").toISOString()),
+        await page.evaluate(() =>
+          new Date("2030-01-01T12:00").toISOString().replace(/\.000Z$/, "Z"),
+        ),
       );
       await expect(grantReview).toContainText("Local/private accessDisabled");
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -1026,8 +1028,7 @@ export async function runHTTPGrants(
     "duplicate-member",
     "invalid-idna",
   ]) {
-    const draft =
-      fault === "identity" ? "Retained local draft" : `Retained draft ${fault}`;
+    const draft = `Retained draft ${fault}`;
     // Isolate each acknowledgement fault from the previous save's pending
     // invalidation reads, which intentionally disable mutation controls.
     await page.reload();

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { localExpiry, submittedExpiry } from "./edit-values";
 import type { RefObject } from "preact";
 import type { ResolvedLocation } from "./location";
 import { useUnsavedChanges } from "./navigation";
@@ -796,17 +797,8 @@ function GrantEditor(
   const [path, setPath] = useState(request?.path.value ?? "");
   const [privateAccess, setPrivate] = useState(p?.allow_private ?? false);
   const [credential, setCredential] = useState(p?.credential_id ?? "");
-  const [expiry, setExpiry] = useState(
-    g?.expires_at === null || g?.expires_at === undefined
-      ? ""
-      : new Date(
-          Date.parse(g.expires_at) -
-            new Date(g.expires_at).getTimezoneOffset() * 60000,
-        )
-          .toISOString()
-          .slice(0, 16),
-  );
-  const [dirty, setDirty] = useState(false);
+  const [baseline, setBaseline] = useState(g);
+  const [expiry, setExpiry] = useState(localExpiry(g?.expires_at));
   const [confirm, setConfirm] = useState<"save" | "delete">();
   const [discard, setDiscard] = useState(false);
   const cancelButton = useRef<HTMLButtonElement>(null);
@@ -818,7 +810,6 @@ function GrantEditor(
     g === undefined ? null : grantETag(g),
   );
   const button = useRef<HTMLButtonElement>(null);
-  const navigate = useUnsavedChanges(dirty);
   const mutation = usePolicyMutation<Grant | null>(props);
   const requests = kind === "allow_requests" || kind === "block_requests";
   const allow = kind === "allow_requests" || kind === "allow_tunnel";
@@ -853,6 +844,48 @@ function GrantEditor(
       ? { credential_id: credential }
       : {}),
   };
+  const expiresAt = submittedExpiry(expiry, baseline?.expires_at);
+  const normalizedPolicy = (value: Policy) =>
+    JSON.stringify({
+      version: value.version,
+      type: value.type,
+      allow_private: value.allow_private,
+      credential_id: value.credential_id,
+      ...(value.request
+        ? {
+            request: {
+              origin: {
+                scheme: value.request.origin.scheme,
+                host: value.request.origin.host.toLowerCase(),
+                port: value.request.origin.port,
+              },
+              path: {
+                kind: value.request.path.kind,
+                value: value.request.path.value,
+              },
+              methods: value.request.methods.any
+                ? { any: true }
+                : { values: [...(value.request.methods.values ?? [])].sort() },
+            },
+          }
+        : {}),
+      ...(value.destination
+        ? {
+            destination: {
+              host: value.destination.host.toLowerCase(),
+              port: value.destination.port,
+            },
+          }
+        : {}),
+    });
+  const dirty =
+    baseline === undefined ||
+    !/^[1-9][0-9]*$/.test(port) ||
+    principal !== baseline.principal_id ||
+    (description || null) !== baseline.description ||
+    expiresAt !== baseline.expires_at ||
+    normalizedPolicy(policy) !== normalizedPolicy(baseline.policy);
+  const navigate = useUnsavedChanges(dirty);
   const stale =
     g !== undefined && (expected !== grantETag(g) || mutation.reviewRequired);
   const submit = () => {
@@ -871,10 +904,7 @@ function GrantEditor(
           principal_id: principal,
           description: description || null,
           policy,
-          expires_at:
-            expiry === ""
-              ? null
-              : new Date(expiry).toISOString().replace(/\.000Z$/, "Z"),
+          expires_at: expiresAt,
         });
     void mutation.submit(
       {
@@ -897,7 +927,7 @@ function GrantEditor(
         },
       },
       (value) => {
-        setDirty(false);
+        if (value !== null) setBaseline(value);
         if (value === null) navigate("#/http/grants", true);
         else if (g === undefined) navigate(`#/http/grants/${value.id}`, true);
         else props.onSaved?.(value);
@@ -929,6 +959,7 @@ function GrantEditor(
             disabled={mutation.blocked || props.unavailable}
             onClick={() => {
               setExpected(grantETag(g!));
+              setBaseline(g);
               mutation.review();
             }}
           >
@@ -937,7 +968,6 @@ function GrantEditor(
         </StateNotice>
       )}
       <form
-        onInput={() => setDirty(true)}
         onSubmit={(event) => {
           event.preventDefault();
           const valid =
@@ -946,7 +976,7 @@ function GrantEditor(
             host.length <= 253 &&
             /^[1-9][0-9]*$/.test(port) &&
             Number(port) <= 65535 &&
-            (pathKind === "any" || path.startsWith("/")) &&
+            (!requests || pathKind === "any" || path.startsWith("/")) &&
             (expiry === "" || Date.parse(expiry) > Date.now()) &&
             (kind !== "allow_requests" ||
               credential === "" ||
@@ -1117,7 +1147,6 @@ function GrantEditor(
                     <button
                       type="button"
                       onClick={() => {
-                        setDirty(true);
                         setMethods(methods.filter((_, i) => i !== index));
                       }}
                     >
@@ -1129,7 +1158,6 @@ function GrantEditor(
                   type="button"
                   disabled={methods.length >= 32}
                   onClick={() => {
-                    setDirty(true);
                     setMethods([...methods, "GET"]);
                   }}
                 >
@@ -1254,13 +1282,14 @@ function GrantEditor(
         <div class="form-actions">
           <button
             ref={button}
-            class={g === undefined ? "create-action" : "primary-action"}
+            class={`${g === undefined ? "create-action" : "primary-action"} form-submit-action`}
             disabled={
               mutation.blocked ||
               stale ||
               loadError ||
               loading ||
-              props.unavailable
+              props.unavailable ||
+              (g !== undefined && !dirty)
             }
           >
             {mutation.state.state === "submitting"
@@ -1326,8 +1355,7 @@ function GrantEditor(
                     description,
                     principal_id: principal,
                     policy,
-                    expires_at:
-                      expiry === "" ? null : new Date(expiry).toISOString(),
+                    expires_at: expiresAt,
                   }}
                   principals={principals}
                 />
@@ -1351,14 +1379,7 @@ function GrantEditor(
                     <div>
                       <dt>Expires</dt>
                       <dd>
-                        <UserTime
-                          value={
-                            expiry === ""
-                              ? null
-                              : new Date(expiry).toISOString()
-                          }
-                          fallback="No expiry"
-                        />
+                        <UserTime value={expiresAt} fallback="No expiry" />
                       </dd>
                     </div>
                   </dl>

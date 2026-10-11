@@ -589,6 +589,10 @@ textarea[readonly] {
   gap: 8px;
 }
 
+.form-actions > .form-submit-action {
+  margin-top: 0;
+}
+
 .history-export-actions,
 .history-export-status:not(:empty) {
   margin-bottom: 16px;

@@ -144,7 +144,17 @@ function RoutingEditor({
 }) {
   const [draft, setDraft] = useState(profile.origins);
   const [expected, setExpected] = useState(gitRoutingETag(profile));
-  const [dirty, setDirty] = useState(false);
+  const [baseline, setBaseline] = useState(profile.origins);
+  const dirty = (() => {
+    try {
+      return (
+        JSON.stringify(normalizeGitOrigins(draft)) !==
+        JSON.stringify(normalizeGitOrigins(baseline))
+      );
+    } catch {
+      return true; // Invalid changed drafts still reach validation.
+    }
+  })();
   const [reviewed, setReviewed] = useState<string[]>();
   const [inputError, setInputError] = useState<string>();
   const [saved, setSaved] = useState(false);
@@ -158,12 +168,7 @@ function RoutingEditor({
   useUnsavedChanges(dirty);
   useEffect(() => controller.subscribe(setMutation), [controller]);
   useEffect(() => () => controller.close(), [controller]);
-  useEffect(() => {
-    if (!dirty && mutation.state === "editing") {
-      setDraft(profile.origins);
-      setExpected(gitRoutingETag(profile));
-    }
-  }, [profile, dirty, mutation.state]);
+
   const changedRevision = expected !== gitRoutingETag(profile);
   const needsReview = changedRevision || mutation.requiresRefresh;
   const locked =
@@ -175,12 +180,11 @@ function RoutingEditor({
     mutation.availability === "storage_latched";
   const change = (values: string[]) => {
     setDraft(values);
-    setDirty(true);
     setSaved(false);
     setInputError(undefined);
   };
   const review = () => {
-    if (blocked) return;
+    if (blocked || !dirty) return;
     try {
       setReviewed(normalizeGitOrigins(draft));
       setInputError(undefined);
@@ -209,7 +213,7 @@ function RoutingEditor({
         if (outcome.kind === "acknowledged") {
           setDraft(outcome.value.origins);
           setExpected(gitRoutingETag(outcome.value));
-          setDirty(false);
+          setBaseline(outcome.value.origins);
           setSaved(true);
           controller.abandon();
           onSaved(outcome.value);
@@ -300,6 +304,7 @@ function RoutingEditor({
                 disabled={unavailable || locked}
                 onClick={() => {
                   setExpected(gitRoutingETag(profile));
+                  setBaseline(profile.origins);
                   controller.abandon();
                 }}
               >
@@ -325,7 +330,7 @@ function RoutingEditor({
             <button
               ref={button}
               type="submit"
-              class="form-submit-action"
+              class="primary-action form-submit-action"
               disabled={blocked || !dirty}
             >
               Review changes
