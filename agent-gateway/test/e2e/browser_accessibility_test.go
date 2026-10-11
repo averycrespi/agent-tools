@@ -64,7 +64,7 @@ func TestBrowserAccessibility(t *testing.T) {
 	assert.NotEmpty(t, event.ChromiumVersion)
 	assert.Equal(t, "1.62.1", event.PlaywrightVersion)
 	assert.Positive(t, event.Requests)
-	assert.Equal(t, 33, event.AxeScans)
+	assert.Equal(t, 41, event.AxeScans)
 	assert.Zero(t, event.SeriousCritical)
 	assert.GreaterOrEqual(t, event.Scripted, 24)
 

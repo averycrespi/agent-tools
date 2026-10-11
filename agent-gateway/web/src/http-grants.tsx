@@ -1569,6 +1569,7 @@ function AccessPreview(props: Props) {
                   required
                   type="url"
                   maxLength={8192}
+                  placeholder="https://api.example.com/v1/resource"
                   value={url}
                   onInput={(e) => setURL(e.currentTarget.value)}
                 />

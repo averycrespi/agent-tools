@@ -385,6 +385,9 @@ test("git-traffic", async ({ page, frontend }) => {
   await expect(
     page.getByText("1 exchange loaded", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText(/Search recorded repository names with typo tolerance/),
+  ).toHaveCount(0);
   const reset = page.getByRole("button", { name: "Reset", exact: true });
   await expect(reset).toBeDisabled();
   for (const select of await page

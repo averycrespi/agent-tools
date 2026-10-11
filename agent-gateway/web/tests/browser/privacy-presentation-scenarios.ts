@@ -613,6 +613,96 @@ export async function runAccessibilityKeyboardResponsive(
     scriptedAssertions += 6;
   }
   await page.unroute(`**${invocationPath}`);
+  const pendingAudit = {
+    id: "00000000000000000000000003",
+    sequence: "3",
+    timestamp: "2026-09-05T00:00:00.000000000Z",
+    category: "backup",
+    action: "restore",
+    phase: "attempt",
+    outcome: "pending",
+    actor: { type: "offline_maintenance", credential: null },
+    initiator: null,
+    correlation_id: "00000000000000000000000008",
+    target: { type: "installation", id: "00000000000000000000000007" },
+  };
+  await page.route("**/api/v2/audit-events**", async (route) => {
+    expect(route.request().method()).toBe("GET");
+    const detail = new URL(route.request().url()).pathname.endsWith(
+      pendingAudit.id,
+    );
+    await route.fulfill({
+      json: {
+        ...(detail
+          ? {
+              event: {
+                ...pendingAudit,
+                detail: { reason: null, problem: null },
+              },
+            }
+          : { items: [pendingAudit], next_cursor: null }),
+        history: {
+          generation: "a".repeat(64),
+          oldest_retained: {
+            id: pendingAudit.id,
+            sequence: "3",
+            timestamp: pendingAudit.timestamp,
+          },
+          pruned: false,
+        },
+        target_recognition: [
+          { target: pendingAudit.target, display_name: null },
+        ],
+      },
+    });
+  });
+  for (const [theme, width] of [
+    ["light", 1440],
+    ["dark", 320],
+  ] as const) {
+    await page.getByTestId("theme-preference").selectOption(theme);
+    await page.setViewportSize({ width, height: 900 });
+    await page.evaluate(() => {
+      location.hash = "#/mcp/invocations";
+    });
+    const reset = page.getByRole("button", { name: "Reset", exact: true });
+    await expect(reset).toBeDisabled();
+    await scan(`invocation-reset-pristine-${theme}-${width}`);
+    await page.getByLabel("Tool", { exact: true }).fill("x".repeat(257));
+    await expect(
+      page.getByText(/Filters must fit 256 UTF-8 bytes/),
+    ).toBeVisible();
+    await expect(reset).toBeEnabled();
+    await reset.focus();
+    await page.keyboard.press("Enter");
+    await expect(reset).toBeDisabled();
+    await expect(page.getByLabel("Tool", { exact: true })).toHaveValue("");
+    await scan(`invocation-reset-cleared-${theme}-${width}`);
+    await page.evaluate(() => {
+      location.hash = "#/http/grants/test-access";
+    });
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+      "Test HTTP access",
+    );
+    await expect(page.getByLabel("URL", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("URL", { exact: true })).toHaveAttribute(
+      "placeholder",
+      "https://api.example.com/v1/resource",
+    );
+    await scan(`http-preview-blank-${theme}-${width}`);
+    await page.evaluate((id) => {
+      location.hash = `#/audit-log/${id}`;
+    }, pendingAudit.id);
+    await expect(
+      page.getByTestId("detail-context").locator(".status-label"),
+    ).toHaveText("Pending");
+    await expect(
+      page.getByText(/The action was attempted; its outcome is unconfirmed/),
+    ).toBeVisible();
+    await scan(`audit-pending-detail-${theme}-${width}`);
+    scriptedAssertions += 10;
+  }
+  await page.unroute("**/api/v2/audit-events**");
   await page.getByTestId("theme-preference").selectOption("system");
   await page.evaluate(() => localStorage.removeItem("agent_gateway_theme"));
   await page.setViewportSize({ width: 1440, height: 900 });

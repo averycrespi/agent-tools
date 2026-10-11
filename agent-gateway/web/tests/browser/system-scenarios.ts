@@ -2,7 +2,11 @@ import {
   recoveryStates,
   trafficRecoveryFixture,
 } from "./traffic-recovery-fixture.ts";
-import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
+import {
+  capture,
+  captureScreenshot,
+  hasCaptureOwner,
+} from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
 import { protocolSummaryFixture } from "../protocol-summary-fixture.ts";
@@ -2531,7 +2535,13 @@ export async function runInvocations(
       "decision",
       "outcome",
       "search_locale",
+      "from",
+      "until",
     ]);
+    if (query.has("from")) {
+      expect(query.get("from")).toBe("2026-08-28T00:00:00.000000000Z");
+      expect(query.get("until")).toBe("2026-08-29T00:00:00.000000000Z");
+    }
     if (
       query.get("limit") !== "50" ||
       [...query.keys()].some((key) => !allowed.has(key)) ||
@@ -2753,7 +2763,61 @@ export async function runInvocations(
     ["Admitted", "Invocation", "Agent", "Authorization", "Outcome"],
     "Invocation",
   );
+  const resetFilters = page.getByRole("button", { name: "Reset", exact: true });
+  const draftTool = page.getByLabel("Tool", { exact: true });
   const liveSwitch = page.getByRole("switch", { name: "Live mode" });
+  await expect(resetFilters).toBeDisabled();
+  await liveSwitch.uncheck();
+  await expect(resetFilters).toBeDisabled();
+  await liveSwitch.check();
+  await expect(resetFilters).toBeDisabled();
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await draftTool.fill("unapplied");
+  await expect(resetFilters).toBeEnabled();
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await resetFilters.click();
+  await expect(draftTool).toHaveValue("");
+  await expect(resetFilters).toBeDisabled();
+  await page.clock.runFor(400);
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await draftTool.fill("x".repeat(257));
+  await page.clock.runFor(400);
+  await expect(
+    page.getByText(/Filters must fit 256 UTF-8 bytes/),
+  ).toBeVisible();
+  await expect(resetFilters).toBeEnabled();
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await resetFilters.click();
+  await expect(resetFilters).toBeDisabled();
+  await expect(page.getByText(/Filters must fit 256 UTF-8 bytes/)).toHaveCount(
+    0,
+  );
+  await page.clock.resume();
+  await draftTool.fill("x".repeat(257));
+  await expect(
+    page.getByText(/Filters must fit 256 UTF-8 bytes/),
+  ).toBeVisible();
+  await capture(page, "reset-invalid-draft");
+  await resetFilters.click();
+  await expect(resetFilters).toBeDisabled();
+  await capture(page, "reset-cleared");
+  await page.evaluate(() => {
+    location.hash = "#/mcp/invocations?filter_principal=Build";
+  });
+  await expect(page.getByLabel("Agent", { exact: true })).toHaveValue("Build");
+  await expect(resetFilters).toBeEnabled();
+  await resetFilters.click();
+  await expect(resetFilters).toBeDisabled();
+  await page.evaluate(() => {
+    location.hash =
+      "#/mcp/invocations?filter_from=2026-08-28T00%3A00%3A00.000000000Z&filter_until=2026-08-29T00%3A00%3A00.000000000Z";
+  });
+  await expect(resetFilters).toBeEnabled();
+  await resetFilters.click();
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await expect(resetFilters).toBeDisabled();
+  await expect(page.getByTestId("invocation-row")).toHaveCount(2);
   if ((await liveSwitch.count()) !== 1 || !(await liveSwitch.isChecked()))
     fail("invocation live mode was not enabled by default");
   if (
@@ -2973,6 +3037,8 @@ export async function runInvocations(
     fail("invocation tool filter was not persisted in the URL");
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(toolFilter).toHaveValue("");
+  await expect(resetFilters).toBeDisabled();
+  await expect(liveSwitch).toBeChecked();
   const storage = await browserStorage(page);
   if (JSON.stringify(storage).includes("namespace.allowed"))
     fail("invocation filter entered browser storage");

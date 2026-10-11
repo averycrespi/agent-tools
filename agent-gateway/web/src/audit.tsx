@@ -49,9 +49,7 @@ const targetRoutes: Readonly<Record<string, readonly [string, Destination]>> = {
   git_grant: ["git/grants", "git-grants"],
 };
 function outcomeLabel(outcome: string): string {
-  return outcome === "pending"
-    ? "Attempted — unconfirmed"
-    : sentenceCase(outcome);
+  return sentenceCase(outcome);
 }
 function targetType(type: string): string {
   return type === "principal" ? "Agent" : sentenceCase(type);
@@ -1181,8 +1179,11 @@ export function Audit({
               )}
               {["pending", "unknown"].includes(snapshot.item.outcome) && (
                 <p>
-                  The outcome is unconfirmed. This event does not establish
-                  success, rollback, or safe replay.
+                  {snapshot.item.outcome === "pending"
+                    ? "The action was attempted; its outcome is unconfirmed. Pending does not mean it is still executing."
+                    : "The outcome is unconfirmed."}{" "}
+                  This event does not establish success, rollback, or safe
+                  replay.
                 </p>
               )}
               {snapshot.targetUnavailable && (

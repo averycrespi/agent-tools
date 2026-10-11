@@ -576,7 +576,7 @@ function App() {
         ? "Create HTTP grant"
         : destination === "http-grants" &&
             resolved.location.segments[1] === "test-access"
-          ? "Test access"
+          ? "Test HTTP access"
           : destination === "http-credentials" &&
               resolved.location.segments[1] === "new"
             ? "Create HTTP credential"

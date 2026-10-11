@@ -1285,10 +1285,12 @@ function InvocationTextFilter({
   name,
   value,
   change,
+  reportDraft,
 }: {
   name: string;
   value: string;
   change: (value: string) => void;
+  reportDraft: (value: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
   useLayoutEffect(() => setDraft(value), [value]);
@@ -1301,7 +1303,10 @@ function InvocationTextFilter({
       aria-label={name}
       placeholder={name}
       value={draft}
-      onInput={(event) => setDraft(event.currentTarget.value)}
+      onInput={(event) => {
+        setDraft(event.currentTarget.value);
+        reportDraft(event.currentTarget.value);
+      }}
     />
   );
 }
@@ -1314,6 +1319,16 @@ function InvocationFilters({
 }) {
   const [error, setError] = useState<string>();
   const [reset, setReset] = useState(0);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  useLayoutEffect(() => {
+    setDrafts((current) => ({ ...current, tool: query.filter_tool ?? "" }));
+  }, [query.filter_tool]);
+  useLayoutEffect(() => {
+    setDrafts((current) => ({
+      ...current,
+      principal: query.filter_principal ?? "",
+    }));
+  }, [query.filter_principal]);
   const apply = (next: Record<string, string>) => {
     const fragment = serializeLocation({
       destination: "invocations",
@@ -1349,6 +1364,9 @@ function InvocationFilters({
             name={key === "principal" ? "Agent" : sentenceCase(key)}
             value={query[`filter_${key}`] ?? ""}
             change={(value) => change(key, value)}
+            reportDraft={(value) =>
+              setDrafts((current) => ({ ...current, [key]: value }))
+            }
           />
         ))}
         {(["decision", "outcome"] as const).map((key) => (
@@ -1368,8 +1386,13 @@ function InvocationFilters({
         ))}
         <button
           type="button"
+          disabled={
+            !Object.values(query).some(Boolean) &&
+            !Object.values(drafts).some(Boolean)
+          }
           onClick={() => {
             setReset(reset + 1);
+            setDrafts({});
             apply({});
           }}
         >

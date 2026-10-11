@@ -2066,10 +2066,6 @@ function GitTrafficCollection(
           Reset
         </button>
       </div>
-      <p class="table-filter-hint">
-        Search recorded repository names with typo tolerance or literal partial
-        IDs.
-      </p>
       {invalid && (
         <StateNotice state="error" title="Invalid repository search" />
       )}

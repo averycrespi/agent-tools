@@ -466,7 +466,11 @@ export async function runHTTPGrants(
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("link", { name: "Test access", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Test access", level: 1, exact: true }),
+    page.getByRole("heading", {
+      name: "Test HTTP access",
+      level: 1,
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
     page.getByRole("combobox", { name: "Method", exact: true }),
