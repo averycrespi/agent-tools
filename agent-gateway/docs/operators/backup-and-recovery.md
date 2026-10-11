@@ -15,6 +15,24 @@ This guide owns Agent Gateway operator procedures for backup lifecycle, restore 
 
 Gateway must be stopped for `maintenance restore-backup`, `maintenance verify-and-recover-storage`, and `maintenance reset-admin-credentials`. Backup list/get/create/delete require a running Gateway; restore remains offline and never acquires an online administrator bearer.
 
+## Choose a recovery task
+
+| Task                                                         | Service state | Procedure                                                                   |
+| ------------------------------------------------------------ | ------------- | --------------------------------------------------------------------------- |
+| Capture or inspect a control backup                          | Running       | [Create and manage backups](#create-and-manage-backups)                     |
+| Export retained traffic separately                           | Running       | [Export optional history](#export-optional-history)                         |
+| Set up complete encrypted custody                            | Stopped       | [Encrypted secret storage](#encrypted-secret-storage)                       |
+| Rotate the master key while retaining recovery keys          | Stopped       | [Rotate the master key](#rotate-the-master-key)                             |
+| Verify selected storage or recover a recognized latch        | Stopped       | [Verify the current installation](#verify-the-current-installation)         |
+| Replace durable state from an exact backup                   | Stopped       | [Restore a backup](#restore-a-backup)                                       |
+| Replace all administrator authority, retaining product state | Stopped       | [Reset administrator authority](#reset-administrator-authority)             |
+| Extract legacy single-store history                          | Stopped       | [Migrate existing invocation storage](#migrate-existing-invocation-storage) |
+| Create or replace interception signing authority             | Stopped       | [CA commands](#stopped-interception-ca-commands)                            |
+
+Stop service supervisors as well as Gateway before offline work; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
+
+All `maintenance` operations support `--dry-run`, `--confirm`, and `--json`. Dry runs inspect existing stopped ownership without writing installation files, audit or recovery markers. Nonempty WAL/journal state in inspected targets prevents a proven immutable read: preserve it and obtain qualified WAL-aware recovery, never delete or checkpoint it just to make a preview pass. Execution shows consequences, requires default-no consent or explicit `--confirm`, then revalidates under the same lock. Dry-run output is not later authority; confirmation never bypasses safety checks. Unknown recovery actions refuse.
+
 ## Encrypted secret storage
 
 New `init` installations provision `<data-dir>/master-key` as a random, exclusive 0600 file under the 0700 data root. New MCP static/OAuth, HTTP/Git and CA material is authenticated-encrypted in control SQLite, never traffic history. Administrator and agent tokens remain hash-only, and the separate protected `admin-bearer` file is retained.
@@ -26,7 +44,7 @@ agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data 
 agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data --confirm
 ```
 
-This creates or verifies the master key and binds its identity; it does not migrate native entries, rotate credentials, start services or change trust. Explicit legacy generations and unresolved native cleanup inventory refuse without changing references or accessing native storage. Complete the pre-removal upgrade procedure before adopting this binary. All reads and writes require encrypted custody; selected missing/corrupt records never fall back to native values.
+This creates or verifies the master key and binds its identity; it does not migrate native entries, rotate credentials, start services or change trust. Explicit legacy generations and unresolved native cleanup inventory refuse without changing references or accessing native storage. Resolve the [legacy custody upgrade boundary](#legacy-custody-upgrade-boundary) before adopting this binary. All reads and writes require encrypted custody; selected missing/corrupt records never fall back to native values.
 
 Preserve the key and database together. Do not delete, replace, chmod, symlink or regenerate a refused key to bypass validation. A missing/wrong established key, partial key file or uncertain setup needs diagnosis and a separately qualified recovery plan; setup never overwrites it. Encryption protects against database-only theft, not theft of both key and database, or compromise of the Gateway account/root.
 
@@ -40,9 +58,9 @@ Formats 0, 2 and 3 remain historical recovery only when no legacy material depen
 
 The temporary `migrate-secrets`, `verify-secrets` and `cleanup-native-secrets` commands, their flags and completion entries are removed. They are not aliases. Gateway no longer reads, probes or deletes native Keychain/Secret Service material.
 
-Before adopting this binary, complete the predecessor's separately authorized migration, completeness verification, representative operational checks, encrypted backup and separate key safeguarding, native-leftover resolution and explicit human approval. Keep that evidence. Source tests do not authorize live credential access or service changes.
+**No verified, version-pinned self-service predecessor procedure is published here.** If the installation still has legacy generations or unresolved native cleanup, stop the upgrade and contact the repository maintainers through [GitHub issues](https://github.com/averycrespi/agent-tools/issues) for a qualified plan. Report the installed version/revision and the safe refusal code; do not attach databases, keys, credentials, native objects or unreviewed logs. Source tests do not authorize live credential access or service changes.
 
-An explicit legacy generation or unresolved cleanup item refuses startup, setup and maintenance. Preserve the database, keys, references, recovery markers and native objects; use a compatible pre-removal release and its documented upgrade procedure under separate operational authorization. Never delete inventory, drop handles, regenerate keys or reinitialize to bypass refusal. Binary downgrade safety is not promised; obtain a qualified recovery plan rather than replacing the installed database blindly.
+The plan must establish predecessor/schema compatibility before any binary change, separately authorize migration and native access, verify complete custody and representative operations, safeguard an encrypted backup and its separate key, resolve native leftovers, and obtain explicit operator approval. Until then, preserve the database, keys, references, recovery markers and native objects. An explicit legacy generation or unresolved cleanup item refuses startup, setup and maintenance. Never delete inventory, drop handles, regenerate keys or reinitialize to bypass refusal. No downgrade is recommended or qualified; do not replace the installed database or run an older binary against it blindly.
 
 Completed historical cleanup provenance remains in the database and survives credential deletion, backup and restore. It is not an automatic cleanup queue; the current binary never revisits native providers.
 
@@ -91,21 +109,6 @@ The key file must be exactly 32 bytes, regular, owner-only, single-link and not 
 
 The plan discloses a nonrefundable current-key encryption reservation before staging. Failed or interrupted attempts can consume that budget even when current credential authority remains unchanged. Never refund the count or reconstruct it from an old backup. Exhausted budget or latched storage refuses; use separately confirmed rotation or recognized storage recovery as appropriate before a new deliberate restore. This is not fresh-install import, cloning or host relocation.
 
-## Choose a recovery task
-
-| Task                                                         | Service state | Procedure                                                                   |
-| ------------------------------------------------------------ | ------------- | --------------------------------------------------------------------------- |
-| Capture or inspect a backup                                  | Running       | [Create and manage backups](#create-and-manage-backups)                     |
-| Verify selected storage or recover a recognized latch        | Stopped       | [Verify the current installation](#verify-the-current-installation)         |
-| Replace durable state from an exact backup                   | Stopped       | [Restore a backup](#restore-a-backup)                                       |
-| Replace all administrator authority, retaining product state | Stopped       | [Reset administrator authority](#reset-administrator-authority)             |
-| Extract legacy single-store history                          | Stopped       | [Migrate existing invocation storage](#migrate-existing-invocation-storage) |
-| Create or replace interception signing authority             | Stopped       | [CA commands](#stopped-interception-ca-commands)                            |
-
-Stop service supervisors as well as Gateway before offline work; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
-
-All four `maintenance` operations support `--dry-run`, `--confirm`, and `--json`. A dry run takes existing stopped ownership, inspects identity, closed storage, recognized marker actions and applicable backup metadata, and writes no installation files, audit records or recovery markers. Nonempty WAL/journal state in an operation's inspected targets prevents a proven immutable read: preserve it and obtain a qualified WAL-aware recovery plan, never delete it or checkpoint it merely to make a preview pass. Execution shows the target and consequences, requires default-no interactive consent or explicit noninteractive `--confirm`, then revalidates the plan under the same lock. Dry-run output is not later authority. Unknown recovery actions refuse. No confirmation bypasses safety checks.
-
 ## Optional history and serving
 
 Gateway starts security-ready serving while one owned history opener validates the
@@ -127,7 +130,7 @@ Closed maintenance previews and backup verification retain their separate closed
 requirements. Security-only recovery does not inspect these optional files.
 Existing configuration, grants and credentials survive the lifecycle upgrade.
 
-`status` / `doctor --online` and **System → Status** additionally show recording
+`agent-gateway doctor --online` and **System → Status** additionally show recording
 health and the current process-local incident. `recovering` means new capture is
 paused while the original owner settles and bounded storage validation runs;
 `degraded` means validation passed but no fresh observation has been acknowledged.
@@ -274,7 +277,7 @@ agent-gateway maintenance restore-backup BACKUP_ID \
 
 Format-4 restore recovers the exact backed-up CA certificate and signing identity; it never automatically replaces the CA. Existing clients trusting that certificate need no trust change. If trust changed after the backup, explicitly reconcile it against the recovered certificate. The managed `http-ca.pem` export is updated after database replacement only if absent or matching the previously selected certificate; unrelated files refuse before replacement. A crash or publication error can leave the database selected while the derived PEM is stale: inspect `http ca export --stdout` and the reported effect, never assume rollback or replay restore. Client trust and installed proxy settings are never mutated.
 
-Restore refuses unresolved legacy CA and HTTP/Git credential authority without discarding references or replacing keys. Complete the pre-removal upgrade procedure instead. Surviving retired native keys are not restored authority. See [stopped CA management](#stopped-interception-ca-commands) and [proxy activation](http-proxy.md).
+Restore refuses unresolved legacy CA and HTTP/Git credential authority without discarding references or replacing keys. Follow the [legacy custody escalation boundary](#legacy-custody-upgrade-boundary) instead. Surviving retired native keys are not restored authority. See [stopped CA management](#stopped-interception-ca-commands) and [proxy activation](http-proxy.md).
 
 Restore verifies artifact ID, installation, supported schema, revision, size, digest,
 SQLite integrity and staged authority. Formats 3 and 4 restore security only and disable
@@ -285,13 +288,13 @@ actual control state (including selector), markers and selected artifact, not un
 optional history or unrelated retained artifacts. Existing history, links and journals
 are preserved without validation, repair or cleanup.
 
-Legacy schemas 3 through current schema 23 are supported through staged forward migration
-and full authorization/grant-request validation. Failure before selection leaves the
+Schemas 3 through the current supported schema are eligible for staged forward migration
+and full authorization/grant-request validation, subject to the custody and format rules above. Failure before selection leaves the
 original control authoritative. There is no legacy-schema runtime. Ordinary upgrade
 preserves configuration, grants and credentials; restore deliberately invalidates
-restored authority.
+administrator and agent access authority, not format-4 upstream secrets.
 
-For an explicit security-only import of an old artifact:
+For an explicit security-only restore of an eligible historical artifact (never over encrypted custody):
 
 ```bash
 agent-gateway maintenance restore-backup BACKUP_ID --security-only \
@@ -429,7 +432,7 @@ Failed commands leave stdout empty and emit one bounded human or JSON problem on
 
 - `gateway_running` means another process still owns the installation. Stop it; do not bypass the process lock.
 - `secret_output_unavailable` means the one-time replacement sink was not completed. Do not assume new authority is active.
-- Storage and verification failures intentionally omit filesystem, SQLite, and secret details. Preserve the original generation and diagnose the reported safe class.
+- Human storage and verification errors retain bounded, source-masked causes and relevant filesystem/SQLite context. Public JSON problems have a separate closed disclosure contract. Preserve the original generation; inspect the reported operation and cause without publishing secrets or assuming missing detail means no effect.
 - A post-handoff online backup result may be uncertain. Read before deliberate same-tuple replay.
 - After an interrupted offline command, retain the selected backup ID, original generation evidence, and any replacement output securely. A pre-install restore failure leaves the original generation authoritative, but a failure after installation can leave the replacement selected with an unfinished audit attempt or marker cleanup. Do not assume an emitted bearer is active, an error rolled back, or a missing result permits replay. Diagnose the selected generation and recovery marker first; use separately authorized current-storage verification only for recognized recovery, then normal startup revalidates readiness. Do not automatically repeat restore, reset authority, or overwrite the replacement file.
 

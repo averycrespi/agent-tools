@@ -27,7 +27,7 @@ agent-gateway mcp invocation list \
   --outcome outcome_unknown
 ```
 
-Use `--admission-class`, `--decision`, and `--outcome` only with values shown by generated help. Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
+`--admission-class` accepts `invalid_params`, `unknown_tool`, `invalid_arguments`, `authorization_unavailable`, or `evaluated`. `--decision` accepts `allow`, `deny`, `block`, or `not_evaluated`; `--outcome` uses the [outcome classes below](#interpret-outcome-classes). Filters bind the opaque cursor. A malformed cursor returns `invalid_cursor`; a cursor whose retention floor or bound state is no longer coherent returns `stale_cursor`. Start again without the cursor rather than trying to edit or reuse it under different filters.
 
 Collections omit argument captures and return summary evidence only. `agent-gateway mcp invocation get INVOCATION_ID --output json` adds the one fixed-redacted argument capture when it was safely retained; default human item output omits captures but includes safe failure diagnostics when available. A missing item can mean capture was dropped, the ID never existed, or bounded retention evicted it. An unavailable history read is different from a successful read with no matching record; neither proves nonexecution. Live error IDs are optional correlation, not persistence receipts.
 
@@ -126,7 +126,7 @@ changes also invalidate affected cursors. Evidence is ordered by durable inserti
 sequence, never client timestamps. A missing row proves neither success nor
 nonexecution; no fixed history window is promised.
 
-**System** and `status` expose independent traffic health, pressure, byte occupancy,
+**System → Status** and `agent-gateway doctor --online --json` expose independent traffic health, pressure, byte occupancy,
 quota refusals and pruning. Traffic faults, queue pressure and missing capture do
 not block otherwise authorized MCP, HTTP or Git execution, responses or cleanup.
 History can therefore be incomplete even when the live caller received a result.
@@ -136,7 +136,15 @@ terminal evidence. Control-storage uncertainty still blocks traffic authority.
 
 The browser labels this evidence **Captured arguments**; an empty object appears as **Captured arguments · Empty**, distinct from an absent capture. A JSON value is the compact historical capture after fixed recursive sensitive-key redaction. `[REDACTED]` replaces a value whose field name matched the recognized key set; other secrets may remain visible, so inspect the capture only when operationally necessary. `[TRUNCATED]` means the redacted capture exceeded the 8 KiB compact bound and argument content was not retained. An absent capture means redaction or encoding did not produce evidence; Gateway retained no raw fallback. This is defense in depth, not guaranteed secret detection, and the capture is not necessarily the exact original request. Callers must not submit secrets where the tool contract does not require them.
 
-Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Only the closed, validated failure diagnostic subset (at most 512 bytes) is additionally retained with a failed terminal annotation; it contains no free-text errors or payloads. Backups contain only the same bounded safe evidence. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
+Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Only the closed, validated failure diagnostic subset (at most 512 bytes) is additionally retained with a failed terminal annotation; it contains no free-text errors or payloads. Current format-4 control backups omit all traffic history. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
+
+To retain a bounded history page separately:
+
+```bash
+agent-gateway history export --limit 256 --json
+```
+
+Save output privately. Each `--after-sequence` request reads a new snapshot, not a complete forensic audit. Follow [history export](backup-and-recovery.md#export-optional-history) for generation/high-water checks, pagination and browser download; the recovery guide also preserves historical backup-format distinctions.
 
 ## Follow live updates safely
 

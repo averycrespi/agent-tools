@@ -2,7 +2,7 @@
 
 # Access control: agents, grants, and requests
 
-Agents and credentials are shared administration. Grants and **MCP → Requests** administer MCP permissions, not network traffic or queued calls. Use `mcp grant` and `mcp grant-request`; their API resources also belong to MCP. Upgrade clients and service together and reload browsers using the [exact namespace mappings and rejected-link recovery](upgrade-compatibility.md#mcp-permission-namespace-cutover). Old spellings are rejected, never redirected or replayed.
+For first use: [create an agent](#create-and-inspect-principals), [issue its token](#issue-rotate-or-revoke-an-agent-credential), [grant the intended MCP access](#create-and-inspect-immutable-grants), then [configure the client](#configure-an-agent-client-manually). Agents and credentials are shared identity; MCP grants and requests authorize tools, not HTTP/Git or queued calls.
 
 Audience: Gateway administrators managing agent access
 
@@ -10,7 +10,7 @@ Purpose: Manage agents, credentials, grants, and grant requests.
 
 An **agent** is a persistent Gateway identity with its own access policies and at most one current credential. It does not represent a running process or session.
 
-CLI commands use **agent** (`agent list`, `agent credential issue`); the old `principal` namespace has no alias. Technical interfaces continue to call the durable identity a **principal**: retained flags (`--principal-id`), [API routes and fields](../design/public-contract.md) (including `principal_id`), JSON representations, ETags, error codes, audit identifiers, MCP contracts, and the browser route `#/principals` are unchanged. Raw technical values and user-authored names are shown verbatim; retained documentation anchors keep existing links working. Administrator identities and credentials remain separate.
+CLI commands use **agent** (`agent list`, `agent credential issue`); the old `principal` namespace has no alias. Technical interfaces continue to call the durable identity a **principal**: retained flags (`--principal-id`), [API routes and fields](../design/public-contract.md) (including `principal_id`), JSON representations, ETags, error codes, audit identifiers, and MCP contracts remain unchanged. The canonical browser route is `#/agents`; valid `#/principals` links are retained compatibility inputs and canonicalized to it. Raw technical values and user-authored names are shown verbatim; retained documentation anchors keep existing links working. Administrator identities and credentials remain separate.
 
 This guide owns Agent Gateway operator workflows for agent lifecycle, one-time agent credentials, immutable grants, constraints, and grant-request adjudication. Use the current `agent-gateway` executable. Executable retirement does not change credentials or the fixed `mcp_gateway.*` self-service tools. Standalone administrative clients must upgrade for the [operator v2 cutover](upgrade-compatibility.md#operator-v2-cutover). HTTP grants are administered separately from MCP permissions. Generated help owns exact syntax:
 
@@ -85,7 +85,9 @@ Issue, rotate, revoke, and disable never replay automatically. On an uncertain r
 
 Repository-owned guest provisioning is retired. Choose and manage your own client environment; Gateway does not require Lima or a particular agent harness. This source change does not modify installed clients, shell profiles, credentials or services, and does not qualify live adoption.
 
-For trusted local Lima forwarding, start the initialized host Gateway with:
+For a same-host client, select `http://127.0.0.1:8210/mcp` and have the client send `Authorization: Bearer` using the agent credential through its supported secret-file or runtime environment mechanism. Use authenticated `tools/list` or `mcp_gateway.get_identity` as a first read-only check; listing tools does not authorize downstream calls.
+
+**Optional VM/container forwarding:** only if your environment needs it, start the initialized host Gateway with an explicitly trusted hostname (Lima is one example):
 
 ```bash
 agent-gateway serve --allowed-host host.lima.internal
@@ -98,6 +100,8 @@ Create a dedicated agent and issue its credential using the procedure above; con
 Configure the client's supported secret-file mechanism, or load the validated file at client startup into its supported agent-token environment variable. Do not embed tokens in profiles/settings JSON, command arguments, URLs, tickets or logs. Disable tracing before reading credentials; never dump the environment. Environment delivery exposes the bearer to the client and inherited children, not an OS credential boundary. Refuse missing/invalid files rather than falling back to stale inherited values.
 
 ### Existing sandbox migration and conflicts
+
+For existing installations, use [coordinated client/service cutovers](upgrade-compatibility.md), including exact namespace mappings and rejected-link recovery. Reload browsers after upgrading; retired spellings are not retried or replayed.
 
 The retired scripts no longer enforce token validation, marker replacement, alias agreement or permission checks. Operators now own those checks; this guide is not an automated replacement provisioning system.
 
@@ -280,7 +284,7 @@ See [Invocation evidence and unknown outcomes](invocation-evidence.md) for inter
 
 ## HTTP grants and Test access
 
-Use **HTTP → Grants** for HTTP policy, and **Edit agent** for its HTTP default. New agents default to block; existing agents retain their stored allow/block value. MCP grants, visibility, credentials and self-service are unchanged. [Proxy activation](http-proxy.md) is separately opt-in. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
+Use **HTTP → Grants** for HTTP policy, and **Edit agent** for its HTTP default. New agents default to block; existing agents retain their stored allow/block value. MCP grants, visibility, credentials and self-service are unchanged. The [proxy listener](http-proxy.md) is default-on; client proxy configuration, CA trust and HTTP authorization remain explicit separate setup. `--clear-http-proxy-listen` opts out, with the documented narrow historical launchd omission exception. [Scoped HTTP credentials](administration.md#scoped-http-credentials) are optional dependencies, not permission by themselves.
 
 ```sh
 agent-gateway http grant list
@@ -303,7 +307,10 @@ Test access takes exactly `{"principal_id":"ID","url":"https://api.example.com/v
 
 The vocabulary is **Block destination**, **Allow tunnel**, **Block requests** and
 **Allow requests**. A destination block wins; a matching tunnel allow makes
-CONNECT opaque and bypasses request restrictions and injection. Otherwise each
+CONNECT opaque and bypasses request restrictions and injection, **except at an enabled
+Git routing origin**, where opaque tunneling refuses. Removing that origin changes
+its enforcement back to HTTP; see [Git routing](git.md#enable-the-origins-git-routing).
+Otherwise each
 request is intercepted and checked: request block wins, then request allow, then
 the agent's HTTP default. A plain/default allow does not override a matching
 credential requirement or permit private/loopback access. Only an applicable

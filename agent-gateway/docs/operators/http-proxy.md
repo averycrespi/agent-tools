@@ -1,10 +1,10 @@
-# Enable HTTP proxying and configure fresh clients
+# Configure HTTP proxy clients
 
 Audience: Gateway administrators and client operators
 
-Purpose: Enable proxying and configure fresh clients without migrating Broker state.
+Purpose: Configure the proxy listener, agent authentication and client-scoped trust.
 
-The listener is enabled by default for bare `serve` and new managed installs.
+The listener is enabled by default for bare `serve` and maintained operator-owned supervisor examples.
 Client proxy use remains cooperative, not network-enforced egress containment.
 MCP permissions never authorize HTTP. New agents, and agents backfilled
 when HTTP defaults were introduced, start at block. Existing agents retain
@@ -196,8 +196,8 @@ administrator credentials or CA private key. Validate the current `mgw_agent_`
 credential and public certificate before use; no retired script enforces these checks.
 
 Configure the client's supported uppercase/lowercase `HTTP_PROXY` and
-`HTTPS_PROXY` selectors using `http://agent:<runtime token>@host.lima.internal:8212`
-when a trusted Lima forwarding path is deliberately selected. Other environments
+`HTTPS_PROXY` selectors using `http://agent:<runtime token>@127.0.0.1:8212`
+for a same-host client. Use `host.lima.internal:8212` only when a trusted Lima forwarding path is deliberately selected. Other environments
 must use their explicitly selected trusted proxy endpoint. Read the current token
 from the private file at client launch rather than baking it into a shell profile.
 Only these client environment exports contain the token; never copy them into
@@ -213,8 +213,11 @@ Keep trust client-scoped: this procedure does not authorize modifying `/etc`,
 installing system trust, or exporting protected keys. Clients must actually
 support these selectors; Java, browser stores and other runtimes require explicit
 client-specific trust setup. Certificate-pinned clients cannot use interception:
-a narrowly scoped **Allow tunnel** grant is the explicit escape, bypassing inner
-request restrictions and credential injection. There is no TLS-failure fallback.
+a narrowly scoped **Allow tunnel** grant can permit opaque traffic, bypassing inner
+request restrictions and credential injection, **except at enabled Git routing origins**.
+Those origins refuse opaque tunnels; removing an origin returns it to HTTP enforcement,
+not merely a TLS workaround. See [Git routing](git.md#enable-the-origins-git-routing).
+There is no TLS-failure fallback.
 
 Explicitly reconcile inherited proxy variables, including `ALL_PROXY`/`all_proxy`,
 and set `NO_PROXY`/`no_proxy` empty unless a bypass is deliberately required. Any bypass skips all Gateway policy,
@@ -224,12 +227,21 @@ not a production side effect. Do not broadly exempt private networks or wildcard
 hosts to make requests succeed. Proxy environment variables do not enforce egress.
 
 Token rotation requires securely refreshing the private client file and restarting
-client processes; existing environments retain old bytes. CA replacement, key loss
-and **every maintenance restore-backup** require explicit new CA replacement, public export and
-manual client trust refresh. Ordinary restarts retain the selected CA; missing
-signing material never regenerates or revives an old backup handle. Rebuild the
-client bundle when the public CA changes and retire old client trust explicitly;
-no automatic trust removal is promised.
+client processes; existing environments retain old bytes. **Format-4 restore recovers
+the backed-up CA**, not a new signing identity. Compare client trust with the recovered
+public certificate; refresh trust only if it differs. Every restore invalidates agent
+and administrator tokens, so reissue agent access separately. Ordinary restarts retain
+the selected CA. Missing signing material never triggers regeneration; master-key loss
+requires [qualified encrypted recovery](backup-and-recovery.md#encrypted-secret-storage),
+not CA replacement or a new key. Historical formats have separate recovery limits.
+After deliberate CA replacement, export its public certificate, update client bundles
+and retire old trust explicitly; no automatic trust removal is promised.
+
+## Native Git clients
+
+Follow [Git setup and the first read-only `ls-remote` check](git.md#client-handoff-and-first-read-only-check). Git needs its own routing profile, repository and grants, even when HTTP access already works. Select runtime proxy environment and client-scoped `GIT_SSL_CAINFO`; reconcile existing proxy/helper settings and never persist a token-bearing URL in Git configuration or argv.
+
+## Existing client configurations
 
 This is fresh setup, not HTTP Broker adoption. Operators must inspect and reconcile
 conflicting proxy exports, historical Broker/Gateway managed blocks and malformed

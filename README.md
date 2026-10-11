@@ -6,15 +6,15 @@ Tools that give AI coding agents controlled access to external services while ke
 
 ## Tools at a Glance
 
-| Tool                            | Purpose                                                        |
-| ------------------------------- | -------------------------------------------------------------- |
-| [Agent Gateway](#agent-gateway) | Give agents scoped access to MCP tools and HTTP/HTTPS services |
-| [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP           |
-| [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models          |
+| Tool                            | Purpose                                                       |
+| ------------------------------- | ------------------------------------------------------------- |
+| [Agent Gateway](#agent-gateway) | Give agents scoped MCP, HTTP/HTTPS and smart-HTTPS Git access |
+| [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP          |
+| [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models         |
 
 ## Choosing and Combining Tools
 
-Use your preferred agent harness and client environment. Agent Gateway controls access to MCP tools and HTTP/HTTPS services; Local Git MCP and TypeSafe MCP are optional backends you can run behind it or another compatible MCP client.
+Use your preferred agent harness and client environment. Agent Gateway governs MCP tools, HTTP/HTTPS requests and configured smart-HTTPS Git repositories/refs. Its Git proxy works with native HTTPS Git clients and does not use host credential helpers. Local Git MCP instead exposes host-side Git operations as MCP tools, using host Git/SSH/helpers; it and TypeSafe MCP remain optional backends behind Gateway or another compatible MCP client. Gateway does not require either backend, Sandbox Manager or Lima.
 
 ## Tool Summaries
 
@@ -24,8 +24,9 @@ Use your preferred agent harness and client environment. Agent Gateway controls 
 
 - Denies access unless granted for MCP tools, with scoped permissions that agents can request through self-service tools.
 - Controls HTTP/HTTPS traffic with separate per-agent defaults and grants, supporting HTTPS interception, credential injection, and opaque tunnels.
+- Authorizes supported smart-HTTPS Git reads and ref actions with independent repository grants and Git-only credentials; SSH and LFS are outside that integration.
 - Manages upstream credentials and OAuth; agents receive a separate Gateway credential, not upstream service secrets.
-- Provides a web application and CLI for administration, with redacted MCP invocation and HTTP traffic history plus control-plane audit records.
+- Provides a web application and CLI for administration, with optional bounded MCP, HTTP and Git traffic history plus separate control-plane audit records.
 
 See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 
@@ -54,7 +55,7 @@ See the [TypeSafe MCP README](typesafe-mcp/README.md) for setup and usage.
 Requirements:
 
 - Go 1.26.9 or later and GNU Make
-- For Agent Gateway, an owner-only data directory and protected installation master key for encrypted credential custody
+- For Agent Gateway, a Linux or macOS host; `agent-gateway init` creates the owner-only data directory and protected master key for a new installation
 
 From the repository root, run the install command for the tools you need:
 

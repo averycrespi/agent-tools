@@ -1,6 +1,6 @@
 package contract
 
-const DocumentationOwnershipManifestVersion = 4
+const DocumentationOwnershipManifestVersion = 5
 
 type DocumentationGuide struct {
 	ID       string
@@ -26,7 +26,8 @@ var documentationGuides = []DocumentationGuide{
 	{ID: "docs.guide.operator.diagnostics", Path: "docs/maintainers/operator-diagnostics.md", Audience: "Maintainers reviewing local failure diagnostics", Purpose: "Map original causes to sole stderr observation owners and paired disclosure regression coverage."},
 	{ID: "docs.guide.upgrade.compatibility", Path: "docs/operators/upgrade-compatibility.md", Audience: "Operators upgrading Gateway and its clients", Purpose: "Coordinate client/service cutovers while preserving durable authority and resolving uncertain outcomes."},
 	{ID: "docs.guide.implementation.evidence", Path: "docs/maintainers/implementation-evidence.md", Audience: "Maintainers investigating implementation and historical measurements", Purpose: "Retain evidence provenance separately from normative product and release requirements."},
-	{ID: "docs.guide.http.proxy", Path: "docs/operators/http-proxy.md", Audience: "Gateway administrators and client operators", Purpose: "Enable proxying and configure fresh clients without migrating Broker state."},
+	{ID: "docs.guide.http.proxy", Path: "docs/operators/http-proxy.md", Audience: "Gateway administrators and client operators", Purpose: "Configure the proxy listener, agent authentication and client-scoped trust."},
+	{ID: "docs.guide.git", Path: "docs/operators/git.md", Audience: "Gateway administrators and native Git client operators", Purpose: "Configure Git routing, repository permissions and protected client handoff, then verify a read-only exchange."},
 	{ID: "docs.guide.installation.safety", Path: "docs/operators/installation-safety.md", Audience: "Operators maintaining existing Gateway installations", Purpose: "Select the existing installation and retain post-migration safety and recovery artifacts."},
 	{ID: "docs.guide.launchd", Path: "docs/operators/launchd.md", Audience: "Gateway operators using a logged-in macOS desktop", Purpose: "Install, verify, and manage a per-user LaunchAgent"},
 	{ID: "docs.guide.systemd", Path: "docs/operators/systemd.md", Audience: "Gateway operators using a Linux user manager", Purpose: "Supervise foreground serve with an operator-owned systemd user unit."},
@@ -42,7 +43,7 @@ var documentationGuides = []DocumentationGuide{
 
 var documentationCommandFamilies = []DocumentationCommandFamily{
 	{ID: "docs.command.http.ca", CommandPath: "http ca", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway http ca --help"},
-	{ID: "docs.command.git", CommandPath: "git", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway git --help"},
+	{ID: "docs.command.git", CommandPath: "git", CanonicalOwner: "docs/operators/git.md", HelpInvocation: "agent-gateway git --help"},
 	{ID: "docs.command.http", CommandPath: "http", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway http --help"},
 	{ID: "docs.command.audit", CommandPath: "audit", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway audit --help"},
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway admin credential --help"},
