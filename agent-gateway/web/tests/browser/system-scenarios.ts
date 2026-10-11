@@ -2799,9 +2799,20 @@ export async function runInvocations(
     page.getByText(/Filters must fit 256 UTF-8 bytes/),
   ).toBeVisible();
   await capture(page, "reset-invalid-draft");
+  const outcomeDraft = page.getByLabel("Outcome", { exact: true });
+  await outcomeDraft.selectOption("invalid_params");
+  await expect(draftTool).toHaveValue("x".repeat(257));
+  await outcomeDraft.selectOption("");
+  await expect(resetFilters).toBeEnabled();
+  await expect(draftTool).toHaveValue("x".repeat(257));
   await resetFilters.click();
   await expect(resetFilters).toBeDisabled();
   await capture(page, "reset-cleared");
+  await page.getByLabel("Agent", { exact: true }).fill("Build");
+  await expect(page).toHaveURL(/filter_principal=Build/);
+  await page.getByLabel("Agent", { exact: true }).fill("");
+  await expect(page).toHaveURL(/#\/mcp\/invocations$/);
+  await expect(resetFilters).toBeDisabled();
   await page.evaluate(() => {
     location.hash = "#/mcp/invocations?filter_principal=Build";
   });
