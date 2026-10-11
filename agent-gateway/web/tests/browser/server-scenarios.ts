@@ -1,3 +1,4 @@
+import { assertCreationPlaceholders } from "./creation-placeholders.ts";
 import {
   capture,
   captureScreenshot,
@@ -668,6 +669,17 @@ export async function runServerCreateUpdate(
       .count()) !== 0
   )
     fail("HTTP selection did not reveal only automatic HTTP configuration");
+  await page.getByRole("button", { name: "Add header", exact: true }).click();
+  await assertCreationPlaceholders(page);
+  await page.getByTestId("server-header-name").fill("X-Example");
+  await page.getByTestId("server-header-value").fill("example-project");
+  await assertCreationPlaceholders(page);
+  await page
+    .getByRole("button", {
+      name: "Remove custom http headers row 1",
+      exact: true,
+    })
+    .click();
   await capture(page, "create-http-transport");
   await page.locator("#server-url").fill("file:///tmp/mcp");
   await page.locator("#server-auth-none").check();
@@ -891,6 +903,8 @@ export async function runServerCreateUpdate(
   await page.locator("#server-namespace").fill("trim-probe");
   await page.locator("#server-display-name").fill("Trim probe");
   await page.locator("#server-url").fill("  https://resource.example/mcp  ");
+  await assertCreationPlaceholders(page);
+  await capture(page, "create-oauth-added-rows", true);
   await page.locator('[data-testid="server-editor-submit"]').click();
   const normalizedReview = page.locator(
     '[data-testid="server-creation-review"]',
@@ -1016,6 +1030,8 @@ export async function runServerCreateUpdate(
   )
     fail("ordinary environment row rejected an allowed empty value");
 
+  await assertCreationPlaceholders(page);
+  await capture(page, "create-stdio-added-rows", true);
   await page.locator('[data-testid="server-editor-submit"]').click();
   const creationReview = page.locator('[data-testid="server-creation-review"]');
   const reviewText = (await creationReview.innerText()).replaceAll("\n", " ");
@@ -3021,6 +3037,16 @@ export async function runServerCredentials(
       fail(`credential field ${fieldID} was not blank and write-only`);
   };
   await assertEligible("credential-slot-primary");
+  currentServer = {
+    ...currentServer,
+    credential_revisions: {
+      ...currentServer.credential_revisions,
+      static_credential: "0",
+    },
+  };
+  await page.getByTestId("manual-refresh").click();
+  await assertEligible("credential-slot-primary");
+  await assertCreationPlaceholders(page);
   await capture(page, "stdio-secret-slots");
   await page.getByTestId("credential-replacement-submit").click();
   await expect(
@@ -3039,6 +3065,7 @@ export async function runServerCredentials(
   };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-bearer");
+  await assertCreationPlaceholders(page);
   await capture(page, "http-bearer-slot");
   await page
     .getByRole("textbox", { name: "Bearer token", exact: true })
@@ -3093,6 +3120,12 @@ export async function runServerCredentials(
     .waitFor();
   if (!(await page.getByTestId("start-auth-flow").isDisabled()))
     fail("missing client secret allowed authorization");
+  await assertCreationPlaceholders(page);
+  await page
+    .locator("#credential-slot-client_secret")
+    .fill("SYNTHETIC_INITIAL_SECRET");
+  await assertCreationPlaceholders(page);
+  await page.locator("#credential-slot-client_secret").fill("");
   await capture(page, "oauth-client-secret-missing");
   currentServer = {
     ...currentServer,
@@ -3151,7 +3184,14 @@ export async function runServerCredentials(
   await capture(page, "dynamic-oauth");
   eligibilityModes += 1;
 
-  currentServer = { ...currentServer, transport: stdioTransport };
+  currentServer = {
+    ...currentServer,
+    transport: stdioTransport,
+    credential_revisions: {
+      ...currentServer.credential_revisions,
+      static_credential: "1",
+    },
+  };
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-primary");
   await page.getByRole("heading", { name: "Local secrets" }).waitFor();

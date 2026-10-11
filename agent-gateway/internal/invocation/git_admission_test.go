@@ -39,7 +39,7 @@ func invocationGitRequest(t *testing.T, authority *authorization.Repository, pri
 	return request
 }
 
-func TestGitWireMaterialNeverEntersTrafficOrBackup(t *testing.T) {
+func TestGitOnlyBoundedRefsEnterTrafficAndBackup(t *testing.T) {
 	c, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	ref, oid, pack := "refs/heads/observed-private-canary", "1234567890abcdef1234567890abcdef12345678", "PACKopaque-private-canary"
 	line := strings.Repeat("0", 40) + " " + oid + " " + ref
@@ -79,10 +79,17 @@ func TestGitWireMaterialNeverEntersTrafficOrBackup(t *testing.T) {
 			continue
 		}
 		require.NoError(t, err)
-		for _, canary := range []string{ref, oid, pack, credential.Bearer} {
+		for _, canary := range []string{oid, pack, credential.Bearer} {
 			require.NotContains(t, string(raw), canary)
 		}
 	}
+	history, err := traffic.GitHistory(t.Context(), 0, 10)
+	require.NoError(t, err)
+	require.Len(t, history.Records, 1)
+	require.Equal(t, &contract.GitTrafficRefEvidence{State: "complete", Refs: []contract.GitTrafficRequestedRef{{Name: ref, Action: "create"}}}, history.Records[0].Admission.RefEvidence)
+	retained, err := os.ReadFile(backup)
+	require.NoError(t, err)
+	require.Contains(t, string(retained), ref)
 }
 
 func TestGitOptionalRecordingNeverGrantsOrBlocksExecution(t *testing.T) {

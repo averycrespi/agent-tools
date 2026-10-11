@@ -543,6 +543,7 @@ function PrincipalEditor({
             <input
               {...attributes}
               data-testid="principal-display-name"
+              placeholder="Research assistant"
               value={displayName}
               disabled={disabled}
               onInput={(event) => setDisplayName(event.currentTarget.value)}

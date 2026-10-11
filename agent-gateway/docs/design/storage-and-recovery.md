@@ -108,12 +108,15 @@ the same canonical encoder on writes, startup, reads, backup and restore. Missin
 historical termination is never synthesized from status or outcome.
 
 Traffic schema 3 adds a distinct `git_traffic` table with immutable admission and
-one-terminal triggers to that same generation. Its minimal bounded admission
-contains identities/revisions, operation, command count, allowed disposition and
-selected material generation, never observed refs/OIDs, policy selectors, URLs,
-prefixes, hashes, packs, arbitrary messages or secrets. Completion contains only
-closed transport facts: prestart failure, unknown outcome or nonmutation, byte
-counts, duration, status and transfer-complete flag. Missing terminal stays unknown;
+one-terminal triggers to that same generation. Its bounded admission contains
+identities/revisions, configured policy facts, operation, command count, allowed
+disposition, selected material generation and an optional bounded requested-ref
+prefix. The [public contract](public-contract.md#git-configuration-resources)
+owns the deliberate ref-name retention exception and strict limits; observed
+URLs, OIDs, wire prefixes, hashes, packs, arbitrary messages and secrets remain
+excluded. Completion contains closed transport facts and, when actually known,
+upstream aggregate and aligned per-ref claims. Legacy field absence remains
+unavailable; no DDL migration or history reconstruction is needed. Missing terminal stays unknown;
 even a complete HTTP 200 push remains outcome_unknown, not Git success. Git rows
 share sequence allocation, cross-domain identity uniqueness, retention and
 physical budgets with MCP and HTTP. Every retained row is semantically validated.
@@ -187,7 +190,11 @@ Logical retention charges include encoded evidence plus 1024 bytes and the
 protocol's reserved completion payload: 512 bytes for MCP diagnostics, Git or HTTP
 terminal facts. HTTP admission JSON is at most 65,536 bytes; its charge includes
 that entire immutable payload. Git admission JSON is at most 8,192 bytes and
-reserves the same 512-byte completion allowance. MCP retains its existing 16,384-byte charged-record
+reserves the same 512-byte completion allowance. Ref evidence uses at most 1,536
+bytes and eight entries within admission (shortened further to fit its envelope),
+not an additional charge. Completion uses at most eight `ok`/`ng` entries, never
+repeated names or raw messages, within its existing allowance. Count/byte overflow
+is explicitly `truncated`, including a possible empty prefix. MCP retains its existing 16,384-byte charged-record
 ceiling. Shared batching reserves for the largest accepted domain member. The logical allowance is one quarter of the
 database partition, leaving index/fragmentation headroom. A separately configurable
 1–1,000,000 retained-row ceiling bounds full semantic validation work; it is not a

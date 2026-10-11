@@ -15,7 +15,7 @@ import {
   type OperationalState,
 } from "./primitives";
 import type { SessionClient } from "./session";
-import { UserTime } from "./time";
+import { UserTime, HistoryWindow } from "./time";
 import type {
   PanelSnapshot,
   ViewCoordinator,
@@ -885,23 +885,37 @@ function InvocationFacts({
         <div>
           <dt>Agent</dt>
           <dd>
-            <a href={`#/agents/${item.principalID}`}>
-              {principalNames.get(item.principalID) ?? item.principalID}
-            </a>
+            <TableIdentity
+              primary={
+                <a href={`#/agents/${item.principalID}`}>
+                  {principalNames.get(item.principalID) ?? item.principalID}
+                </a>
+              }
+              secondary={item.principalID}
+            />
           </dd>
         </div>
         <div>
           <dt>Tool</dt>
           <dd>
-            {item.target?.kind === "downstream" ? (
-              <a
-                href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
-              >
-                {invocationTargetLabel(item.target, item.requestedName)}
-              </a>
-            ) : (
-              invocationTargetLabel(item.target, item.requestedName)
-            )}
+            <TableIdentity
+              primary={
+                item.target?.kind === "downstream" ? (
+                  <a
+                    href={`#/mcp/servers/${item.target.serverID}/descriptors/${item.target.toolID}`}
+                  >
+                    {invocationTargetLabel(item.target, item.requestedName)}
+                  </a>
+                ) : (
+                  invocationTargetLabel(item.target, item.requestedName)
+                )
+              }
+              secondary={
+                item.target?.kind === "downstream"
+                  ? item.target.toolID
+                  : undefined
+              }
+            />
           </dd>
         </div>
         <div>
@@ -915,9 +929,14 @@ function InvocationFacts({
             <div>
               <dt>Grant</dt>
               <dd>
-                <a href={`#/mcp/grants/${item.authorization.grantID}`}>
-                  Grant {item.authorization.grantID}
-                </a>
+                <TableIdentity
+                  primary={
+                    <a href={`#/mcp/grants/${item.authorization.grantID}`}>
+                      Grant
+                    </a>
+                  }
+                  secondary={item.authorization.grantID}
+                />
               </dd>
             </div>
           )}
@@ -925,9 +944,12 @@ function InvocationFacts({
           <div>
             <dt>Server</dt>
             <dd>
-              <a href={`#/mcp/servers/${item.target.serverID}`}>
-                Server {item.target.serverID}
-              </a>
+              <TableIdentity
+                primary={
+                  <a href={`#/mcp/servers/${item.target.serverID}`}>Server</a>
+                }
+                secondary={item.target.serverID}
+              />
             </dd>
           </div>
         )}
@@ -1294,6 +1316,7 @@ function InvocationFilters({
   };
   return (
     <>
+      <HistoryWindow query={query} />
       <div
         class="table-filters collection-query-filters"
         role="group"

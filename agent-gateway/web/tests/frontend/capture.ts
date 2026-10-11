@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import { assertCreationPlaceholders } from "../browser/creation-placeholders.ts";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve, join, basename } from "node:path";
 
@@ -48,6 +49,7 @@ export async function capture(
 ): Promise<void> {
   const scenario = owners.get(page);
   if (!scenario) return;
+  await assertCreationPlaceholders(page);
   const recordID = new URL(page.url()).hash.split("?")[0]!.split("/").at(-1);
   const identity = page.locator(
     '[data-testid="detail-context"], [data-testid="server-context"]',

@@ -24,20 +24,24 @@ func (h *Handler) httpTrafficCollection(w http.ResponseWriter, r *http.Request) 
 		writeProblem(w, contract.ProblemMalformedRequest)
 		return
 	}
-	allowed := map[string]bool{"cursor": true, "limit": true, "principal_id": true, "principal": true, "search_locale": true, "destination": true, "type": true, "decision": true, "outcome": true, "connect_id": true}
+	allowed := map[string]bool{"from": true, "until": true, "cursor": true, "limit": true, "principal_id": true, "principal": true, "search_locale": true, "destination": true, "type": true, "decision": true, "outcome": true, "connect_id": true}
 	for key, values := range query {
 		if !allowed[key] || len(values) != 1 || values[0] == "" {
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
 	}
-	q := contract.HTTPTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor"), Filters: contract.HTTPTrafficFilters{Principal: query.Get("principal"), SearchLocale: query.Get("search_locale"), ConnectID: query.Get("connect_id"), PrincipalID: query.Get("principal_id"), Destination: query.Get("destination"), Type: query.Get("type"), Decision: query.Get("decision"), Outcome: query.Get("outcome")}}
+	q := contract.HTTPTrafficQuery{Limit: contract.AdminListPageDefault, Cursor: query.Get("cursor"), Filters: contract.HTTPTrafficFilters{From: query.Get("from"), Until: query.Get("until"), Principal: query.Get("principal"), SearchLocale: query.Get("search_locale"), ConnectID: query.Get("connect_id"), PrincipalID: query.Get("principal_id"), Destination: query.Get("destination"), Type: query.Get("type"), Decision: query.Get("decision"), Outcome: query.Get("outcome")}}
 	if raw := query.Get("limit"); raw != "" {
 		q.Limit, err = strconv.Atoi(raw)
 		if err != nil || q.Limit < 1 || q.Limit > limitValue("admin_list_page") || strconv.Itoa(q.Limit) != raw {
 			writeProblem(w, contract.ProblemMalformedRequest)
 			return
 		}
+	}
+	if !contract.ValidHistoryRange(q.Filters.From, q.Filters.Until) {
+		writeProblem(w, contract.ProblemMalformedRequest)
+		return
 	}
 	page, err := h.httpTraffic.ListHTTP(r.Context(), q)
 	if err != nil {

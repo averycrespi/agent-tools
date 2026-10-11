@@ -1,30 +1,34 @@
 package contract
 
 const (
-	GitTrafficAdmissionBytes  = 8192
-	GitTrafficCompletionBytes = 512
+	GitTrafficAdmissionBytes   = 8192
+	GitTrafficCompletionBytes  = 512
+	GitTrafficRefs             = 8
+	GitTrafficRefEvidenceBytes = 1536
 )
 
 // GitTrafficAdmission retains bounded configured identity and policy facts,
-// never observed URLs, wire prefixes, ref names, object IDs, messages or packs.
+// including bounded requested refs, never observed URLs, wire prefixes,
+// object IDs, messages or packs.
 type GitTrafficAdmission struct {
-	ID                    string              `json:"id"`
-	AdmittedAt            string              `json:"admitted_at"`
-	EvaluatedAt           string              `json:"evaluated_at"`
-	Principal             GitRevisionRef      `json:"principal"`
-	AgentCredential       GitRevisionRef      `json:"agent_credential"`
-	Repository            GitRevisionRef      `json:"repository"`
-	AliasRevision         string              `json:"alias_revision"`
-	ProfileRevision       string              `json:"profile_revision"`
-	AuthorizationRevision string              `json:"authorization_revision"`
-	Policy                *GitTrafficPolicy   `json:"policy,omitempty"`
-	Rejection             string              `json:"rejection,omitempty"`
-	Operation             string              `json:"operation"`
-	Commands              int                 `json:"commands"`
-	Denial                string              `json:"denial,omitempty"`
-	Allowed               bool                `json:"allowed"`
-	Material              *GitTrafficMaterial `json:"material,omitempty"`
-	PrivateGrant          *HTTPRevisionRef    `json:"private_grant,omitempty"`
+	ID                    string                 `json:"id"`
+	AdmittedAt            string                 `json:"admitted_at"`
+	EvaluatedAt           string                 `json:"evaluated_at"`
+	Principal             GitRevisionRef         `json:"principal"`
+	AgentCredential       GitRevisionRef         `json:"agent_credential"`
+	Repository            GitRevisionRef         `json:"repository"`
+	AliasRevision         string                 `json:"alias_revision"`
+	ProfileRevision       string                 `json:"profile_revision"`
+	AuthorizationRevision string                 `json:"authorization_revision"`
+	RefEvidence           *GitTrafficRefEvidence `json:"ref_evidence,omitempty"`
+	Policy                *GitTrafficPolicy      `json:"policy,omitempty"`
+	Rejection             string                 `json:"rejection,omitempty"`
+	Operation             string                 `json:"operation"`
+	Commands              int                    `json:"commands"`
+	Denial                string                 `json:"denial,omitempty"`
+	Allowed               bool                   `json:"allowed"`
+	Material              *GitTrafficMaterial    `json:"material,omitempty"`
+	PrivateGrant          *HTTPRevisionRef       `json:"private_grant,omitempty"`
 }
 
 // GitTrafficPolicy contains configured admission-time identity and bounded
@@ -37,6 +41,18 @@ type GitTrafficPolicy struct {
 	Creates        int              `json:"creates"`
 	Updates        int              `json:"updates"`
 	Deletes        int              `json:"deletes"`
+}
+
+// RefEvidence retains a request-order prefix. Missing evidence denotes legacy
+// unavailability; truncated evidence never describes unrecorded commands.
+type GitTrafficRefEvidence struct {
+	State string                   `json:"state"`
+	Refs  []GitTrafficRequestedRef `json:"refs"`
+}
+
+type GitTrafficRequestedRef struct {
+	Name   string `json:"name"`
+	Action string `json:"action"`
 }
 
 type GitTrafficMaterial struct {
@@ -55,9 +71,13 @@ type GitTrafficCompletion struct {
 	DurationMS       int64  `json:"duration_ms"`
 	TransferComplete bool   `json:"transfer_complete"`
 	ReportedResult   string `json:"reported_result,omitempty"`
-	Failure          string `json:"failure,omitempty"`
+	// RefOutcomes aligns with admission ref_evidence.refs: ok/ng are upstream
+	// claims only. Absence means unavailable, never inferred from aggregate counts.
+	RefOutcomes []string `json:"ref_outcomes,omitempty"`
+	Failure     string   `json:"failure,omitempty"`
 }
 type GitTrafficFilters struct {
+	From, Until  string
 	Operation    string
 	Repository   string
 	Admission    string

@@ -707,7 +707,6 @@ function Filters({
     const label = filterLabel(key);
     const appliedValue = applied.current[name] ?? "";
     const hint = [
-      key === "target" ? "Current names or literal partial IDs." : "",
       (draft[name] ?? "") !== appliedValue
         ? `Current results: ${appliedValue === "" ? "Any" : appliedValue}.`
         : "",
@@ -727,6 +726,7 @@ function Filters({
             <input
               {...attributes}
               type="text"
+              placeholder="Name or ID"
               value={draft[name] ?? ""}
               maxLength={256}
               onInput={(event) =>
@@ -750,7 +750,7 @@ function Filters({
                 apply(patch);
               }}
             >
-              <option value="">Any</option>
+              <option value="">{label}: any</option>
               {choices.map((choice) => (
                 <option key={choice} value={choice}>
                   {choice === "principal" ? "Agent" : sentenceCase(choice)}
@@ -783,7 +783,7 @@ function Filters({
           </button>
         </div>
       )}
-      <div class="audit-filter-grid">
+      <div class="table-filters collection-query-filters audit-filter-grid">
         <FormField id="audit-event" label="Event">
           {(attributes) => (
             <select
@@ -806,7 +806,7 @@ function Filters({
                 apply(patch);
               }}
             >
-              <option value="">Any event</option>
+              <option value="">Event: any</option>
               {Object.entries(auditActions)
                 .toSorted(([a], [b]) => a.localeCompare(b))
                 .map(([category, actions]) => (
@@ -833,16 +833,6 @@ function Filters({
         {field("target_type")}
         {field("target")}
         {field("outcome")}
-      </div>
-      {pending && (
-        <p role="status">
-          Draft changes are not yet applied.{" "}
-          {Object.keys(errors).length > 0
-            ? "Check the marked fields; valid independent changes still apply."
-            : "Text filters apply after a short pause."}
-        </p>
-      )}
-      <div class="audit-filter-actions">
         <button
           type="button"
           disabled={
@@ -854,6 +844,14 @@ function Filters({
           Reset
         </button>
       </div>
+      {pending && (
+        <p role="status">
+          Draft changes are not yet applied.{" "}
+          {Object.keys(errors).length > 0
+            ? "Check the marked fields; valid independent changes still apply."
+            : "Text filters apply after a short pause."}
+        </p>
+      )}
     </form>
   );
 }

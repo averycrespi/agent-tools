@@ -124,6 +124,7 @@ func ParseInvocationDecisionFilter(value string) (AuthorizationDecision, error) 
 }
 
 type InvocationFilters struct {
+	From, Until    string
 	Tool           string                    `json:"tool,omitempty"`
 	Principal      string                    `json:"principal,omitempty"`
 	SearchLocale   string                    `json:"search_locale,omitempty"`

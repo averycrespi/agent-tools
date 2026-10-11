@@ -55,9 +55,10 @@ export async function readGitChoices<T extends { id: string }>(
 export function useGitChoices(
   session: SessionClient,
   generation: number,
-  kind: "repositories" | "grants" | "credentials",
+  kind: "repositories" | "grants" | "credentials" | "traffic",
 ): GitChoices {
-  const [state, setState] = useState<GitChoices>({
+  const [state, setState] = useState<GitChoices & { generation: number }>({
+    generation: -1,
     agents: [],
     repositories: [],
     credentials: [],
@@ -102,6 +103,7 @@ export function useGitChoices(
       .then(([agents, repositories, credentials]) => {
         if (!abort.signal.aborted)
           setState({
+            generation,
             agents,
             repositories,
             credentials,
@@ -113,13 +115,14 @@ export function useGitChoices(
         if (!abort.signal.aborted)
           setState((previous) => ({
             ...previous,
+            generation,
             loading: false,
             error: true,
           }));
       });
     return () => abort.abort();
   }, [session, generation, kind]);
-  return state;
+  return state.generation === generation ? state : { ...state, loading: true };
 }
 
 export function choiceLabel(

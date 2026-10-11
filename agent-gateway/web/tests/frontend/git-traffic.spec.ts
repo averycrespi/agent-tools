@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import { test, syntheticBearer } from "./fixture.ts";
 import { capture, registerCapture } from "./capture.ts";
-import type { GitTraffic } from "../../src/git-contract.ts";
+import { gitOutcome, type GitTraffic } from "../../src/git-contract.ts";
 
 const id = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
 const time = "2026-10-01T12:00:00.000000000Z";
@@ -28,7 +28,54 @@ const complete: NonNullable<GitTraffic["completion"]> = {
   transfer_complete: true,
   status: 200,
 };
+const refs: GitTraffic["admission"] = {
+  ...admission,
+  commands: 3,
+  ref_evidence: {
+    state: "complete",
+    refs: [
+      { name: "refs/heads/new", action: "create" },
+      { name: "refs/heads/main", action: "update" },
+      { name: "refs/tags/old", action: "delete" },
+    ],
+  },
+};
 const variants: Record<string, GitTraffic> = {
+  http401: { admission, completion: { ...complete, status: 401 } },
+  http403: { admission, completion: { ...complete, status: 403 } },
+  "refs-success": {
+    admission: refs,
+    completion: {
+      ...complete,
+      reported_result: "reported_success",
+      ref_outcomes: ["ok", "ok", "ok"],
+    },
+  },
+  "refs-partial": {
+    admission: refs,
+    completion: {
+      ...complete,
+      reported_result: "reported_partial",
+      ref_outcomes: ["ok", "ng", "ok"],
+    },
+  },
+  "refs-denied": { admission: { ...refs, allowed: false }, completion: null },
+  "refs-unknown": { admission: refs, completion: { ...complete } },
+  "refs-truncated": {
+    admission: {
+      ...refs,
+      commands: 128,
+      ref_evidence: {
+        state: "truncated",
+        refs: [{ name: `refs/heads/${"long-".repeat(100)}`, action: "update" }],
+      },
+    },
+    completion: {
+      ...complete,
+      reported_result: "reported_partial",
+      ref_outcomes: ["ok"],
+    },
+  },
   "unknown-completion": { admission, completion: null },
   "reported-success": {
     admission,
@@ -99,6 +146,13 @@ const variants: Record<string, GitTraffic> = {
   },
 };
 const outcomes: Record<string, [string, string, string]> = {
+  http401: ["Push", "Complete", "Unknown"],
+  http403: ["Push", "Complete", "Unknown"],
+  "refs-success": ["Push", "Complete", "Reported success"],
+  "refs-partial": ["Push", "Complete", "Reported partial success"],
+  "refs-denied": ["Push", "Not dispatched", "Unknown"],
+  "refs-unknown": ["Push", "Complete", "Unknown"],
+  "refs-truncated": ["Push", "Complete", "Reported partial success"],
   "unknown-completion": ["Push", "Unknown", "Unknown"],
   "reported-success": ["Push", "Complete", "Reported success"],
   "reported-failure": ["Push", "Complete", "Reported failure"],
@@ -121,6 +175,34 @@ test("git-traffic", async ({ page, frontend }) => {
   let revision = 1;
   let stale = false;
   let failOlder = false;
+  let repositoryState = "available";
+  await page.route("**/api/v2/git/repositories?*", async (route) => {
+    if (repositoryState === "unavailable")
+      return route.fulfill({ status: 503, json: { code: "unavailable" } });
+    return route.fulfill({
+      json: {
+        items:
+          repositoryState === "deleted"
+            ? []
+            : [
+                {
+                  id,
+                  name: "Current renamed repository",
+                  url: "https://example.invalid/team/repo",
+                  aliases: [],
+                  credential_id: null,
+                  revision: "1",
+                  alias_revision: "1",
+                  created_at: time,
+                  updated_at: time,
+                },
+              ],
+        next_cursor: null,
+        total_count: repositoryState === "deleted" ? 0 : 1,
+        offset: 0,
+      },
+    });
+  });
   await page.route("**/api/v2/git/traffic**", async (route) => {
     expect(route.request().method()).toBe("GET");
     if (mode === "loading")
@@ -187,6 +269,31 @@ test("git-traffic", async ({ page, frontend }) => {
   }
   mode = "history";
   await nav();
+  const repositoryCell = () =>
+    page.getByRole("table").locator('td[data-label="Repository"]').first();
+  await expect(repositoryCell().getByRole("link")).toHaveText(
+    "Synthetic policy repository",
+  );
+  await expect(repositoryCell().getByRole("link")).toHaveAttribute(
+    "href",
+    `#/git/repositories/${id}`,
+  );
+  await expect(repositoryCell().locator(".table-identifier")).toHaveText(id);
+  await expect(repositoryCell()).not.toContainText(
+    "Current renamed repository",
+  );
+  for (const state of ["deleted", "unavailable"]) {
+    repositoryState = state;
+    await page.getByTestId("manual-refresh").click();
+    await expect(repositoryCell().getByRole("link")).toHaveCount(0);
+    await expect(repositoryCell()).toContainText("Synthetic policy repository");
+    await expect(repositoryCell()).toContainText(id);
+  }
+  repositoryState = "available";
+  await page.getByTestId("manual-refresh").click();
+  await expect(repositoryCell().getByRole("link")).toHaveText(
+    "Synthetic policy repository",
+  );
   const live = page.getByRole("switch", { name: "Live mode", exact: true });
   await expect(live).toBeChecked();
   await expect(
@@ -278,9 +385,21 @@ test("git-traffic", async ({ page, frontend }) => {
   await expect(
     page.getByText("1 exchange loaded", { exact: true }),
   ).toBeVisible();
+  const reset = page.getByRole("button", { name: "Reset", exact: true });
+  await expect(reset).toBeDisabled();
+  for (const select of await page
+    .getByRole("group", { name: "Git traffic filters", exact: true })
+    .getByRole("combobox")
+    .all()) {
+    await select.selectOption({ index: 1 });
+    await expect(reset).toBeEnabled();
+    await reset.click();
+    await expect(reset).toBeDisabled();
+  }
   await page
-    .getByRole("searchbox", { name: "Recorded repository name or ID" })
+    .getByRole("searchbox", { name: "Repo name or ID" })
     .fill("Recorded libray");
+  await expect(reset).toBeEnabled();
   await expect(page).toHaveURL(/filter_repository=Recorded%20libray/);
   await page
     .getByRole("combobox", { name: "Operation", exact: true })
@@ -291,6 +410,7 @@ test("git-traffic", async ({ page, frontend }) => {
   await capture(page, "filtered", true);
   await page.getByRole("button", { name: "Reset", exact: true }).click();
   await expect(page).toHaveURL(/#\/git\/traffic$/);
+  await expect(reset).toBeDisabled();
   stale = true;
   await page
     .getByRole("button", { name: "Load older exchanges", exact: true })
@@ -304,6 +424,12 @@ test("git-traffic", async ({ page, frontend }) => {
   for (const [name, value] of Object.entries(variants)) {
     current = value;
     mode = "populated";
+    await nav();
+    await expect(
+      page.getByRole("table").locator("tbody tr").first(),
+    ).toContainText(gitOutcome(value));
+    if (name === "http401" || name === "http403" || name === "refs-partial")
+      await capture(page, `collection-${name}`, true);
     await nav(true);
     await expect(
       page.getByRole("heading", {
@@ -316,7 +442,7 @@ test("git-traffic", async ({ page, frontend }) => {
     ).toBeFocused();
     await expect(
       page.getByTestId("detail-context").locator(".status-label"),
-    ).toContainText("Transport:");
+    ).toHaveText(gitOutcome(value));
     await expect(page.locator("section.intro")).toHaveAccessibleName(
       "Git Traffic details",
     );
@@ -333,12 +459,39 @@ test("git-traffic", async ({ page, frontend }) => {
         .filter({ has: page.getByText(label, { exact: true }) })
         .locator("dd");
     const [exchange, transport, report] = outcomes[name]!;
-    await expect(fact("Exchange")).toHaveText(exchange);
+    await expect(fact("Operation")).toHaveText(exchange);
     await expect(fact("Transport")).toHaveText(transport);
     await expect(fact("Upstream report")).toHaveText(report);
     await expect(page.locator("header.detail-context")).toContainText(
-      transport,
+      gitOutcome(value),
     );
+    if (value.admission.ref_evidence) {
+      const region = page.getByRole("region", {
+        name: "Targeted ref evidence",
+        exact: true,
+      });
+      for (const ref of value.admission.ref_evidence.refs)
+        await expect(region).toContainText(ref.name);
+      if (name === "refs-partial")
+        await expect(
+          region.getByRole("row").filter({ hasText: "refs/heads/main" }),
+        ).toContainText("Reported failure");
+      if (name === "refs-denied")
+        await expect(
+          region.getByRole("row").filter({ hasText: "refs/heads/main" }),
+        ).toContainText("Not dispatched");
+      if (name === "refs-unknown")
+        await expect(
+          region.getByRole("row").filter({ hasText: "refs/heads/main" }),
+        ).toContainText("Unknown");
+      if (name === "refs-truncated")
+        await expect(page.getByText(/truncated — omitted refs/)).toBeVisible();
+    } else if (value.admission.operation === "push")
+      await expect(
+        page.getByText("Ref evidence unavailable (legacy record).", {
+          exact: true,
+        }),
+      ).toBeVisible();
     await expect(fact("Command count")).toHaveText(
       String(value.admission.commands),
     );
@@ -366,9 +519,19 @@ test("git-traffic", async ({ page, frontend }) => {
         "0 / 1 / 0",
       );
       await expect(fact("Authorization revision")).toHaveText("1");
-      await expect(fact("Repository")).toHaveText(`${id} · revision 1`);
+      await expect(
+        page
+          .locator("details")
+          .locator("dl > div")
+          .filter({ has: page.locator("dt", { hasText: /^Repository$/ }) })
+          .locator("dd"),
+      ).toHaveText(`${id} · revision 1`);
     }
-    await capture(page, `detail-${name}`, name === "policy-evidence");
+    await capture(
+      page,
+      `detail-${name}`,
+      name === "policy-evidence" || name.startsWith("refs-"),
+    );
   }
   mode = "error";
   await nav(true);

@@ -14,7 +14,7 @@ import {
   sentenceCase,
   useDebouncedInput,
 } from "./primitives";
-import { UserTime } from "./time";
+import { UserTime, HistoryWindow } from "./time";
 import { RelatedHistory, RelatedHistoryChanged } from "./related-history";
 import { parseAuditJSON } from "./audit-contract";
 import {
@@ -669,6 +669,7 @@ function TrafficFilters({
   useDebouncedInput(draft, apply);
   return (
     <>
+      <HistoryWindow query={query} />
       <div
         class="table-filters collection-query-filters"
         role="group"
@@ -716,6 +717,10 @@ function TrafficFilters({
         ))}
         <button
           type="button"
+          disabled={
+            !Object.values(draft).some(Boolean) &&
+            !Object.values(query).some(Boolean)
+          }
           onClick={() => {
             setDraft({});
             apply({});

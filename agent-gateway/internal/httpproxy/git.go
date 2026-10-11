@@ -96,6 +96,7 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 		completion.TransferComplete = completion.TransferComplete && (upload.eof.Load() || r.ContentLength >= 0 && completion.BytesSent == r.ContentLength)
 		if !completion.TransferComplete {
 			completion.ReportedResult = ""
+			completion.RefOutcomes = nil
 		}
 		if request.Operation() != "push" && completion.TransferComplete {
 			completion.Outcome = "nonmutation"
@@ -138,8 +139,15 @@ func (e *Engine) git(w http.ResponseWriter, r *http.Request, lease *authorizatio
 	}
 	completion.TransferComplete = true
 	if observer != nil {
-		if result := observer.Result(); result != "unknown" {
-			completion.ReportedResult = result
+		if report := observer.Result(); report != "unknown" {
+			completion.ReportedResult = report
+			if result.RefEvidence != nil {
+				refs := make([]string, 0, len(result.RefEvidence.Refs))
+				for _, ref := range result.RefEvidence.Refs {
+					refs = append(refs, ref.Name)
+				}
+				completion.RefOutcomes = observer.RefOutcomes(refs)
+			}
 		}
 	}
 }

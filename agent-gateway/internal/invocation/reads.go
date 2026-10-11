@@ -203,6 +203,10 @@ func (repository *Repository) list(ctx context.Context, query contract.Invocatio
 func invocationListStatement(nextSequence int64, filters contract.InvocationFilters, limit int) (string, []any) {
 	clauses := []string{"insertion_sequence <= ?"}
 	arguments := []any{nextSequence}
+	if filters.From != "" {
+		clauses = append(clauses, "admitted_at >= ? AND admitted_at < ?")
+		arguments = append(arguments, filters.From, filters.Until)
+	}
 	if filters.PrincipalID != nil {
 		clauses = append(clauses, "principal_id = ?")
 		arguments = append(arguments, *filters.PrincipalID)
@@ -253,6 +257,9 @@ func invocationOutcomeClause(outcome contract.InvocationOutcomeClass) (string, [
 }
 
 func validInvocationFilters(filters contract.InvocationFilters) bool {
+	if !contract.ValidHistoryRange(filters.From, filters.Until) {
+		return false
+	}
 	if !validSearchText(filters.Tool) || !validSearchText(filters.Principal) || !validSearchLocale(filters.SearchLocale) {
 		return false
 	}

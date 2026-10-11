@@ -251,6 +251,13 @@ export function MatcherAtomEditor({
                     aria-describedby={describedBy}
                     data-testid={`${testPrefix}-value`}
                     value={atom.value}
+                    placeholder={
+                      regex
+                        ? "example-[a-z0-9-]+"
+                        : atom.type === "number"
+                          ? "42"
+                          : "example-project"
+                    }
                     list={valuesID}
                     autocomplete="off"
                     disabled={disabled}

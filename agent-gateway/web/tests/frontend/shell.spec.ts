@@ -49,6 +49,31 @@ test("shell", async ({ page, frontend }) => {
     "data-session-lifecycle",
     "authenticated",
   );
+  const headings = page.locator(".navigation-group-label");
+  await expect(headings).toHaveText(["HTTP", "Git", "MCP"]);
+  for (const heading of await headings.all()) {
+    const style = await heading.evaluate((node) => {
+      const h = getComputedStyle(node);
+      const link = getComputedStyle(node.parentElement!.querySelector("a")!);
+      return {
+        weight: Number(h.fontWeight),
+        size: parseFloat(h.fontSize),
+        linkSize: parseFloat(link.fontSize),
+        transform: h.textTransform,
+      };
+    });
+    expect(style.weight).toBeGreaterThanOrEqual(700);
+    expect(style.size).toBeLessThan(style.linkSize);
+    expect(style.transform).toBe("uppercase");
+  }
+  const gitLinks = page.locator('nav a[href^="#/git/"]');
+  await expect(gitLinks).toHaveText([
+    "Routing",
+    "Credentials",
+    "Repositories",
+    "Grants",
+    "Traffic",
+  ]);
   await capture(page, "authenticated", true);
   await page.locator(".skip-link").focus();
   await expect(page.locator(".skip-link")).toBeInViewport();
@@ -64,6 +89,13 @@ test("shell", async ({ page, frontend }) => {
   await capture(page, "invalid-location");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Menu", exact: true }).click();
+  await expect(gitLinks).toHaveText([
+    "Routing",
+    "Credentials",
+    "Repositories",
+    "Grants",
+    "Traffic",
+  ]);
   await capture(page, "navigation-open");
   await page.getByRole("button", { name: "Menu", exact: true }).click();
   await page.setViewportSize({ width: 1440, height: 900 });

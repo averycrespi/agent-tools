@@ -1,4 +1,8 @@
 import { capture, hasCaptureOwner } from "../frontend/capture.ts";
+import {
+  assertCreationPlaceholders,
+  exerciseMatcherPlaceholders,
+} from "./creation-placeholders.ts";
 import AxeBuilder from "@axe-core/playwright";
 import { captureStateFeedback } from "./state-feedback.ts";
 import {
@@ -2390,6 +2394,7 @@ export async function runGrantReadsCreate(
     .getByText("Select a server", { exact: true })
     .waitFor({ timeout: 3000 });
   await page.locator('[data-testid="add-constraint-atom"]').click();
+  await exerciseMatcherPlaceholders(page, "constraint");
   if (
     (await page.locator('[data-testid="constraint-status"]').innerText()) !==
       "Choose field" ||
@@ -4541,6 +4546,10 @@ export async function runRequestAdjudication(
     name: "Approved target",
     exact: true,
   });
+  await expect(approvalTarget).toHaveValue("demo");
+  await approvalTarget.fill("");
+  await expect(approvalTarget).toHaveAttribute("placeholder", "demo.lookup");
+  await assertCreationPlaceholders(page);
   await approvalTarget.fill("demo.sa");
   await page.getByRole("listbox").locator('[data-value="demo.safe"]').waitFor();
   await approvalTarget.press("ArrowDown");
@@ -4718,6 +4727,26 @@ export async function runRequestAdjudication(
     (await page.getByTestId("approval-duration").inputValue()) !== "10"
   )
     fail("submitted duration did not load in a readable exact unit");
+  for (const [unit, example] of [
+    ["seconds", "60"],
+    ["minutes", "1"],
+    ["hours", null],
+    ["days", null],
+  ] as const) {
+    await page.getByTestId("approval-duration-unit").selectOption(unit);
+    const amount = page.getByTestId("approval-duration");
+    expect((await amount.getAttribute("placeholder")) || null).toBe(example);
+    if (example === null)
+      await expect(page.locator("#approval-duration-hint")).toContainText(
+        "Choose a smaller unit",
+      );
+    else
+      expect(
+        Number(example) * (unit === "seconds" ? 1 : 60),
+      ).toBeLessThanOrEqual(600);
+    await assertCreationPlaceholders(page);
+  }
+  await capture(page, "approval-duration-no-valid-unit", true);
   await page.getByTestId("approval-duration-unit").selectOption("seconds");
   await page.locator('[data-testid="approval-duration"]').fill("601");
   await reviewApproval();
@@ -4734,6 +4763,7 @@ export async function runRequestAdjudication(
   await page.getByTestId("approval-duration-unit").selectOption("minutes");
   await page.locator('[data-testid="approval-duration"]').fill("5");
   await page.locator('[data-testid="approval-additional-add"]').click();
+  await exerciseMatcherPlaceholders(page, "approval-additional");
   const additionalPointers = page.locator(
     '[data-testid="approval-additional-pointer"]',
   );
@@ -4969,6 +4999,22 @@ export async function runRequestAdjudication(
   }
 
   await navigate(ids[9]!);
+  for (const [unit, example, seconds] of [
+    ["seconds", "60", 60],
+    ["minutes", "1", 60],
+    ["hours", "1", 3600],
+    ["days", "1", 86400],
+  ] as const) {
+    await page.getByTestId("approval-duration-unit").selectOption(unit);
+    await expect(page.getByTestId("approval-duration")).toHaveAttribute(
+      "placeholder",
+      example,
+    );
+    await expect(page.getByTestId("approval-duration")).toHaveValue("");
+    expect(seconds).toBeGreaterThanOrEqual(60);
+    expect(seconds).toBeLessThanOrEqual(2592000);
+    await assertCreationPlaceholders(page);
+  }
   await page
     .getByRole("button", { name: "Approve as requested", exact: true })
     .first()

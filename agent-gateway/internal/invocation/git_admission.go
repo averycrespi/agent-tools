@@ -18,6 +18,7 @@ type GitAdmissionResult struct {
 	FailureCause                  diagnostics.Cause
 	FailureDetail                 diagnostics.Detail
 	Execution                     authorization.GitExecution
+	RefEvidence                   *contract.GitTrafficRefEvidence
 	Evaluated, DispatchAuthorized bool
 	Material                      *gitcredentials.Material
 	observation                   *TrafficObservation
@@ -65,6 +66,7 @@ func (c *AdmissionCoordinator) AdmitGit(ctx context.Context, lease *authorizatio
 		return result, authorization.ErrAdmissionUnavailable
 	}
 	result.Execution, result.Evaluated = evaluation.Execution, true
+	result.RefEvidence = evaluation.Evidence.RefEvidence
 	var materialErr error
 	if evaluation.Execution.Material != nil {
 		if materials == nil {

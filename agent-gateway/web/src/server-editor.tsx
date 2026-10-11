@@ -626,6 +626,7 @@ function StringListEditor({
   addLabel,
   items,
   disabled,
+  placeholder,
   errors = {},
   error,
   onChange,
@@ -637,6 +638,7 @@ function StringListEditor({
   addLabel: string;
   items: StringItem[];
   disabled: boolean;
+  placeholder?: string;
   errors?: Readonly<Record<string, string>>;
   error?: string;
   onChange: (items: StringItem[]) => void;
@@ -671,6 +673,7 @@ function StringListEditor({
             id={`${id}-${item.id}`}
             data-testid={id}
             value={item.value}
+            placeholder={placeholder}
             disabled={disabled}
             aria-invalid={
               errors[item.id] === undefined && error === undefined
@@ -910,6 +913,7 @@ function EditorForm({
         {(attributes) => (
           <input
             {...attributes}
+            placeholder="example_tools"
             value={draft.namespace}
             disabled={disabled}
             readOnly={namespaceLocked}
@@ -926,6 +930,7 @@ function EditorForm({
         {(attributes) => (
           <input
             {...attributes}
+            placeholder="Example Tools"
             value={draft.displayName}
             disabled={disabled}
             onInput={(event) =>
@@ -999,6 +1004,7 @@ function EditorForm({
             {(attributes) => (
               <input
                 {...attributes}
+                placeholder="/usr/local/bin/example-mcp-server"
                 value={draft.executable}
                 disabled={disabled}
                 onInput={(event) =>
@@ -1016,6 +1022,7 @@ function EditorForm({
             {(attributes) => (
               <input
                 {...attributes}
+                placeholder="/opt/example-mcp-server"
                 value={draft.workingDirectory}
                 disabled={disabled}
                 onInput={(event) =>
@@ -1030,6 +1037,7 @@ function EditorForm({
             hint="Add one command-line argument per row, in order. Values are passed as written, without shell expansion or shell quoting."
             itemLabel="Argument"
             addLabel="Add argument"
+            placeholder="--verbose"
             items={draft.arguments}
             disabled={disabled}
             onChange={(items) => update("arguments", items)}
@@ -1075,6 +1083,7 @@ function EditorForm({
             {(attributes) => (
               <input
                 {...attributes}
+                placeholder="https://mcp.example.invalid/mcp"
                 value={draft.url}
                 disabled={disabled}
                 onInput={(event) => {
@@ -1215,6 +1224,7 @@ function EditorForm({
                     {(attributes) => (
                       <input
                         {...attributes}
+                        placeholder="example-gateway-client"
                         value={draft.clientID}
                         disabled={disabled}
                         onInput={(event) => {
@@ -1275,6 +1285,7 @@ function EditorForm({
                   {(attributes) => (
                     <input
                       {...attributes}
+                      placeholder="https://auth.example.invalid"
                       value={draft.issuer}
                       disabled={disabled}
                       onInput={(event) => {
@@ -1318,6 +1329,7 @@ function EditorForm({
                   {(attributes) => (
                     <input
                       {...attributes}
+                      placeholder="https://auth.example.invalid/.well-known/oauth-authorization-server"
                       value={draft.authServerMetadataURL}
                       disabled={disabled}
                       onInput={(event) => {
@@ -1356,6 +1368,7 @@ function EditorForm({
                     hint="Add scope names from your provider's documentation, one per row. These replace the server's defaults; duplicates are removed. Adding permissions later requires authorizing the server again."
                     itemLabel="Scope"
                     addLabel="Add scope"
+                    placeholder="read:tools"
                     items={draft.scopes}
                     disabled={disabled}
                     {...(compatibilityErrors.scopes === undefined
@@ -1373,6 +1386,7 @@ function EditorForm({
                   hint="Allow OAuth connections to additional private-network or loopback hosts. Enter each HTTPS origin (scheme, hostname, and optional port), without a path. The MCP server's origin is already allowed. This does not relax TLS checks or browser access rules."
                   itemLabel="OAuth origin"
                   addLabel="Add OAuth origin"
+                  placeholder="https://auth.example.invalid"
                   items={draft.trustedOrigins}
                   disabled={disabled}
                   errors={originErrors}

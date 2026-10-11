@@ -194,7 +194,12 @@ push. Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and
 secrets never inherit HTTP defaults, request grants or HTTP credentials. Use
 `agent-gateway git --help` for the command tree. The dedicated **Git** browser
 section manages Routing, Repositories, Grants and Credentials, separately from HTTP/MCP.
-Canonical destinations are immutable; alias edits never retarget authority.
+Canonical destinations are immutable after creation; alias edits never retarget
+authority. The browser create form suggests the opposite terminal `.git` spelling
+as an explicit alias in either direction. It follows canonical URL edits until you
+edit/add/remove an alias, then preserves your deliberate choice. Review both URLs
+before saving. Duplicate/self aliases are refused. Existing repositories and CLI/API
+creation remain explicit; there is no backend implicit URL equivalence.
 Adding a push rule explicitly enables read. Secret controls are write-only and
 clear on submission, cancellation, navigation and session loss. Review changes
 before confirmation; uncertain mutations offer no replay.
@@ -292,6 +297,9 @@ is available; it is not duplicated as an ordinary HTTP request. Discovery and
 flush-only probes are distinct from pushes. No guessed CONNECT association or
 traffic-to-grant shortcut is provided.
 
+The primary **Outcome** distinguishes Denied, Failed, Unknown/Incomplete, HTTP
+success for nonpush exchanges, and upstream-reported push outcomes. HTTP 401/403
+are Failed even with completed transport; detail retains the status code.
 **Admission**, **Transport**, and **Upstream report** answer different questions.
 Allowed does not mean dispatched; HTTP 200 and clean transfer do not mean push
 success. Read completion does not establish a valid local checkout. A complete
@@ -306,8 +314,15 @@ Configured repository name/destination, revisions, up to four applicable grant
 references plus their total, command operation counts, and transport facts are
 immutable admission-time evidence. Later rename/deletion/rotation never rewrites
 that history. Legacy rows without policy facts or terminal observation remain
-explicitly unavailable/unknown. Observed refs/OIDs, packs, request headers,
-command fingerprints, arbitrary upstream messages and secrets are not persisted.
+explicitly unavailable/unknown. Push detail additionally shows a request-order
+prefix of at most eight targeted refs and 1,536 encoded bytes, with requested
+create/update/delete actions. A count/byte-limited prefix is labeled truncated;
+omitted refs and their outcomes are unavailable. Denied refs were not dispatched.
+Known per-ref results are upstream claims only, not independently verified effects;
+legacy records have unavailable ref evidence. Names render as inert text in the
+browser and escaped text in CLI tables. JSON exposes the same bounded evidence.
+OIDs, packs, request headers, command fingerprints, arbitrary upstream messages
+and secrets are not persisted.
 
 Blocked/unsupported exchanges are not authorized; unavailable Git credentials
 never fall back to public access. For an uncertain push, inspect the native Git

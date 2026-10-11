@@ -5,6 +5,11 @@ import {
 import { captureScreenshot, hasCaptureOwner } from "../frontend/capture.ts";
 import { captureStateFeedback } from "./state-feedback.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
+import { protocolSummaryFixture } from "../protocol-summary-fixture.ts";
+import {
+  decodeProtocolActivity,
+  type ActivityWindow,
+} from "../../src/protocol-summary.ts";
 import {
   captureOverviewLayout,
   prepareOverviewBaseline,
@@ -68,14 +73,43 @@ export async function runOverviewInvocationSystemCanary(
   let body = (await page.locator("body").textContent()) ?? "";
   for (const phrase of [
     "Gateway status",
-    "Active MCP catalog tools",
-    "Configured MCP servers",
-    "Pending MCP decisions",
+    "HTTP",
+    "Git",
+    "MCP",
+    "Pending MCP requests",
   ])
     if (!body.includes(phrase))
       fail(`Overview workflow canary omitted ${phrase}`);
   if (body.includes("redacted_arguments"))
     fail("Overview workflow canary exposed invocation capture");
+  // Public contract against the real Gateway, independent of mocked rendering.
+  for (const window of ["15m", "1h", "24h"]) {
+    const response = await context.request.get(
+      `${baseURL}/api/v2/protocol-activity?window=${window}`,
+      { headers: { Authorization: `Bearer ${bearer}`, Cookie: "" } },
+    );
+    expect(response.status()).toBe(200);
+    expect(response.headers()["cache-control"]).toBe("no-store");
+    const summary = decodeProtocolActivity(await response.json());
+    expect(summary.window).toBe(window);
+    expect(
+      summary.counts,
+      "real Gateway retained-history snapshot",
+    ).not.toBeNull();
+    if (summary.counts !== null)
+      for (const path of ["http/traffic", "git/traffic", "mcp/invocations"]) {
+        const query = new URLSearchParams({
+          from: summary.from,
+          until: summary.until,
+          limit: "1",
+        });
+        const history = await context.request.get(
+          `${baseURL}/api/v2/${path}?${query}`,
+          { headers: { Authorization: `Bearer ${bearer}`, Cookie: "" } },
+        );
+        expect(history.status()).toBe(200);
+      }
+  }
 
   await page.locator('#primary-navigation a[href="#/mcp/invocations"]').click();
   await page.locator('[data-testid="invocations-view"]').waitFor();
@@ -161,7 +195,15 @@ export async function runSystemAdministrationCanary(
     await page.evaluate((target) => {
       window.location.hash = target;
     }, hash);
-    await page.locator(`[data-testid="${testID}"]`).waitFor();
+    const panel = page.getByTestId(testID);
+    await panel.waitFor();
+    if (testID === "system-status-panel") {
+      // The wrapper mounts before the real status read publishes its content.
+      await expect(panel).toHaveAttribute("data-panel-status", "current");
+      await expect(
+        panel.getByRole("heading", { name: "Gateway status", exact: true }),
+      ).toBeVisible();
+    }
     rendered += ` ${(await page.locator("body").textContent()) ?? ""}`;
   }
   for (const phrase of [
@@ -1202,6 +1244,79 @@ export async function runOverview(
   let invocationReads = 0;
   let activityReads = 0;
   let catalogReads = 0;
+  let protocolMode: "current" | "partial" | "unavailable" | "error" = "current";
+  const protocolWindows: string[] = [];
+  await page.route("**/api/v2/protocol-activity?*", async (route) => {
+    const window = new URL(route.request().url()).searchParams.get(
+      "window",
+    ) as ActivityWindow;
+    expect(["15m", "1h", "24h"]).toContain(window);
+    protocolWindows.push(window);
+    if (protocolMode === "error")
+      return route.fulfill({
+        status: 503,
+        json: {
+          status: 503,
+          code: "storage_unavailable",
+          title: "Storage is unavailable.",
+        },
+      });
+    const summary = protocolSummaryFixture(window);
+    if (protocolMode === "unavailable") {
+      summary.coverage = "unavailable";
+      summary.counts = null;
+    } else {
+      if (protocolMode === "partial") summary.coverage = "partial";
+      summary.counts!.http = {
+        ...summary.counts!.http,
+        total: 107,
+        success: 100,
+        failed: 2,
+        denied: 3,
+        unknown: 2,
+      };
+      summary.counts!.git = {
+        ...summary.counts!.git,
+        total: 8,
+        success: 1,
+        reported_success: 1,
+        reported_partial: 1,
+        failed: 1,
+        denied: 1,
+        unknown: 2,
+        incomplete: 1,
+      };
+      summary.counts!.mcp = {
+        ...summary.counts!.mcp,
+        total: 13,
+        success: 7,
+        failed: 2,
+        denied: 1,
+        rejected: 1,
+        unknown: 2,
+      };
+    }
+    await route.fulfill({ json: summary });
+  });
+  for (const path of [
+    "http/credentials",
+    "http/grants",
+    "git/credentials",
+    "git/repositories",
+    "git/grants",
+    "mcp/grants",
+  ]) {
+    await page.route(`**/api/v2/${path}?limit=1`, (route) =>
+      route.fulfill({
+        json: {
+          items: [{}],
+          total_count: 123,
+          offset: 0,
+          next_cursor: "inventory-next",
+        },
+      }),
+    );
+  }
   let customHeaders: unknown = { "X-MCP-Toolsets": "repos,issues" };
   const screenshots = await mkdtemp(join(tmpdir(), "overview-headers-"));
   const compareBaseline = prepareOverviewBaseline(page);
@@ -1261,6 +1376,10 @@ export async function runOverview(
     }
     const status = {
       ...overviewStatusFixture(),
+      backup: {
+        state: "idle",
+        last_completed_at: "2026-10-03T10:23:45.000000000Z",
+      },
       ...(reportedStatus
         ? {
             endpoints: {
@@ -1735,7 +1854,7 @@ export async function runOverview(
   for (const text of [
     "not ready",
     "Recovery required",
-    "Credentials at startup: unavailable",
+    "Credential storage: unavailable",
     "Capacity saturated; additional work may be rejected.",
     "80% capacity pressure; headroom for additional work is limited.",
     "64 / 64",
@@ -1744,8 +1863,8 @@ export async function runOverview(
     "Overview agent",
     "5 shown; more need attention",
     "5 shown; more pending",
-    "9 Configured MCP servers",
-    "8 Active MCP catalog tools",
+    "Servers9",
+    "Tools8",
     "6 pending",
   ]) {
     if (!body.includes(text)) fail(`Overview omitted ${text}`);
@@ -1836,6 +1955,12 @@ export async function runOverview(
         .getAttribute("href")) !== href
     )
       fail(`Overview omitted contextual condition link ${name}`);
+  await source("servers")
+    .getByText("Servers needing attention", { exact: true })
+    .click();
+  await source("requests")
+    .getByText("Oldest pending requests", { exact: true })
+    .click();
   await source("servers").locator("li a").first().focus();
   await page.keyboard.press("Tab");
   if (
@@ -1850,9 +1975,9 @@ export async function runOverview(
     "Gateway status",
     "Storage and security",
     "Resource usage",
-    "MCP attention",
-    "Pending MCP decisions",
-    "MCP inventory",
+    "HTTP",
+    "Git",
+    "MCP",
   ]);
   await expect(source("status")).toContainText("Not reported");
   reportedStatus = true;
@@ -1989,11 +2114,11 @@ export async function runOverview(
     "HTTP connections0 / 256",
     "HTTP requests0 / 128",
     "Control storageReady",
-    "Credentials at startupReady",
+    "Credential storageReady",
     "0 servers flagged",
     "0 pending",
-    "1 Configured MCP servers",
-    "1 Active MCP catalog tools",
+    "Servers1",
+    "Tools1",
   ])
     if (!quiet.includes(text)) fail(`Quiet Overview omitted ${text}`);
   if (
@@ -2036,6 +2161,23 @@ export async function runOverview(
       ).toBeLessThanOrEqual(1);
   }
   await assertCardAlignment();
+  const backupStyle = await source("material")
+    .locator(".overview-backup-time")
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return [style.fontSize, style.fontWeight];
+    });
+  expect(backupStyle).toEqual(
+    await source("material")
+      .getByText("Idle", { exact: true })
+      .evaluate((node) => {
+        const style = getComputedStyle(node);
+        return [style.fontSize, style.fontWeight];
+      }),
+  );
+  await expect(
+    source("material").getByText("Credential storage", { exact: true }),
+  ).not.toHaveAttribute("title", /./);
   await expect(
     source("material").getByText("Idle", { exact: true }),
   ).toHaveAttribute("data-state", "neutral");
@@ -2048,6 +2190,89 @@ export async function runOverview(
     await expect(overview).not.toContainText(removed);
   await capture("quiet");
   await compareBaseline("quiet");
+  const selector = page.getByRole("combobox", {
+    name: "Recent activity window",
+  });
+  await expect(selector).toHaveValue("1h");
+  expect(protocolWindows).toContain("1h");
+  for (const window of ["15m", "24h", "1h"] as const) {
+    await selector.selectOption(window);
+    await expect.poll(() => protocolWindows.at(-1)).toBe(window);
+    for (const [protocol, total] of [
+      ["http", 107],
+      ["git", 8],
+      ["mcp", 13],
+    ] as const) {
+      const path =
+        protocol === "mcp" ? "mcp/invocations" : `${protocol}/traffic`;
+      const link = overview.locator(`a[href^="#/${path}?filter_from="]`);
+      await expect(link).toContainText(String(total));
+      await expect(link).toHaveAttribute(
+        "href",
+        new RegExp(encodeURIComponent(protocolSummaryFixture(window).from)),
+      );
+      if (protocol === "http")
+        await expect(link).toHaveAttribute("href", /filter_type=request/);
+    }
+  }
+  for (const [protocol, path] of [
+    ["http", "http/traffic"],
+    ["git", "git/traffic"],
+    ["mcp", "mcp/invocations"],
+  ] as const) {
+    let requested = "";
+    await page.route(`**/api/v2/${path}?*`, async (route) => {
+      requested = route.request().url();
+      await route.fulfill({ json: { items: [], next_cursor: null } });
+    });
+    await overview.locator(`a[href^="#/${path}?filter_from="]`).click();
+    await expect(page.locator(".history-window")).toContainText(
+      "Admission window:",
+    );
+    await expect
+      .poll(() => new URL(requested || baseURL).searchParams.get("from"))
+      .toBe(protocolSummaryFixture().from);
+    if (protocol === "http")
+      expect(new URL(requested).searchParams.get("type")).toBe("request");
+    await captureFrontend(page, `overview-history-${protocol}`, true);
+    await page.evaluate(() => {
+      window.location.hash = "#/overview";
+    });
+    await assertCurrent("servers");
+    await assertCurrent("requests");
+    await expect(
+      overview.locator('a[href^="#/http/traffic?filter_from="]'),
+    ).toBeVisible();
+    await page.unroute(`**/api/v2/${path}?*`);
+  }
+  await expect(
+    overview
+      .locator(".protocol-inventory")
+      .getByRole("link", { name: "123", exact: true }),
+  ).toHaveCount(6);
+  protocolMode = "partial";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    overview.getByText("Partially retained history", { exact: true }),
+  ).toHaveCount(3);
+  await capture("protocol-partial");
+  protocolMode = "error";
+  await page.getByTestId("manual-refresh").click();
+  await expect(overview.getByText(/stale; current counts unknown/)).toHaveCount(
+    3,
+  );
+  await capture("protocol-stale");
+  protocolMode = "unavailable";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    overview.getByText("Recent history unavailable", { exact: true }),
+  ).toHaveCount(3);
+  await capture("protocol-unavailable");
+  protocolMode = "current";
+  await page.getByTestId("manual-refresh").click();
+  await expect(
+    overview.locator('a[href^="#/http/traffic?filter_from="]'),
+  ).toContainText("107");
 
   for (const headers of [null, [], "invalid", { "X-MCP-Toolsets": 7 }]) {
     customHeaders = headers;
@@ -2068,7 +2293,7 @@ export async function runOverview(
     customHeaders = headers;
     await page.locator('[data-testid="manual-refresh"]').click();
     await assertCurrent("servers");
-    if (!(await sourceText("inventory")).includes("1 Configured MCP servers"))
+    if (!(await sourceText("mcp")).includes("Servers1"))
       fail("Valid HTTP headers prevented complete server counts");
   }
 
@@ -2080,8 +2305,8 @@ export async function runOverview(
       ?.textContent?.includes("No servers configured"),
   );
   if (
-    !(await sourceText("inventory")).includes("0 Configured MCP servers") ||
-    !(await sourceText("inventory")).includes("0 Active MCP catalog tools")
+    !(await sourceText("mcp")).includes("Servers0") ||
+    !(await sourceText("mcp")).includes("Tools0")
   )
     fail("Empty inventory counts misleading");
   await capture("empty");
@@ -2203,7 +2428,7 @@ export async function runOverview(
   await assertCurrent("status");
   await assertCurrent("servers");
   if (
-    !(await sourceText("requests")).includes("Read unavailable") ||
+    !(await sourceText("requests")).includes("Unavailable") ||
     (await sourceText("requests")).includes("No pending")
   )
     fail("Unavailable initial queue appeared empty-success");
@@ -2915,6 +3140,30 @@ export async function runInvocations(
   )
     fail("invocation capture was not explained inert item-only content");
 
+  const resourceFact = (label: string) =>
+    page
+      .getByTestId("invocation-detail")
+      .locator(".detail-facts > div")
+      .filter({
+        has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }),
+      })
+      .locator("dd");
+  await expect(resourceFact("Agent").locator(".table-primary a")).toHaveText(
+    "Build agent",
+  );
+  await expect(resourceFact("Agent").locator(".table-identifier")).toHaveText(
+    invocationIDs.principal,
+  );
+  await expect(resourceFact("Grant").locator(".table-primary a")).toHaveText(
+    "Grant",
+  );
+  await expect(resourceFact("Grant").locator(".table-identifier")).toHaveText(
+    invocationIDs.grant,
+  );
+  await expect(resourceFact("Tool").locator(".table-identifier")).toHaveCount(
+    0,
+  );
+  await expect(resourceFact("Server")).toHaveCount(0);
   await expect(page.getByTestId("failure-diagnostics")).toHaveCount(0);
   await captureDetailLayout(page, "invocation-missing-terminal");
   await compareBaseline("invocation-missing-terminal");
@@ -2937,6 +3186,21 @@ export async function runInvocations(
   await page.getByTestId("manual-refresh").click();
   await expect(page.getByTestId("failure-diagnostics")).toContainText(
     "Server reported (unverified)",
+  );
+  await expect(
+    resourceFact("Tool").locator(".table-primary a"),
+  ).toHaveAttribute(
+    "href",
+    `#/mcp/servers/${invocationIDs.server}/descriptors/${invocationIDs.tool}`,
+  );
+  await expect(resourceFact("Tool").locator(".table-identifier")).toHaveText(
+    invocationIDs.tool,
+  );
+  await expect(resourceFact("Server").locator(".table-primary a")).toHaveText(
+    "Server",
+  );
+  await expect(resourceFact("Server").locator(".table-identifier")).toHaveText(
+    invocationIDs.server,
   );
   for (const text of [
     "Gateway observed",
@@ -3318,7 +3582,7 @@ export async function runSystemStatus(
     "Needs attention",
     "Gateway is not ready",
     "Storage mutations are unavailable",
-    "Credentials at startup need attention",
+    "Credential storage needs attention",
     "1 resource limit is saturated",
     "Recovery required",
     "Technical details",
@@ -3339,7 +3603,7 @@ export async function runSystemStatus(
   await expect(
     statusPanel
       .getByTestId("system-status-material")
-      .getByText("Credentials at startup", { exact: true }),
+      .getByText("Credential storage", { exact: true }),
   ).toBeVisible();
   await expect(
     statusPanel
@@ -3499,13 +3763,17 @@ export async function runSystemStatus(
     await expect(statusPanel).not.toContainText("Optional traffic history");
     await expect(page.getByText("HTTP proxy", { exact: true })).toBeVisible();
     await expect(
-      page.getByText("Database: 1,048,576 bytes", { exact: true }),
-    ).toBeVisible();
+      statusPanel
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^Database$/ }) })
+        .locator("dd"),
+    ).toHaveText("1,048,576 bytes");
     await expect(
-      page.getByText("WAL: 65,536 bytes", {
-        exact: true,
-      }),
-    ).toBeVisible();
+      statusPanel
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^WAL$/ }) })
+        .locator("dd"),
+    ).toHaveText("65,536 bytes");
     await expect(
       page.getByText("2 active requests/streams · 1 opaque tunnels", {
         exact: true,
@@ -3551,11 +3819,13 @@ export async function runSystemStatus(
     };
     await page.getByTestId("manual-refresh").click();
     await expect(
-      statusPanel.getByText(
-        `Recording: ${health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " ")}`,
-        { exact: true },
-      ),
-    ).toBeVisible();
+      statusPanel
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^Recording$/ }) })
+        .locator("dd"),
+    ).toHaveText(
+      health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " "),
+    );
     if (health !== "healthy")
       await expect(
         statusPanel.getByText("3 affected · 3 discarded submissions", {
@@ -3564,7 +3834,7 @@ export async function runSystemStatus(
       ).toBeVisible();
     if (health === "recovering")
       await expect(statusPanel).toContainText(
-        "Recovery blocker: Locked · Validation",
+        "Recovery blockerLocked · Validation",
       );
     if (health === "recovered")
       await expect(statusPanel).toContainText(
@@ -3593,10 +3863,21 @@ export async function runSystemStatus(
     },
   };
   await page.getByTestId("manual-refresh").click();
+  const storageFact = (label: string) =>
+    statusPanel
+      .locator(".storage-details > div")
+      .filter({
+        has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }),
+      })
+      .locator("dd");
+  await expect(storageFact("Database")).toHaveText("Unavailable");
+  await expect(storageFact("WAL")).toHaveText("Absent");
+  await expect(storageFact("Pruned records")).toHaveText("Unavailable");
+  await expect(storageFact("Write outstanding")).toHaveText("Yes");
   await expect(
-    page.getByText("Database: Unavailable", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("WAL: Absent", { exact: true })).toBeVisible();
+    statusPanel.getByTestId("system-status-material").locator("details"),
+  ).toHaveCount(0);
+  await expect(statusPanel).not.toContainText("operating-system keyring");
   await expect(statusPanel.getByTestId("system-status-issues")).toHaveCount(0);
   await expect(
     page.getByText(
@@ -3615,12 +3896,48 @@ export async function runSystemStatus(
   await expect(
     activity.getByRole("heading", { name: "Request activity" }),
   ).toBeVisible();
-  await expect(activity.locator("dt")).toHaveText([
+  await expect(activity.getByRole("rowheader")).toHaveText([
     "MCP",
-    "HTTP (includes Git)",
-    "CONNECT (separate)",
-    "Git (HTTP subset)",
+    "HTTP",
+    "CONNECT",
+    "Git",
   ]);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await expect(
+    activity.getByRole("rowheader", { name: "CONNECT", exact: true }),
+  ).toHaveCSS("white-space", "nowrap");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(activity.getByRole("columnheader")).toHaveText([
+    "Protocol",
+    "Requests",
+    "Execution pipelines",
+    "Succeeded",
+    "Prestart failures",
+    "Failed",
+    "Unknown",
+    "Nonmutating",
+  ]);
+  await expect(activity).toContainText(
+    "HTTP includes Git; CONNECT is separate. Rows are not additive.",
+  );
+  for (const protocol of currentStatus.observations.protocols) {
+    const row = activity.getByRole("row").filter({
+      has: page.getByRole("rowheader", {
+        name:
+          protocol.protocol === "git" ? "Git" : protocol.protocol.toUpperCase(),
+        exact: true,
+      }),
+    });
+    await expect(row.locator("td")).toHaveText(
+      [protocol.requests, protocol.executions, ...protocol.results].map(String),
+    );
+    expect(
+      await row
+        .locator("td")
+        .first()
+        .evaluate((node) => getComputedStyle(node).textAlign),
+    ).toBe("right");
+  }
   await expect(activity.locator("details")).toHaveCount(0);
   for (const removed of [
     "Process observations",
@@ -3630,7 +3947,7 @@ export async function runSystemStatus(
   ])
     await expect(statusPanel).not.toContainText(removed);
   await captureDetailLayout(page, "request-activity");
-  const activityFacts = () => activity.locator("dd");
+  const activityFacts = () => activity.locator("td");
   currentStatus = structuredClone(currentStatus);
   currentStatus = {
     ...currentStatus,
@@ -3649,19 +3966,13 @@ export async function runSystemStatus(
   };
   await page.getByTestId("manual-refresh").click();
   await expect(activity).toContainText("Since restart");
-  await expect(activityFacts()).toHaveText(
-    Array(4).fill(
-      "0 requests · 0 execution pipelines · 0 succeeded · 0 prestart failures · 0 failed · 0 unknown · 0 nonmutating",
-    ),
-  );
+  await expect(activityFacts()).toHaveText(Array(28).fill("0"));
   await captureDetailLayout(page, "request-activity-restart");
   currentStatus.observations.overflow = true;
   currentStatus.observations.protocols[0]!.requests = Number.MAX_SAFE_INTEGER;
   await page.getByTestId("manual-refresh").click();
   await expect(activity).toContainText("Counters saturated");
-  await expect(activityFacts().first()).toContainText(
-    "9007199254740991 requests",
-  );
+  await expect(activityFacts().first()).toContainText("9007199254740991");
   await captureDetailLayout(page, "request-activity-overflow");
   currentStatus.observations.coverage = "unavailable";
   currentStatus.diagnostics.state = "unavailable";

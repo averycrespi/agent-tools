@@ -1,3 +1,4 @@
+import { validActivityRange } from "./protocol-summary.ts";
 export const invocationOptions = {
   decision: [
     ["allow", "Allow"],
@@ -22,16 +23,20 @@ export const invocationOptions = {
 export function validInvocationQuery(
   query: Readonly<Record<string, string>>,
 ): boolean {
-  return Object.entries(query).every(([key, value]) => {
-    if (["filter_tool", "filter_principal"].includes(key))
-      return (
-        new TextEncoder().encode(value).byteLength <= 256 &&
-        !/[\p{Cc}\p{Cf}]/u.test(value)
-      );
-    if (key === "filter_decision" || key === "filter_outcome")
-      return invocationOptions[
-        key === "filter_decision" ? "decision" : "outcome"
-      ].some(([choice]) => choice === value);
-    return false;
-  });
+  return (
+    validActivityRange(query) &&
+    Object.entries(query).every(([key, value]) => {
+      if (key === "filter_from" || key === "filter_until") return true;
+      if (["filter_tool", "filter_principal"].includes(key))
+        return (
+          new TextEncoder().encode(value).byteLength <= 256 &&
+          !/[\p{Cc}\p{Cf}]/u.test(value)
+        );
+      if (key === "filter_decision" || key === "filter_outcome")
+        return invocationOptions[
+          key === "filter_decision" ? "decision" : "outcome"
+        ].some(([choice]) => choice === value);
+      return false;
+    })
+  );
 }

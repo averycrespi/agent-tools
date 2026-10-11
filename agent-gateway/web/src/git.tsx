@@ -1,4 +1,6 @@
 import type { RefObject } from "preact";
+import { oppositeGitAlias, validGitAliases } from "./git-alias";
+import { gitOriginCovered } from "./git-routing-contract";
 import type { GitTrafficController } from "./git-traffic-history";
 import { gitTrafficOptions, validGitTrafficQuery } from "./git-traffic-query";
 import {
@@ -30,7 +32,7 @@ import {
 import type { SessionClient } from "./session";
 import type { SensitiveSinkCoordinator } from "./sinks";
 import { WriteOnlyField } from "./sinks-ui";
-import { UserTime } from "./time";
+import { UserTime, HistoryWindow } from "./time";
 import {
   readCollectionPage,
   useCollectionPage,
@@ -42,6 +44,7 @@ import {
   decodeGitTraffic,
   gitETag,
   gitFacts,
+  gitOutcome,
   gitID,
   gitLabels,
   type GitKind,
@@ -73,9 +76,11 @@ function useGitDetail<T>(
 ) {
   const [value, setValue] = useState<T>();
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   useEffect(() => {
     let current = true;
     setError(false);
+    setLoading(path !== undefined);
     if (path === undefined) return;
     void props.session
       .runProtected(async (context) => {
@@ -91,16 +96,26 @@ function useGitDetail<T>(
         if (await context.sessionLost(response)) return;
         if (!response.ok) throw new Error("Read unavailable");
         const result = await decode(response);
-        if (current) setValue(result);
+        if (current) {
+          setValue(result);
+          setLoading(false);
+        }
       })
       .catch(() => {
-        if (current) setError(true);
+        if (current) {
+          setError(true);
+          setLoading(false);
+        }
       });
     return () => {
       current = false;
     };
   }, [path, props.view.generation]);
-  return { value, error };
+  return { value, error, loading };
+}
+interface GitAcknowledgment {
+  from: string;
+  to: string;
 }
 export function GitConfiguration(props: Props & { kind: GitKind }) {
   const { kind } = props,
@@ -112,7 +127,8 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
     kind === "repositories" &&
       props.view.viewKey === props.resolved.canonicalFragment,
   );
-  const { value, error } = useGitDetail(
+  const [acknowledgment, setAcknowledgment] = useState<GitAcknowledgment>();
+  const { value, error, loading } = useGitDetail(
     props,
     selected && selected !== "new"
       ? `/api/v2/git/${kind}/${selected}`
@@ -190,13 +206,20 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             <>
               <div>
                 <dt>Canonical destination</dt>
+                <dd>{value.url}</dd>
+              </div>
+              <div>
+                <dt>Origin enabled</dt>
                 <dd>
-                  {value.url}
-                  <GitCoverage
-                    source={coverage}
-                    destination={value.url!}
-                    contextual
-                  />
+                  {coverage.loading || coverage.error || !coverage.profile
+                    ? "Unavailable"
+                    : gitOriginCovered(value.url!, coverage.profile) ===
+                        undefined
+                      ? "Unavailable"
+                      : coverage.profile.active &&
+                          gitOriginCovered(value.url!, coverage.profile)
+                        ? "Yes"
+                        : "No"}
                 </dd>
               </div>
               <div>
@@ -315,7 +338,9 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         choices={choices}
         resource={value}
         mode="edit"
-        unavailable={error}
+        unavailable={error || loading}
+        acknowledgment={acknowledgment}
+        onAcknowledged={setAcknowledgment}
       />
       {kind === "credentials" && (
         <GitEditor
@@ -323,7 +348,9 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
           choices={choices}
           resource={value}
           mode="rotate"
-          unavailable={error}
+          unavailable={error || loading}
+          acknowledgment={acknowledgment}
+          onAcknowledged={setAcknowledgment}
         />
       )}
       <GitEditor
@@ -331,7 +358,8 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         choices={choices}
         resource={value}
         mode="delete"
-        unavailable={error}
+        unavailable={error || loading}
+        acknowledgment={acknowledgment}
       />
     </div>
   );
@@ -482,7 +510,7 @@ function GitCollection(
                       label: "HTTPS origin",
                       type: "text" as const,
                       value: (r: GitResource) => r.origin!,
-                      placeholder: "Literal origin substring",
+                      placeholder: "Destination",
                     },
                     {
                       key: "status",
@@ -642,23 +670,8 @@ function GitCollection(
     </div>
   );
 }
-function GitEditor({
-  kind,
-  choices,
-  resource,
-  mode,
-  unavailable = false,
-  coverage,
-  ...props
-}: Props & {
-  coverage?: GitCoverageSource;
-  kind: GitKind;
-  choices: GitChoices;
-  resource?: GitResource;
-  mode: "create" | "edit" | "rotate" | "delete";
-  unavailable?: boolean;
-}) {
-  const [draft, setDraft] = useState(() => ({
+function gitDraft(resource?: GitResource) {
+  return {
     name: resource?.name ?? "",
     url: resource?.url ?? "",
     aliases: resource?.aliases ?? [],
@@ -672,12 +685,51 @@ function GitEditor({
     origin: resource?.origin ?? "",
     header: resource?.recipe?.header ?? "Authorization",
     prefix: resource?.recipe?.prefix ?? "Bearer ",
-  }));
+  };
+}
+function gitDraftKey(draft: ReturnType<typeof gitDraft>): string {
+  return JSON.stringify({
+    ...draft,
+    // Toggle selections are a set, independent of the order they were clicked.
+    refs: draft.refs.map((rule) => ({
+      ...rule,
+      actions: [...rule.actions].sort(),
+    })),
+  });
+}
+function GitEditor({
+  kind,
+  choices,
+  resource,
+  mode,
+  unavailable = false,
+  coverage,
+  acknowledgment,
+  onAcknowledged,
+  ...props
+}: Props & {
+  coverage?: GitCoverageSource;
+  acknowledgment?: GitAcknowledgment | undefined;
+  onAcknowledged?: (value: GitAcknowledgment) => void;
+  kind: GitKind;
+  choices: GitChoices;
+  resource?: GitResource;
+  mode: "create" | "edit" | "rotate" | "delete";
+  unavailable?: boolean;
+}) {
+  const [baseline, setBaseline] = useState(() => gitDraft(resource));
+  const [draft, setDraft] = useState(() => gitDraft(resource));
+  const [hasSecret, setHasSecret] = useState(false);
+  const metadata = mode === "create" || mode === "edit",
+    material =
+      kind === "credentials" && (mode === "create" || mode === "rotate");
+  const dirty =
+    (metadata && gitDraftKey(draft) !== gitDraftKey(baseline)) || hasSecret;
+  const aliasesEdited = useRef(false);
   const [expected, setExpected] = useState(
     resource ? gitETag(kind, resource) : null,
   );
-  const [dirty, setDirty] = useState(false),
-    [confirming, setConfirming] = useState(false),
+  const [confirming, setConfirming] = useState(false),
     [inputError, setInputError] = useState<string>();
   const [secret] = useState(() => props.sinks.createWriteOnly()),
     [controller] = useState(() => props.mutations.create<GitResource | null>());
@@ -697,15 +749,50 @@ function GitEditor({
   );
   const changedRevision =
     resource !== undefined && expected !== gitETag(kind, resource);
+  const processedAcknowledgment = useRef<string>();
   const blocked =
     unavailable ||
     changedRevision ||
     mutation.state === "submitting" ||
     mutation.state === "uncertain" ||
     mutation.availability === "storage_latched";
-  const metadata = mode === "create" || mode === "edit",
-    material =
-      kind === "credentials" && (mode === "create" || mode === "rotate");
+  useEffect(() => {
+    // Only the exact acknowledged local transition can rebase a pristine neighbor.
+    // An external revision, a retained draft or reviewed/in-flight action cannot.
+    if (
+      !resource ||
+      unavailable ||
+      !acknowledgment ||
+      acknowledgment.to !== gitETag(kind, resource) ||
+      processedAcknowledgment.current === acknowledgment.to
+    )
+      return;
+    processedAcknowledgment.current = acknowledgment.to;
+    if (
+      !dirty &&
+      !confirming &&
+      mutation.state === "editing" &&
+      acknowledgment.from === expected
+    ) {
+      setExpected(acknowledgment.to);
+      const next = gitDraft(resource);
+      setBaseline(next);
+      setDraft(next);
+    }
+  }, [
+    resource,
+    unavailable,
+    dirty,
+    confirming,
+    mutation.state,
+    acknowledgment,
+    expected,
+    kind,
+  ]);
+  const clearSecret = () => {
+    secret.clear();
+    setHasSecret(false);
+  };
   const title =
     mode === "rotate"
       ? "Rotate secret"
@@ -714,8 +801,19 @@ function GitEditor({
     key: K,
     value: (typeof draft)[K],
   ) => {
-    setDraft((d) => ({ ...d, [key]: value }));
-    setDirty(true);
+    if (key === "aliases") aliasesEdited.current = true;
+    setDraft((d) => {
+      if (
+        key === "url" &&
+        kind === "repositories" &&
+        mode === "create" &&
+        !aliasesEdited.current
+      ) {
+        const alias = oppositeGitAlias(String(value));
+        return { ...d, url: String(value), aliases: alias ? [alias] : [] };
+      }
+      return { ...d, [key]: value };
+    });
   };
   const field = (
     key:
@@ -731,13 +829,20 @@ function GitEditor({
     labelText: string,
     required = true,
     readonly = false,
+    placeholder?: string,
+    hint?: string,
   ) => (
-    <FormField id={`git-${key}-${mode}`} label={labelText}>
+    <FormField
+      id={`git-${key}-${mode}`}
+      label={labelText}
+      {...(hint === undefined ? {} : { hint })}
+    >
       {(attributes) => (
         <input
           {...attributes}
           required={required}
           readOnly={readonly}
+          placeholder={placeholder}
           value={draft[key]}
           onInput={(e) => change(key, e.currentTarget.value)}
         />
@@ -780,6 +885,8 @@ function GitEditor({
           (draft.credential !== "" && !gitID.test(draft.credential)))
       )
         return "Use HTTPS destinations and a valid optional Git credential ID.";
+      if (kind === "repositories" && !validGitAliases(draft.url, draft.aliases))
+        return "Aliases must be distinct from each other and the canonical destination.";
       if (
         kind === "grants" &&
         (!gitID.test(draft.principal) || !gitID.test(draft.repository))
@@ -829,18 +936,26 @@ function GitEditor({
     return undefined;
   };
   const review = () => {
+    if (blocked) return;
     const error = validate();
     setInputError(error);
     if (error) {
-      secret.clear();
+      clearSecret();
     } else setConfirming(true);
   };
   const submit = () => {
     setConfirming(false);
+    if (blocked) {
+      clearSecret();
+      setInputError(
+        "Current facts changed or are unavailable. Review them before confirming a new action.",
+      );
+      return;
+    }
     const error = validate();
     if (error) {
       setInputError(error);
-      secret.clear();
+      clearSecret();
       return;
     }
     const element = document.getElementById(secretID);
@@ -874,16 +989,22 @@ function GitEditor({
           mode === "delete" ? null : decodeGitResponse(kind, response),
       });
       const pending = controller.submit();
-      secret.clear();
+      clearSecret();
       void pending.then((outcome) => {
         if (outcome.kind === "acknowledged") {
-          setDirty(false);
           controller.abandon();
           if (mode === "delete") navigate(`#/git/${kind}`, true);
           else if (mode === "create" && outcome.value)
             navigate(`#/git/${kind}/${outcome.value.id}`, true);
           else {
-            if (outcome.value) setExpected(gitETag(kind, outcome.value));
+            if (outcome.value) {
+              const to = gitETag(kind, outcome.value);
+              if (expected) onAcknowledged?.({ from: expected, to });
+              setExpected(to);
+              const next = gitDraft(outcome.value);
+              setBaseline(next);
+              setDraft(next);
+            }
             props.onRefresh();
           }
         } else if (
@@ -893,7 +1014,7 @@ function GitEditor({
           props.onRefresh();
       });
     } catch {
-      secret.clear();
+      clearSecret();
       setInputError(
         "Change could not be prepared. Refresh and review current metadata before making a new decision.",
       );
@@ -913,13 +1034,24 @@ function GitEditor({
           e.preventDefault();
           review();
         }}
-        onInput={() => setDirty(true)}
       >
         <fieldset
           class="git-mutation-fields"
-          disabled={mutation.state === "submitting"}
+          disabled={
+            mutation.state === "submitting" || mutation.state === "uncertain"
+          }
         >
-          {metadata && kind !== "grants" && field("name", "Name")}
+          {metadata &&
+            kind !== "grants" &&
+            field(
+              "name",
+              "Name",
+              true,
+              false,
+              kind === "repositories"
+                ? "Project repository"
+                : "Project Git credential",
+            )}
           {metadata && kind === "repositories" && (
             <>
               {field(
@@ -927,6 +1059,7 @@ function GitEditor({
                 "Canonical HTTPS destination",
                 true,
                 resource !== undefined,
+                "https://git.example.com/team/project",
               )}
               <section class="git-list-editor" aria-label="Repository aliases">
                 <h3>Aliases</h3>
@@ -937,6 +1070,7 @@ function GitEditor({
                         <input
                           {...attributes}
                           required
+                          placeholder="Same destination with .git added or removed"
                           value={alias}
                           onInput={(e) =>
                             change(
@@ -1011,9 +1145,22 @@ function GitEditor({
           )}
           {metadata && kind === "credentials" && (
             <>
-              {field("origin", "HTTPS origin")}
-              {field("header", "Header name")}
-              {field("prefix", "Fixed prefix (optional)", false)}
+              {field(
+                "origin",
+                "HTTPS origin",
+                true,
+                false,
+                "https://git.example.com",
+              )}
+              {field("header", "Header name", true, false, "Authorization")}
+              {field(
+                "prefix",
+                "Fixed prefix (optional)",
+                false,
+                false,
+                "Bearer ",
+                "Include any space needed between the prefix and secret. Leave blank for no prefix.",
+              )}
             </>
           )}
           {metadata && kind === "grants" && (
@@ -1072,7 +1219,13 @@ function GitEditor({
                   </FormField>
                 );
               })}
-              {field("description", "Description (optional)", false)}
+              {field(
+                "description",
+                "Description (optional)",
+                false,
+                false,
+                "Project repository access policy",
+              )}
               <FormField id={`git-read-${mode}`} label="Read repository">
                 {(attributes) => (
                   <BinaryToggle
@@ -1126,6 +1279,11 @@ function GitEditor({
                         <input
                           {...attributes}
                           required
+                          placeholder={
+                            rule.ref.kind === "exact"
+                              ? "refs/heads/main"
+                              : "refs/heads/"
+                          }
                           value={rule.ref.value}
                           onInput={(e) =>
                             change(
@@ -1232,7 +1390,9 @@ function GitEditor({
               id={secretID}
               value={secret}
               label="Secret"
+              placeholder="Enter secret value"
               hint="Write-only. Cleared on submission or cancellation."
+              onInput={(value) => setHasSecret(value.length > 0)}
             />
           )}
           {metadata &&
@@ -1252,12 +1412,18 @@ function GitEditor({
           )}
           {changedRevision && (
             <StateNotice state="warning" title="Revision changed">
-              <p>Review the current facts above against your retained draft.</p>
+              <p>
+                This resource changed since this form was prepared. Compare the
+                current facts above with your draft. Use reviewed revision keeps
+                your draft and uses that revision for your next confirmation; it
+                does not save, rotate, delete, or retry anything.
+              </p>
               <button
                 type="button"
                 disabled={unavailable || mutation.state === "uncertain"}
                 onClick={() => {
                   setExpected(gitETag(kind, resource!));
+                  setBaseline(gitDraft(resource));
                   controller.abandon();
                 }}
               >
@@ -1275,6 +1441,27 @@ function GitEditor({
             </StateNotice>
           )}
           <div class="form-actions">
+            {dirty && (
+              <button
+                type="button"
+                disabled={
+                  unavailable ||
+                  mutation.state === "submitting" ||
+                  mutation.state === "uncertain"
+                }
+                onClick={() => {
+                  const next = gitDraft(resource);
+                  setDraft(next);
+                  setBaseline(next);
+                  setExpected(resource ? gitETag(kind, resource) : null);
+                  clearSecret();
+                  setInputError(undefined);
+                  controller.abandon();
+                }}
+              >
+                Discard changes
+              </button>
+            )}
             <button
               ref={button}
               type="submit"
@@ -1420,7 +1607,7 @@ function GitEditor({
         returnFocus={button as unknown as RefObject<HTMLElement>}
         onCancel={() => {
           setConfirming(false);
-          secret.clear();
+          clearSecret();
         }}
         onConfirm={submit}
       />
@@ -1438,6 +1625,11 @@ export function GitTrafficView(
   props: Props & { controller: GitTrafficController },
 ) {
   const selected = props.resolved.location.segments[1];
+  const repositories = useGitChoices(
+    props.session,
+    props.view.generation,
+    "traffic",
+  );
   const { value, error } = useGitDetail(
     props,
     selected ? `/api/v2/git/traffic/${selected}` : undefined,
@@ -1451,7 +1643,8 @@ export function GitTrafficView(
       return item;
     },
   );
-  if (!selected) return <GitTrafficCollection {...props} />;
+  if (!selected)
+    return <GitTrafficCollection {...props} repositories={repositories} />;
   if (!value)
     return (
       <StateNotice
@@ -1486,12 +1679,14 @@ export function GitTrafficView(
                 ? "stale"
                 : !a.allowed
                   ? "neutral"
-                  : f.transport === "Complete"
+                  : ["HTTP success", "Reported success"].includes(
+                        gitOutcome(value),
+                      )
                     ? "current"
                     : "warning"
             }
           >
-            {`Transport: ${f.transport}`}
+            {gitOutcome(value)}
           </StatusLabel>
         </div>
         <p class="technical-value">{a.id}</p>
@@ -1509,9 +1704,9 @@ export function GitTrafficView(
             </dd>
           </div>
           <div>
-            <dt>Repository at admission</dt>
+            <dt>Repository</dt>
             <dd>
-              {a.policy?.repository_name ?? (a.repository.id || "Unavailable")}
+              <RecordedRepository item={value} choices={repositories} />
             </dd>
           </div>
           {a.policy && (
@@ -1521,7 +1716,7 @@ export function GitTrafficView(
             </div>
           )}
           <div>
-            <dt>Exchange</dt>
+            <dt>Operation</dt>
             <dd>{gitLabels[a.operation]}</dd>
           </div>
           <div>
@@ -1574,6 +1769,62 @@ export function GitTrafficView(
             Transport completion does not prove a valid local checkout.
             Discovery and probes are not completed pushes.
           </p>
+        )}
+        {a.operation === "push" && (
+          <section aria-label="Targeted refs">
+            <h2>Targeted refs</h2>
+            {!a.ref_evidence ? (
+              <p>Ref evidence unavailable (legacy record).</p>
+            ) : (
+              <>
+                <p>
+                  {a.ref_evidence.refs.length} of {a.commands} requested refs
+                  retained
+                  {a.ref_evidence.state === "truncated"
+                    ? "; truncated — omitted refs and their outcomes are unavailable."
+                    : "."}
+                </p>
+                <div
+                  class="table-region table-resource"
+                  role="region"
+                  aria-label="Targeted ref evidence"
+                  tabindex={0}
+                >
+                  <table>
+                    <caption>Requested operations and upstream claims</caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Ref</th>
+                        <th scope="col">Requested action</th>
+                        <th scope="col">Upstream outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {a.ref_evidence.refs.map((ref, i) => (
+                        <tr key={ref.name}>
+                          <th scope="row" data-label="Ref">
+                            <span class="technical-value">{ref.name}</span>
+                          </th>
+                          <td data-label="Requested action">
+                            {sentenceCase(ref.action)}
+                          </td>
+                          <td data-label="Upstream outcome">
+                            {!a.allowed
+                              ? "Not dispatched"
+                              : c?.ref_outcomes?.[i] === "ok"
+                                ? "Reported success"
+                                : c?.ref_outcomes?.[i] === "ng"
+                                  ? "Reported failure"
+                                  : "Unknown"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
         )}
         <details>
           <summary>Admission-time policy references</summary>
@@ -1648,8 +1899,31 @@ export function GitTrafficView(
     </div>
   );
 }
+function RecordedRepository({
+  item,
+  choices,
+}: {
+  item: GitTraffic;
+  choices: GitChoices;
+}) {
+  const id = item.admission.repository.id;
+  const name = item.admission.policy?.repository_name || id || "Unavailable";
+  const available =
+    !choices.loading &&
+    !choices.error &&
+    choices.repositories.some((repository) => repository.id === id);
+  return (
+    <TableIdentity
+      primary={
+        available ? <a href={`#/git/repositories/${id}`}>{name}</a> : name
+      }
+      secondary={id || undefined}
+    />
+  );
+}
+
 function GitTrafficCollection(
-  props: Props & { controller: GitTrafficController },
+  props: Props & { controller: GitTrafficController; repositories: GitChoices },
 ) {
   const navigate = useUnsavedChanges(false);
   const [current, setCurrent] = useState(props.controller.snapshot());
@@ -1691,6 +1965,7 @@ function GitTrafficCollection(
           onChange={(live) => props.controller.setLive(live)}
         />
       </div>
+      <HistoryWindow query={query} />
       <div
         class="table-filters collection-query-filters"
         role="group"
@@ -1701,8 +1976,8 @@ function GitTrafficCollection(
             {key === "admission" && (
               <input
                 type="search"
-                aria-label="Recorded repository name or ID"
-                placeholder="Recorded repository name or ID"
+                aria-label="Repo name or ID"
+                placeholder="Repo name or ID"
                 value={draft.filter_repository ?? ""}
                 onInput={(event) =>
                   setDraft({
@@ -1739,6 +2014,10 @@ function GitTrafficCollection(
         ))}
         <button
           type="button"
+          disabled={
+            !Object.values(draft).some(Boolean) &&
+            !Object.values(query).some(Boolean)
+          }
           onClick={() => {
             setDraft({});
             apply({});
@@ -1817,7 +2096,7 @@ function GitTrafficCollection(
           },
           {
             key: "exchange",
-            label: "Exchange",
+            label: "Operation",
             role: "identity",
             render: (r) => (
               <TableIdentity
@@ -1837,18 +2116,26 @@ function GitTrafficCollection(
           },
           {
             key: "repository",
-            label: "Repository at admission",
+            label: "Repository",
             role: "relation",
             render: (r) => (
-              <TableIdentity
-                primary={
-                  r.admission.policy?.repository_name ??
-                  (r.admission.repository.id || "Unavailable")
+              <RecordedRepository item={r} choices={props.repositories} />
+            ),
+          },
+          {
+            key: "outcome",
+            label: "Outcome",
+            role: "status",
+            render: (r) => (
+              <StatusLabel
+                state={
+                  ["HTTP success", "Reported success"].includes(gitOutcome(r))
+                    ? "current"
+                    : "warning"
                 }
-                secondary={
-                  r.admission.policy ? r.admission.repository.id : undefined
-                }
-              />
+              >
+                {gitOutcome(r)}
+              </StatusLabel>
             ),
           },
           {
@@ -1856,9 +2143,7 @@ function GitTrafficCollection(
             label: "Admission",
             role: "status",
             render: (r) => (
-              <StatusLabel state={r.admission.allowed ? "current" : "neutral"}>
-                {gitFacts(r).admission}
-              </StatusLabel>
+              <StatusLabel state="neutral">{gitFacts(r).admission}</StatusLabel>
             ),
           },
           {

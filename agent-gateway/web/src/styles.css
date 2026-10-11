@@ -292,9 +292,9 @@ button.danger-action:hover,
 .navigation-group-label {
   display: block;
   padding: 0 10px 6px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1200,6 +1200,109 @@ textarea[readonly] {
   }
 }
 
+.protocol-toolbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.protocol-toolbar h2 {
+  margin: 0;
+}
+.protocol-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.protocol-toolbar select {
+  width: auto;
+  min-width: 80px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+.protocol-card > h2 {
+  margin: 0 0 16px;
+}
+.protocol-card .overview-facts > div {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.protocol-card .overview-facts dd {
+  text-align: right;
+}
+.protocol-card .protocol-inventory {
+  margin-bottom: 16px;
+  min-height: 120px;
+  align-content: start;
+}
+@media (max-width: 760px) {
+  .protocol-card .protocol-inventory {
+    min-height: 0;
+  }
+}
+.protocol-activity {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.protocol-activity .overview-headline a {
+  color: var(--text);
+}
+.protocol-activity .overview-headline strong {
+  font-size: 24px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.protocol-outcomes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 12px 0;
+}
+.protocol-outcomes > div {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.protocol-outcomes dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.protocol-outcomes dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.protocol-attention {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+}
+.protocol-attention[data-attention="true"] {
+  border-left: 3px solid var(--warning);
+  padding-left: 12px;
+}
+.protocol-attention h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+.protocol-attention .overview-headline {
+  margin-bottom: 0;
+}
+.protocol-attention .overview-headline > strong {
+  display: inline;
+  font-size: 16px;
+}
+.overview-facts .overview-backup-time {
+  font-size: 12px;
+  font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .overview-facts {
   display: grid;
   gap: 8px;
@@ -2687,10 +2790,35 @@ button.sort-button:not(:disabled):hover {
 }
 
 .audit-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   align-items: start;
-  gap: 16px;
+}
+
+.audit-filter-grid .form-field > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.storage-details {
+  width: 100%;
+  margin: 0;
+}
+
+.storage-details > div {
+  padding: 3px 0;
+}
+
+.storage-details dd {
+  font-size: 12px;
+}
+
+.table-region .activity-protocol {
+  white-space: nowrap;
 }
 
 .audit-filter-grid .form-field {
@@ -2708,8 +2836,10 @@ button.sort-button:not(:disabled):hover {
 
 .audit-filter-grid input,
 .audit-filter-grid select {
+  flex: none;
   width: 100%;
   min-width: 0;
+  max-width: none;
 }
 
 .audit-filter-actions {
@@ -2721,6 +2851,7 @@ button.sort-button:not(:disabled):hover {
 }
 
 .audit-filter-grid .form-field {
+  flex: 1 1 10rem;
   min-width: 0;
   margin-top: 0;
 }

@@ -110,6 +110,7 @@ type Options struct {
 	HistoryExport    HistoryExporter
 	GitTraffic       GitTrafficReader
 	HTTPTraffic      HTTPTrafficReader
+	ProtocolActivity ProtocolActivityReader
 	RecordedActivity func() contract.RecordedActivitySummary
 	Audit            AuditReader
 	GitPolicies      GitPolicyService
@@ -149,6 +150,7 @@ type Handler struct {
 	history                 HistoryExporter
 	gitTraffic              GitTrafficReader
 	httpTraffic             HTTPTrafficReader
+	protocolActivity        ProtocolActivityReader
 	recordedActivity        func() contract.RecordedActivitySummary
 	httpCredentialCursorKey string
 	audit                   AuditReader
@@ -212,7 +214,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{diagnostics: options.Diagnostics, inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{diagnostics: options.Diagnostics, inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, protocolActivity: options.ProtocolActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -369,6 +371,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		handler.getCredential(writer, request)
 	case strings.HasPrefix(path, "/api/v2/admin-credentials/") && request.Method == http.MethodDelete:
 		handler.revokeCredential(writer, request)
+	case path == "/api/v2/protocol-activity" && request.Method == http.MethodGet:
+		handler.protocolActivitySummary(writer, request)
 	case path == "/api/v2/recorded-activity" && request.Method == http.MethodGet:
 		if !bodyless(request) || request.URL.RawQuery != "" || request.URL.ForceQuery {
 			writeProblem(writer, contract.ProblemMalformedRequest)

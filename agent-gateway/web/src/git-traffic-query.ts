@@ -1,3 +1,4 @@
+import { validActivityRange } from "./protocol-summary.ts";
 export const gitTrafficOptions: Readonly<Record<string, readonly string[]>> = {
   operation: [
     "read_discovery",
@@ -26,12 +27,17 @@ export const gitTrafficOptions: Readonly<Record<string, readonly string[]>> = {
 export function validGitTrafficQuery(
   query: Readonly<Record<string, string>>,
 ): boolean {
-  return Object.entries(query).every(([key, value]) =>
-    key === "filter_repository"
-      ? value.length > 0 &&
-        new TextEncoder().encode(value).length <= 256 &&
-        !/[\p{Cc}\p{Cf}]/u.test(value)
-      : key.startsWith("filter_") &&
-        gitTrafficOptions[key.slice(7)]?.includes(value) === true,
+  return (
+    validActivityRange(query) &&
+    Object.entries(query).every(([key, value]) =>
+      key === "filter_from" || key === "filter_until"
+        ? true
+        : key === "filter_repository"
+          ? value.length > 0 &&
+            new TextEncoder().encode(value).length <= 256 &&
+            !/[\p{Cc}\p{Cf}]/u.test(value)
+          : key.startsWith("filter_") &&
+            gitTrafficOptions[key.slice(7)]?.includes(value) === true,
+    )
   );
 }

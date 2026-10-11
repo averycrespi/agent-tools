@@ -46,6 +46,12 @@ exhaustion or uninterruptible I/O. A shutdown deadline with unconfirmed cleanup 
 not release installation ownership or establish a clean stop. Preserve damaged
 history and recovery artifacts and follow [stopped recovery](backup-and-recovery.md).
 
+## Overview protocol summaries
+
+Overview shows HTTP, Git and MCP inventory links and recent retained activity. Choose **15m**, **1h** (default) or **24h**, then follow a card's activity count to its history with that exact admission window applied. The end is exclusive; Reset clears the range. HTTP excludes recognized Git and CONNECT here, unlike the explicitly HTTP-includes-Git process comparison in System. Git totals are recorded exchanges, not inferred clone/fetch/push commands; discovery never proves a completed push. Push reports are upstream claims, not independent verification of remote effects.
+
+Failure, denial, unknown/incomplete evidence and reported partial pushes remain distinct. Zero means no matching retained records, not proof of no activity. **Retained only · completeness unknown** does not promise uninterrupted recording. **Partially retained history** flags known pruning, loss, pending writes or degraded recording; **Recent history unavailable** shows no counts. Stale counts are last-known evidence. Neither inventory nor counts establish overall health or permission to retry.
+
 ## Filter browser history
 
 Open **MCP → Invocations** in Agent Gateway. This destination shows existing MCP invocations, including Gateway-local MCP calls, not additional protocol activity or administrative audit. Use `#/mcp/invocations` and its detail suffixes with valid filters. Old `#/invocations` and `#/activity/invocations` bookmarks are invalid and have no redirects; see the [coordinated API/CLI/browser cutover](upgrade-compatibility.md#mcp-invocation-namespace-cutover). **Back to invocations** retains the applied query; **Audit Log** remains the separate shared administrative audit history.

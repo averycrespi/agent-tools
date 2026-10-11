@@ -1,3 +1,16 @@
+export function HistoryWindow({
+  query,
+}: {
+  query: Readonly<Record<string, string>>;
+}) {
+  return query.filter_from && query.filter_until ? (
+    <p class="history-window">
+      Admission window: <UserTime value={query.filter_from} compact /> to{" "}
+      <UserTime value={query.filter_until} compact /> (end exclusive)
+    </p>
+  ) : null;
+}
+
 export function formatUserTime(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;

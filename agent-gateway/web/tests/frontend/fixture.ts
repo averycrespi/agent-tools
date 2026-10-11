@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { test as base, expect } from "@playwright/test";
 import { overviewStatusFixture } from "../browser/fixtures.ts";
 import { activityFixture } from "../recorded-activity-fixture.ts";
+import { protocolSummaryFixture } from "../protocol-summary-fixture.ts";
 
 export const syntheticBearer = "SYNTHETIC_FRONTEND_ONLY_ADMIN_CANARY";
 const assets = resolve(import.meta.dirname, "../../../internal/api/static");
@@ -204,6 +205,8 @@ export const test = base.extend<{
             },
             keyring: { capability: "ready" },
           });
+        if (path === "/api/v2/protocol-activity")
+          return json(protocolSummaryFixture());
         if (path === "/api/v2/recorded-activity")
           return json(activityFixture());
         if (
@@ -213,6 +216,11 @@ export const test = base.extend<{
             "/api/v2/mcp/grant-requests",
             "/api/v2/principals",
             "/api/v2/mcp/grants",
+            "/api/v2/http/credentials",
+            "/api/v2/http/grants",
+            "/api/v2/git/credentials",
+            "/api/v2/git/repositories",
+            "/api/v2/git/grants",
             "/api/v2/backups",
             "/api/v2/admin-credentials",
           ].includes(path)

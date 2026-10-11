@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 type gitTrafficReadFixture struct {
 	queries []contract.GitTrafficQuery
 	ids     []string
+	item    contract.GitTrafficRecord
 }
 
 func (f *gitTrafficReadFixture) ListGit(_ context.Context, q contract.GitTrafficQuery) (contract.GitTrafficPage, error) {
@@ -20,8 +22,20 @@ func (f *gitTrafficReadFixture) ListGit(_ context.Context, q contract.GitTraffic
 }
 func (f *gitTrafficReadFixture) GetGit(_ context.Context, id string) (contract.GitTrafficRecord, error) {
 	f.ids = append(f.ids, id)
-	return contract.GitTrafficRecord{}, nil
+	return f.item, nil
 }
+func TestGitTrafficProjectsBoundedRefEvidence(t *testing.T) {
+	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	reader := &gitTrafficReadFixture{item: contract.GitTrafficRecord{Admission: contract.GitTrafficAdmission{ID: id, Operation: "push", Commands: 2, Allowed: true, RefEvidence: &contract.GitTrafficRefEvidence{State: "complete", Refs: []contract.GitTrafficRequestedRef{{Name: "refs/heads/main", Action: "update"}, {Name: "refs/tags/old", Action: "delete"}}}}, Completion: &contract.GitTrafficCompletion{ReportedResult: "reported_partial", RefOutcomes: []string{"ok", "ng"}}}}
+	h := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, GitTraffic: reader})
+	response := perform(h, http.MethodGet, "/api/v2/git/traffic/"+id, "", map[string]string{"Authorization": "Bearer " + testBearer})
+	require.Equal(t, 200, response.Code)
+	var actual contract.GitTrafficRecord
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &actual))
+	require.Equal(t, reader.item, actual)
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+}
+
 func TestGitTrafficRoutesAreReadOnlyBoundedAndBodyless(t *testing.T) {
 	reader := &gitTrafficReadFixture{}
 	h := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, GitTraffic: reader})

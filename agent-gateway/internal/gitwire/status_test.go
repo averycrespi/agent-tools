@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitpolicy"
 )
 
@@ -45,6 +47,18 @@ func TestStatusObserver(t *testing.T) {
 			if got := o.Result(); got != tc.want {
 				t.Fatalf("got %s want %s", got, tc.want)
 			}
+			outcomes := o.RefOutcomes([]string{"refs/heads/b", "refs/heads/a"})
+			switch tc.want {
+			case "reported_success":
+				require.Equal(t, []string{"ok", "ok"}, outcomes)
+			case "reported_partial":
+				require.Equal(t, []string{"ng", "ok"}, outcomes)
+			case "reported_failure":
+				require.Equal(t, []string{"ng", "ng"}, outcomes)
+			default:
+				require.Nil(t, outcomes)
+			}
+			require.Nil(t, o.RefOutcomes([]string{"refs/heads/foreign"}))
 		})
 	}
 }

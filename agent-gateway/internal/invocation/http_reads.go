@@ -19,6 +19,9 @@ import (
 const httpTrafficReadOutcome = `CASE WHEN decision='intercept' THEN 'interception_selected' ELSE outcome END`
 
 func validHTTPTrafficFilters(f contract.HTTPTrafficFilters) bool {
+	if !contract.ValidHistoryRange(f.From, f.Until) {
+		return false
+	}
 	if f.ConnectID != "" && !validOpaqueInvocationID(f.ConnectID) {
 		return false
 	}
@@ -119,6 +122,10 @@ func (s *ReadService) ListHTTP(ctx context.Context, q contract.HTTPTrafficQuery)
 		}
 		clauses := []string{"insertion_sequence<=?"}
 		args := []any{cursor.UpperSequence}
+		if q.Filters.From != "" {
+			clauses = append(clauses, "json_extract(admission,'$.admitted_at')>=? AND json_extract(admission,'$.admitted_at')<?")
+			args = append(args, q.Filters.From, q.Filters.Until)
+		}
 		if q.Cursor != "" {
 			clauses = append(clauses, "insertion_sequence<?")
 			args = append(args, cursor.NextSequence)

@@ -615,11 +615,21 @@ export async function runAccessibilityKeyboardResponsive(
   await expect(
     page.getByRole("heading", { name: "Request activity", exact: true }),
   ).toBeVisible();
+  const activity = page.getByRole("table", {
+    name: "Request activity",
+    exact: true,
+  });
+  await expect(activity.getByRole("rowheader")).toHaveText([
+    "MCP",
+    "HTTP",
+    "CONNECT",
+    "Git",
+  ]);
   await expect(
-    page.getByText("HTTP (includes Git)", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Git (HTTP subset)", { exact: true }),
+    page.getByText(
+      "HTTP includes Git; CONNECT is separate. Rows are not additive.",
+      { exact: true },
+    ),
   ).toBeVisible();
   for (const width of [1280, 320]) {
     await page.setViewportSize({ width, height: 900 });
@@ -713,11 +723,13 @@ export async function runAccessibilityKeyboardResponsive(
     recoveryHealth = health;
     await page.getByTestId("manual-refresh").click();
     await expect(
-      page.getByText(
-        `Recording: ${health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " ")}`,
-        { exact: true },
-      ),
-    ).toBeVisible();
+      page
+        .locator(".storage-details > div")
+        .filter({ has: page.locator("dt", { hasText: /^Recording$/ }) })
+        .locator("dd"),
+    ).toHaveText(
+      health.charAt(0).toUpperCase() + health.slice(1).replaceAll("_", " "),
+    );
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await scan(`traffic-${health}-${width}`);

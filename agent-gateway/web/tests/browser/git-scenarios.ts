@@ -87,10 +87,9 @@ export async function runGit(
   await page
     .getByLabel("Canonical HTTPS destination", { exact: true })
     .fill("https://example.com/team/workshop");
-  await page.getByRole("button", { name: "Add alias", exact: true }).click();
-  await page
-    .getByLabel("Alias 1", { exact: true })
-    .fill("https://example.com/team/workshop.git");
+  await expect(page.getByLabel("Alias 1", { exact: true })).toHaveValue(
+    "https://example.com/team/workshop.git",
+  );
   await capture("repository-alias-added");
   await page
     .getByRole("button", { name: "Review and create", exact: true })
@@ -559,9 +558,12 @@ export async function runGit(
       exact: true,
     }),
   });
-  await rotateEditor
-    .getByRole("button", { name: "Use reviewed revision", exact: true })
-    .click();
+  await expect(
+    rotateEditor.getByRole("button", { name: "Review rotation", exact: true }),
+  ).toBeEnabled();
+  await expect(page.getByText("Revision changed", { exact: true })).toHaveCount(
+    0,
+  );
   await page
     .getByLabel("Secret", { exact: true })
     .fill("git-rotation-secret-canary");
@@ -581,6 +583,16 @@ export async function runGit(
   await expect(
     page.getByRole("button", { name: "Review rotation", exact: true }),
   ).toBeEnabled();
+
+  await expect(page.getByText("Revision changed", { exact: true })).toHaveCount(
+    0,
+  );
+  await page
+    .getByRole("link", { name: "Back to Git credentials", exact: true })
+    .click();
+  await expect(page.getByRole("table")).toContainText("Updated Git credential");
+  await expect(protectedNavigation).not.toBeVisible();
+  await nav(`#/git/credentials/${credential.id}`);
 
   // The server performs one cutover, but its malformed acknowledgement cannot
   // qualify a known result. The UI must block replay and clear material.

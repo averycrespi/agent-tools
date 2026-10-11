@@ -34,4 +34,30 @@ func TestGitTrafficCLISeparatesTransportAndReport(t *testing.T) {
 	table, err = gitTrafficItemTable(raw)
 	require.NoError(t, err)
 	require.Contains(t, table.Rows, []string{"Transport", "Unknown"})
+	item.Admission.RefEvidence = &contract.GitTrafficRefEvidence{State: "complete", Refs: []contract.GitTrafficRequestedRef{{Name: "refs/heads/main", Action: "update"}}}
+	item.Completion = &contract.GitTrafficCompletion{CompletedAt: item.Admission.AdmittedAt, Outcome: "outcome_unknown", Status: 200, TransferComplete: true, ReportedResult: "reported_success", RefOutcomes: []string{"ok"}}
+	raw, err = json.Marshal(item)
+	require.NoError(t, err)
+	table, err = gitTrafficItemTable(raw)
+	require.NoError(t, err)
+	require.Contains(t, table.Rows, []string{"Requested ref", "refs/heads/main | update | Reported success"})
+	for _, status := range []int{401, 403} {
+		item.Completion.Status = status
+		item.Completion.RefOutcomes = nil
+		item.Completion.ReportedResult = ""
+		raw, err = json.Marshal(item)
+		require.NoError(t, err)
+		table, err = gitTrafficItemTable(raw)
+		require.NoError(t, err)
+		require.Contains(t, table.Rows, []string{"Outcome", "Failed"})
+		require.Contains(t, table.Rows, []string{"Transport", "Complete"})
+	}
+	item.Admission.Allowed = false
+	item.Completion = nil
+	raw, err = json.Marshal(item)
+	require.NoError(t, err)
+	table, err = gitTrafficItemTable(raw)
+	require.NoError(t, err)
+	require.Contains(t, table.Rows, []string{"Requested ref", "refs/heads/main | update | Not dispatched"})
+	require.Contains(t, table.Rows, []string{"Outcome", "Denied"})
 }
