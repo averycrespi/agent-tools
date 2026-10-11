@@ -3088,7 +3088,7 @@ export async function runInvocations(
     invocationIDs.principal,
   );
   await expect(resourceFact("Grant").locator(".table-primary a")).toHaveText(
-    "Grant",
+    invocationIDs.grant,
   );
   await expect(resourceFact("Grant").locator(".table-identifier")).toHaveText(
     invocationIDs.grant,
@@ -3130,7 +3130,7 @@ export async function runInvocations(
     invocationIDs.tool,
   );
   await expect(resourceFact("Server").locator(".table-primary a")).toHaveText(
-    "Server",
+    invocationIDs.server,
   );
   await expect(resourceFact("Server").locator(".table-identifier")).toHaveText(
     invocationIDs.server,

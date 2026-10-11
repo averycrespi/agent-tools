@@ -1,6 +1,10 @@
 import { useEffect, useLayoutEffect, useState } from "preact/hooks";
 import { parseFragment, serializeLocation } from "./location";
 import { invocationOptions } from "./invocation-query";
+import {
+  decodeInvocationRecognition,
+  type InvocationRecognition,
+} from "./invocation-recognition";
 import type { PrincipalDirectory } from "./principals";
 import {
   BinaryToggle,
@@ -265,6 +269,7 @@ interface FailureDiagnosticsView {
   };
 }
 interface InvocationItemView extends InvocationSummaryView {
+  recognition?: InvocationRecognition;
   redactedArguments: unknown;
   diagnostics?: FailureDiagnosticsView;
 }
@@ -419,6 +424,8 @@ function decodeSummary(
   ];
   if (item) {
     keys.push("redacted_arguments");
+    if (typeof value === "object" && value !== null && "recognition" in value)
+      keys.push("recognition");
     if (typeof value === "object" && value !== null && "diagnostics" in value)
       keys.push("diagnostics");
   }
@@ -427,6 +434,7 @@ function decodeSummary(
   const result: InvocationSummaryView & {
     redactedArguments?: unknown;
     diagnostics?: FailureDiagnosticsView;
+    recognition?: InvocationRecognition;
   } = {
     id: id(summary.id),
     principalID: id(summary.principal_id),
@@ -466,6 +474,12 @@ function decodeSummary(
   };
   if (item) {
     result.redactedArguments = summary.redacted_arguments;
+    const recognition = decodeInvocationRecognition(
+      summary.recognition,
+      result.target?.kind === "downstream" ? result.target.serverID : undefined,
+      result.authorization?.grantID ?? undefined,
+    );
+    if (recognition !== undefined) result.recognition = recognition;
     if ("diagnostics" in summary)
       result.diagnostics = decodeDiagnostics(summary.diagnostics);
   }
@@ -611,7 +625,7 @@ export class InvocationsController {
     views.registerPanel({
       id: "invocations",
       matches: (key) => parseFragment(key)?.destination === "invocations",
-      invalidations: ["invocations", "authorization"],
+      invalidations: ["invocations", "authorization", "servers"],
       shouldRefresh: (reason) => {
         const automatic = ["invalidation", "reconnect", "poll"].includes(
           reason,
@@ -623,6 +637,8 @@ export class InvocationsController {
         );
       },
       onInvalidation: () => {
+        if (parseFragment(this.views.snapshot().viewKey)?.segments.length === 2)
+          return true;
         if (this.value.live && !this.value.paused) return true;
         if (!this.value.updatesAvailable) {
           this.value = { ...this.value, updatesAvailable: true };
@@ -875,7 +891,7 @@ function InvocationFacts({
   item,
   principalNames,
 }: {
-  item: InvocationSummaryView;
+  item: InvocationItemView;
   principalNames: ReadonlyMap<string, string>;
 }) {
   return (
@@ -932,7 +948,9 @@ function InvocationFacts({
                 <TableIdentity
                   primary={
                     <a href={`#/mcp/grants/${item.authorization.grantID}`}>
-                      Grant
+                      {item.recognition?.grant
+                        ? item.recognition.grant.description || "Unnamed grant"
+                        : item.authorization.grantID}
                     </a>
                   }
                   secondary={item.authorization.grantID}
@@ -946,7 +964,10 @@ function InvocationFacts({
             <dd>
               <TableIdentity
                 primary={
-                  <a href={`#/mcp/servers/${item.target.serverID}`}>Server</a>
+                  <a href={`#/mcp/servers/${item.target.serverID}`}>
+                    {item.recognition?.server?.displayName ??
+                      item.target.serverID}
+                  </a>
                 }
                 secondary={item.target.serverID}
               />

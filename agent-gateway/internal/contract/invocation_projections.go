@@ -108,10 +108,28 @@ type InvocationSummary struct {
 	Outcome               InvocationOutcome        `json:"outcome"`
 }
 
+// InvocationRecognition contains current read-time labels, never retained evidence.
+// A nil relationship means recognition is absent or unavailable, not deletion.
+type InvocationRecognition struct {
+	Server *InvocationServerRecognition `json:"server"`
+	Grant  *InvocationGrantRecognition  `json:"grant"`
+}
+
+type InvocationServerRecognition struct {
+	ServerID    string `json:"server_id"`
+	DisplayName string `json:"display_name"`
+}
+
+type InvocationGrantRecognition struct {
+	GrantID     string `json:"grant_id"`
+	Description string `json:"description"`
+}
+
 type Invocation struct {
 	InvocationSummary
-	RedactedArguments json.RawMessage     `json:"redacted_arguments"`
-	Diagnostics       *FailureDiagnostics `json:"diagnostics,omitempty"`
+	RedactedArguments json.RawMessage        `json:"redacted_arguments"`
+	Diagnostics       *FailureDiagnostics    `json:"diagnostics,omitempty"`
+	Recognition       *InvocationRecognition `json:"recognition,omitempty"`
 }
 
 // ParseInvocationDecisionFilter includes absence of evaluation without expanding

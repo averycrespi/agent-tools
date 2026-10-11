@@ -30,7 +30,7 @@ func (source *readNames) PrincipalDisplayNames(context.Context) (map[string]stri
 func TestInvocationAuthoritativeSearchIntegration(t *testing.T) {
 	repository, _, _ := newInvocationRepository(t, nil, uniqueInvocationEntropy(64))
 	names := &readNames{names: map[string]string{invocationID(1): "Café Investigator"}}
-	service, err := NewReadService(repository, names)
+	service, err := NewReadService(repository, names, nil, nil)
 	require.NoError(t, err)
 	admission := testEvaluatedAdmission()
 	admission.PrincipalID = invocationID(1)

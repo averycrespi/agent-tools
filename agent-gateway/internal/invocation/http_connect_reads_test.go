@@ -11,7 +11,7 @@ func TestHTTPTrafficConnectSelectionAndRecordedRelations(t *testing.T) {
 	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
-	reader, err := NewReadService(audits, authority)
+	reader, err := NewReadService(audits, authority, nil, nil)
 	require.NoError(t, err)
 	intercepted := httpTrafficAdmission(1)
 	intercepted.Target = &contract.HTTPTrafficTarget{Host: "example.com", Port: 443}

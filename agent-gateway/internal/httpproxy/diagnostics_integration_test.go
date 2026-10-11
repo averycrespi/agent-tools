@@ -26,7 +26,7 @@ import (
 
 func TestIntegrationRejectionDiagnosticsPersistAndRead(t *testing.T) {
 	f := fixture(t)
-	reader, err := invocation.NewReadService(f.engine.options.Evidence, f.authority)
+	reader, err := invocation.NewReadService(f.engine.options.Evidence, f.authority, nil, nil)
 	require.NoError(t, err)
 	tests := []struct {
 		stage, reason string
@@ -91,7 +91,7 @@ func TestIntegrationGatewayResponseIsNotUpstreamStatus(t *testing.T) {
 		history, err := f.traffic.HTTPHistory(t.Context(), 0, 10)
 		return err == nil && len(history.Records) == 1 && history.Records[0].Completion != nil
 	}, 3*time.Second, 10*time.Millisecond)
-	reader, err := invocation.NewReadService(f.engine.options.Evidence, f.authority)
+	reader, err := invocation.NewReadService(f.engine.options.Evidence, f.authority, nil, nil)
 	require.NoError(t, err)
 	page, err := reader.ListHTTP(t.Context(), contract.HTTPTrafficQuery{Limit: 10})
 	require.NoError(t, err)

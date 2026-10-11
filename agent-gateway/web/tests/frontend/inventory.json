@@ -9,7 +9,7 @@
     "http-credentials.tsx": "a59071cddf5c688a3eca964b0ba0cef9e682c4d92da3dcdce400cb0aa340b8a2",
     "http-grants.tsx": "9c77f88b86099336ecfa13da396d7ba949536340f2be55fee8e64cdfcb6f7d32",
     "http-traffic.tsx": "5dfef54745e1ef8f0149ac39c99cc75b3e6da096e448da03e76e29730ec74693",
-    "invocations.tsx": "58eb2aae00921eb6f7558e0fd4778a7556a79cac0593e6deb97eb3077a1c6f6c",
+    "invocations.tsx": "a453369a974b1925206822525438589edcb6b8ba8adb3bc42c504f713a161083",
     "location.ts": "4be26bde66eabfbf71f7232291d29e57273195aeac282ab9162758983b06bdad",
     "main.tsx": "ee87b74007d341726f825dfa03641ce0d056fa551db24505aab6b09b1075fea6",
     "matcher-editor.tsx": "546c0d8a35bf1a327a77624486c36cebe86f3cabc22e741c484587afe386d209",
@@ -406,6 +406,11 @@
       "transfer-list-desktop": "standard",
       "transfer-list-narrow": "standard",
       "tunnel-narrow": "standard"
+    },
+    "invocation-recognition": {
+      "named-long": "reflow",
+      "unnamed-missing": "reflow",
+      "unavailable-older": "reflow"
     },
     "invocations": {
       "table-invocation-history-populated": "standard",
