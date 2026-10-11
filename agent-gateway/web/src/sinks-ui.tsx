@@ -67,6 +67,7 @@ export function WriteOnlyField({
   label,
   hint,
   multiline = false,
+  placeholder,
   onInput,
 }: {
   value: WriteOnlyValue;
@@ -74,6 +75,7 @@ export function WriteOnlyField({
   label: string;
   hint: string;
   multiline?: boolean;
+  placeholder?: string;
   onInput?: (value: string) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -92,6 +94,7 @@ export function WriteOnlyField({
           <textarea
             {...attributes}
             ref={textarea}
+            placeholder={placeholder}
             rows={5}
             autocomplete="off"
             autocapitalize="none"
@@ -102,6 +105,7 @@ export function WriteOnlyField({
           <input
             {...attributes}
             ref={input}
+            placeholder={placeholder}
             type="password"
             autocomplete="off"
             autocapitalize="none"

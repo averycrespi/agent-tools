@@ -1006,6 +1006,7 @@ function GrantEditor(
               <input
                 {...a}
                 ref={descriptionInput}
+                placeholder="Example API policy"
                 maxLength={256}
                 value={description}
                 onInput={(e) => setDescription(e.currentTarget.value)}
@@ -1067,6 +1068,7 @@ function GrantEditor(
                 {...a}
                 required
                 maxLength={255}
+                placeholder="api.example.com"
                 value={host}
                 onInput={(e) => setHost(e.currentTarget.value)}
               />
@@ -1080,6 +1082,7 @@ function GrantEditor(
                 type="number"
                 min={1}
                 max={65535}
+                placeholder="443"
                 value={port}
                 onInput={(e) => setPort(e.currentTarget.value)}
               />
@@ -1101,6 +1104,7 @@ function GrantEditor(
                       required
                       maxLength={32}
                       pattern={"[A-Z0-9!#$%&'*+.^_`\\|~\\-]+"}
+                      placeholder="GET"
                       value={method}
                       onInput={(e) =>
                         setMethods(
@@ -1158,6 +1162,7 @@ function GrantEditor(
                       {...a}
                       required
                       maxLength={4096}
+                      placeholder="/v1/resources"
                       value={path}
                       onInput={(e) => setPath(e.currentTarget.value)}
                     />

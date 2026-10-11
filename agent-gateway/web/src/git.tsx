@@ -829,13 +829,20 @@ function GitEditor({
     labelText: string,
     required = true,
     readonly = false,
+    placeholder?: string,
+    hint?: string,
   ) => (
-    <FormField id={`git-${key}-${mode}`} label={labelText}>
+    <FormField
+      id={`git-${key}-${mode}`}
+      label={labelText}
+      {...(hint === undefined ? {} : { hint })}
+    >
       {(attributes) => (
         <input
           {...attributes}
           required={required}
           readOnly={readonly}
+          placeholder={placeholder}
           value={draft[key]}
           onInput={(e) => change(key, e.currentTarget.value)}
         />
@@ -1034,7 +1041,17 @@ function GitEditor({
             mutation.state === "submitting" || mutation.state === "uncertain"
           }
         >
-          {metadata && kind !== "grants" && field("name", "Name")}
+          {metadata &&
+            kind !== "grants" &&
+            field(
+              "name",
+              "Name",
+              true,
+              false,
+              kind === "repositories"
+                ? "Project repository"
+                : "Project Git credential",
+            )}
           {metadata && kind === "repositories" && (
             <>
               {field(
@@ -1042,6 +1059,7 @@ function GitEditor({
                 "Canonical HTTPS destination",
                 true,
                 resource !== undefined,
+                "https://git.example.com/team/project",
               )}
               <section class="git-list-editor" aria-label="Repository aliases">
                 <h3>Aliases</h3>
@@ -1052,6 +1070,7 @@ function GitEditor({
                         <input
                           {...attributes}
                           required
+                          placeholder="Same destination with .git added or removed"
                           value={alias}
                           onInput={(e) =>
                             change(
@@ -1126,9 +1145,22 @@ function GitEditor({
           )}
           {metadata && kind === "credentials" && (
             <>
-              {field("origin", "HTTPS origin")}
-              {field("header", "Header name")}
-              {field("prefix", "Fixed prefix (optional)", false)}
+              {field(
+                "origin",
+                "HTTPS origin",
+                true,
+                false,
+                "https://git.example.com",
+              )}
+              {field("header", "Header name", true, false, "Authorization")}
+              {field(
+                "prefix",
+                "Fixed prefix (optional)",
+                false,
+                false,
+                "Bearer ",
+                "Include any space needed between the prefix and secret. Leave blank for no prefix.",
+              )}
             </>
           )}
           {metadata && kind === "grants" && (
@@ -1187,7 +1219,13 @@ function GitEditor({
                   </FormField>
                 );
               })}
-              {field("description", "Description (optional)", false)}
+              {field(
+                "description",
+                "Description (optional)",
+                false,
+                false,
+                "Project repository access policy",
+              )}
               <FormField id={`git-read-${mode}`} label="Read repository">
                 {(attributes) => (
                   <BinaryToggle
@@ -1241,6 +1279,11 @@ function GitEditor({
                         <input
                           {...attributes}
                           required
+                          placeholder={
+                            rule.ref.kind === "exact"
+                              ? "refs/heads/main"
+                              : "refs/heads/"
+                          }
                           value={rule.ref.value}
                           onInput={(e) =>
                             change(
@@ -1347,6 +1390,7 @@ function GitEditor({
               id={secretID}
               value={secret}
               label="Secret"
+              placeholder="Enter secret value"
               hint="Write-only. Cleared on submission or cancellation."
               onInput={(value) => setHasSecret(value.length > 0)}
             />

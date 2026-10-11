@@ -1,6 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { test, syntheticBearer } from "./fixture.ts";
 import { capture, registerCapture } from "./capture.ts";
+import { assertCreationPlaceholders } from "../browser/creation-placeholders.ts";
 
 const id = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
 const agentID = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
@@ -254,6 +255,22 @@ for (const entity of entities) {
           expect(req.headers()["if-match"]).toBe(etag);
         const payload = req.postDataJSON();
         expect(payload).toBeTruthy();
+        if (req.method() === "POST") {
+          expect(
+            payload[entity.path.endsWith("grants") ? "description" : "name"],
+          ).toBe(
+            entity.path.endsWith("grants")
+              ? "Synthetic created grant"
+              : "Synthetic created resource",
+          );
+          if (entity.path.endsWith("credentials")) {
+            expect(payload.recipe).toEqual({
+              header: "Authorization",
+              prefix: "Bearer ",
+            });
+            expect(payload.secret).toBe("SYNTHETIC_WRITE_ONLY_CANARY");
+          }
+        }
         if (req.method() === "PATCH") {
           expect(
             payload[entity.path.endsWith("grants") ? "description" : "name"],
@@ -437,6 +454,44 @@ for (const entity of entities) {
     await expect(
       page.getByRole("button", { name: "Review and create", exact: true }),
     ).toBeVisible();
+    if (entity.path.endsWith("credentials")) {
+      await expect(page.getByLabel("Name", { exact: true })).toHaveValue("");
+      await expect(page.getByLabel("Header name", { exact: true })).toHaveValue(
+        "Authorization",
+      );
+      await expect(
+        page.getByLabel("Fixed prefix (optional)", { exact: true }),
+      ).toHaveValue("Bearer ");
+      if (entity.path.startsWith("http"))
+        await expect(page.getByLabel("Port", { exact: true })).toHaveValue(
+          "443",
+        );
+      await page.getByLabel("Header name", { exact: true }).fill("");
+      await page
+        .getByLabel("Fixed prefix (optional)", { exact: true })
+        .fill("");
+      await assertCreationPlaceholders(page);
+      await page
+        .getByLabel("Header name", { exact: true })
+        .fill("Authorization");
+      await page
+        .getByLabel("Fixed prefix (optional)", { exact: true })
+        .fill("Bearer ");
+    }
+    if (entity.path === "http/credentials") {
+      await page.locator("main form:not([method=dialog])").evaluate((form) => {
+        const field = document.createElement("input");
+        field.id = "unclassified-creation-regression";
+        field.setAttribute("aria-label", "Unclassified field");
+        form.append(field);
+      });
+      await expect(assertCreationPlaceholders(page)).rejects.toThrow(
+        "Unclassified creation control",
+      );
+      await page
+        .locator("#unclassified-creation-regression")
+        .evaluate((field) => field.remove());
+    }
     await capture(page, "create-blank");
     await page
       .getByRole("button", { name: "Review and create", exact: true })
@@ -523,6 +578,10 @@ for (const entity of entities) {
       await capture(page, "create-selected-credential");
     }
     if (entity.path === "git/grants") {
+      await assertCreationPlaceholders(page);
+      await expect(
+        page.getByLabel("Ref selector", { exact: true }),
+      ).toHaveAttribute("placeholder", "refs/heads/main");
       await page.getByLabel("Match", { exact: true }).selectOption("prefix");
       await page
         .getByLabel("Ref selector", { exact: true })

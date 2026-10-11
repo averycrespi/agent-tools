@@ -271,6 +271,13 @@ function ReplacementForm({
                   ? "Bearer token"
                   : `Secret slot ${slot}`
             }
+            placeholder={
+              shape.kind === "oauth_client"
+                ? "Enter OAuth client secret"
+                : (server.transport as JSONRecord).kind === "streamable_http"
+                  ? "Enter bearer token"
+                  : "Enter secret value"
+            }
             hint="Write-only. This value is cleared immediately after submission and is never returned by the Gateway."
             onInput={updateCredentialDirty}
           />

@@ -651,6 +651,7 @@ function CredentialEditor({
                   <input
                     {...attributes}
                     required
+                    placeholder="Example API credential"
                     value={name}
                     onInput={(e) => setName(e.currentTarget.value)}
                   />
@@ -664,6 +665,7 @@ function CredentialEditor({
                   <input
                     {...attributes}
                     required
+                    placeholder="api.example.com"
                     value={host}
                     onInput={(e) => setHost(e.currentTarget.value)}
                   />
@@ -677,6 +679,7 @@ function CredentialEditor({
                     type="number"
                     min="1"
                     max="65535"
+                    placeholder="443"
                     value={port}
                     onInput={(e) => setPort(e.currentTarget.value)}
                   />
@@ -703,6 +706,7 @@ function CredentialEditor({
                     {...attributes}
                     required
                     readOnly={recipeReadOnly}
+                    placeholder="Authorization"
                     value={header}
                     onInput={(e) => setHeader(e.currentTarget.value)}
                   />
@@ -711,11 +715,13 @@ function CredentialEditor({
               <FormField
                 id={`http-prefix-${mode}`}
                 label="Fixed prefix (optional)"
+                hint="Include any space needed between the prefix and secret. Leave blank for no prefix."
               >
                 {(attributes) => (
                   <input
                     {...attributes}
                     readOnly={recipeReadOnly}
+                    placeholder="Bearer "
                     value={prefix}
                     onInput={(e) => setPrefix(e.currentTarget.value)}
                   />
@@ -728,6 +734,7 @@ function CredentialEditor({
               id={inputID}
               value={secret}
               label="Secret"
+              placeholder="Enter secret value"
               hint="Write-only. Cleared after submission; stored values cannot be revealed."
             />
           )}

@@ -856,6 +856,10 @@ function RequestActions({
             durationUnits[initialDurationUnit],
         ),
   );
+  const durationExample = durationUnit === "seconds" ? "60" : "1";
+  const durationExampleFits =
+    Number(durationExample) * durationUnits[durationUnit] <=
+    Math.min(2592000, Number(submitted.durationSeconds ?? 2592000));
   const duration =
     durationAmount === ""
       ? ""
@@ -1241,6 +1245,7 @@ function RequestActions({
           <input
             {...attributes}
             data-testid="approval-description"
+            placeholder="Allow requested tool access"
             value={description}
             maxlength={256}
             disabled={disabled}
@@ -1363,6 +1368,7 @@ function RequestActions({
                     attributes={attributes}
                     label="Approved target"
                     testID="approval-target"
+                    placeholder={`${submitted.target}.lookup`}
                     value={target}
                     options={(approvalDescriptors ?? [])
                       .filter(
@@ -1449,9 +1455,12 @@ function RequestActions({
             id="approval-duration"
             label="Approved duration"
             hint={
-              submitted.durationSeconds === null
+              (submitted.durationSeconds === null
                 ? "Enter a whole number and choose its unit, from 1 minute to 30 days. Leave blank for no expiry."
-                : "Enter a whole number and choose its unit, from 1 minute to 30 days. The duration cannot exceed the request; temporary access cannot become permanent."
+                : "Enter a whole number and choose its unit, from 1 minute to 30 days. The duration cannot exceed the request; temporary access cannot become permanent.") +
+              (durationExampleFits
+                ? ""
+                : " Choose a smaller unit; no positive whole number in this unit fits the requested duration.")
             }
             optional={submitted.durationSeconds === null}
           >
@@ -1463,6 +1472,9 @@ function RequestActions({
                   min="1"
                   step="1"
                   data-testid="approval-duration"
+                  placeholder={
+                    durationExampleFits ? durationExample : undefined
+                  }
                   value={durationAmount}
                   disabled={disabled}
                   onInput={(event) =>

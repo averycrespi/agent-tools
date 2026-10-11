@@ -489,6 +489,7 @@ function GrantCreate({
               <input
                 {...attributes}
                 data-testid="grant-description"
+                placeholder="Example tool access policy"
                 value={description}
                 maxlength={256}
                 onInput={(event) => setDescription(event.currentTarget.value)}
@@ -619,6 +620,7 @@ function GrantCreate({
                       attributes={attributes}
                       label="Tool name"
                       testID="grant-upstream"
+                      placeholder="lookup"
                       value={upstreamName}
                       options={(descriptors ?? [])
                         .filter(
