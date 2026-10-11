@@ -155,8 +155,7 @@ func handleFixtureFrame(mode string, fallbackProbe bool, eventsPath string, pid 
 			return
 		}
 		_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"tools":[{"name":"beta","description":"second fixture page","inputSchema":{"type":"object"}}],"nextCursor":null}}`+"\n", request.ID)
-		switch mode {
-		case "protocol-failure":
+		if mode == "protocol-failure" {
 			_, _ = fmt.Fprintln(os.Stdout, `{`)
 		}
 	case "tools/call":
