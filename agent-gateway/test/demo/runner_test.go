@@ -260,12 +260,42 @@ func checkSupervisor(t *testing.T) {
 		require.ErrorContains(t, c.signal(syscall.SIGKILL), "process identity changed")
 		require.ErrorIs(t, syscall.Kill(-c.cmd.Process.Pid, 0), syscall.ESRCH)
 	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	immediate, err := startChild("immediate cancellation", []string{"/bin/sh", "-c", "sleep 60"}, os.Environ())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, immediate.finish(context.Background(), 0, false)) })
+	require.NoError(t, immediate.finish(canceled, 0, false))
+	require.True(t, immediate.settled)
+	require.ErrorIs(t, syscall.Kill(-immediate.cmd.Process.Pid, 0), syscall.ESRCH)
+
 	literal := "spaces ; $(printf injected) 'quotes' $HOME"
 	c, err := startChild("literal arguments", []string{"/bin/sh", "-c", "printf '%s' \"$1\"", "fixture", literal}, os.Environ())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, c.finish(context.Background(), 0, false)) })
 	require.NoError(t, c.finish(t.Context(), time.Second, true))
 	require.Equal(t, literal, string(c.stdout.bytes()))
+}
+
+func TestCanceledDemoStartupDoesNotDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var children []*child
+	opts := defaultOptions()
+	started := false
+	opts.start = func(string, []string, []string) (*child, error) {
+		started = true
+		return nil, errors.New("unexpected dispatch")
+	}
+	err := startDemoFixture(ctx, "git", t.TempDir(), nil, opts, &children, map[string]string{})
+	require.ErrorContains(t, err, "interrupted before git fixture")
+	require.False(t, started)
+	require.Empty(t, children)
+	// An expired request must be rejected before even looking up an executable.
+	t.Setenv("PATH", t.TempDir())
+	_, _, err = runGit(ctx, t.TempDir(), &children, "--version")
+	require.ErrorContains(t, err, "interrupted before native Git")
+	require.Empty(t, children)
 }
 
 func TestServeDemoLifecycle(t *testing.T) {

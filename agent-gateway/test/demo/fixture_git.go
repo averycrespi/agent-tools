@@ -28,6 +28,9 @@ import (
 )
 
 func startDemoFixture(ctx context.Context, kind, root string, env []string, opts options, children *[]*child, endpoints map[string]string) error {
+	if ctx.Err() != nil {
+		return errors.New("interrupted before " + kind + " fixture")
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return errors.New("demo executable lookup failed")
@@ -63,6 +66,9 @@ func gitEnvironment(home string) []string {
 }
 
 func runGit(ctx context.Context, home string, children *[]*child, args ...string) ([]byte, int, error) {
+	if ctx.Err() != nil {
+		return nil, -1, errors.New("interrupted before native Git")
+	}
 	git, err := exec.LookPath("git")
 	if err != nil {
 		return nil, -1, errors.New("native Git is required for the curated demo")
