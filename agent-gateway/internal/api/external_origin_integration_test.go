@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -31,7 +33,9 @@ type remoteSessionSink struct{ value string }
 func (s *remoteSessionSink) Publish(value string) error { s.value = value; return nil }
 
 func TestIntegrationExternalOriginSessionsThroughHTTPSProxy(t *testing.T) {
-	owner, err := gatewaypaths.Acquire(t.TempDir())
+	root := filepath.Join(t.TempDir(), "gateway")
+	require.NoError(t, os.Mkdir(root, 0o700))
+	owner, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	defer owner.Close()
 	store, err := remoteSessionTemplate.Open(t.Context(), owner)
