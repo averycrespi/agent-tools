@@ -313,21 +313,23 @@ func (handler *Handler) authenticateBootstrap(ctx context.Context, request *http
 		return ctx, httpboundary.Error{Code: contract.ProblemAuthenticationRequired}
 	}
 	if len(cookies) > 1 {
-		return ctx, bootstrapAuthenticationError(contract.ProblemAmbiguousCredentials)
+		return ctx, handler.bootstrapAuthenticationError(contract.ProblemAmbiguousCredentials)
 	}
 	if !validSessionValue(cookies[0]) {
-		return ctx, bootstrapAuthenticationError(contract.ProblemAuthenticationRequired)
+		return ctx, handler.bootstrapAuthenticationError(contract.ProblemAuthenticationRequired)
 	}
 	session, err := handler.sessions.Bootstrap(ctx, cookies[0])
 	if err != nil {
-		return ctx, bootstrapAuthenticationError(contract.ProblemAuthenticationRequired)
+		return ctx, handler.bootstrapAuthenticationError(contract.ProblemAuthenticationRequired)
 	}
 	result := authentication{sessionID: cookies[0], viaSession: true, bootstrap: &session}
 	return context.WithValue(ctx, authContextKey{}, result), nil
 }
 
-func bootstrapAuthenticationError(code contract.ProblemCode) httpboundary.Error {
-	return httpboundary.Error{Code: code, SetCookie: expiredSessionCookie().String()}
+func (handler *Handler) bootstrapAuthenticationError(code contract.ProblemCode) httpboundary.Error {
+	cookie := expiredSessionCookie() //nolint:gosec // Secure is set from configured origin below; local plain-loopback intentionally omits it.
+	cookie.Secure = strings.HasPrefix(handler.origin, "https://")
+	return httpboundary.Error{Code: code, SetCookie: cookie.String()}
 }
 
 func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -598,9 +600,9 @@ func (handler *Handler) exchange(writer http.ResponseWriter, request *http.Reque
 		writeServiceError(writer, err)
 		return
 	}
-	http.SetCookie(writer, &http.Cookie{ //nolint:gosec // The exact plain-loopback HTTP contract intentionally omits Secure.
-		Name: contract.SessionCookieName, Value: session.ID, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
+	cookie := session.Cookie() //nolint:gosec // Secure is set from configured origin below; local plain-loopback intentionally omits it.
+	cookie.Secure = strings.HasPrefix(handler.origin, "https://")
+	http.SetCookie(writer, &cookie)
 	writeJSON(writer, http.StatusCreated, contract.AdminSessionCreated{
 		CSRFToken: session.CSRFToken, IdleExpiresAt: session.IdleExpiresAt.UTC().Format(time.RFC3339Nano), AbsoluteExpiresAt: session.AbsoluteExpiresAt.UTC().Format(time.RFC3339Nano),
 	})
@@ -634,9 +636,9 @@ func (handler *Handler) logout(writer http.ResponseWriter, request *http.Request
 		writeServiceError(writer, err)
 		return
 	}
-	http.SetCookie(writer, &http.Cookie{ //nolint:gosec // The exact plain-loopback HTTP contract intentionally omits Secure.
-		Name: contract.SessionCookieName, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
+	cookie := expiredSessionCookie() //nolint:gosec // Secure is set from configured origin below; local plain-loopback intentionally omits it.
+	cookie.Secure = strings.HasPrefix(handler.origin, "https://")
+	http.SetCookie(writer, cookie)
 	writer.WriteHeader(http.StatusNoContent)
 }
 

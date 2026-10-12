@@ -83,7 +83,7 @@ func (p *ProxyAddress) validateDial(private bool) error {
 			return ErrAddressPolicy
 		}
 		for _, listener := range owned {
-			if ip.Unmap() == listener.Addr().Unmap() && p.destination.Port() == listener.Port() {
+			if (listener.Addr().IsUnspecified() || ip.Unmap() == listener.Addr().Unmap()) && p.destination.Port() == listener.Port() {
 				return ErrAddressPolicy
 			}
 		}

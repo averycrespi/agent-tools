@@ -600,7 +600,7 @@ Ingress authentication runs before MCP body reads, era classification, and sessi
 
 ### SDK transport trust boundary
 
-Both embedded SDK transports run behind Gateway's early HTTP boundary and agent authentication. Gateway owns Host and Origin validation: only the canonical numeric IPv4 loopback authority or an explicitly allowed forwarding hostname is admitted, before authentication or body processing. Forwarding headers remain forbidden, and hostname allowlisting grants neither browser Origin trust nor credentials or grants. The original request Host is preserved.
+Both embedded SDK transports run behind Gateway's early HTTP boundary and agent authentication. Gateway owns Host and Origin validation before authentication or body processing: local mode admits the canonical numeric IPv4 loopback authority or an explicitly allowed forwarding hostname; external mode uses the configured HTTPS public authority, with narrow originless/cookieless authenticated internal access as defined in the [administrative boundary](administrative-control-plane.md#http-administration). Forwarding headers remain forbidden, and hostname allowlisting grants neither browser Origin trust nor credentials or grants. The original request Host is preserved.
 
 The modern and legacy SDK handlers disable only their redundant localhost-protection guard, which otherwise rejects allowed forwarding hostnames when the HTTP listener context is loopback. Production ingress must remain behind `httpboundary.Boundary`; the SDK is not an independently exposed HTTP server. Gateway's listener validation, authentication, protocol classification, limits, and authorization remain authoritative.
 

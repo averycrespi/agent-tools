@@ -81,7 +81,9 @@ func checkAddresses(d Destination, f AddressFacts, private bool) (contract.HTTPD
 			needsPrivate = true
 		}
 		for _, l := range f.GatewayListeners {
-			if ip.Unmap() == l.Addr().Unmap() && d.port == l.Port() {
+			// A wildcard bind reserves its port conservatively, including
+			// interfaces that may appear after startup.
+			if (l.Addr().IsUnspecified() || ip.Unmap() == l.Addr().Unmap()) && d.port == l.Port() {
 				forbidden = true
 			}
 		}

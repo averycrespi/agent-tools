@@ -18,7 +18,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	guides := DocumentationGuideManifest()
 	commands := DocumentationCommandManifest()
 	security := DocumentationSecurityManifest()
-	require.Len(t, guides, 16)
+	require.Len(t, guides, 17)
 	require.Len(t, commands, 18)
 	require.Len(t, security, 8)
 
@@ -55,6 +55,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	assert.Contains(t, guidePaths, "docs/operators/launchd.md")
 	assert.Contains(t, guidePaths, "docs/operators/systemd.md")
 	assert.Contains(t, guidePaths, "docs/operators/git.md")
+	assert.Contains(t, guidePaths, "docs/operators/remote-serving.md")
 	for _, contract := range security {
 		addID(contract.ID)
 		_, knownOwner := guidePaths[contract.CanonicalOwner]

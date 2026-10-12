@@ -161,7 +161,7 @@ func (built *Composition) PrepareHTTPProxy(ctx context.Context, main, proxy neti
 func (built *Composition) prepareHTTPProxy(ctx context.Context, main, proxy netip.AddrPort) (*httpproxy.Engine, error) {
 	built.startMu.Lock()
 	defer built.startMu.Unlock()
-	if built.started || built.startFailed || built.httpProxy != nil || !main.IsValid() || !proxy.IsValid() || !main.Addr().Is4() || !main.Addr().IsLoopback() || !proxy.Addr().Is4() || !proxy.Addr().IsLoopback() || main == proxy || main.Port() == 0 || proxy.Port() == 0 || built.httpCA == nil {
+	if built.started || built.startFailed || built.httpProxy != nil || !main.IsValid() || !proxy.IsValid() || !main.Addr().Is4() || main.Addr().IsMulticast() || !proxy.Addr().Is4() || proxy.Addr().IsMulticast() || main == proxy || main.Port() == 0 || proxy.Port() == 0 || built.httpCA == nil {
 		return nil, httpproxy.ErrUnavailable
 	}
 	signer, err := built.httpCA.Load(ctx)
