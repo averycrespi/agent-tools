@@ -2813,8 +2813,12 @@ export async function runInvocations(
   await expect(resetFilters).toBeDisabled();
   await liveSwitch.check();
   await expect(resetFilters).toBeDisabled();
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  // A host timestamp can be in the browser's past by the time the pause RPC
+  // arrives. Start before the fixed target, beyond this owner's 300s bound.
+  await page.clock.install({ time: new Date("2026-10-02T12:34:56Z") });
+  const filterTime = new Date("2026-10-03T12:34:56Z");
+  await page.clock.pauseAt(filterTime);
+  expect(await page.evaluate(() => Date.now())).toBe(filterTime.getTime());
   await draftTool.fill("unapplied");
   await expect(resetFilters).toBeEnabled();
   await expect(page).toHaveURL(/#\/mcp\/invocations$/);
