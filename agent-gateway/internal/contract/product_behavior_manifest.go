@@ -135,7 +135,7 @@ var evidenceTierRows = []EvidenceTier{
 	{ID: "tier.supply_chain.go"},
 	{ID: "tier.supply_chain.frontend"},
 	{ID: "tier.material.encrypted"},
-	{ID: "tier.repository.other_tools"},
+	{ID: "tier.repository.ci"},
 	{ID: "tier.repository.diff"},
 }
 

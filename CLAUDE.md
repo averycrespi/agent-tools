@@ -6,8 +6,6 @@ Monorepo of tools for working with AI coding agents.
 
 ```
 agent-gateway/      Local MCP gateway and HTTP/HTTPS proxy — see agent-gateway/CLAUDE.md
-local-git-mcp/       Stdio MCP server for authenticated git remote operations — see local-git-mcp/CLAUDE.md
-typesafe-mcp/        Stateless TypeSafe inference over stdio MCP — see typesafe-mcp/CLAUDE.md
 ```
 
 Each Go tool has its own `CLAUDE.md` with tool-specific instructions.
@@ -23,7 +21,7 @@ make test-ci                # CI gates, root execution, integration ownership
 make test-integration       # run integration suites for tools that provide them
 make test-e2e               # run end-to-end suites for tools that provide them
 make vulncheck              # run blocking govulncheck scans for all Go tools
-make check-other-tools      # lint + test non-Gateway modules only
+make check-other-tools      # compatibility no-op while Gateway is the sole tool
 make audit                  # tidy + fmt + lint + test + govulncheck for all Go tools
 make test-browser           # Gateway browser developer aggregate
 make test-frontend-browser  # mocked frontend states and screenshot gallery
@@ -38,7 +36,7 @@ make frontend-audit
 
 For the two-process live-reload workflow, follow the [Agent Gateway frontend development guide](agent-gateway/docs/maintainers/frontend-development.md). For Gateway evidence tiers, exact-revision acceptance, external qualification, and report adoption, follow the [release verification guide](agent-gateway/docs/maintainers/release-verification.md).
 
-Targets are forwarded to each tool's Makefile. Run from any subdirectory for a single tool. Root `test` runs Gateway alone, then at most two `OTHER_TOOLS` suites; `LOCAL_TEST_JOBS=1` selects serial comparison, and values other than `1` or `2` fail. Public root goals stay serial. Linters remain serial, and `check-other-tools` completes its lint phase before bounded tests. GNU Make stops launching workers after failure and drains active workers; do not add forced cancellation that kills their fixture owners. Gateway must stay outside the parallel phase while its harness has close-and-rebind port handoffs. Audit shared paths, ports, native credentials, and cleanup before adding another tool to this phase. Root integration/E2E aggregates remain serial. `check-other-tools` deliberately excludes `agent-gateway` because Gateway release acceptance is a separate owner; do not compose both under another aggregate. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
+Agent Gateway is the sole active Go tool; retired sources are referenced only in the root README's Deprecated Tools history. Targets are forwarded to each tool's Makefile. Run from a tool subdirectory for its checks. Empty `OTHER_TOOLS` runs no recursive Make/default goal; `check-other-tools` is a compatibility no-op, not release evidence. Root `test` runs Gateway alone, then at most two `OTHER_TOOLS` suites; `LOCAL_TEST_JOBS=1` selects serial comparison, and values other than `1` or `2` fail. Public root goals stay serial. Linters remain serial, and `check-other-tools` completes its lint phase before bounded tests. GNU Make stops launching workers after failure and drains active workers; do not add forced cancellation that kills their fixture owners. Gateway must stay outside the parallel phase while its harness has close-and-rebind port handoffs. Audit shared paths, ports, native credentials, and cleanup before adding another tool to this phase. Root integration/E2E aggregates remain serial. `check-other-tools` deliberately excludes `agent-gateway` because Gateway release acceptance is a separate owner; do not compose both under another aggregate. The pre-commit hook runs `lint-staged` for Go and docs formatting, then `make lint` for Go linting.
 
 Gateway's `test` includes integration, harness, material, and demo-runner coverage. Do not invoke it alongside its integration leaf; root `make check` followed by root `test-integration` would also repeat Gateway coverage. Run focused integration targets in the other modules when needed. Non-Gateway integration owners use the single `integration` build tag and `TestIntegration*` namespace; their explicit packages and names are checked by `.github/scripts/integration_test.py`. Keep helpers beside their packages and give new runnable examples/fuzz seeds an explicit owner rather than letting them miss the selector. `AGENT_GATEWAY_TEST_JSON=1` enables Gateway Go-event output through Make without changing test selection or instrumentation; other tools and non-Go wrappers retain their normal output. Worker failure stops new work even when the caller passed Make's keep-going flag.
 
@@ -46,7 +44,7 @@ Gateway's `test` includes integration, harness, material, and demo-runner covera
 
 GitHub Actions selects affected tools on PRs and runs the full tool set on `main`, manual runs, and a weekly schedule. Go lint/unit, integration, E2E, and blocking vulnerability checks are tool-scoped. Gateway lint runs independently of its unit, integration, harness/material, E2E, and demo-runner leaves; both lint and correctness remain mandatory in Required. Gateway's source-derived suite planner keeps component, harness, and material coverage out of its dependency-light unit path without omitting it from CI. Gateway integration runs as two disjoint package shards on separate Linux and macOS runners, with separate shard-role cache writers and an independently checked exact union. Local/release integration remains unsharded; never run the shards concurrently on one host. Gateway's integration and harness owners also execute on macOS, covering platform filesystem operations, runtime process groups, and harness process supervision; its Go demo runner remains checked on Linux and macOS. These fixtures do not qualify installed launchd/systemd resources; native service management and native credential custody are removed. Formatting and CI classifier/gate tests always run. Scheduled vulnerability scans can catch new advisories without code changes.
 
-Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Gateway selection also selects TypeSafe MCP, whose integration owner executes Gateway's catalog schema contract. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames.
+Any file under a tool selects that tool, including docs, fixtures, and scripts. Tool-level Makefiles, module dependencies, and linter configuration also select Gateway because its acceptance tests inspect those definitions. Gateway owns catalog-schema compatibility and downstream diagnostic coverage directly; no retired module participates in CI. Root/shared files and unknown paths select every tool. PR selection uses the merge-base diff and includes deleted files and both sides of renames.
 
 Configure branch protection to require the stable **Required** check from the **CI** workflow rather than individual matrix jobs. When migrating from the old workflow, replace the old Unit tests (Linux), Integration tests, End-to-end tests, and Vulnerability scan requirements. The gate rejects failed, cancelled, missing, or unexpectedly skipped checks. Repository commits do not update GitHub branch-protection settings.
 
@@ -56,7 +54,7 @@ Keep `.github/workflows/ci.yml`, `.github/actions/go-cache/action.yml`, and `.gi
 
 ## Service Layout
 
-Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool or looking for the expected shape, mirror an existing tool (e.g. `local-git-mcp/`) as a template — file layout, Makefile targets, and package organization should match.
+Each Go tool is a separate Go module under `go.work` and follows the same baseline so structure is predictable. When adding a new Go tool, preserve the independent-module baseline: its own `go.mod`, `Makefile`, `.golangci.yml`, `cmd/<binary>/` and `internal/` packages. Use Gateway for current conventions without copying its domain-specific acceptance machinery.
 
 ## Go Conventions
 
@@ -106,7 +104,7 @@ Prefer SVG for diagrams that need precise layout or styling. Mermaid is fine for
 When adding or removing a Go tool, update every repo-level index that describes or operates on the tool set:
 
 1. Create or remove `<name>/` with `go.mod` (`module github.com/averycrespi/agent-tools/<name>`)
-2. For additions, copy `Makefile` and `.golangci.yml` from an existing tool and update the binary name
+2. For additions, use the maintained tool's `Makefile` and `.golangci.yml` conventions, selecting checks applicable to the new tool rather than copying Gateway-specific owners
 3. For additions, scaffold `cmd/<binary>/main.go` + `root.go` and `internal/` packages
 4. For additions, write `README.md`, `DESIGN.md`, `CLAUDE.md` (see purposes above), and add an `AGENTS.md` symlink to `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`)
 5. Update the root `TOOLS` list in `Makefile`

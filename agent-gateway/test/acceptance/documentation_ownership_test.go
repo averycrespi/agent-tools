@@ -113,7 +113,7 @@ func testFreshUserDocumentationGraph(t *testing.T) {
 	rootReadme := string(rootReadmeBytes)
 	start := strings.Index(rootReadme, "### Agent Gateway")
 	require.NotEqual(t, -1, start)
-	end := strings.Index(rootReadme[start+len("### Agent Gateway"):], "\n### ")
+	end := strings.Index(rootReadme[start+len("### Agent Gateway"):], "\n## ")
 	require.NotEqual(t, -1, end)
 	gatewayOverview := rootReadme[start : start+len("### Agent Gateway")+end]
 	assert.Less(t, len(gatewayOverview), 1800)

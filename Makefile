@@ -1,6 +1,6 @@
-TOOLS := agent-gateway local-git-mcp typesafe-mcp
+TOOLS := agent-gateway
 OTHER_TOOLS := $(filter-out agent-gateway,$(TOOLS))
-INTEGRATION_TOOLS := agent-gateway local-git-mcp typesafe-mcp
+INTEGRATION_TOOLS := agent-gateway
 E2E_TOOLS := agent-gateway
 LOCAL_TEST_JOBS ?= 2
 
@@ -37,7 +37,7 @@ build:
 # Gateway's harness releases and rebinds ports, so it must not overlap other listeners.
 test:
 	$(MAKE) -C agent-gateway test
-	$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS))
+	$(if $(strip $(OTHER_TOOLS)),$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS)),@:)
 
 test-ci:
 	python3 -B -m unittest discover -s .github/scripts -p '*_test.py'
@@ -69,7 +69,7 @@ vulncheck:
 
 check-other-tools:
 	@set -e; for dir in $(OTHER_TOOLS); do $(MAKE) -C $$dir lint; done
-	$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS))
+	$(if $(strip $(OTHER_TOOLS)),$(MAKE) -S -j$(LOCAL_TEST_JOBS) $(addprefix __test-,$(OTHER_TOOLS)),@:)
 
 test-browser:
 	$(MAKE) -C agent-gateway test-browser

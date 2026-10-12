@@ -159,6 +159,10 @@ func handleFixtureFrame(mode string, fallbackProbe bool, eventsPath string, pid 
 			_, _ = fmt.Fprintln(os.Stdout, `{`)
 		}
 	case "tools/call":
+		if mode == "legacy-call-validation" {
+			_, _ = fmt.Fprintf(os.Stdout, `{"jsonrpc":"2.0","id":%d,"result":{"content":[{"type":"text","text":"PRIVATE-VALIDATION-CANARY"}],"isError":true,"_meta":{"private":"PRIVATE-VALIDATION-CANARY","io.github.averycrespi.agent-tools/failure":{"version":2,"category":"response_contract","phase":"response_validation","validation":{"schema":"models_result","version":1,"violations":[{"code":"missing","path":"$.models.[].name","rule":"required"},{"code":"type","path":"$.models.[].name","rule":"type","expected":"string","observed":"number"}],"truncated":true}}}}}`+"\n", request.ID)
+			return
+		}
 		if strings.Contains(mode, "call-blocked") {
 			release := make(chan os.Signal, 1)
 			signal.Notify(release, syscall.SIGUSR1)

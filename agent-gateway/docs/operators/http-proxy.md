@@ -241,6 +241,39 @@ and retire old trust explicitly; no automatic trust removal is promised.
 
 Follow [Git setup and the first read-only `ls-remote` check](git.md#client-handoff-and-first-read-only-check). Git needs its own routing profile, repository and grants, even when HTTP access already works. Select runtime proxy environment and client-scoped `GIT_SSL_CAINFO`; reconcile existing proxy/helper settings and never persist a token-bearing URL in Git configuration or argv.
 
+## TypeSafe API and SDK migration
+
+TypeSafe MCP is retired from this repository. Direct [TypeSafe HTTP API](https://docs.typesafe.ai/api.md) or [SDK](https://docs.typesafe.ai/sdk/javascript.md) callers can use Gateway injection instead of holding the upstream API key. This replaces credential custody, not the former `evaluate`/`list_models` MCP interface, input/output schemas, validation diagnostics or error mapping. Gateway does not translate MCP calls into TypeSafe requests.
+
+1. On the trusted administrator side, create a [scoped HTTP credential](administration.md#scoped-http-credentials) with exact boundary `{"host":"api.typesafe.ai","port":443,"allow_wildcard":false}`, recipe `{"header":"Authorization","prefix":"Bearer "}`, a descriptive `name` and the real write-only `secret`. Use protected input, never source, argv or agent/client environment variables. Do not copy the SDK quickstart's `TYPESAFE_API_KEY` export into the agent environment.
+2. Keep the agent's HTTP default blocked. Create an [Allow requests grant](access-control.md#http-grants-and-test-access) referencing that credential ID. A complete evaluation-only grant file is below; replace both illustrative IDs with the returned Gateway resource IDs. This does not authorize model discovery or other endpoints.
+3. Complete [client authentication and trust](#client-authentication-and-trust): trusted proxy endpoint, separate Gateway agent token and client-scoped public CA trust. Requests must traverse **intercepted HTTPS**, not an opaque tunnel or bypass. Injection requires a supported destination and matching credential-bearing grant; ordinary HTTP allow, MCP grants and a credential alone are insufficient. Review conflicting grants; do not widen policy or disable TLS to resolve a failure.
+4. Implement the current TypeSafe request/response contract in the caller. The documented evaluation endpoint is `POST https://api.typesafe.ai/v1/systemone` with JSON `state`, `model` and `questions`. The caller owns typed question construction, answer/usage validation, model selection or discovery, errors, finite deadlines and retry policy. Do not automatically replay an uncertain paid request. Any model-list operation needs its own current API contract and separately scoped grant.
+
+```json
+{
+  "principal_id": "PRINCIPAL_ID",
+  "description": "TypeSafe evaluation only",
+  "expires_at": null,
+  "policy": {
+    "version": 1,
+    "type": "allow_requests",
+    "credential_id": "CREDENTIAL_ID",
+    "request": {
+      "origin": { "scheme": "https", "host": "api.typesafe.ai", "port": 443 },
+      "methods": { "values": ["POST"] },
+      "path": { "kind": "exact", "value": "/v1/systemone" }
+    }
+  }
+}
+```
+
+Use `agent-gateway http grant create --file /private/grant.json --yes` after reviewing the intended scope. Preview with `http test-access` using `{"principal_id":"PRINCIPAL_ID","url":"https://api.typesafe.ai/v1/systemone","method":"POST"}`. Preview dispatches nothing and proves neither upstream authentication nor SDK compatibility.
+
+A direct HTTP client should omit upstream `Authorization`: Gateway inserts it on the admitted request. For an SDK, inspect the pinned client's transport and authentication configuration first. It must support the selected authenticated proxy and CA trust without requiring the **real** upstream key locally; do not assume Node or an SDK honors proxy environment variables automatically. If it requires a local auth value, verify a nonsecret placeholder and Gateway header replacement with a disposable fixture, or use a direct HTTP client instead. Destination changes, redirects, certificate pinning, tunnels and unsupported authentication schemes are not automatic migration paths. No broad SDK integration or live compatibility claim is provided here.
+
+First verify client routing/header replacement against a disposable upstream. A real evaluation may incur charges and needs separate authorization. Source checks and these examples neither perform a paid request nor qualify an installed client. Existing binaries, MCP server definitions, configurations, credentials and evidence remain untouched until an operator separately plans their cutover.
+
 ## Existing client configurations
 
 This is fresh setup, not HTTP Broker adoption. Operators must inspect and reconcile

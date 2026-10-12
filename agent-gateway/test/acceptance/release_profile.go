@@ -110,11 +110,11 @@ func finalReleaseCheckSpecs() ([]finalReleaseCheckSpec, error) {
 		return finalReleaseCheckSpec{ID: id, Argv: argv, Timeout: leaf.Timeout, Budget: leaf.Budget, Repeats: leaf.Repeats, GatewayStarts: leaf.GatewayStarts, BrowserStarts: leaf.BrowserStarts}, nil
 	}
 	special := map[string]finalReleaseCheckSpec{
-		"repository-format":      {ID: "repository-format", Argv: []string{"npm", "run", "format:check"}, Timeout: 30 * time.Second, Budget: 60 * time.Second, Repeats: 1},
-		"repository-verify":      {ID: "repository-verify", Argv: []string{"make", "-C", "agent-gateway", "verify"}, Timeout: 2 * time.Minute, Budget: 3 * time.Minute, Repeats: 1},
-		"go-vulnerability":       {ID: "go-vulnerability", Argv: []string{"go", "-C", "agent-gateway", "tool", "govulncheck", "./..."}, Timeout: 60 * time.Second, Budget: 90 * time.Second, Repeats: 1},
-		"repository-other-tools": {ID: "repository-other-tools", Argv: []string{"make", "check-other-tools"}, Timeout: 2 * time.Minute, Budget: 3 * time.Minute, Repeats: 1},
-		"repository-diff":        {ID: "repository-diff", Argv: []string{"git", "diff", "--check"}, Timeout: 10 * time.Second, Budget: 30 * time.Second, Repeats: 1},
+		"repository-format": {ID: "repository-format", Argv: []string{"npm", "run", "format:check"}, Timeout: 30 * time.Second, Budget: 60 * time.Second, Repeats: 1},
+		"repository-verify": {ID: "repository-verify", Argv: []string{"make", "-C", "agent-gateway", "verify"}, Timeout: 2 * time.Minute, Budget: 3 * time.Minute, Repeats: 1},
+		"go-vulnerability":  {ID: "go-vulnerability", Argv: []string{"go", "-C", "agent-gateway", "tool", "govulncheck", "./..."}, Timeout: 60 * time.Second, Budget: 90 * time.Second, Repeats: 1},
+		"repository-ci":     {ID: "repository-ci", Argv: []string{"make", "test-ci"}, Timeout: 2 * time.Minute, Budget: 3 * time.Minute, Repeats: 1},
+		"repository-diff":   {ID: "repository-diff", Argv: []string{"git", "diff", "--check"}, Timeout: 10 * time.Second, Budget: 30 * time.Second, Repeats: 1},
 	}
 	order := finalReleaseOrder()
 	specs := make([]finalReleaseCheckSpec, 0, len(order))
@@ -136,7 +136,7 @@ func finalReleaseOrder() []string {
 	return []string{
 		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-material",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility",
-		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
+		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-ci", "repository-diff",
 	}
 }
 
@@ -176,7 +176,7 @@ func releaseProductBehaviorOwners() map[string]string {
 		"tier.unit.contract": "test-unit", "tier.integration.compatibility": "test-integration", "tier.harness.selftests": "test-harness", "tier.harness.temporary": "test-serve-demo", "tier.browser.workflows": "test-browser-workflows",
 		"tier.browser.visual": "test-browser-visual", "tier.browser.accessibility": "test-browser-accessibility", "tier.browser.cross": "test-browser-cross",
 		"tier.e2e.complete": "test-e2e", "tier.security.privacy": "test-security", "tier.supply_chain.go": "go-vulnerability",
-		"tier.supply_chain.frontend": "frontend-audit", "tier.material.encrypted": "test-material", "tier.repository.other_tools": "repository-other-tools", "tier.repository.diff": "repository-diff",
+		"tier.supply_chain.frontend": "frontend-audit", "tier.material.encrypted": "test-material", "tier.repository.ci": "repository-ci", "tier.repository.diff": "repository-diff",
 	}
 	owners := make(map[string]string, 232)
 	for _, row := range contract.ProductBehaviorManifest() {
@@ -242,9 +242,8 @@ func finalReleaseDefinitionFiles(root string) ([]string, error) {
 		"agent-gateway/internal/testutil/development_environment.go", "agent-gateway/internal/testutil/cleanup_ledger.go", "agent-gateway/internal/testutil/cleanup_ledger_darwin.go", "agent-gateway/internal/testutil/cleanup_ledger_linux.go",
 		"agent-gateway/internal/testutil/cleanup_ledger_other.go", "agent-gateway/internal/testutil/process_supervisor.go", "agent-gateway/internal/testutil/process_supervisor_other.go", "agent-gateway/internal/testutil/process_supervisor_unix.go",
 	)
-	for _, tool := range []string{"local-git-mcp", "typesafe-mcp"} {
-		add(tool+"/Makefile", tool+"/.golangci.yml", tool+"/go.mod", tool+"/go.sum")
-	}
+	add("go.work", ".github/workflows/ci.yml", ".github/actions/go-cache/action.yml",
+		".github/scripts/ci.py", ".github/scripts/ci_test.py", ".github/scripts/make_test.py", ".github/scripts/integration_test.py")
 	// Bind authored frontend modules and scenarios once, not in every browser leaf.
 	// WalkDir never follows symlinks; reject them rather than hash an outside target.
 	for _, directory := range []string{"agent-gateway/web/src", "agent-gateway/web/tests"} {

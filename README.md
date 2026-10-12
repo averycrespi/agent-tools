@@ -9,12 +9,10 @@ Tools that give AI coding agents controlled access to external services while ke
 | Tool                            | Purpose                                                       |
 | ------------------------------- | ------------------------------------------------------------- |
 | [Agent Gateway](#agent-gateway) | Give agents scoped MCP, HTTP/HTTPS and smart-HTTPS Git access |
-| [Local Git MCP](#local-git-mcp) | Perform authenticated Git remote operations over MCP          |
-| [TypeSafe MCP](#typesafe-mcp)   | Evaluate agent-defined questions with TypeSafe models         |
 
 ## Choosing and Combining Tools
 
-Use your preferred agent harness and client environment. Agent Gateway governs MCP tools, HTTP/HTTPS requests and configured smart-HTTPS Git repositories/refs. Its Git proxy works with native HTTPS Git clients and does not use host credential helpers. Local Git MCP instead exposes host-side Git operations as MCP tools, using host Git/SSH/helpers; it and TypeSafe MCP remain optional backends behind Gateway or another compatible MCP client. Gateway does not require either backend, Sandbox Manager or Lima.
+Use your preferred agent harness and client environment. Agent Gateway governs MCP tools, HTTP/HTTPS requests and configured smart-HTTPS Git repositories/refs. Its Git proxy works with native HTTPS Git clients and does not use host credential helpers. Gateway does not require retired tools, Sandbox Manager or Lima. Existing Local Git MCP and TypeSafe MCP users should follow the [manual replacement paths](#migrate-from-retired-mcp-tools).
 
 ## Tool Summaries
 
@@ -30,25 +28,12 @@ Use your preferred agent harness and client environment. Agent Gateway governs M
 
 See the [Agent Gateway README](agent-gateway/README.md) for setup and usage.
 
-### Local Git MCP
+## Migrate from retired MCP tools
 
-`local-git-mcp` exposes authenticated Git remote operations to agents through a host-side stdio MCP server.
+Source retirement does not uninstall binaries, remove configurations or credentials, rewrite remotes, or migrate installed clients. Preserve historical evidence and plan any live cutover separately. Git history below retains the final source; no replacement MCP shim is provided.
 
-- Supports pushing, pulling, fetching, cloning GitHub repositories, and inspecting remotes and remote refs.
-- Uses the host's existing Git, SSH keys, and credential helpers without copying those credentials into the sandbox.
-- Runs as a subprocess behind Agent Gateway, with no separate config, persistent state, or network listener.
-
-See the [Local Git MCP README](local-git-mcp/README.md) for setup and usage.
-
-### TypeSafe MCP
-
-`typesafe-mcp` lets agents evaluate questions with TypeSafe models through MCP.
-
-- Supports choosing between options, assigning scores, and estimating probabilities for yes/no questions.
-- Returns structured results for agents to use in their workflows.
-- Runs as a stateless stdio backend behind Gateway or another compatible MCP client.
-
-See the [TypeSafe MCP README](typesafe-mcp/README.md) for setup and usage.
+- **Local Git MCP → native Git through Gateway:** follow [Git setup](agent-gateway/docs/operators/git.md) to configure smart-HTTPS repositories, read/ref grants, protected Git-only upstream credentials, routing and client proxy/CA trust. This replaces the supported HTTPS access path, not the former MCP commands, SSH transport or host credential-helper behavior. Inspect existing remotes and client settings before a deliberate manual change; do not silently rewrite them. Start with the guide's read-only `ls-remote` check, not a push.
+- **TypeSafe MCP → direct API/SDK through Gateway:** follow [TypeSafe HTTP setup](agent-gateway/docs/operators/http-proxy.md#typesafe-api-and-sdk-migration). Credential injection replaces upstream secret custody, **not** the `evaluate`/`list_models` MCP interface or its typed contract. Callers must implement the current API/SDK requests, validation and error handling, and configure supported proxy/CA behavior. Keep real TypeSafe keys in protected Gateway custody, never agent/client environment variables or source. Setup and source tests do not qualify live adoption or authorize paid inference.
 
 ## Installation
 
@@ -61,8 +46,6 @@ From the repository root, run the install command for the tools you need:
 
 ```bash
 make -C agent-gateway install
-make -C local-git-mcp install
-make -C typesafe-mcp install
 ```
 
 Or install all tools:
@@ -96,6 +79,8 @@ These tools are no longer maintained, but their final versions remain available 
 
 | Tool                  | Last commit                                                                                                                  | Reason                                                                               |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `local-git-mcp`       | [`33b2f30286`](https://github.com/averycrespi/agent-tools/tree/33b2f302864a5439a893b3f701e0a77ece5738d7/local-git-mcp)       | Superseded by Agent Gateway smart-HTTPS Git support.                                 |
+| `typesafe-mcp`        | [`33b2f30286`](https://github.com/averycrespi/agent-tools/tree/33b2f302864a5439a893b3f701e0a77ece5738d7/typesafe-mcp)        | Superseded for credential custody by Gateway injection for direct TypeSafe API use.  |
 | `mcp-broker`          | [`ef0edecd86`](https://github.com/averycrespi/agent-tools/tree/ef0edecd86e5ab9d81db76dd95afd7df968c3810/mcp-broker)          | Superseded by Agent Gateway.                                                         |
 | `http-broker`         | [`ef0edecd86`](https://github.com/averycrespi/agent-tools/tree/ef0edecd86e5ab9d81db76dd95afd7df968c3810/http-broker)         | Superseded by Agent Gateway.                                                         |
 | `sandbox-manager`     | [`e9f0dfd3a0`](https://github.com/averycrespi/agent-tools/tree/e9f0dfd3a06461aa068e429349539e929b960357/sandbox-manager)     | Retired with repository-owned guest provisioning; bring your own client environment. |

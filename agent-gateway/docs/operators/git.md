@@ -4,7 +4,7 @@ Audience: Gateway administrators and native Git client operators
 
 Purpose: Configure Git routing, repository permissions and protected client handoff, then verify a read-only exchange.
 
-Gateway's Git proxy is separate from MCP tools such as Local Git MCP. It uses the HTTP proxy listener and client CA trust, but has **independent Git repositories, grants and upstream credentials**. HTTP defaults, request grants and HTTP credentials never grant Git access. Ordinary non-Git web requests still use HTTP policy.
+Gateway's Git proxy replaces the supported HTTPS access path of the retired Local Git MCP; it is not a drop-in replacement for its MCP commands, SSH transport or host credential helpers. Existing remotes and installed configurations are not rewritten automatically. It uses the HTTP proxy listener and client CA trust, but has **independent Git repositories, grants and upstream credentials**. HTTP defaults, request grants and HTTP credentials never grant Git access. Ordinary non-Git web requests still use HTTP policy.
 
 ## Configure a repository and read grant
 

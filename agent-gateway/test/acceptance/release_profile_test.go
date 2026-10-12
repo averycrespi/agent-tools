@@ -18,7 +18,7 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	expectedChecks := []string{
 		"repository-format", "repository-verify", "test-unit", "test-integration", "test-harness", "test-serve-demo", "test-e2e", "test-security", "test-stress", "test-material",
 		"test-browser-workflows", "test-browser-privacy", "test-browser-visual", "test-browser-accessibility",
-		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-other-tools", "repository-diff",
+		"test-frontend-development-node", "test-frontend-development-browser", "frontend-typecheck", "frontend-verify-supply-chain", "go-vulnerability", "frontend-audit", "repository-ci", "repository-diff",
 	}
 	actualChecks := make([]string, len(profile.Checks))
 	productOwners := make(map[string]int)
@@ -64,7 +64,9 @@ func TestFinalReleaseProfileCoversEveryBehaviorExactlyOnce(t *testing.T) {
 	assert.NotContains(t, checksByID["repository-format"].Coverage.ProductBehaviors, "docs.topic.frontend.development")
 	assert.Contains(t, checksByID["repository-verify"].Coverage.ProductBehaviors, "tier.repository.verify")
 	assert.Contains(t, checksByID["go-vulnerability"].Coverage.ProductBehaviors, "tier.supply_chain.go")
-	assert.Contains(t, checksByID["repository-other-tools"].Coverage.ProductBehaviors, "tier.repository.other_tools")
+	assert.Contains(t, checksByID["repository-ci"].Coverage.ProductBehaviors, "tier.repository.ci")
+	assert.Equal(t, []string{"make", "test-ci"}, checksByID["repository-ci"].Argv)
+	assert.NotContains(t, actualChecks, "repository-other-tools")
 	assert.Contains(t, checksByID["repository-diff"].Coverage.ProductBehaviors, "tier.repository.diff")
 }
 
@@ -114,13 +116,11 @@ func TestFinalReleaseProfileHashesAreStableAndOrderSensitive(t *testing.T) {
 	for _, required := range []string{"agent-gateway/test/acceptance/release_profile.go", "agent-gateway/test/acceptance/release_report.schema.json", "agent-gateway/test/acceptance/release_external_evidence.schema.json", "agent-gateway/web/environments.json", "agent-gateway/Makefile", "Makefile", "package.json", "package-lock.json"} {
 		assert.Contains(t, first.DefinitionFiles, required)
 	}
-	for _, tool := range []string{"local-git-mcp", "typesafe-mcp"} {
-		for _, metadata := range []string{"Makefile", ".golangci.yml", "go.mod", "go.sum"} {
-			assert.Contains(t, first.DefinitionFiles, tool+"/"+metadata)
-		}
+	for _, required := range []string{"go.work", ".github/workflows/ci.yml", ".github/actions/go-cache/action.yml", ".github/scripts/ci.py", ".github/scripts/ci_test.py", ".github/scripts/make_test.py", ".github/scripts/integration_test.py"} {
+		assert.Contains(t, first.DefinitionFiles, required)
 	}
 	for _, path := range first.DefinitionFiles {
-		for _, retired := range []string{"sandbox-manager/", "mcp-broker/", "http-broker/"} {
+		for _, retired := range []string{"sandbox-manager/", "mcp-broker/", "http-broker/", "local-git-mcp/", "typesafe-mcp/"} {
 			assert.NotContains(t, path, retired)
 		}
 	}
