@@ -1406,6 +1406,20 @@ async function assertOAuthScopeEditing(
     if (submitted.length !== previous + 1)
       fail("OAuth scope edit did not submit exactly once");
   };
+  const callback = page.locator("#server-callback-uri");
+  await callback.fill("https://gateway.example/other");
+  await save.click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "Use Gateway's exact configured HTTPS origin followed by /oauth/callback, or leave blank for the default.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(submitted).toHaveLength(0);
+  await capture(page, "settings-oauth-remote-invalid");
+  await callback.fill("https://gateway.example:8443/oauth/callback");
+  await capture(page, "settings-oauth-remote-configured", true);
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
   await scopeRows.nth(1).fill("fixture.write");
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
@@ -1420,6 +1434,10 @@ async function assertOAuthScopeEditing(
     '["fixture.read","fixture.write"]'
   )
     fail("scope rows were not normalized in the actual update request");
+  expect(submitted.at(-1)?.callback_uri).toBe(
+    "https://gateway.example:8443/oauth/callback",
+  );
+  await callback.fill("");
   await capture(page, "settings-oauth-validation");
   for (let index = 3; index > 0; index -= 1)
     await page
@@ -1428,6 +1446,7 @@ async function assertOAuthScopeEditing(
   await submit();
   if (JSON.stringify(submitted.at(-1)?.scopes) !== "[]")
     fail("explicit empty scopes were not serialized as an empty list");
+  expect(Object.hasOwn(submitted.at(-1) ?? {}, "callback_uri")).toBe(false);
   await capture(page, "settings-oauth-empty-scopes");
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
   await scopeRows.fill("fixture.inactive");

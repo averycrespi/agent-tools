@@ -273,6 +273,11 @@ func (boundary *Boundary) validateEarly(request *http.Request) contract.ProblemC
 	if !boundary.acceptsRequestHost(request) {
 		return contract.ProblemMisdirectedRequest
 	}
+	if request.URL.Path == "/oauth/callback" {
+		if request.URL.RawPath != "" || request.ContentLength != 0 || len(request.TransferEncoding) != 0 {
+			return contract.ProblemMalformedRequest
+		}
+	}
 	count, total := 0, 0
 	for name, values := range request.Header {
 		lower := strings.ToLower(name)

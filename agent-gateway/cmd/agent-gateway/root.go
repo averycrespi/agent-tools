@@ -247,7 +247,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	}
 	runtime, err := newComposition(composition.Options{
 		Ownership: ownership, TrafficBudget: budget,
-		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + httpboundary.LocalAuthority(authority) + "/oauth/callback",
+		Store: store, InstallationID: identity.InstallationID, CallbackURL: origin + "/oauth/callback",
 		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
 		Diagnostics:         dependencies.diagnostics,
 		DiagnosticProcessID: dependencies.diagnostics.ProcessID(),

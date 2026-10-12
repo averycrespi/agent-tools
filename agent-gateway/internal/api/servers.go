@@ -27,6 +27,18 @@ type ServerService interface {
 	ListOperations(context.Context, string, *serverdomain.SnapshotCursor, int) (serverdomain.OperationPage, error)
 }
 
+func (handler *Handler) validateCallbackSelection(transport contract.Transport) error {
+	httpTransport, ok := transport.(contract.StreamableHTTPTransport)
+	if !ok {
+		return nil
+	}
+	authentication, ok := httpTransport.Authentication.(contract.OAuthAuthentication)
+	if ok && authentication.CallbackURI != nil && !contract.ValidOAuthCallbackSelection(handler.origin+"/oauth/callback", *authentication.CallbackURI) {
+		return serverdomain.NewConfigurationError(contract.ServerConfigurationFieldCallbackURI, contract.ServerConfigurationRuleCanonicalURL)
+	}
+	return nil
+}
+
 type OperationStateProvider func(context.Context, string) serverdomain.OperationTriggerState
 
 type rawServerCreate struct {
@@ -97,6 +109,10 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 	}
 	transport, err := serverdomain.DecodeTransport(raw.Transport)
 	if err != nil {
+		writeServerConfigurationError(writer, err)
+		return
+	}
+	if err := handler.validateCallbackSelection(transport); err != nil {
 		writeServerConfigurationError(writer, err)
 		return
 	}
@@ -175,6 +191,10 @@ func (handler *Handler) patchServer(writer http.ResponseWriter, request *http.Re
 	if raw.Transport != nil {
 		transport, err := serverdomain.DecodeTransport(*raw.Transport)
 		if err != nil {
+			writeServerConfigurationError(writer, err)
+			return
+		}
+		if err := handler.validateCallbackSelection(transport); err != nil {
 			writeServerConfigurationError(writer, err)
 			return
 		}

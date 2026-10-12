@@ -8,9 +8,12 @@ import (
 
 func TestOAuthCallbackURI(t *testing.T) {
 	for raw, bind := range map[string]string{
-		"http://localhost:3118/callback":       "127.0.0.1:3118",
-		"http://127.0.0.1:8210/oauth/callback": "127.0.0.1:8210",
-		"http://[::1]:3118/callback":           "[::1]:3118",
+		"http://localhost:3118/callback":         "127.0.0.1:3118",
+		"http://127.0.0.1:8210/oauth/callback":   "127.0.0.1:8210",
+		"http://[::1]:3118/callback":             "[::1]:3118",
+		"https://gateway.example/oauth/callback": "",
+		"https://127.0.0.1:8443/oauth/callback":  "",
+		"https://[::1]:8443/oauth/callback":      "",
 	} {
 		parsed, actual, err := ParseOAuthCallbackURI(raw)
 		if err != nil || actual != bind || parsed.String() != raw {
@@ -18,6 +21,11 @@ func TestOAuthCallbackURI(t *testing.T) {
 		}
 	}
 	for _, raw := range []string{
+		"https://gateway.example:443/oauth/callback", "https://gateway.example:/oauth/callback",
+		"https://GATEWAY.example/oauth/callback", "https://gateway.example/other",
+		"https://gateway.example/oauth/%63allback", "https://gateway.example/oauth/callback?",
+		"https://gateway.example/oauth/callback#", "https://user@gateway.example/oauth/callback",
+		"https://0.0.0.0/oauth/callback", "https://[::]/oauth/callback",
 		"", "https://localhost:3118/callback", "http://localhost/callback", "http://localhost:0/callback",
 		"http://localhost:65536/callback", "http://localhost:03118/callback", "http://localhost:3118",
 		"http://user@localhost:3118/callback", "http://localhost:3118/callback?", "http://localhost:3118/callback#",
@@ -29,6 +37,26 @@ func TestOAuthCallbackURI(t *testing.T) {
 	} {
 		if _, _, err := ParseOAuthCallbackURI(raw); err == nil {
 			t.Errorf("accepted %q", raw)
+		}
+	}
+}
+
+func TestOAuthCallbackSelection(t *testing.T) {
+	const external = "https://gateway.example:8443/oauth/callback"
+	const local = "http://127.0.0.1:8210/oauth/callback"
+	for _, test := range []struct {
+		main, selected string
+		valid          bool
+	}{
+		{external, external, true}, {local, local, true},
+		{local, "http://localhost:3118/callback", true},
+		{external, local, false}, {local, external, false},
+		{external, "https://other.example:8443/oauth/callback", false},
+		{external, "https://gateway.example/oauth/callback", false},
+		{external, "https://gateway.example:8443/other", false},
+	} {
+		if got := ValidOAuthCallbackSelection(test.main, test.selected); got != test.valid {
+			t.Errorf("selection %q -> %q = %v", test.main, test.selected, got)
 		}
 	}
 }

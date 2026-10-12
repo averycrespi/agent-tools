@@ -291,6 +291,13 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 		}
 	}()
 	configuration := prepared.Configuration
+	callbackURL := service.callbackURL
+	if configuration.Authentication.CallbackURI != nil {
+		callbackURL = *configuration.Authentication.CallbackURI
+	}
+	if !contract.ValidOAuthCallbackSelection(service.callbackURL, callbackURL) {
+		return service.fail(ctx, prepared.Flow.ID, servers.NewConfigurationError(contract.ServerConfigurationFieldCallbackURI, contract.ServerConfigurationRuleCanonicalURL), contract.OAuthDiagnosticAuthorizationRequest)
+	}
 	registrationConfig := configuration.Authentication.Registration
 	var desiredIssuer *string
 	switch registration := registrationConfig.(type) {
@@ -305,10 +312,6 @@ func (service *FlowService) Create(ctx context.Context, request FlowRequest) (cr
 	graph, err := service.resolver.Discover(ctx, Input{Resource: configuration.Resource, ChallengeMetadata: request.ChallengeMetadata, DesiredIssuer: desiredIssuer, TrustedOrigins: configuration.Authentication.TrustedOrigins, AuthServerMetadataURL: configuration.Authentication.AuthServerMetadataURL})
 	if err != nil {
 		return service.fail(ctx, prepared.Flow.ID, err, contract.OAuthDiagnosticMetadataDiscovery)
-	}
-	callbackURL := service.callbackURL
-	if configuration.Authentication.CallbackURI != nil {
-		callbackURL = *configuration.Authentication.CallbackURI
 	}
 	if callbackURL != service.callbackURL {
 		expires, parseErr := time.Parse(time.RFC3339Nano, prepared.Flow.ExpiresAt)
