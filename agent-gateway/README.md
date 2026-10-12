@@ -12,6 +12,10 @@ Each agent has its own identity and one Gateway credential. Upstream credentials
 
 Gateway works with your preferred client and sandbox. Sandbox Manager, Lima and a particular agent harness are not dependencies. It listens on loopback; VMs and containers need a separately trusted forwarding path. It is not an OS sandbox or network-enforced egress boundary.
 
+![Gateway Overview with status, storage, attention and populated HTTP, Git and MCP cards](docs/images/overview.png)
+
+_Synthetic example: Overview links configuration and retained activity across the three protocols. Counts are not proof of complete history or remote effects._
+
 ## Installation
 
 The Gateway **host requires Linux or macOS**, Go 1.26.9 or later, and GNU Make. No operating-system keyring is required. Clients can use other environments with compatible transports and trust configuration.

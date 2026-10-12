@@ -272,6 +272,7 @@
       "detail-blocked": "standard",
       "detail-read": "standard",
       "detail-discovery": "standard",
+      "detail-discovery-complete": "standard",
       "detail-probe": "standard",
       "detail-unsupported": "standard",
       "detail-policy-evidence": "reflow",

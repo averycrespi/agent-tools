@@ -60,6 +60,10 @@ Tool, Agent, Authorization and Outcome select from all retained invocations, not
 
 Text changes apply after a short typing pause; dropdowns and Clear filters apply immediately. Filters remain available for empty history and errors. Load older retrieves older matches under the same query; the count reports loaded matches, not the total retained history. Opening a detail and returning keeps the query and live preference but restarts at newest with a notice rather than silently restoring an unsafe older traversal.
 
+![MCP invocation history with independent authorization and outcome columns for invalid and denied calls](../images/invocation-evidence.png)
+
+_Synthetic example: **MCP → Invocations** keeps authorization separate from outcome. Follow an invocation link for retained details; the loaded-row count is not a complete execution ledger._
+
 ## Read the evidence shape
 
 A summary identifies the admitted agent and credential revision, request time, admission class, requested name when classifiable, resolved target when present, authorization evidence when evaluated, and one outcome class plus basis.

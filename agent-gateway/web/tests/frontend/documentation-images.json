@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "images": [
+    {
+      "file": "overview.png",
+      "scenario": "overview",
+      "state": "overview-quiet",
+      "theme": "light",
+      "viewport": "desktop",
+      "width": 1440,
+      "height": 900,
+      "document": "README.md"
+    },
+    {
+      "file": "mcp-tools.png",
+      "scenario": "server-catalog-reads",
+      "state": "table-available-tools-populated",
+      "theme": "light",
+      "viewport": "desktop",
+      "width": 1440,
+      "height": 900,
+      "document": "docs/operators/upstream-servers.md"
+    },
+    {
+      "file": "grant-review.png",
+      "scenario": "request-adjudication",
+      "state": "request-read-only-request-confirmation",
+      "theme": "light",
+      "viewport": "desktop",
+      "width": 1440,
+      "height": 900,
+      "document": "docs/operators/access-control.md"
+    },
+    {
+      "file": "git-traffic.png",
+      "scenario": "git-traffic",
+      "state": "detail-discovery-complete",
+      "theme": "light",
+      "viewport": "desktop",
+      "width": 1440,
+      "height": 909,
+      "document": "docs/operators/git.md"
+    },
+    {
+      "file": "invocation-evidence.png",
+      "scenario": "invocations",
+      "state": "table-invocation-history-populated",
+      "theme": "light",
+      "viewport": "desktop",
+      "width": 1440,
+      "height": 900,
+      "document": "docs/operators/invocation-evidence.md"
+    }
+  ]
+}

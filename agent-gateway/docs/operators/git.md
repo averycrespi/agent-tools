@@ -128,6 +128,10 @@ Read the native Git exit/result and retained **Git → Traffic**. A successful r
 
 ## Git traffic history
 
+![Git read-discovery detail for Demo Notes showing allowed admission, complete transport and HTTP success, not a push](../images/git-traffic.png)
+
+_Synthetic example aligned with the disposable demo's read-only discovery: **Git → Traffic** distinguishes admission, transport and upstream report. This illustration does not qualify a real Git exchange, clone or push._
+
 ```bash
 agent-gateway git traffic list --limit 50
 agent-gateway git traffic get TRAFFIC_ID

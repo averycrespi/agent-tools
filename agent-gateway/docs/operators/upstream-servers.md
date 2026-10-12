@@ -21,6 +21,10 @@ Gateway reports desired configuration, durable catalog evidence, and active runt
 
 Do not infer callability from a desired `enabled` value or a durable descriptor. Always inspect the server, recent operations, and active catalog together when diagnosing availability.
 
+![MCP Tools table showing available and catalog-issue tools with links to their server](../images/mcp-tools.png)
+
+_Synthetic example: **MCP → Tools** separates catalog status from the server link. The example server is named “Authority required”; names are not readiness evidence._
+
 ## Register and inspect a server
 
 Start with a disabled definition so you can inspect it before launching a process. This minimal stdio example uses synthetic absolute paths; substitute the installed MCP executable and its intended working directory:

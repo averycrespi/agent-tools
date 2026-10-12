@@ -130,6 +130,14 @@ export default class GalleryReporter implements Reporter {
       console.error(
         `Frontend inventory incomplete: ${missing.length} missing, ${unlisted.length} unlisted, ${invalid.length} invalid captures, ${unknownOwners.length} unknown owners. See ${join(artifactRoot, "inventory.json")}`,
       );
+    // A private, fresh launcher receipt binds export to this completed run,
+    // never to the mutable latest-gallery link or a caller-selected old run.
+    if (process.env.FRONTEND_DOCUMENTATION_RECEIPT)
+      await writeFile(
+        process.env.FRONTEND_DOCUMENTATION_RECEIPT,
+        JSON.stringify({ run: process.env.FRONTEND_BROWSER_RUN, status }),
+        { flag: "wx" },
+      );
     return { status };
   }
 }
