@@ -1245,12 +1245,17 @@ export async function runOverview(
   let catalogReads = 0;
   let protocolMode: "current" | "partial" | "unavailable" | "error" = "current";
   const protocolWindows: string[] = [];
+  let releaseProtocol: () => void;
+  const initialProtocol = new Promise<void>((resolve) => {
+    releaseProtocol = resolve;
+  });
   await page.route("**/api/v2/protocol-activity?*", async (route) => {
     const window = new URL(route.request().url()).searchParams.get(
       "window",
     ) as ActivityWindow;
     expect(["15m", "1h", "24h"]).toContain(window);
     protocolWindows.push(window);
+    await initialProtocol;
     if (protocolMode === "error")
       return route.fulfill({
         status: 503,
@@ -1853,7 +1858,12 @@ export async function runOverview(
     !(await sourceText("status")).includes("Loading current data")
   )
     fail("System loading blocked independent reads or claimed success");
+  await expect(
+    overview.getByText("Loading recent activity…", { exact: true }),
+  ).toHaveCount(3);
+  await expect(overview.locator(".protocol-activity")).toHaveCount(0);
   await capture("loading");
+  releaseProtocol!();
   heldStatus = false;
   releaseHeldStatus?.();
   await assertCurrent("status");
@@ -2144,6 +2154,29 @@ export async function runOverview(
     "callability count",
   ])
     await expect(overview).not.toContainText(removed);
+  const assertProtocolCounts = async (stale = false) => {
+    for (const [protocol, total] of [
+      ["http", "107"],
+      ["git", "8"],
+      ["mcp", "13"],
+    ] as const) {
+      const card = overview.locator(
+        `section[aria-labelledby="overview-${protocol}-title"]`,
+      );
+      const activity = card.locator(".protocol-activity");
+      await expect(activity.locator("dd")).toHaveText(total);
+      await expect(activity.locator("dd a")).toHaveCount(0);
+      if (stale)
+        await expect(activity.locator("p")).toHaveText(
+          "Stale; current counts unknown",
+        );
+      else await expect(activity.locator("p")).toHaveCount(0);
+      await expect(card).not.toContainText(
+        /Partially retained history|Retained only|completeness unknown/,
+      );
+    }
+  };
+  await assertProtocolCounts();
   await capture("quiet");
   await compareBaseline("quiet");
   const selector = page.getByRole("combobox", {
@@ -2214,28 +2247,37 @@ export async function runOverview(
       .getByRole("link", { name: "123", exact: true }),
   ).toHaveCount(0);
   protocolMode = "partial";
+  const partialResponse = page.waitForResponse((response) =>
+    response.url().includes("/api/v2/protocol-activity?"),
+  );
   await page.getByTestId("manual-refresh").click();
-  await expect(
-    overview.getByText("Partially retained history", { exact: true }),
-  ).toHaveCount(3);
+  expect((await (await partialResponse).json()).coverage).toBe("partial");
+  await assertProtocolCounts();
   await capture("protocol-partial");
   protocolMode = "error";
   await page.getByTestId("manual-refresh").click();
-  await expect(overview.getByText(/stale; current counts unknown/)).toHaveCount(
-    3,
-  );
+  await assertProtocolCounts(true);
   await capture("protocol-stale");
   protocolMode = "unavailable";
   await page.getByTestId("manual-refresh").click();
   await expect(
     overview.getByText("Recent history unavailable", { exact: true }),
   ).toHaveCount(3);
+  await expect(overview.locator(".protocol-activity")).toHaveCount(0);
   await capture("protocol-unavailable");
+  protocolMode = "error";
+  await selector.selectOption("15m");
+  await expect(
+    overview.getByText("Recent activity unavailable", { exact: true }),
+  ).toHaveCount(3);
+  await expect(overview.locator(".protocol-activity")).toHaveCount(0);
+  await capture("protocol-error");
   protocolMode = "current";
   await page.getByTestId("manual-refresh").click();
   await expect(
     overview.locator('a[href^="#/http/traffic?filter_from="]'),
   ).toHaveText("Requests");
+  await assertProtocolCounts();
 
   for (const headers of [null, [], "invalid", { "X-MCP-Toolsets": 7 }]) {
     customHeaders = headers;
@@ -2771,8 +2813,12 @@ export async function runInvocations(
   await expect(resetFilters).toBeDisabled();
   await liveSwitch.check();
   await expect(resetFilters).toBeDisabled();
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  // A host timestamp can be in the browser's past by the time the pause RPC
+  // arrives. Start before the fixed target, beyond this owner's 300s bound.
+  await page.clock.install({ time: new Date("2026-10-02T12:34:56Z") });
+  const filterTime = new Date("2026-10-03T12:34:56Z");
+  await page.clock.pauseAt(filterTime);
+  expect(await page.evaluate(() => Date.now())).toBe(filterTime.getTime());
   await draftTool.fill("unapplied");
   await expect(resetFilters).toBeEnabled();
   await expect(page).toHaveURL(/#\/mcp\/invocations$/);

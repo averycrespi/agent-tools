@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Agent Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one request-local authorization and confirmation boundary before one immediate attempt on a pinned downstream capability or fixed local handler. Traffic history is optional; security administration retains mandatory atomic durable audit. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; narrowly bounded process-local authority and invocation-storage acquisition waits do not schedule downstream work.
+Agent Gateway is a single-user local service that provides a strict HTTP/MCP boundary, durable administrative authority, governed downstream invocation, and typed browser and CLI control planes. Every classified call is rejected safely or admitted through one request-local authorization and confirmation boundary before one immediate attempt on a pinned downstream capability or fixed local handler. Traffic history is optional; security administration retains mandatory atomic durable audit. Gateway retains no durable call queue, replay state, successful result, or raw downstream error; the bounded process-local authority-gate wait does not schedule downstream work. Control-storage mutation admission is immediate and nonqueueing; optional traffic observations never gate execution.
 
 This document is the normative architecture overview and index. The linked design chapters own detailed product behavior. The [documentation map](docs/README.md) routes readers to operator and maintainer procedures, while maintainer commands, package layout, and editing invariants belong to [`CLAUDE.md`](CLAUDE.md).
 
@@ -29,6 +29,7 @@ Operator procedures:
 - [Administrator CLI and local administration](docs/operators/administration.md)
 - [Upstream server configuration](docs/operators/upstream-servers.md)
 - [Access control](docs/operators/access-control.md)
+- [Smart-HTTPS Git setup](docs/operators/git.md)
 - [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md)
 - [Backup, restore, and recovery](docs/operators/backup-and-recovery.md)
 - [Upgrade and compatibility](docs/operators/upgrade-compatibility.md)
@@ -48,7 +49,7 @@ If summaries disagree, the owning normative chapter controls product intent and 
 - Keep administrator and agent credentials, middleware, identifiers, and invalidation paths separate. Raw secrets may appear only at approved one-time sinks.
 - Treat SQLite availability and integrity as security state. Security-critical writes fail closed, uncertain durability latches storage, and recovery is stopped-process only.
 - Encrypt all secret generations in control SQLite with an owner-only installation master key. Unresolved legacy custody refuses without native access, discarded references or replacement secrets; [downstream servers](docs/design/downstream-servers.md#keyring-capability-and-generation-cutover) owns custody and its threat limits.
-- Keep registries and admission controls bounded and nonblocking except for the compiled authority-gate and invocation-only storage acquisition waits. An existing reconciliation worker may also perform the narrowly bounded terminal-persistence acquisition reattempts defined in [downstream servers](docs/design/downstream-servers.md), without joining the storage wait queue or replaying external work. Restart discards sessions, streams, subscribers, runtime publications, and in-flight work.
+- Keep registries and admission controls bounded and nonblocking except for the compiled authority-gate wait. An existing reconciliation worker may also perform the narrowly bounded terminal-persistence acquisition reattempts defined in [downstream servers](docs/design/downstream-servers.md), without adding a storage wait queue or replaying external work. Restart discards sessions, streams, subscribers, runtime publications, and in-flight work.
 - Supply at most one automatic downstream attempt. Uncertain handoff never causes retry, reroute, or replay.
 
 Exact authorities, limits, states, and failure vocabularies are owned by the relevant design chapters rather than repeated here.

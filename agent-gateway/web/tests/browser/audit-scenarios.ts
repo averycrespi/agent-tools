@@ -27,6 +27,12 @@ export async function runAudit(
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
   if (evidence === "api") {
+    // Initial event-stream connection refreshes and aborts in-flight reads.
+    // Settle that boundary before capturing this navigation's response body.
+    await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+      "data-freshness",
+      "current",
+    );
     // Consume the matching response before a later refresh can retire its body.
     const realResponse = page
       .waitForResponse(

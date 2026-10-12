@@ -20,6 +20,8 @@ Before producing release evidence:
 4. Freeze Make, npm, runner, profile, manifest, schema, and executable definitions.
 5. Run `make accept REPORT=/absolute/path/report.json` once. The current profile requires no external browser sidecars; `make qualify-external-evidence` validates the manifest but has no browser qualification work to perform.
 
+**Current composition gap:** `accept` does not execute `test-frontend-browser`, whose mocked presentation owners were migrated out of real-Gateway suites. For those owners, retain a separate exact-revision supplemental `make -C agent-gateway test-frontend-browser` result, gallery inventory/artifacts and actual visual-inspection record using the [frontend evidence guide](frontend-browser-tests.md). Record command, environment, revision and provenance alongside the acceptance report; its source hashes and aggregate CI status do not automatically adopt this evidence. A passing `accept` alone does not qualify the migrated presentation states. Existing mandatory gates remain required, and neither the mocked gallery nor its source hashes establish complete accessibility. Integrating that owner into executable acceptance/report adoption remains a separate engineering gap, not a change made by this documentation procedure.
+
 The report records the exact clean revision, command and profile hashes, immutable definition inputs, command timings, timeout/termination facts, artifacts, and cleanup results. Any tracked change after evidence preparation creates a new candidate and invalidates candidate-bound evidence.
 
 ## Native and external evidence
@@ -76,6 +78,7 @@ The public verification interface is organized by evidence purpose:
 - `test-stress` repeats only the five named stress scenarios at its configured repeat count.
 - Chromium workflow, privacy, visual, and accessibility leaves each have one owner; `test-browser` is their developer-facing aggregate. `test-browser-cross` remains an opt-in Firefox/WebKit diagnostic, outside ordinary and release aggregates.
 - `test-frontend-development-node` owns pure session, view, mutation and sensitive-sink foundations alongside Node development tests. CI Quality and release acceptance execute this owner; browser leaves retain actual cookies, storage, Origin, interaction and rendering checks.
+- `test-frontend-browser` independently owns mocked page/dialog/state assertions and screenshot galleries. It runs in the CI Frontend browser job, not in `accept` or the real-Gateway browser/development aggregates. It has no automated axe or pixel-baseline comparison; real accessibility remains separately owned.
 - Frontend typecheck, deterministic generated assets, supply-chain guards, and vulnerability audit remain separate explicit owners.
 
 `test` aggregates `test-unit`, `test-integration`, `test-harness`, `test-material`, and `test-serve-demo`. It is a developer convenience, not a release leaf. `test-browser` is also an aggregate: it expands the four required Chromium leaves through one inventory/planner invocation, retaining separate race/count-one Go test commands, per-leaf deadlines, Gateway builds, and cleanup. Final acceptance selects harness, demo and encrypted material as disjoint direct leaves.
@@ -94,15 +97,16 @@ Release definitions bind authored frontend source and test files through one sor
 
 ## CI mapping
 
-| CI intent                 | Owners                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Fast source feedback      | formatting, nonmutating Gateway verification, frontend typecheck                                                |
-| Ordinary correctness      | `test-unit`, `test-integration`, `test-harness`, and `test-material`                                            |
-| Runtime compatibility     | complete `test-e2e`                                                                                             |
-| Browser behavior          | required Chromium workflow, privacy, visual, and accessibility leaves                                           |
-| Security and supply chain | `test-security`, direct Go vulnerability scan, frontend supply-chain verification, frontend vulnerability audit |
-| Scheduling sensitivity    | `test-stress` only; never repeat unrelated packages                                                             |
-| Release candidate         | one clean `accept` run; Chromium is the required browser baseline                                               |
+| CI intent                       | Owners                                                                                                          |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Fast source feedback            | formatting, nonmutating Gateway verification, frontend typecheck                                                |
+| Ordinary correctness            | `test-unit`, `test-integration`, `test-harness`, and `test-material`                                            |
+| Runtime compatibility           | complete `test-e2e`                                                                                             |
+| Mocked frontend CI              | `test-frontend-browser`; separate result/gallery and visual inspection, not automatic acceptance adoption       |
+| Real-Gateway browser acceptance | required Chromium workflow, privacy, visual, and accessibility leaves                                           |
+| Security and supply chain       | `test-security`, direct Go vulnerability scan, frontend supply-chain verification, frontend vulnerability audit |
+| Scheduling sensitivity          | `test-stress` only; never repeat unrelated packages                                                             |
+| Release candidate               | one clean `accept` run; Chromium is the required browser baseline                                               |
 
 Repository CI runs Gateway lint independently of its unit, integration, harness/material, E2E, and demo-runner leaves when Gateway is affected; all selected jobs remain mandatory in Required. Tool/role-owned compatible Go caches use fresh run/attempt save keys so newly filled dependency, build, and linter material can be retained. Cache reuse is setup optimization, not exact-revision evidence; `main`, manual, and scheduled runs select every tool. The stable required gate and conservative path-selection policy are described in the [repository CI guide](../../../CLAUDE.md#ci). The Gateway E2E job and macOS harness owner first warm the exact `e2e` command build cache under a separate five-minute setup bound, so cold module downloads and compilation do not consume the harness's 30-second per-process build budget. The macOS preparation is harness-only, runs after cache restoration even on a miss, and uses read-only module resolution; its integration owner is unchanged. The harness still builds and owns its disposable binary; no prebuilt artifact is injected and no runtime or test deadline is relaxed. The demo job likewise prepares the exact read-only `e2e` Gateway build under a separate five-minute bound before its lifecycle owner. Its enclosing job allows 25 minutes: the existing 20-minute allowance plus five for preparation. This is required even on a cache miss (including renamed cache identities): cold compilation must not consume the first demo's 75-second readiness assertion. Preparation populates build material only; the demo still builds and owns its disposable binary, and runtime deadlines, cleanup and count-one scenario ownership are unchanged. This development profile does not replace browser, security, or other final-acceptance owners.
 
@@ -112,9 +116,9 @@ Gateway's Linux integration and macOS platform owners enable `AGENT_GATEWAY_TEST
 
 Pull requests may run individual leaves in separate jobs, but the final acceptance profile remains the authority for exact multiplicity and report composition. Do not wrap leaf jobs in an aggregate that causes the same package or browser workflow to execute twice.
 
-Root `test` runs Gateway alone, then a bounded two-tool ordinary-test phase for the remaining modules (`LOCAL_TEST_JOBS=1` selects serial comparison). Gateway's close-and-rebind harness ports must not overlap other modules' listeners. Root linters and integration/E2E aggregates remain serial; `check-other-tools` finishes serial lint before its bounded test phase. Failures stop new workers while active workers drain their own cleanup. The non-Gateway integration selectors use checked package ownership and `TestIntegration*` names instead of reselecting ordinary tests.
+Gateway is the sole active Go module. Root `test` runs Gateway alone; the empty `OTHER_TOOLS` phase starts no recursive Make or default goal. `check-other-tools` remains a compatibility no-op, not qualification evidence. The generic bounded-worker path is tested with synthetic modules: future non-Gateway suites remain limited to two workers (`LOCAL_TEST_JOBS=1` selects serial comparison), with serial lint, no Gateway overlap, and cleanup draining after failures. Integration/E2E aggregates remain serial. Gateway directly owns the catalog-schema and downstream-diagnostic tests formerly reached through TypeSafe MCP.
 
-The root repository aggregate deliberately excludes Gateway acceptance. The Gateway `accept` profile includes `make check-other-tools` once as its disjoint `repository-other-tools` leaf; do not wrap `accept` in another aggregate or run that leaf separately as part of the same evidence set.
+The root repository aggregate deliberately excludes Gateway acceptance. The Gateway `accept` profile now includes `make test-ci` once as its disjoint `repository-ci` leaf, binding the current tool inventory, selection/cache/gate definitions and suite-ownership tests instead of qualifying removed tools. This changes the acceptance definition/manifest identity; old reports remain historical evidence and cannot qualify the new revision. Do not wrap `accept` in another aggregate or repeat that leaf in the same evidence set.
 
 ## Constrained-memory linting
 
@@ -194,14 +198,16 @@ cancelled client and upstream handler, then checks forwarding count and live ref
 it proves no automatic replay, not rollback of arbitrary upstream effects or
 successful completion from missing evidence.
 
-Existing HTTP request grants are fixture setup, not Git policy. Later enforcement
-must rerun these native-client cases with Git policy enabled. Local transport
+Current fixtures enable the Git routing profile and configure a dedicated Git
+credential, repository and read/ref grants. HTTP grants supply only explicit
+private-network permission, never Git operation/ref authority. Denied and malformed
+exchanges assert zero upstream dispatch. Local transport
 fixtures qualify neither live GitHub routing/interoperability, actual guest
 isolation/egress, nor native credential stores or installed services.
 
 ### Traffic-store checks
 
-`invocation.TrafficStore` owns production MCP persistence. Its isolated
+`invocation.TrafficStore` owns shared optional MCP/HTTP/Git history persistence. Its isolated
 `TestTraffic*` fixtures belong to the existing invocation integration owner and
 exercise real SQLite without changing control recovery markers. For focused work,
 run `go test -race -tags=integration ./internal/invocation ./internal/storage -count=1 -timeout=5m`
@@ -212,8 +218,9 @@ docs also require the contract/documentation checks in `test-unit` and
 Keep caller cancellation distinct from cooperative commit settlement. Changes to
 the SQLite driver, default VFS, cache spilling, page size, or write shape must
 requalify the [combined database/WAL reservation](../design/storage-and-recovery.md#isolated-traffic-store).
-The store's receipts, pins and full restart validation are correctness evidence,
-not throughput, native filesystem, or power-loss qualification. Preserve the
+Writer commit acknowledgments, bounded reader/backup snapshots and full restart
+validation are correctness evidence, not execution permission or execution-lifetime
+pins. They do not qualify throughput, native filesystem behavior or power loss. Preserve the
 complete lifecycle/read/paired-backup boundary, schema-17 diagnostic evidence and
 schema-18 traffic selection; never introduce dual writes or partial readers.
 

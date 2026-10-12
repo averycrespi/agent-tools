@@ -161,7 +161,7 @@ func TestHTTPProxyStartupFailureCleansPartialBinds(t *testing.T) {
 	h.Stop(syscall.SIGTERM)
 	occupied, err := net.Listen("tcp4", proxy)
 	require.NoError(t, err)
-	defer occupied.Close()
+	defer func() { require.NoError(t, occupied.Close()) }()
 	result, err = h.runner.Run(context.Background(), h.binary, args...)
 	require.Error(t, err)
 	require.Empty(t, result.Stdout)

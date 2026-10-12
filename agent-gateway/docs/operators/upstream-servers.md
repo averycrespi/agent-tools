@@ -21,9 +21,33 @@ Gateway reports desired configuration, durable catalog evidence, and active runt
 
 Do not infer callability from a desired `enabled` value or a durable descriptor. Always inspect the server, recent operations, and active catalog together when diagnosing availability.
 
+![MCP Tools table showing available and catalog-issue tools with links to their server](../images/mcp-tools.png)
+
+_Synthetic example: **MCP → Tools** separates catalog status from the server link. The example server is named “Authority required”; names are not readiness evidence._
+
 ## Register and inspect a server
 
-Prepare one strict JSON document and create the server:
+Start with a disabled definition so you can inspect it before launching a process. This minimal stdio example uses synthetic absolute paths; substitute the installed MCP executable and its intended working directory:
+
+```json
+{
+  "namespace": "notes",
+  "display_name": "Notes",
+  "enabled": false,
+  "transport": {
+    "kind": "stdio",
+    "executable": "/opt/example/bin/notes-mcp",
+    "arguments": [],
+    "working_directory": "/opt/example/notes",
+    "environment": {},
+    "secret_environment": {}
+  }
+}
+```
+
+Arguments are literal, not shell syntax. The process receives a clean declared environment, not your shell credentials. Put only nonsecret values in `environment`. If the executable needs a secret, declare an environment-name-to-slot mapping such as `"secret_environment":{"NOTES_API_TOKEN":"api_token"}`, then [replace the complete static slot set](#replace-static-or-oauth-client-credentials) separately. Paths must be absolute and valid on the Gateway host; this example does not install a server or promise OS isolation.
+
+Save the strict JSON document and create the server:
 
 ```bash
 agent-gateway mcp server create --file PATH
@@ -32,6 +56,8 @@ agent-gateway mcp server get SERVER_ID
 ```
 
 Server definitions are secret-free. They select a closed stdio or Streamable HTTP transport, protocol policy, and safe configuration. Put static credentials or OAuth client secrets only through the separate write-only credential command.
+
+After creation, retain `SERVER_ID`, inspect the saved transport, and supply any required static credentials or complete OAuth. Enable deliberately with `agent-gateway mcp server update SERVER_ID --enable --yes`; inspect `mcp server get SERVER_ID`, operation history and `mcp catalog list` until the intended tools are active. Only then configure agent grants. An enabled flag alone proves no readiness.
 
 Creation generates an idempotency key unless one is supplied. If the response is uncertain, retain the reported key and canonical input digest, read the server inventory, and deliberately replay only the exact same input when necessary. The CLI does not retry automatically.
 
@@ -154,6 +180,22 @@ agent-gateway mcp server credential replace SERVER_ID --etag ETAG --file PATH --
 ```
 
 Omitted `--etag` performs one validated server read; an explicit exact value skips it.
+
+Read `agent-gateway mcp server get SERVER_ID --json` first. `credential_revisions.static_credential` is the `expected_revision` for static replacement; `credential_revisions.oauth_client` is the value for OAuth client-secret replacement. These decimal-string credential revisions are **not** the server ETag: the ETag pins server state, while `expected_revision` pins the selected credential domain. Do not copy `desired_revision` or an ETag into this field.
+
+For the disabled bearer HTTP server above, a complete **synthetic** file is:
+
+```json
+{
+  "kind": "static_credential",
+  "expected_revision": "0",
+  "values": { "bearer": "synthetic-example-not-a-real-token" }
+}
+```
+
+Replace `"0"` with the just-read static credential revision, and supply real material only in an owner-only private file or protected stdin. `values` must contain exactly `bearer` for HTTP bearer authentication. For stdio, supply every declared unique slot instead, for example `"values":{"api_token":"synthetic-example-not-a-real-token"}` for the mapping above. There is no partial-slot patch.
+
+For static OAuth registration using a client secret, the complete form is `{"kind":"oauth_client","expected_revision":"0","client_secret":"synthetic-example-not-a-real-secret"}`; use the current OAuth client revision and omit `values`. This is not an access/refresh-token import. Use `--file -` for stdin only when administrator authentication is not also using stdin. Disable tracing, keep secret source files private, and remove them under your credential-retention policy after the result is reconciled; Gateway does not delete them.
 
 The input must be one complete supported static-slot set or OAuth-client-secret form. Replacement always requires confirmation. Gateway never emits, logs, digests for display, or automatically replays the submitted secret. Protected material uses encrypted database custody; unavailable custody refuses without native prompts or fallback.
 

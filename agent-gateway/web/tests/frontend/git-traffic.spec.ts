@@ -113,6 +113,23 @@ const variants: Record<string, GitTraffic> = {
     admission: { ...admission, operation: "read_discovery", commands: 0 },
     completion: null,
   },
+  "discovery-complete": {
+    admission: {
+      ...admission,
+      operation: "read_discovery",
+      commands: 0,
+      policy: {
+        repository_name: "Demo Notes",
+        repository_url: "https://example.invalid/demo/notes",
+        grants: [{ id, revision: "1" }],
+        grant_count: 1,
+        creates: 0,
+        updates: 0,
+        deletes: 0,
+      },
+    },
+    completion: { ...complete, outcome: "nonmutation" },
+  },
   probe: {
     admission: { ...admission, operation: "probe", commands: 0 },
     completion: null,
@@ -162,6 +179,7 @@ const outcomes: Record<string, [string, string, string]> = {
   blocked: ["Push", "Not dispatched", "Unknown"],
   read: ["Read", "Complete", "Not a push"],
   discovery: ["Read discovery", "Unknown", "Not a push"],
+  "discovery-complete": ["Read discovery", "Complete", "Not a push"],
   probe: ["Push probe", "Unknown", "Not a push"],
   unsupported: ["Unsupported exchange", "Not dispatched", "Not a push"],
   "policy-evidence": ["Push", "Unknown", "Unknown"],
@@ -468,6 +486,12 @@ test("git-traffic", async ({ page, frontend }) => {
     await expect(page.locator("header.detail-context")).toContainText(
       gitOutcome(value),
     );
+    if (name === "discovery-complete") {
+      await expect(fact("Repository").first()).toContainText("Demo Notes");
+      await expect(page.getByTestId("detail-context")).toContainText(
+        "HTTP success",
+      );
+    }
     if (value.admission.ref_evidence) {
       const region = page.getByRole("region", {
         name: "Targeted ref evidence",

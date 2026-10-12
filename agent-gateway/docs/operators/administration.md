@@ -187,159 +187,11 @@ Existing `--visibility`, API `visibility`, and creation `default_grant` names re
 
 ## Git configuration and access
 
-`agent-gateway git` manages repositories, Git-only grants/credentials and independent
-routing through `/api/v2/git`. Enabled HTTPS origins classify smart Git separately
-from ordinary HTTP and authorize every requested ref action before forwarding a
-push. Ordinary GitHub HTTP remains governed by HTTP policy. Git permissions and
-secrets never inherit HTTP defaults, request grants or HTTP credentials. Use
-`agent-gateway git --help` for the command tree. The dedicated **Git** browser
-section manages Routing, Repositories, Grants and Credentials, separately from HTTP/MCP.
-Canonical destinations are immutable after creation; alias edits never retarget
-authority. The browser create form suggests the opposite terminal `.git` spelling
-as an explicit alias in either direction. It follows canonical URL edits until you
-edit/add/remove an alias, then preserves your deliberate choice. Review both URLs
-before saving. Duplicate/self aliases are refused. Existing repositories and CLI/API
-creation remain explicit; there is no backend implicit URL equivalence.
-Adding a push rule explicitly enables read. Secret controls are write-only and
-clear on submission, cancellation, navigation and session loss. Review changes
-before confirmation; uncertain mutations offer no replay.
-
-Create a repository from a strict JSON file with deliberate public access:
-
-```json
-{
-  "name": "Team repository",
-  "url": "https://github.com/team/repository",
-  "aliases": ["https://github.com/team/repository.git"],
-  "credential_id": null
-}
-```
-
-```bash
-agent-gateway git repository create --file /private/repository.json --yes
-agent-gateway git repository list
-agent-gateway git repository get ID
-agent-gateway git repository update ID --file /private/repository.json --yes
-agent-gateway git repository delete ID --yes
-agent-gateway git grant create --file /private/grant.json --yes
-agent-gateway git grant list
-agent-gateway git grant get ID
-agent-gateway git grant update ID --file /private/grant.json --yes
-agent-gateway git grant delete ID --yes
-agent-gateway git routing-profile get
-agent-gateway git routing-profile update --file /private/profile.json --yes
-agent-gateway git credential list
-agent-gateway git credential get ID
-agent-gateway git credential create --file /private/credential.json --yes
-agent-gateway git credential update ID --file /private/metadata.json --yes
-agent-gateway git credential rotate ID --file /private/rotation.json --yes
-agent-gateway git credential delete ID --yes
-```
-
-A grant file requires `principal_id`, `repository_id`, nullable `description`,
-nullable `expires_at`, and `policy`. A read-only policy is
-`{"version":1,"read":true,"refs":[]}`. To permit branch creation/update, include
-`{"ref":{"kind":"prefix","value":"refs/heads/team/"},"actions":["create","update"]}`
-in `refs`; deletion remains denied. Write-only grants reject. Exact selectors
-use `kind:"exact"` and a fully qualified ref. Different destinations require new
-repository identities and grants; aliases only add/remove terminal `.git`
-spelling at the same origin/base. Metadata update retains the canonical URL.
-
-Use **Git → Routing** to inspect enforcement status and edit enabled HTTPS origins.
-Add `https://github.com` to route GitHub smart-HTTPS Git through Git policy and
-credentials. Review the complete current/proposed origin list before saving;
-removing an origin returns it to ordinary HTTP policy. This does not create
-repository grants or configure client proxy/CA trust. Revision conflicts retain
-your draft for explicit review; an uncertain save must not be replayed.
-
-CLI profile files are exactly `{"origins":["https://github.com"]}`. Origins normalize
-to explicit effective ports; repository deletion never removes profile intent.
-The read-only `active:true` field reports the enforcement gate. Activation refuses
-while a matching opaque tunnel is still settling; let that owner finish before
-submitting a new conditional update. Existing work is not canceled. Enabled origins
-refuse opaque CONNECT even after the last repository is removed. Receive-pack
-discovery and large-push flush probes require read plus a push-capable grant, but
-never authorize a later push. Unsupported signed pushes, push options, SHA-256,
-HTTP-compressed push bodies, dumb HTTP, LFS and SSH fail closed. HTTP 200 does not
-prove that the upstream accepted a push; use the native Git result. Local fixture
-coverage does not qualify live GitHub, native installation or client adoption.
-
-Credential files require `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
-and write-only `secret`; metadata files omit secret, and rotation files contain
-only secret. Deliberately supply existing HTTPS-compatible material using a
-private file or stdin, never argv/environment, host helper execution or credential
-store scanning. Do not save material in source, backups or browser storage.
-Selected missing/unavailable material has no public-access or old-generation
-fallback. Every retained repository reference, including deleted configuration,
-prevents credential deletion or incompatible origin/recipe edits. Restore
-invalidates protected material; deliberately resupply it after recovery.
-
-All edits/deletes/rotations use exact ETags. Omission performs one validated
-preflight; explicit `--etag` is never refreshed. Authority changes fence pending
-admissions and retain atomic administrative audit. No command replays an uncertain
-mutation. The [Git public contract](../design/public-contract.md#git-configuration-resources)
-owns exact shapes, bounds and failures.
+Follow [Git setup](git.md) for repositories, read/ref grants, Git-only credentials, routing profiles and a first native read-only check. Git policy is independent of HTTP and MCP. Enabling an origin prevents opaque-tunnel bypass; removing it returns traffic to ordinary HTTP policy. Review the complete proposed routing list and never replay an uncertain update.
 
 ## Git traffic history
 
-Use **Git → Traffic**, `GET /api/v2/git/traffic`, or:
-
-```bash
-agent-gateway git traffic list --limit 50
-agent-gateway git traffic get TRAFFIC_ID
-```
-
-Lists are newest-first with bounded `--limit`/`--cursor` continuation; JSON retains
-exact admission and optional completion evidence. History is bounded and may be
-pruned. Stale cursors require a fresh read, not another Git operation. Each
-classified authenticated exchange has its own Git record when durable admission
-is available; it is not duplicated as an ordinary HTTP request. Discovery and
-flush-only probes are distinct from pushes. No guessed CONNECT association or
-traffic-to-grant shortcut is provided.
-
-The primary **Outcome** distinguishes Denied, Failed, Unknown/Incomplete, HTTP
-success for nonpush exchanges, and upstream-reported push outcomes. HTTP 401/403
-are Failed even with completed transport; detail retains the status code.
-**Admission**, **Transport**, and **Upstream report** answer different questions.
-Allowed does not mean dispatched; HTTP 200 and clean transfer do not mean push
-success. Read completion does not establish a valid local checkout. A complete
-supported receive-pack report can say reported success, failure, or partial
-success. This is an upstream claim, not independent verification of repository
-effects. Missing, malformed, interrupted, oversized or unsupported reports remain
-unknown, including a partial report missing one requested command. Git push
-observation requests identity encoding; an unexpectedly encoded response is
-relayed live but not interpreted. Ordinary HTTP encoding is unchanged.
-
-Configured repository name/destination, revisions, up to four applicable grant
-references plus their total, command operation counts, and transport facts are
-immutable admission-time evidence. Later rename/deletion/rotation never rewrites
-that history. Legacy rows without policy facts or terminal observation remain
-explicitly unavailable/unknown. Push detail additionally shows a request-order
-prefix of at most eight targeted refs and 1,536 encoded bytes, with requested
-create/update/delete actions. A count/byte-limited prefix is labeled truncated;
-omitted refs and their outcomes are unavailable. Denied refs were not dispatched.
-Known per-ref results are upstream claims only, not independently verified effects;
-legacy records have unavailable ref evidence. Names render as inert text in the
-browser and escaped text in CLI tables. JSON exposes the same bounded evidence.
-OIDs, packs, request headers, command fingerprints, arbitrary upstream messages
-and secrets are not persisted.
-
-Blocked/unsupported exchanges are not authorized; unavailable Git credentials
-never fall back to public access. For an uncertain push, inspect the native Git
-result and reconcile the relevant remote refs with an independently authorized
-read before deciding on another operation. Do not infer rollback or safe retry
-from missing completion; a persistence failure does not replace a result already
-relayed to the live client.
-
-For clients, use HTTPS smart-Git remotes with the configured canonical spelling or
-explicit `.git` alias. Follow [proxy and CA setup](http-proxy.md) to activate the
-Gateway proxy, transfer only its public CA and the supported agent proxy
-credential through protected client configuration, and configure Git's HTTPS
-proxy and CA trust (`http.proxy`/`http.sslCAInfo`) in the client environment. Never
-disable certificate verification or transfer the upstream Git credential to the
-client. Keep host Git helpers, SSH, LFS, alternate transports and direct-egress
-bypass outside this integration. Source/Chromium/local TLS fixtures do not qualify
-live GitHub or actual sandbox egress, installed services, or native key custody.
+Use **Git → Traffic** or `agent-gateway git traffic list|get`. The [Git evidence guide](git.md#git-traffic-history) explains admission, transport and upstream-reported outcomes. HTTP 200 is not proof of push success; missing completion is unknown, not permission to retry.
 
 ## Scoped HTTP credentials
 
@@ -356,7 +208,7 @@ agent-gateway http credential delete ID --yes
 
 Create files contain `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, and `secret`. Update files contain the same complete metadata without `secret`; rotation files contain only `secret`. Treat input files as secrets and manage their permissions and removal yourself; Gateway neither persists nor deletes your source file. Never put a secret in argv, an environment variable or a browser URL. Browser input clears after submission, cancellation, navigation and sign-out; stored values cannot be revealed.
 
-Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Restoring a backup invalidates HTTP credential material even if old keyring entries survive; deliberately rotate to supply fresh authority. Existing MCP server credentials are separate and unchanged.
+Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Format-4 restore recovers backed-up HTTP material, not its present validity upstream; deliberate rotation may be needed after checking expiry or revocation. Legacy recovery does not recover native secrets. Every restore invalidates administrator and agent access tokens. See [backup recovery](backup-and-recovery.md#restore-a-backup) for custody and lineage requirements.
 
 ## HTTP traffic history
 
@@ -373,18 +225,13 @@ or regex syntax. Exact filters remain `--principal-id`, `--connect-id`, `--type`
 `--decision`, and `--outcome`. Lists accept the usual `--limit`, `--cursor`, and
 `--output json` controls.
 
-In the browser, **Agent** searches current display names using the same accent/case
-and limited typo tolerance as MCP Invocations, or a literal recorded agent-ID
-substring. Missing current names do not erase recorded IDs; names are recognition,
-not admission-time authority. Existing exact-ID diagnostic links stay exact and
-show a removable **Exact agent ID** constraint. Agent and Destination host text
-applies after a short pause; both accept up to 256 UTF-8 bytes without control
-characters. **Clear filters** removes all constraints. Searches combine with the
-other filters, including recorded CONNECT ID, across available history before
-pagination. Applied filters stay in the URL through reload and Back navigation;
-changing them starts a fresh matching traversal, not a filter of loaded rows. Detail preserves historical
-policy selectors and credential-generation references even after grants change;
-they are not current authority. Request paths, queries, headers, bodies and secrets
+Browser Agent and Destination host searches apply across retained history before
+pagination. Agent names are current recognition, not admission-time authority;
+recorded IDs survive missing names. Exact-ID/CONNECT diagnostic links keep their
+constraints visible. Changing filters starts a fresh traversal. See the
+[browser contract](../design/browser-control-plane.md) for controls and URL behavior.
+Detail preserves historical policy selectors and credential-generation references,
+not current authority. Request paths, queries, headers, bodies and secrets
 are never traffic evidence. CONNECT tunnels expose no inner requests. An allowed
 record without completion means unknown outcome, not proof of nonexecution or
 permission to retry. No grant-creation or replay action is available.
@@ -414,7 +261,10 @@ restarts at newest with a notice. MCP Invocations remains separate and unchanged
 On ordinary startup, existing selected traffic-schema-1 stores are fully validated
 and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
-pair is needed. Backups remain paired and restore both evidence domains. The stopped
+pair is needed. Current format-4 control backups omit MCP, HTTP and Git traffic;
+restore disables capture. Preserve retained traffic through [separate history
+export](backup-and-recovery.md#export-optional-history). Paired verification and
+restoration apply only to historical format-2 artifacts. The stopped
 `maintenance migrate-traffic-storage` command still rejects an already selected pair.
 [Proxy listener selection and manual client setup](http-proxy.md) remain separate from control administration.
 
@@ -440,9 +290,9 @@ All filters are conjunctive and apply to server history: `--actor-type`, `--cred
 
 Lists are descending sequence, not client-sorted timestamps. `--limit` is 1–100 (default 50); the CLI reads one page and never automatically retries. Keep the same filters and the returned `history.generation` when supplying `next_cursor`. The cursor is opaque and freezes the traversal's upper sequence watermark; later events require a fresh first page. On `stale_cursor`, discard all earlier pages and restart without the cursor, comparing generations. On `audit_history_replaced`, discard previous-history data and explicitly restart without the old generation. Neither response permits combining the two histories. JSON preserves the strict API representation, including nullable fields and decimal-string sequences; human output provides event facts, retention notes, and continuation guidance.
 
-The browser directly offers five filters: **Event**, **Performer**, **Target type**, **Target**, and **Outcome**. Target is the only text field: it matches current names with bounded typo tolerance or literal partial IDs across retained history, before pagination. Renames change recognition/search of older events; deleted targets remain searchable by ID. A search cursor whose matching targets changed must restart. Dropdowns apply immediately and Target after a short pause. Invalid drafts do not replace results or block independent valid filters. **Reset** clears draft and applied values. Old browser time/credential filters are removed when opening their links, never retained invisibly; old exact-target links become visible Target searches. Back/Forward and event links retain applied filters; returning to the list or choosing **Refresh** starts the newest matching page. **Load older audit events** appends compatible pages only. Cursor/generation comparisons are session-local, so reload loses that baseline. Replacement discards previous-history state and warns, even if the fresh read fails. A missing event never proves nonexecution. **Retained history** appears only below the main list; its **Retention details** disclosure exposes generation and boundary facts. The [browser audit contract](../design/browser-control-plane.md#audit-clients) owns exact state, link and presentation behavior.
+In the browser, filter by Event, Performer, Target type, Target and Outcome. Target searches current names or literal partial IDs across retained history; renames affect recognition, not recorded authority. Live starts enabled, polls only while visible and pauses replacement when you load older events. Refresh starts newest; cursor/generation changes require a fresh traversal. The [browser audit contract](../design/browser-control-plane.md#audit-clients) owns exact filtering, link and presentation behavior. A missing event never proves nonexecution.
 
-Performer labels distinguish **Operator**, **System**, and **Offline maintenance**. A system event's optional initiating credential is attribution, not its performer or a named human. Attempts and outcomes are immutable separate events joined by correlation ID; `pending`, `failed`, `rejected`, and `unknown` must not be interpreted as success or rollback. Event detail embeds **Related events**, selected by the recorded correlation ID, with a subtle selected-event marker and manual refresh/**Load older events** controls. The count distinguishes fetched events from an injected selected event. Both tables separate Target type from the current name-first Target and full ID. **Correlation ID** remains copyable in ordinary **Event details**, alongside **Initiating credential**; absent diagnostics are omitted. The ordinary table no longer offers correlation-ID entry; old filtered links still show a removable context chip. Related events are retained evidence, not a complete transaction trace. Administrative audit is separate from **MCP → Invocations** and **MCP → Requests**: request submissions and invocation evidence are not copied here.
+Performers are **Operator**, **System**, or **Offline maintenance**. A system event's initiating credential is attribution, not a named human. Attempts and outcomes are separate immutable events joined by correlation ID; `pending`, `failed`, `rejected` and `unknown` establish neither success nor rollback. Read **Related events** manually for that correlation, not a complete transaction trace. MCP request submissions and invocation evidence are not copied into administrative audit.
 
 See the [public audit contract](../design/public-contract.md#control-plane-audit-reads) for exact response shapes. Audit stores only credential IDs/fingerprints and allowlisted reason/problem codes, never raw secrets, raw error bodies, unrestricted snapshots, or invocation payloads. No export format or permanent-retention guarantee is provided.
 
@@ -510,7 +360,7 @@ Typical subsequences (other producers may interleave, and records may be lost):
 
 `retry_scheduled` means scheduled follow-up, not an executing attempt; `stopped` means no retry was scheduled for that stopped work, and `unknown` establishes neither cause nor next action. Elapsed time is not a deadline. `oauth_completed` alone does not establish routability: read current server/catalog state. Recovery and suppressed counts describe retained observations only; loss, eviction and restart can erase evidence. The [diagnostic contract](../design/administrative-control-plane.md#serve-diagnostics) owns timing, suppression and correlation mechanics. Missing completion never proves timeout, rollback or safe replay.
 
-Current logs omit most underlying errors and operational names/paths even at debug; that is an implementation limitation, not the intended disclosure policy. Useful local error text and context should be retained with targeted secret masking and bounded output. Actual credentials, private keys, authorization/cookie values, OAuth secrets and sensitive payloads remain excluded. Bounded child failure excerpts require source-aware handling; generic redaction cannot guarantee arbitrary child text is secret-free. Review logs before forwarding or publishing them. They are lossy diagnostics, never audit evidence or permission to replay. Full queues drop newest; aggregate `diagnostic_loss` counts may themselves be unavailable on a broken sink. Shutdown waits at most one additional second for output. A stalled/broken destination can lose any severity or the terminal problem; a short write or forced exit can leave an incomplete final line. `fromjson?` above intentionally skips malformed lines—inspect the original file when investigating loss. Diagnostic loss alone does not make clean storage unclean or change a successful service exit. No rotation or retention service is included. The operator owns file permissions, retention, rotation, and deletion for both foreground captures and launchd log files; use owner-only captures (for example, set `umask 077` before redirection) and review only the necessary bounded interval. Choosing a level for an already running launchd job requires an explicitly authorized configuration/restart; reading or tailing a log does not restart Gateway.
+Current human stderr and schema-2 serve diagnostics retain bounded, source-masked causes and relevant operational names/paths. Public API/problem JSON remains separately constrained; not every failure has correlation or complete detail. Actual credentials, private keys, authorization/cookie values, OAuth secrets and sensitive payloads remain excluded. Bounded child failure excerpts require source-aware handling; generic redaction cannot guarantee arbitrary child text is secret-free. Review logs before forwarding or publishing them. They are lossy diagnostics, never audit evidence or permission to replay. Full queues drop newest; aggregate `diagnostic_loss` counts may themselves be unavailable on a broken sink. Shutdown waits at most one additional second for output. A stalled/broken destination can lose any severity or the terminal problem; a short write or forced exit can leave an incomplete final line. `fromjson?` above intentionally skips malformed lines—inspect the original file when investigating loss. Diagnostic loss alone does not make clean storage unclean or change a successful service exit. No rotation or retention service is included. The operator owns file permissions, retention, rotation, and deletion for both foreground captures and launchd log files; use owner-only captures (for example, set `umask 077` before redirection) and review only the necessary bounded interval. Choosing a level for an already running launchd job requires an explicitly authorized configuration/restart; reading or tailing a log does not restart Gateway.
 
 ## Output and failures
 

@@ -28,6 +28,32 @@ Pages use full-page captures. Scrollable native dialogs additionally produce bou
 
 Open the gallery and inspect full-size images deliberately for clipping, overlap, wrapping, hierarchy, dialogs, below-fold content and readable light/dark contrast. Screenshot production, dimensions, hashes and DOM assertions are not visual inspection. All data, bearer strings, one-time values and authorization URLs are synthetic. Do not substitute production credentials or upload live-service captures.
 
+## Published documentation images
+
+The five selected illustrations live in `docs/images/`, not in the generated gallery. `web/tests/frontend/documentation-images.json` maps each stable filename to its existing scenario, asserted state, light theme, desktop viewport (1440×900), exact output dimensions and referencing document. These are synthetic illustrations, not real integration, live-resource or accessibility qualification.
+
+From the repository root, install the locked dependencies and pinned Chromium once:
+
+```bash
+npm ci
+# Keep the browser checkout-local; install OS dependencies separately if needed.
+export PLAYWRIGHT_BROWSERS_PATH="$PWD/.frontend-browser/browsers"
+npx playwright install chromium --only-shell
+npm run ui:docs-images
+# Regenerate only affected illustrations (filenames, not arbitrary paths):
+npm run ui:docs-images -- git-traffic.png invocation-evidence.png
+# Fast mapping/reference/PNG check; no browser launch:
+npm run ui:check-docs-images
+```
+
+The generation command first verifies that the committed frontend bundle matches source (run `npm run ui:build` after UI edits), then runs only the selected images' existing scenario owners, with one worker and the normal complete owner gallery inventory. It does not add a second fixture system or weaken gallery assertions. The exporter requires a successful fresh run receipt and exactly one current capture per mapping, validates metadata and PNG framing, and rejects missing captures, unknown selections, ambiguous mappings and scrollable-dialog continuations. It never imports the latest gallery or an old run. All selected images are prepared before publication; failed capture/validation leaves **all** previous images unchanged, and failed directory replacement rolls back the prior set. Unselected images remain byte-for-byte unchanged. A concurrent export refuses; if an interrupted process leaves `.frontend-browser/documentation-export.lock`, first prove that owner stopped before removing its lock. An interrupted directory swap can leave a `.documentation-images-*` recovery directory beside `docs/images`; preserve and reconcile it before a new export.
+
+PNG optimization is lossless IDAT recompression with a 200 KiB per-image bound; no scaling, quantization or blind crop reduces text readability. The selected settled views fit a bounded full-page frame (1440 pixels wide, at most 1100 high), with exact dimensions checked per image. If a changed state no longer fits, choose a useful bounded checkpoint in its existing scenario and update both inventories; do not clip controls or discard dialog continuations merely to pass export. Login and one-time secret views are excluded.
+
+Regenerate and review affected images whenever depicted UI, fixture semantics or instructions change. Inspect **every** exported PNG at full size and at its rendered Markdown placement for readable text, clipping, hierarchy and useful context. Retain meaningful alt text and captions; instructions must remain usable without images. Review the image diff and commit only selected PNGs, manifest/tooling and intended docs—not `.frontend-browser/`, traces or galleries. There is no automatic commit or visual approval.
+
+The existing Node owner (CI **Quality**) checks mappings against the gallery inventory, referenced PNG presence, dimensions and alt text, plus export failure paths. It does not run the gallery on every documentation edit. The separately selected **Frontend browser** job retains its existing ownership; neither check replaces human image review or independent real-Gateway accessibility evidence.
+
 ## Source-derived surface map
 
 The route grammar is `web/src/location.ts`; the shell and global overlays are in `main.tsx`, `navigation.tsx`, `sinks-ui.tsx` and `toast.tsx`. Owner/state keys below resolve to the checked capture inventory. When adding a page, dialog, disclosure, form branch or failure state, update its scenario **and** inventory in the same change; adding only a happy-path route screenshot is insufficient.

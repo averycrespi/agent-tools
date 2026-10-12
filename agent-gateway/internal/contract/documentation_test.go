@@ -22,8 +22,9 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"agent-gateway/docs/maintainers/release-verification.md", "Gateway release acceptance is a separate owner", "make frontend-verify-supply-chain", "make frontend-audit",
 		},
 		"../../README.md": {
-			"## Why Gateway?", "## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md",
-			"before one immediate attempt", "never queues or automatically replays", "deny by default", "native credential stores are not used", "authenticated encryption", "master-key",
+			"## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md", "docs/operators/git.md",
+			"MCP calls require current `ALLOW`", "does not automatically replay", "encrypted in control SQLite", "master-key",
+			"Linux or macOS", "Connect your first agent", "<data-dir>/admin-bearer", "http://127.0.0.1:8210/mcp", "Format-4", "omit traffic", "not an OS sandbox",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",

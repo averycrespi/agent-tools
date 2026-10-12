@@ -33,6 +33,35 @@ func TestSafeFailureDiagnosticsClassification(t *testing.T) {
 	}
 }
 
+func TestSanitizeCallResultPreservesServerFailureCategories(t *testing.T) {
+	for _, test := range []struct {
+		category, phase string
+		status, retry   *int
+	}{
+		{"authentication", "response_status", new(401), nil},
+		{"rate_limit", "response_status", new(429), new(7)},
+		{"timeout", "exchange", nil, nil},
+		{"json_decode", "response_decode", nil, nil},
+		{"response_contract", "response_validation", nil, nil},
+	} {
+		t.Run(test.category, func(t *testing.T) {
+			claim := contract.ServerFailureDiagnostic{Version: 1, Category: test.category, Phase: test.phase, HTTPStatus: test.status, RetryAfterSeconds: test.retry}
+			metadata, err := json.Marshal(claim)
+			require.NoError(t, err)
+			raw := json.RawMessage(`{"content":[{"type":"text","text":"PRIVATE-PAYLOAD"}],"isError":true,"_meta":{"private":"PRIVATE-PAYLOAD","` + contract.FailureDiagnosticMetaKey + `":` + string(metadata) + `}}`)
+			outcome := SanitizeCallResult(downstream.CallResult{Response: downstream.Response{Result: raw}})
+			require.Equal(t, contract.DownstreamFailure, outcome.ErrorCode)
+			require.Equal(t, contract.TerminalDownstreamFailure, outcome.TerminalClass)
+			require.NotNil(t, outcome.Diagnostics)
+			require.Equal(t, contract.FailureObservation{Source: "tool", Reason: "reported_error"}, outcome.Diagnostics.GatewayObserved)
+			require.Equal(t, &claim, outcome.Diagnostics.ServerReported)
+			encoded, err := json.Marshal(outcome)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "PRIVATE-PAYLOAD")
+		})
+	}
+}
+
 func TestSafeFailureDiagnosticsPersistWithoutPayloads(t *testing.T) {
 	const canary = "RAW-HEADER-BODY-CREDENTIAL-ARGUMENT-CANARY"
 	for index, metadata := range []string{

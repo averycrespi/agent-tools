@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -52,6 +53,8 @@ type child struct {
 	cmd            *exec.Cmd
 	stdout, stderr boundedOutput
 	exited         <-chan commandResult
+	ready          chan struct{}
+	readyErr       error
 	status         *os.File
 	control        *os.File
 	settled        bool
@@ -65,6 +68,7 @@ func startChild(label string, argv, env []string) (*child, error) {
 	const owner = `"$@" 3>&- 4>&- &
 child=$!
 trap '' TERM INT
+printf 'ready\n' >&3
 wait "$child"
 code=$?
 printf '%s\n' "$code" >&3
@@ -97,9 +101,17 @@ kill -KILL -$$
 	}
 	exited := make(chan commandResult, 1)
 	c.exited = exited
+	c.ready = make(chan struct{})
 	go func() {
 		scanner := bufio.NewScanner(status)
 		scanner.Buffer(make([]byte, 16), 16)
+		if !scanner.Scan() || scanner.Text() != "ready" {
+			c.readyErr = errors.New(c.label + " supervisor readiness unavailable")
+			close(c.ready)
+			exited <- commandResult{-1, c.readyErr}
+			return
+		}
+		close(c.ready)
 		if !scanner.Scan() {
 			exited <- commandResult{-1, errors.New("command status unavailable")}
 			return
@@ -109,7 +121,9 @@ kill -KILL -$$
 			exited <- commandResult{-1, errors.New("invalid command status")}
 			return
 		}
-		if code >= 128 {
+		// Git uses exit 128 for ordinary fatal errors, including denied access.
+		// Shell signal exits begin at 128 + signal (there is no signal zero).
+		if code > 128 {
 			code = -1
 		}
 		exited <- commandResult{code: code}
@@ -150,8 +164,20 @@ func (c *child) signal(sig syscall.Signal) error {
 	if c.settled {
 		return errors.New(c.label + " process identity changed")
 	}
+	// Start can return before the shell installs its TERM trap. Keep the group
+	// owner alive until it can reap its command, including immediate cancellation.
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-c.ready:
+		if c.readyErr != nil {
+			return c.readyErr
+		}
+	case <-timer.C:
+		return errors.New(c.label + " supervisor readiness deadline exceeded")
+	}
 	if err := syscall.Kill(-pid, sig); err != nil && !errors.Is(err, syscall.ESRCH) {
-		return errors.New(c.label + " group signal failed")
+		return fmt.Errorf("%s group signal %d failed: %w", c.label, sig, err)
 	}
 	return nil
 }

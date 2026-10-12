@@ -1,50 +1,24 @@
 # Agent Gateway
 
-**Connect your agents to external tools without handing them your service credentials.**
+**Give agents useful access without handing them your service credentials.**
 
-Agent Gateway brings your MCP servers behind one local endpoint, with separate identities and scoped permissions for each agent. It holds upstream credentials, checks access before every tool call, and gives you a browser application and CLI to manage the system.
+Agent Gateway is a local access-control service for three independent workflows:
 
-Agents get the tools they need. You keep control over what they can do.
+- **MCP:** bring servers behind one endpoint; grant individual tools or constrained arguments, and let agents request access.
+- **HTTP/HTTPS:** authorize requests with per-agent policy, inject upstream credentials, and intercept HTTPS with explicitly configured client trust.
+- **Git:** use native smart-HTTPS Git with configured repositories, read/ref permissions and Git-only credentials. SSH, LFS and dumb HTTP are not supported.
 
-## Why Gateway?
+Each agent has its own identity and one Gateway credential. Upstream credentials and OAuth stay with Gateway, encrypted in control SQLite with a separate owner-only master key. Manage access through the browser or CLI, inspect optional traffic history, and keep administrative audit separate from execution evidence.
 
-### Agent-first
+Gateway works with your preferred client and sandbox. Sandbox Manager, Lima and a particular agent harness are not dependencies. It listens on loopback; VMs and containers need a separately trusted forwarding path. It is not an OS sandbox or network-enforced egress boundary.
 
-Agents discover tools, inspect permissions, and request access through MCP. Configurable MCP discovery visibility grants no access; MCP grants remain authoritative.
+![Gateway Overview with status, storage, attention and populated HTTP, Git and MCP cards](docs/images/overview.png)
 
-Access requests approve MCP permissions, not network traffic; they do not queue tool calls. After approval, the agent makes a new call.
-
-### Scoped access, not shared authority
-
-Give each client its own [agent identity](docs/operators/access-control.md) and singular credential instead of sharing one all-access token. Creating an agent adds an ordinary grant for Gateway's six fixed MCP self-service tools, not downstream tools or future protocols. Grant access to a whole server or a specific tool, narrow it with argument constraints, and set an expiry when access should be temporary.
-
-Gateway denies calls by default and checks current policy before execution. Rotate or revoke an agent's access without distributing new upstream credentials.
-
-### Service credentials stay with Gateway
-
-Gateway manages upstream credentials and OAuth. Agents use separate Gateway credentials, never upstream API keys or OAuth tokens. Secrets use authenticated encryption in control SQLite with a separate owner-only master key; native credential stores are not used.
-
-### Sandbox-agnostic
-
-Use Gateway with your preferred MCP client and sandbox setup. It does not require Sandbox Manager, Lima, or a particular agent harness.
-
-Gateway listens on loopback. Local clients connect directly; VMs and containers need a trusted local forwarding path. It is a local access-control service, not an internet-facing gateway or a replacement for sandbox isolation.
-
-### Operator-friendly
-
-Manage agents and scoped MCP/HTTP access in the browser. **MCP → Invocations** shows redacted call history; **Audit Log** includes system and offline maintenance events. See the [MCP invocation cutover](docs/operators/upgrade-compatibility.md#mcp-invocation-namespace-cutover) for API/CLI/browser mappings, coordinated upgrade/reload and safe rejection without replay.
-
-[Git configuration](docs/operators/administration.md#git-configuration-and-access) enables smart-HTTPS repository/ref authorization and Git-only credentials. Ordinary web traffic keeps HTTP policy; HTTP 200 is not Git push success.
-
-Backup, restore, and recovery procedures support ongoing operation—not just initial setup.
-
-### Explicit about uncertain outcomes
-
-Gateway never queues or automatically replays tool calls. If a handoff leaves the outcome unknown, it reports that uncertainty rather than retrying an operation that may already have taken effect.
+_Synthetic example: Overview links configuration and retained activity across the three protocols. Counts are not proof of complete history or remote effects._
 
 ## Installation
 
-Requirements: Go 1.26.9 or later and GNU Make. No operating-system keyring is required.
+The Gateway **host requires Linux or macOS**, Go 1.26.9 or later, and GNU Make. No operating-system keyring is required. Clients can use other environments with compatible transports and trust configuration.
 
 From the `agent-gateway` directory:
 
@@ -52,86 +26,71 @@ From the `agent-gateway` directory:
 make install
 ```
 
-This installs only `agent-gateway` into `$(go env GOPATH)/bin`. Stale binaries remain untouched; follow [operator cleanup](docs/operators/installation-safety.md#retired-executable-and-operator-cleanup). New installations use canonical paths; legacy files and tombstones do not affect default selection and remain untouched. Existing explicit roots remain supported. The migration capability is retired; follow [installation safety](docs/operators/installation-safety.md), retain tombstones, and never reinitialize or rotate credentials for naming. See [browser migration](docs/operators/upgrade-compatibility.md#browser-persistence-cutover) for preferences and fresh sign-in.
+This installs only `agent-gateway` into `$(go env GOPATH)/bin`; put that directory on your `PATH` before the commands below.
 
 ## Quick start
 
-Initialize the default owner-only installation and start the loopback service:
+For a new installation, initialize the owner-only data directory and start the foreground service:
 
 ```bash
 agent-gateway init
 agent-gateway serve
 ```
 
-In another terminal, verify the running Gateway:
+`init` asks for confirmation and creates the protected `<data-dir>/master-key`, initial administrator authority and interception CA. It reports the administrator bearer file at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. No service supervisor or client trust is installed.
+
+In another terminal:
 
 ```bash
 agent-gateway doctor --online
 ```
 
-`init` confirms and completes missing storage, initial administrator authority and CA setup, publishing the public certificate at `<data-dir>/http-ca.pem`. Repeating it preserves existing credentials and CA; `initialize` remains an alias. Use `--confirm` for noninteractive setup. No service, proxy or client trust is configured. `doctor` is a read-only partial checklist; `--online` additionally reads authenticated public-API status. The former top-level `status` is removed. Open `http://127.0.0.1:8210/` to use the embedded administrator application.
+Open **http://127.0.0.1:8210/** and sign in with the administrator bearer from the protected file reported by `init`. Read it only for that handoff; do not put it in argv, environment variables, logs or saved browser settings. Never give this bearer to an agent. The CLI reads the protected file directly; [administrator authentication](docs/operators/administration.md#administrator-authentication) covers explicit/custom locations.
 
-HTTP defaults to `127.0.0.1:8212`; opt out with `--clear-http-proxy-listen`.
-[Proxy setup](docs/operators/http-proxy.md) covers custom addresses, preserved
-supervisor settings and manual client trust.
+### Connect your first agent
 
-Supervise `serve` with [launchd](docs/operators/launchd.md) or [systemd](docs/operators/systemd.md); native management is retired.
+For a first MCP tool call:
 
-For an isolated encrypted sandbox, use `make -C agent-gateway serve-demo`. See [frontend development](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for datasets, credentials and cleanup.
-
-Traffic storage defaults to 4 GiB (`--traffic-budget-bytes`), accepting integer bytes or units such as `256MiB` and `4GiB`. Existing installations
-require [stopped migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage).
-
-Use `agent-gateway serve --log-level debug` for bounded, payload-free lifecycle and contention diagnostics on stderr. The default `warn` level includes warnings/errors; `info` adds lifecycle summaries. See [safe serve diagnostics](docs/operators/administration.md#safe-serve-diagnostics) for JSON filtering, correlation, and loss semantics.
-
-For trusted local VM/container forwarding, `agent-gateway serve --allowed-host host.lima.internal` admits that exact hostname without changing the numeric-loopback listener or browser Origin policy. Online `--address http://host.lima.internal:8210` explicitly selects the forwarding destination; plain HTTP is not secure arbitrary-remote administration. Follow [sandbox administration](docs/operators/administration.md#trusted-local-forwarding-and-sandbox-administration) to provision and revoke a separate administrator credential. Removing a hostname is not credential revocation.
+1. [Register an upstream server](docs/operators/upstream-servers.md#register-and-inspect-a-server). Supply any required credentials separately, enable it deliberately, and verify its active catalog.
+2. [Create an agent](docs/operators/access-control.md#create-and-inspect-principals), then [issue its credential](docs/operators/access-control.md#issue-rotate-or-revoke-an-agent-credential) to a fresh private file. Creation grants only Gateway's six self-service tools, not downstream tools.
+3. [Grant the intended tool](docs/operators/access-control.md#create-and-inspect-immutable-grants), using an exact upstream name and constraints where appropriate. Discovery visibility is not permission to call.
+4. [Configure the MCP client](docs/operators/access-control.md#configure-an-agent-client-manually) at `http://127.0.0.1:8210/mcp`, loading the agent token through its supported secret mechanism. Start with `tools/list` or the read-only `mcp_gateway.get_identity`; then make one explicitly authorized downstream call.
+5. Inspect [invocation evidence](docs/operators/invocation-evidence.md) if needed. Missing history does not prove nonexecution; an unknown outcome is not permission to retry.
 
 ## Common workflows
 
-Use `agent-gateway --help` and subcommand help for exact commands. Renaming preserves current grammar/completions; old standalone clients are incompatible.
+For HTTP or Git, reuse the agent identity and credential but configure **separate protocol permissions**:
 
-- Resolve local paths, authenticate the CLI, select output, and inspect status with [Administrator CLI and local administration](docs/operators/administration.md).
-- Register an upstream, supply credentials, complete OAuth, and inspect catalogs with [Upstream server configuration](docs/operators/upstream-servers.md). For provider-specific callback URIs, authorization-server metadata URLs, and scopes, see [OAuth compatibility settings](docs/operators/upstream-servers.md#oauth-compatibility-settings).
-- [HTTP administration](docs/operators/administration.md#http-traffic-history), [CA commands](docs/operators/backup-and-recovery.md#stopped-interception-ca-commands), and [explicit proxy setup](docs/operators/http-proxy.md).
-- Use `agent`, `mcp grant`, and `mcp grant-request` for [Access control](docs/operators/access-control.md). See the [coordinated cutover](docs/operators/upgrade-compatibility.md#mcp-permission-namespace-cutover) and [manual client configuration](docs/operators/access-control.md#configure-an-agent-client-manually).
-- Investigate redacted call history and uncertain handoff with [Invocation evidence and unknown outcomes](docs/operators/invocation-evidence.md).
-- Inspect control-plane history with `agent-gateway audit list`, `audit get AUDIT_EVENT_ID`, or the browser's **Audit Log** destination. See [audit filters, retention, and restore continuity](docs/operators/administration.md#control-plane-audit-history).
-- Use `agent-gateway maintenance verify-and-recover-storage` or `agent-gateway maintenance restore-backup BACKUP_ID` for stopped recovery. Preview each maintenance operation with `--dry-run`; mutations require default-no confirmation or `--confirm`. See [Backup and recovery](docs/operators/backup-and-recovery.md) for prerequisites and command/JSON mappings.
+| Task                          | Follow                                                                                                                                                                                                                                                                          |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP tools and access requests | [Upstreams](docs/operators/upstream-servers.md), [agents and MCP grants](docs/operators/access-control.md)                                                                                                                                                                      |
+| HTTP/HTTPS requests           | [HTTP grants and policy preview](docs/operators/access-control.md#http-grants-and-test-access), [scoped credentials](docs/operators/administration.md#scoped-http-credentials), [client proxy and CA setup](docs/operators/http-proxy.md)                                       |
+| Native smart-HTTPS Git        | [Git setup and first read-only check](docs/operators/git.md)                                                                                                                                                                                                                    |
+| Investigate activity          | [MCP invocations](docs/operators/invocation-evidence.md), [HTTP traffic](docs/operators/administration.md#http-traffic-history), [Git traffic](docs/operators/git.md#git-traffic-history), [administrative audit](docs/operators/administration.md#control-plane-audit-history) |
+| Back up or recover            | [Control backups, separate history export and stopped recovery](docs/operators/backup-and-recovery.md)                                                                                                                                                                          |
 
-Routine administrator-key rollover is online and replacement-first. Follow the [administrator rotation procedure](docs/operators/administration.md#administrator-rotation-and-migration); use stopped-process reset only for all-authority recovery.
+HTTP proxy listening is default-on at `127.0.0.1:8212`; client use and CA trust are explicit setup. Use `serve --clear-http-proxy-listen` for MCP-only startup. [Proxy setup](docs/operators/http-proxy.md) explains custom listeners and the narrow historical launchd exception. Supervise the foreground process with operator-owned [launchd](docs/operators/launchd.md) or [systemd](docs/operators/systemd.md) configuration.
 
-If an online command proves that the selected loopback Gateway is stopped, its error renders the matching `agent-gateway serve` command, including nondefault address and data-directory selections. Gateway never automatically replays a mutation or governed tool call. Follow the command-specific read guidance before deciding whether an explicit retry is safe.
+To explore without your real credentials, run `make serve-demo` **from the `agent-gateway` directory**. It creates a disposable installation with encrypted custody and curated MCP/HTTP/Git examples, not OS sandbox isolation. [Demo instructions](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) own datasets, credentials and cleanup.
 
-## Security
+## Existing installations and upgrades
 
-- Loopback limits network reachability but does not isolate untrusted processes running as the same operating-system user.
-- Raw secrets must not be placed in arguments, configuration, URLs, logs, SQLite, backups, browser storage, or read APIs. Environment delivery is limited to the [supported client token exports](docs/operators/access-control.md#existing-sandbox-migration-and-conflicts) and [runtime-resolved stdio secret slots](docs/design/downstream-servers.md#direct-stdio-supervision); neither permits ambient or administrator environment-secret fallback.
-- Gateway is deny by default: only a current credential for an active agent can discover tools, and a governed call requires a current policy `ALLOW` before one immediate attempt.
-- One-time secrets and OAuth URLs use prepared terminal, owner-only file, browser display, clipboard, or opener sinks. Lost one-time values cannot be recovered from metadata.
-- An `outcome_unknown` result means an effect may already have occurred; an explicit retry may duplicate it.
-- Safeguard the private `master-key`: [encrypted recovery](docs/operators/backup-and-recovery.md#encrypted-secret-storage). [Legacy custody refuses](docs/operators/backup-and-recovery.md#legacy-custody-upgrade-boundary).
+Preserve existing roots, credentials, tombstones and recovery artifacts. Do not reinitialize, rotate credentials or delete markers for a name change. Follow [installation safety](docs/operators/installation-safety.md) and [upgrade compatibility](docs/operators/upgrade-compatibility.md), including the [legacy custody escalation boundary](docs/operators/backup-and-recovery.md#legacy-custody-upgrade-boundary), before changing an existing installation.
 
-See the [DESIGN](DESIGN.md) overview for the trust-boundary map, [Invocation and MCP ingress](docs/design/invocation-and-ingress.md) for normative call semantics, and [Invocation evidence](docs/operators/invocation-evidence.md) for operator interpretation.
+Only legacy single-store installations need [stopped traffic migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage) to enable separated history; already-selected traffic stores must not be migrated again. Ordinary startup does not require that migration to serve security-ready with history disabled.
+
+## Security and uncertain outcomes
+
+- Loopback does not isolate untrusted processes running as the same OS user. Proxy environment settings are cooperative, not containment.
+- Administrator, agent and upstream credentials have different authority. Raw secrets never belong in argv, ordinary configuration, logs or read APIs. Only [supported client exports](docs/operators/access-control.md#configure-an-agent-client-manually) and [declared stdio secret slots](docs/design/downstream-servers.md#direct-stdio-supervision) permit runtime environment delivery; no administrator environment fallback exists.
+- MCP calls require current `ALLOW`; HTTP defaults/grants and Git policy are independent. An access-request approval never executes or resumes a call.
+- Gateway does not automatically replay governed operations. `outcome_unknown` means an effect may already have occurred; inspect the authoritative system before deciding on a new caller-owned attempt. HTTP 200 is not proof of Git push success.
+- [Safeguard the master key separately from backups](docs/operators/backup-and-recovery.md#encrypted-secret-storage). Format-4 control backups recover historical upstream secrets and CA but omit traffic; restore invalidates administrator and agent tokens.
 
 ## Documentation
 
-Use the [documentation map](docs/README.md) to choose material by role and task.
-
-Maintainers and coding agents start with [CLAUDE.md](CLAUDE.md). Intended behavior and domain authority live in [DESIGN.md](DESIGN.md); operator and maintainer procedures are indexed once in the map.
+Use the [documentation map](docs/README.md) for operator tasks and architecture; [DESIGN.md](DESIGN.md) owns intended behavior.
 
 ## Development
 
-Maintainers should start with [CLAUDE.md](CLAUDE.md) for package ownership, editing invariants, and verification commands.
-
-```bash
-make build
-make test-unit  # fast contract and algorithm feedback
-make test       # disjoint unit, integration, harness, material, demo-runner coverage
-make verify
-npm run ui:typecheck
-npm run ui:build
-```
-
-`make suite-inventory` reports test ownership and build-context applicability. Browser, E2E, security, stress, and encrypted-material evidence remain explicit leaves rather than hidden work in the fast unit path. `make test-browser` batches its four required Chromium leaves through one planner while retaining separate test processes and Gateway builds. Add `AGENT_GATEWAY_TEST_JSON=1` to Go suite targets for structured execution events without changing selection or instrumentation.
-
-Use the [frontend development guide](docs/maintainers/frontend-development.md) for the separate trusted live-reload process and production asset boundary. Use the [release verification guide](docs/maintainers/release-verification.md) for release evidence and failure discipline.
+Maintainers and coding agents start with [CLAUDE.md](CLAUDE.md) for focused checks, ownership and editing constraints. [Frontend development](docs/maintainers/frontend-development.md) covers live reload, and [release verification](docs/maintainers/release-verification.md) owns exact-revision acceptance.

@@ -13,11 +13,12 @@ Start with the [Gateway README](../README.md) for installation and the quick sta
 - [Run with Linux systemd](operators/systemd.md) — operator-owned user unit, account custody, bounded stop and safe maintenance.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
 - [Access control](operators/access-control.md) — agents, agent credentials, grants, and grant requests.
-- [HTTP proxy setup](operators/http-proxy.md) — explicit activation, fresh client credentials and public CA trust.
+- [HTTP proxy setup](operators/http-proxy.md) — default listener, optional opt-out, existing agent credential and explicit client CA trust; [HTTP policy](operators/access-control.md#http-grants-and-test-access) and [credentials](operators/administration.md#scoped-http-credentials) are separate setup.
+- [Git setup](operators/git.md) — smart-HTTPS routing, repository/ref grants, Git-only credentials and a first read-only client check.
 - [Invocation evidence](operators/invocation-evidence.md) — retained evidence, redaction, and unknown outcomes.
 - [Backup and recovery](operators/backup-and-recovery.md) — backups, verification, restore, and administrator reset.
 
-Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. Only `agent-gateway` is published; old standalone binaries and retired API/CLI grammar are unsupported. See [executable retirement and cleanup](operators/installation-safety.md#retired-executable-and-operator-cleanup) before reconciling installed artifacts. New installations use canonical naming; existing custom roots remain explicit selections. The migration capability is retired; retained tombstones still protect default selection, with no automatic relocation or cleanup. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
+Generated `agent-gateway --help` and subcommand help are the exact command and flag reference. Only `agent-gateway` is published; old standalone binaries and retired API/CLI grammar are unsupported. See [executable retirement and cleanup](operators/installation-safety.md#retired-executable-and-operator-cleanup) before reconciling installed artifacts. New installations use canonical naming; existing custom roots remain explicit selections. Installation migration is retired. Implicit selection ignores legacy artifacts; retained tombstones and recovery markers remain safety/history evidence, and selected-root checks still apply. Never delete or bypass them; no automatic relocation or cleanup occurs. Operator guides own safe procedures and interpretation; they do not redefine product semantics.
 
 ## Change Gateway
 

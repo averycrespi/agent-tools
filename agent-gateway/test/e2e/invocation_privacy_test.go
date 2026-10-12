@@ -276,9 +276,16 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	clear(response.Body)
 
 	// This fixture backs up retained evidence, not merely a completed live call.
-	require.Eventually(t, func() bool {
-		_, page := listInvocations(t, harness, url.Values{"limit": {"1"}})
-		return len(page.Items) == 1 && page.Items[0].ID != seededInvocationID(65535) && page.Items[0].Outcome.Basis == contract.InvocationBasisTerminal
+	// Collect per-attempt assertions so a busy history read cannot fatally stop
+	// the polling goroutine before its existing deadline.
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
+		response := harness.adminSnapshot(http.MethodGet, "/api/v2/mcp/invocations?limit=1", nil)
+		require.Equal(collect, http.StatusOK, response.StatusCode, string(response.Body))
+		var page contract.InvocationPage
+		require.NoError(collect, json.Unmarshal(response.Body, &page))
+		require.Len(collect, page.Items, 1)
+		require.NotEqual(collect, seededInvocationID(65535), page.Items[0].ID)
+		require.Equal(collect, contract.InvocationBasisTerminal, page.Items[0].Outcome.Basis)
 	}, 3*time.Second, 10*time.Millisecond)
 
 	// A visible terminal can precede writer unlock. Reap the writer before the

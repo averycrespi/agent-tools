@@ -14,11 +14,11 @@ func TestDocumentationOwnership(t *testing.T) {
 }
 
 func testDocumentationOwnershipManifestSchema(t *testing.T) {
-	assert.Equal(t, 4, DocumentationOwnershipManifestVersion)
+	assert.Equal(t, 5, DocumentationOwnershipManifestVersion)
 	guides := DocumentationGuideManifest()
 	commands := DocumentationCommandManifest()
 	security := DocumentationSecurityManifest()
-	require.Len(t, guides, 15)
+	require.Len(t, guides, 16)
 	require.Len(t, commands, 18)
 	require.Len(t, security, 8)
 
@@ -54,6 +54,7 @@ func testDocumentationOwnershipManifestSchema(t *testing.T) {
 	assert.NotContains(t, commandPaths, "service")
 	assert.Contains(t, guidePaths, "docs/operators/launchd.md")
 	assert.Contains(t, guidePaths, "docs/operators/systemd.md")
+	assert.Contains(t, guidePaths, "docs/operators/git.md")
 	for _, contract := range security {
 		addID(contract.ID)
 		_, knownOwner := guidePaths[contract.CanonicalOwner]

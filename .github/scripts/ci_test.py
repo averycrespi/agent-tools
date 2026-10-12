@@ -11,7 +11,7 @@ from ci import SUITE_JOBS, cache_identity, classify, changed_paths, check_gate, 
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ["agent-gateway", "local-git-mcp", "typesafe-mcp"]
+TOOLS = ["agent-gateway"]
 
 
 class SelectionTests(unittest.TestCase):
@@ -31,7 +31,7 @@ class SelectionTests(unittest.TestCase):
             for suffix in ("internal/main.go", "README.md", "test/fixture.json", "examples/config.yaml"):
                 with self.subTest(tool=tool, suffix=suffix):
                     result = self.select([f"{tool}/{suffix}"])
-                    expected = [tool, "typesafe-mcp"] if tool == "agent-gateway" else [tool]
+                    expected = [tool]
                     self.assertEqual(result["tools"], expected)
                     for suite in ("integration", "e2e"):
                         self.assertEqual(result[suite], [item for item in expected if item in self.inventory[suite]])
@@ -57,13 +57,17 @@ class SelectionTests(unittest.TestCase):
                     self.assertIn("agent-gateway", result[owner])
                     self.assertNotIn("mcp-gateway", result[owner])
 
-    def test_tool_build_metadata_also_invalidates_gateway_contracts(self):
-        for suffix in ("Makefile", "go.mod", "go.sum", ".golangci.yml"):
-            self.assertEqual(self.select([f"local-git-mcp/{suffix}"])["tools"], TOOLS)
+    def test_retired_tool_deletions_select_current_owners_only(self):
+        for tool in ("local-git-mcp", "typesafe-mcp"):
+            for suffix in ("Makefile", "go.mod", "go.sum", ".golangci.yml", "internal/deleted.go"):
+                result = self.select([f"{tool}/{suffix}"])
+                self.assertEqual(result["tools"], TOOLS)
+                self.assertEqual(result["integration"], TOOLS)
+                self.assertEqual(result["e2e"], TOOLS)
+                self.assertTrue(result["gateway"])
 
-    def test_multiple_tools_are_unique_and_stably_ordered(self):
-        self.assertEqual(self.select(["typesafe-mcp/a.go", "local-git-mcp/b.go", "typesafe-mcp/c.go"])["tools"],
-                         ["local-git-mcp", "typesafe-mcp"])
+    def test_repeated_paths_are_unique_and_stably_ordered(self):
+        self.assertEqual(self.select(["agent-gateway/a.go", "README.md", "agent-gateway/c.go"])["tools"], TOOLS)
 
     def test_empty_pr_can_skip_but_other_events_are_full(self):
         self.assertEqual(self.select([])["tools"], [])
@@ -220,10 +224,11 @@ class CacheTests(unittest.TestCase):
     def test_roles_tools_toolchains_and_platforms_are_isolated(self):
         first = self.identity()["prefix"]
         for override in ({"role": "lint"}, {"role": "integration"}, {"role": "harness"}, {"role": "e2e"},
-                         {"tool": "local-git-mcp"}, {"toolchain": "go version go1.26 linux/arm64"},
+                         {"tool": "all"}, {"toolchain": "go version go1.26 linux/arm64"},
                          {"platform": "Linux/X64"}, {"platform": "macOS/ARM64"}):
             self.assertNotEqual(first, self.identity(**override)["prefix"])
-        for override in ({"role": "unknown"}, {"tool": "unknown"}, {"run": ""}, {"attempt": "one"}):
+        for override in ({"role": "unknown"}, {"tool": "unknown"}, {"tool": "local-git-mcp"},
+                         {"tool": "typesafe-mcp"}, {"run": ""}, {"attempt": "one"}):
             with self.assertRaises(ValueError):
                 self.identity(**override)
 
@@ -238,7 +243,7 @@ class CacheTests(unittest.TestCase):
             root = Path(directory)
             (root / "Makefile").write_text((ROOT / "Makefile").read_text())
             paths = [root / "go.work", root / "agent-gateway/go.mod", root / "agent-gateway/go.sum",
-                     root / "local-git-mcp/go.mod", root / "local-git-mcp/go.sum", root / "agent-gateway/.golangci.yml"]
+                     root / "agent-gateway/.golangci.yml"]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("original\n")

@@ -16,8 +16,9 @@ from ci import inventory
 
 
 ROOT = Path(__file__).resolve().parents[2]
-# Keep queued work in the failure fixture even with only two non-Gateway tools.
-TOOLS = [*inventory(ROOT)["tools"], "fixture-tool"]
+# Exercise bounded workers even when the active inventory is Gateway-only.
+FIXTURES = ["fixture-one", "fixture-two", "fixture-three"]
+TOOLS = [*inventory(ROOT)["tools"], *FIXTURES]
 OTHERS = [tool for tool in TOOLS if tool != "agent-gateway"]
 WORKER = '''import json, os, socket, sys, time
 from pathlib import Path
@@ -42,7 +43,7 @@ class RootMakeTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         makefile = (ROOT / "Makefile").read_text()
-        makefile = makefile.replace("OTHER_TOOLS :=", "TOOLS += fixture-tool\nOTHER_TOOLS :=", 1)
+        makefile = makefile.replace("OTHER_TOOLS :=", "TOOLS += " + " ".join(FIXTURES) + "\nOTHER_TOOLS :=", 1)
         (self.root / "Makefile").write_text(makefile)
         (self.root / "events").mkdir()
         (self.root / "worker.py").write_text(WORKER)
@@ -149,6 +150,17 @@ class RootMakeTests(unittest.TestCase):
 
     def test_failure_stops_new_work_and_drains_active_tool_even_with_keep_going(self):
         self.exercise("check-other-tools", 2, fail=True)
+
+    def test_empty_other_tools_never_falls_back_to_default_goal(self):
+        (self.root / "Makefile").write_text((ROOT / "Makefile").read_text())
+        for goal in ("test", "check-other-tools"):
+            result = subprocess.run(
+                ["make", "-n", "-s", "-C", str(self.root), goal, "OTHER_TOOLS="],
+                capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("-j2", result.stdout)
+            self.assertNotIn("help", result.stdout)
+            self.assertNotIn("LOCAL_TEST_JOBS=1|2", result.stdout)
 
     def test_invalid_bounds_fail_before_work(self):
         for value in ("0", "3", "-1", "1 2", "unbounded"):

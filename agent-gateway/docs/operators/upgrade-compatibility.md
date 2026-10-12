@@ -7,9 +7,10 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 ## Upgrade sequence
 
 1. Identify affected interfaces using the mappings below; retain explicit installation/service selections and [safety artifacts](installation-safety.md).
-2. Upgrade service, CLI, API consumers and automation together. Reload browser tabs and sign in again after restart.
-3. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
-4. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
+2. Check [legacy custody](backup-and-recovery.md#legacy-custody-upgrade-boundary) **before changing the binary**. Legacy generations or unresolved native cleanup require a maintainer-qualified plan; no verified version-pinned self-service predecessor or safe downgrade is published here. Preserve all custody and recovery evidence.
+3. Once prerequisites are satisfied, upgrade service, CLI, API consumers and automation together. Reload browser tabs and sign in again after restart.
+4. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
+5. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
 ## Security backup and history separation
 
@@ -20,7 +21,7 @@ unknown formats rather than reinterpret them. Format 4 requires the separately s
 metadata or rewrite an original to manufacture compatibility.
 
 New security-only restore disables capture, preserves retained traffic files and
-reports `history:"omitted-not-verified"`. Explicit `--security-only` imports old inputs
+reports `history:"omitted-not-verified"`. Explicit `--security-only` restores eligible old inputs, never over encrypted custody,
 without claiming their omitted history was verified. History-inclusive legacy restore
 still requires every claimed payload and reports `history:"restored"`. Every restore
 invalidates all administrator/agent access and publishes fresh administration. Legacy-only restore also invalidates HTTP/Git/CA authority; format 4 recovers the encrypted upstream material and exact CA identity. This differs
@@ -167,7 +168,9 @@ Upgrade standalone CLI binaries, API clients, JSON scripts, and the service toge
 | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/api/v1/servers` and every child                                                                         | `/api/v2/mcp/servers` and the corresponding child                                                                                                                                                    |
 | `/api/v1/catalog`                                                                                         | `/api/v2/mcp/catalog`                                                                                                                                                                                |
-| Other administrative `/api/v1/*` resources, including sessions, events, credentials, status, and backups  | Corresponding `/api/v2/*` resources, outside the MCP namespace                                                                                                                                       |
+| Shared `/api/v1/` sessions, events, admin credentials, principals, status, audit-events and backups       | Corresponding shared `/api/v2/` resources; this is not a generic prefix-replacement rule                                                                                                             |
+| `/api/v1/grants`, `/api/v1/grant-requests`, `/api/v1/grant-constraints/validate`                          | Final `/api/v2/mcp/` paths in [MCP permission cutover](#mcp-permission-namespace-cutover)                                                                                                            |
+| `/api/v1/invocations` and `/{id}`                                                                         | `/api/v2/mcp/invocations` and `/{id}`                                                                                                                                                                |
 | `server ...`, `catalog ...`                                                                               | `mcp server ...`, `mcp catalog ...` in the current executable, including an explicitly renamed current binary                                                                                        |
 | Server `auth-flows` API resources                                                                         | `oauth-flows` resources; the CLI subtree is `mcp server auth-flow ...`                                                                                                                               |
 | Operator flow JSON `flow_state`                                                                           | `state`                                                                                                                                                                                              |
@@ -188,7 +191,7 @@ Existing same-key server work retains its durable identity across the route rena
 
 ## Setup and maintenance CLI cutover
 
-Use `init` (`initialize` remains a quiet alias), `doctor` instead of top-level `status`, and `agent` instead of `principal`. Initial CA setup belongs to init; `http ca create` is removed. Export writes `<data-dir>/http-ca.pem` unless `--output PATH` or `--stdout` is selected. `--json` chooses structured output. Exceptional stopped work uses only the four `maintenance` commands; inspect `--dry-run` and supply `--confirm` for unattended execution. Old command locations have no aliases. These grammar changes do not rename database tables, API endpoints, credential identities or installed resources.
+Use `init` (`initialize` remains a quiet alias), `doctor` instead of top-level `status`, and `agent` instead of `principal`. Initial CA setup belongs to init; `http ca create` is removed. Export writes `<data-dir>/http-ca.pem` unless `--output PATH` or `--stdout` is selected. `--json` chooses structured output. Exceptional stopped work uses `maintenance`, including `setup-secret-storage` and `rotate-master-key`; inspect `--dry-run` and supply `--confirm` for unattended execution. Old command locations have no aliases. These grammar changes do not rename database tables, API endpoints, credential identities or installed resources.
 
 <a id="principal-http-default-client-cutover"></a>
 

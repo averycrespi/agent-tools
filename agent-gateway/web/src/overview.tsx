@@ -1144,14 +1144,9 @@ export function Overview({
             <dd>{counts.total.toLocaleString()}</dd>
           </div>
         </dl>
-        <p class="overview-context">
-          {summary.coverage === "partial"
-            ? "Partially retained history"
-            : "Retained only · completeness unknown"}
-          {!current("overview-activity")
-            ? " · stale; current counts unknown"
-            : ""}
-        </p>
+        {!current("overview-activity") && (
+          <p class="overview-context">Stale; current counts unknown</p>
+        )}
       </div>
     );
   };
