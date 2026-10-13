@@ -44,6 +44,7 @@ interface Draft {
   secretEnvironment: PairItem[];
   url: string;
   headers: PairItem[];
+  allowPrivateHTTP: boolean;
   protocolMode: "modern" | "legacy" | "auto";
   authMode: AuthMode;
   registrationMode: RegistrationMode;
@@ -209,6 +210,7 @@ function blankDraft(): Draft {
     secretEnvironment: [],
     url: "",
     headers: [],
+    allowPrivateHTTP: false,
     protocolMode: "auto",
     authMode: "",
     registrationMode: "dynamic",
@@ -405,6 +407,11 @@ function transportFromDraft(draft: Draft): unknown {
       "url",
       "HTTP URL cannot contain credentials, query, or fragment.",
     );
+  if (parsedURL.protocol === "http:" && draft.authMode !== "none")
+    throw new DraftValidationError(
+      "url",
+      "Bearer authentication and OAuth require HTTPS.",
+    );
   let authentication: unknown;
   if (draft.authMode === "none" || draft.authMode === "bearer") {
     authentication = { mode: draft.authMode };
@@ -568,6 +575,7 @@ function transportFromDraft(draft: Draft): unknown {
   return {
     kind: "streamable_http",
     url: normalizedURL,
+    ...(draft.allowPrivateHTTP ? { allow_private_http: true } : {}),
     protocol_mode: draft.protocolMode,
     ...(draft.headers.length === 0
       ? {}
@@ -601,6 +609,7 @@ function draftFromServer(server: ServerView): Draft {
   }
   draft.transportKind = "streamable_http";
   draft.url = transport.url as string;
+  draft.allowPrivateHTTP = transport.allow_private_http === true;
   draft.headers = pairItems(
     "header",
     (transport.headers as Record<string, string> | undefined) ?? {},
@@ -1129,6 +1138,21 @@ function EditorForm({
               />
             )}
           </FormField>
+          <FormField
+            id="server-private-http"
+            label="Allow private HTTP"
+            hint="Allow unauthenticated plaintext MCP on trusted private networks (RFC 1918 / IPv6 ULA). Traffic is not encrypted. Does not permit credentials or change HTTPS access."
+          >
+            {(attributes) => (
+              <BinaryToggle
+                attributes={attributes}
+                checked={draft.allowPrivateHTTP}
+                disabled={disabled}
+                testID="server-private-http"
+                onChange={(value) => update("allowPrivateHTTP", value)}
+              />
+            )}
+          </FormField>
           <PairListEditor
             id="server-header"
             label="Custom HTTP headers"
@@ -1529,6 +1553,14 @@ function CreationReview({ draft }: { draft: Draft }) {
             <div>
               <dt>Protocol</dt>
               <dd>{protocolLabels[draft.protocolMode]}</dd>
+            </div>
+            <div>
+              <dt>Private HTTP</dt>
+              <dd>
+                {draft.allowPrivateHTTP
+                  ? "Allowed — unauthenticated plaintext only"
+                  : "Not allowed"}
+              </dd>
             </div>
             <div>
               <dt>Custom HTTP headers (plaintext)</dt>

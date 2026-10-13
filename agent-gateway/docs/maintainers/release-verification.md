@@ -171,6 +171,12 @@ refusal. This qualifies source-level custody and composition, **not** installed
 adoption, client trust or target capacity. Failed or unavailable restore is never
 converted into success.
 
+### Private HTTP MCP fixtures
+
+`internal/remote` owns exact private address classes, mixed-answer denial, fresh resolution and pinned dialing. `TestConcreteDriverPrivateServiceHTTPIsScopedAndUnauthenticated` uses the existing injected resolver/dial boundary to map the validated `notes-mcp:8080` private address onto an owned loopback listener; it exercises discovery, list and call without changing production resolution. `TestPrivateHTTPRevocationAloneFencesPublishedRuntime` changes only the opt-in bit on a loopback endpoint to isolate desired-revision fencing, old lease denial and replacement publication. Repository restart, strict API/CLI and real-browser configuration owners separately cover persistence and input.
+
+These are source fixtures, not container qualification. The downstream packaging/container CI owner must run Gateway and an unauthenticated fixture in separate containers on an isolated private network, configure `http://notes-mcp:8080/mcp` using normal control API input, assert default denial then opt-in discovery/list/call, revoke or replace configuration and assert stale access denial, and bound fixture shutdown/network cleanup. No test resolver/dial override may qualify that service-name network case. That packaging/execution belongs to TOOLS-138/139, not this source-only feature's local evidence.
+
 ### Native HTTPS Git transport fixtures
 
 The `internal/httpproxy` integration owner runs disposable native `git` clients

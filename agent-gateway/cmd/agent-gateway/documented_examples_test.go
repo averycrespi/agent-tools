@@ -15,7 +15,7 @@ func TestDocumentedUpstreamExamples(t *testing.T) {
 	contents, err := os.ReadFile("../../docs/operators/upstream-servers.md")
 	require.NoError(t, err)
 	blocks := regexp.MustCompile("(?s)```json\\n(.*?)\\n```").FindAllSubmatch(contents, -1)
-	require.Len(t, blocks, 4, "three server definitions and one complete credential replacement")
+	require.Len(t, blocks, 5, "four server definitions and one complete credential replacement")
 	for index, block := range blocks {
 		var object map[string]json.RawMessage
 		require.NoError(t, json.Unmarshal(block[1], &object))

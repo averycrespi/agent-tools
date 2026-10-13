@@ -698,7 +698,28 @@ export async function runServerCreateUpdate(
       exact: true,
     })
     .click();
+  await expect(page.getByTestId("server-private-http")).not.toBeChecked();
   await capture(page, "create-http-transport");
+  await page.getByTestId("server-private-http").check();
+  await page.locator("#server-url").fill("http://notes-mcp:8080/mcp");
+  await page.locator("#server-auth-none").check();
+  await page.locator("#server-namespace").fill("private-notes");
+  await page.locator("#server-display-name").fill("Private notes");
+  await capture(page, "create-private-http", true);
+  await page.getByTestId("server-editor-submit").click();
+  await expect(page.getByTestId("server-creation-review")).toContainText(
+    "Allowed — unauthenticated plaintext only",
+  );
+  await capture(page, "create-private-http-review", true);
+  await page.getByTestId("server-change-confirm-cancel").click();
+  await page.locator("#server-auth-bearer").check();
+  await page.getByTestId("server-editor-submit").click();
+  await expect(
+    page.getByText("Bearer authentication and OAuth require HTTPS."),
+  ).toBeVisible();
+  if (creates !== 0) fail("plaintext bearer submitted a create");
+  await capture(page, "create-private-http-auth-error");
+  await page.getByTestId("server-private-http").uncheck();
   await page.locator("#server-url").fill("file:///tmp/mcp");
   await page.locator("#server-auth-none").check();
   await page.locator("#server-namespace").fill("url-validation");

@@ -73,9 +73,34 @@ agent-gateway mcp server update SERVER_ID --file PATH --yes
 
 Omitting `--etag` performs one validated server read and uses that exact strong value once. Supplying `--etag ETAG` pins the explicit value and skips the convenience read. A patch that changes `enabled` or `transport` requires consequence confirmation because it can withdraw a runtime or replace behavior. A display-name-only patch does not prompt. The CLI never refreshes a stale ETag or replays an update automatically. On conflict, read the current server, review the new state, and prepare fresh intent.
 
+## Private HTTP MCP servers
+
+For an unauthenticated MCP server on a trusted private network, explicitly enable **Allow private HTTP** in the browser create/edit form or set `allow_private_http: true` in its transport. This opt-in is per server, not a global bypass. For example, save this definition and use `agent-gateway mcp server create --file PATH`:
+
+```json
+{
+  "namespace": "notes",
+  "display_name": "Private notes",
+  "enabled": false,
+  "transport": {
+    "kind": "streamable_http",
+    "url": "http://notes-mcp:8080/mcp",
+    "protocol_mode": "auto",
+    "authentication": { "mode": "none" },
+    "allow_private_http": true
+  }
+}
+```
+
+Gateway must resolve `notes-mcp` on its own network. Only RFC 1918 IPv4 (`10/8`, `172.16/12`, `192.168/16`) and IPv6 ULA (`fc00::/7`) answers are allowed, including IPv4-mapped forms. Every answer must qualify on every connection. Public addresses, shared/CGNAT addresses, link-local metadata endpoints, multicast, unspecified addresses and DNS-to-loopback are rejected. Existing unauthenticated numeric-loopback HTTP endpoints need no opt-in. Private HTTPS access is not expanded.
+
+Plaintext has no confidentiality or server authentication: use only operator-controlled trusted networks and never put secrets in custom headers. Bearer and OAuth modes require HTTPS even with this option enabled. This setting is unrelated to inbound `--allowed-host` or HTTP/Git proxy grants. It neither creates a Docker network nor qualifies a deployment.
+
+The boolean persists across restart. Omitted or false denies private HTTP; null is invalid. A full replacement transport without it clears permission; a patch omitting transport preserves it. To remove permission, also replace a private HTTP URL with a permitted endpoint, or delete the server. Changing the policy replaces the runtime and fences old calls/catalog; merely disabling the server retains its saved configuration. Review the complete transport and current ETag when using `agent-gateway mcp server update SERVER_ID --file PATH --yes`.
+
 ## Custom upstream HTTP headers
 
-Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows directly below **HTTP endpoint**, before **Protocol preference**, to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
+Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows below **HTTP endpoint** and **Allow private HTTP**, before **Protocol preference**, to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
 
 ```json
 {

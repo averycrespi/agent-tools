@@ -237,6 +237,9 @@ function decodeTransport(value: unknown): unknown | null {
     "protocol_mode",
     "authentication",
     ...(Object.hasOwn(candidate, "headers") ? ["headers"] : []),
+    ...(Object.hasOwn(candidate, "allow_private_http")
+      ? ["allow_private_http"]
+      : []),
   ]);
   if (transport.headers !== undefined) {
     const headers = transport.headers;
@@ -249,6 +252,11 @@ function decodeTransport(value: unknown): unknown | null {
     const values = optionalRecord(headers, [], Object.keys(headers));
     Object.values(values).forEach(text);
   }
+  if (
+    transport.allow_private_http !== undefined &&
+    typeof transport.allow_private_http !== "boolean"
+  )
+    throw new Error("invalid private HTTP policy");
   text(transport.url);
   closed(transport.protocol_mode, ["modern", "legacy", "auto"] as const);
   const authentication = transport.authentication as JSONRecord;

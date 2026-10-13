@@ -427,7 +427,15 @@ function validateTransport(value: unknown): void {
     "protocol_mode",
     "authentication",
     ...(Object.hasOwn(base, "headers") ? ["headers"] : []),
+    ...(Object.hasOwn(base, "allow_private_http")
+      ? ["allow_private_http"]
+      : []),
   ]);
+  if (
+    item.allow_private_http !== undefined &&
+    typeof item.allow_private_http !== "boolean"
+  )
+    throw new Error("invalid private HTTP policy");
   if (item.headers !== undefined) {
     const headers = item.headers;
     if (
