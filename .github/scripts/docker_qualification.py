@@ -113,6 +113,23 @@ def read_sse_frame(response):
     return bytes(frame)
 
 
+def settlement_log_summary(text, resources):
+    """Project only exact-operation diagnostic causes from a bounded private window."""
+    lines = text[-16384:].splitlines()
+    causes = []
+    for line in lines[-100:]:
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if (isinstance(value, dict) and value.get('event') == 'reconciliation_settlement_failure'
+                and isinstance(value.get('resource'), str) and value['resource'] in resources):
+            cause = value.get('cause')
+            causes.append(cause if cause in ('capacity', 'unavailable', 'stopped') else 'other')
+    return {'window_only': True, 'causes': causes[:8],
+            'truncated': len(causes) > 8 or len(lines) > 100 or len(text) > 16384}
+
+
 def startup_failure(state, logs):
     """Retain only fixed categories from private startup output, never its bytes."""
     text = (str(state.get('Error', '')) + '\n' + logs).lower()
@@ -340,6 +357,13 @@ class Qualification(Smoke):
                                   'state': item['state'] if item['state'] in ('scheduled', 'running', 'succeeded', 'failed', 'cancelled', 'superseded', 'interrupted') else 'other',
                                   'started': item.get('started_at') is not None,
                                   'finished': item.get('finished_at') is not None} for item in operations['items'][:8]]
+        resources = {sid + '/' + item['id'] for item in operations['items'][:8]}
+        try:
+            code, text = self.docker('logs', '--tail', '100', self.container, timeout=10, check=False)
+            observed['settlement_diagnostics'] = settlement_log_summary(text, resources) if code == 0 else {}
+            observed['settlement_diagnostics']['read_ok'] = code == 0
+        except (RuntimeError, subprocess.TimeoutExpired):
+            observed['settlement_diagnostics'] = {'read_ok': False}
         raise RuntimeError('server did not reach expected settled state: ' + json.dumps(observed, sort_keys=True))
 
     def server(self, namespace, transport, enabled=True, status=201):
@@ -738,9 +762,11 @@ class Qualification(Smoke):
         self.start()
         after = self.dc('exec', '-T', 'gateway', 'sha256sum', 'admin-bearer', 'master-key', 'http-ca.pem')[1]
         require(before == after, 'replacement changed persistent authority')
+        # Readiness admits control requests before optional runtimes settle.
+        # Do not add a backup writer to the reconstruction being qualified.
+        self.wait_server(self.servers[2])
         current, _ = self.api('POST', '/api/v2/backups', {}, 201, {'Idempotency-Key': 'after-replacement'})
         require(current['installation_id'] == backup['installation_id'], 'replacement changed installation identity')
-        self.wait_server(self.servers[2])
         require(self.fixture_get('/stats').get('drain-started', 0) == 1, 'replacement replayed uncertain call')
         self.call('https.echo')
         require(self.proxy_request('https')[0] == 200, 'replacement lost encrypted HTTP credential or CA')

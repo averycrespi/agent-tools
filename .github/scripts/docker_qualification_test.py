@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
-from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, STOPPED_SNAPSHOT, LoopbackRelay, Qualification, read_sse_frame, request, startup_failure, validate_stopped_plan
+from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, STOPPED_SNAPSHOT, LoopbackRelay, Qualification, read_sse_frame, request, settlement_log_summary, startup_failure, validate_stopped_plan
 from docker_smoke import ROOT, Smoke, command
 from docker_smoke_test import FakeDocker
 
@@ -28,6 +28,37 @@ spec.loader.exec_module(peer)
 
 
 class AdapterTests(unittest.TestCase):
+    def test_unsettled_replacement_does_not_start_backup_mutation(self):
+        owner = Qualification(FakeDocker())
+        self.addCleanup(owner.temp.cleanup)
+        owner.servers = ['stdio', 'http', 'https']
+        backups = []
+        def api(_method, _path, _body, _status, headers):
+            backups.append(headers['Idempotency-Key'])
+            return {'installation_id': 'fixture'}, {}
+        outcome = json.dumps({'error': {'code': -32000, 'data': {'code': 'outcome_unknown', 'outcomeUnknown': True, 'invocationId': 'fixture'}}})
+        with (patch.object(owner, 'api', side_effect=api), patch.object(owner, 'dc', return_value=(0, 'same')),
+             patch.object(owner, 'rpc', return_value=(200, {}, outcome)), patch.object(owner, 'fixture_get', return_value={'drain-started': 1, 'drain-completed': 1}),
+             patch.object(owner, 'stop'), patch.object(owner, 'start'), patch.object(owner, 'shell'), patch.object(owner, 'docker'),
+              patch.object(owner, 'wait_server', side_effect=RuntimeError('startup unsettled'))):
+            with self.assertRaisesRegex(RuntimeError, 'startup unsettled'):
+                owner.persistence()
+        self.assertEqual(backups, ['before-replacement'])
+
+    def test_settlement_logs_keep_only_correlated_closed_causes(self):
+        resource = 'private-canary-server/private-canary-operation'
+        record = {'event': 'reconciliation_settlement_failure', 'resource': resource, 'cause': 'capacity', 'detail': 'private-canary'}
+        text = '\n'.join(['private-canary-invalid', '[]', json.dumps({**record, 'resource': resource + '-foreign'}),
+                          json.dumps({**record, 'event': 'other'}), json.dumps(record), json.dumps({**record, 'cause': 'private-canary'})])
+        result = settlement_log_summary(text, {resource})
+        self.assertEqual(result, {'window_only': True, 'causes': ['capacity', 'other'], 'truncated': False})
+        self.assertNotIn('private-canary', json.dumps(result))
+        limited = settlement_log_summary('\n'.join([json.dumps(record)] * 12), {resource})
+        self.assertEqual(limited['causes'], ['capacity'] * 8)
+        self.assertTrue(limited['truncated'])
+        self.assertTrue(settlement_log_summary('x' * 17000, {resource})['truncated'])
+        self.assertTrue(settlement_log_summary('\n'.join(['{}'] * 101), {resource})['truncated'])
+
     def test_stopped_plan_requires_exact_sidecar_contract(self):
         plan = {'dry_run': True, 'operation': 'verify-and-recover-storage', 'installation_id': 'fixture'}
         refusal = {'code': 'inspection_unavailable', 'exit_code': 7, 'uncertain': False}
@@ -102,6 +133,8 @@ class AdapterTests(unittest.TestCase):
             with self.subTest(runtime=runtime):
                 owner = Qualification(FakeDocker())
                 owner.operations = {'private-canary-server': 'private-canary-operation'}
+                owner.container = 'owned-container'
+                self.addCleanup(owner.temp.cleanup)
                 value = {'runtime': {'state': runtime, 'reason': 'private-canary-reason', 'runtime_id': 'private-canary-runtime-id',
                                      'reconciliation': {'in_use': occupied}},
                          'catalog': {'active_tool_count': count, 'active_state': 'current'}, 'secret': 'private-canary-secret'}
@@ -116,6 +149,7 @@ class AdapterTests(unittest.TestCase):
                     with self.assertRaisesRegex(RuntimeError, 'server did not reach expected settled state') as caught:
                         owner.wait_server('private-canary-server')
                 expected.update(runtime_id_present=True, runtime_reason='other', catalog_state='current', operations_truncated=True,
+                                settlement_diagnostics={'read_ok': True, 'window_only': True, 'causes': [], 'truncated': False},
                                 operations=[{'tracked': True, 'activate': True, 'state': 'succeeded', 'started': False, 'finished': True}]
                                 + [{'tracked': False, 'activate': False, 'state': 'other', 'started': False, 'finished': False}] * 7)
                 self.assertEqual(owner.report['server_settlement_failure'], expected)
