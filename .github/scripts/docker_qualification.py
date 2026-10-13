@@ -211,7 +211,7 @@ class Qualification(Smoke):
         path.write_text(json.dumps(override))
         self.compose.extend(['--file', str(path)])
         caddyfile = config / 'Caddyfile'
-        caddyfile.write_text('{\n admin off\n auto_https off\n}\n:9443 {\n tls /fixture-config/cert.pem /fixture-config/key.pem\n reverse_proxy gateway:18210 {\n header_up Host {http.request.host}\n header_up -Forwarded\n header_up -X-Forwarded-*\n flush_interval -1\n lb_try_duration 0\n }\n}\n')
+        caddyfile.write_text('{\n admin off\n auto_https off\n}\n:9443 {\n tls /fixture-config/cert.pem /fixture-config/key.pem\n reverse_proxy gateway:18210 {\n header_up Host {http.request.hostport}\n header_up -Forwarded\n header_up -X-Forwarded-*\n flush_interval -1\n lb_try_duration 0\n }\n}\n')
         caddyfile.chmod(0o644)
         self.docker('run', '-d', '--platform', 'linux/amd64', '--name', self.caddy, '--label', self.label, '--network', self.network,
                     '--read-only', '--cap-drop', 'ALL',
@@ -373,7 +373,7 @@ class Qualification(Smoke):
         # A compliant proxy strips spoofed fields, not derives authority from them.
         require(request(self.origin, 'GET', '/readyz', headers={'Forwarded': 'host=evil.example', 'X-Forwarded-Host': 'evil.example'}, context=self.tls)[0] == 200, 'generic proxy stripping')
         code, _, _ = request(self.origin, 'GET', '/api/v2/system-status', headers={'Authorization': 'Bearer ' + self.admin}, context=self.tls, connect_port=self.caddy_port)
-        require(code == 200, 'optional Caddy example authenticated API')
+        require(code == 200, 'optional Caddy example authenticated API: expected 200, got ' + str(code))
         # Direct backend aliases are MCP/API Host authority, never browser Origin authority.
         program = "import http.client,json; c=http.client.HTTPConnection('gateway',18210,timeout=5); c.request('GET','/readyz',headers=json.loads(__import__('sys').argv[1])); r=c.getresponse(); print(r.status); r.read(); c.close()"
         for headers, expected in (({'Host': 'internal.example'}, 200), ({'Host': 'evil.example'}, 421), ({'Host': 'internal.example', 'Forwarded': 'host=localhost'}, 400), ({'Host': 'internal.example', 'X-Forwarded-Host': 'localhost'}, 400)):

@@ -112,6 +112,11 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(any(args[1:4] == ['network', 'create', '--internal'] for args in calls))
             self.assertFalse(any('push' in args or '--privileged' in args or '--network=host' in args for args in calls))
             self.assertEqual(owner.report['cases']['image-network-isolation'], 'passed')
+            for text in ((owner.files / 'config/Caddyfile').read_text(),
+                         (ROOT / 'agent-gateway/docs/operators/docker.md').read_text()):
+                self.assertIn('header_up Host {http.request.hostport}', text)
+                self.assertNotIn('header_up Host {http.request.host}', text)
+                self.assertIn('header_up -X-Forwarded-*', text)
             caddy = next(args for args in calls if CADDY_IMAGE in args)
             self.assertEqual(caddy[-2:], ['-ec', CADDY_START])
             self.assertIn('0000000000000000', CADDY_START)

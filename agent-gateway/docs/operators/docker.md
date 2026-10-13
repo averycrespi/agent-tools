@@ -109,7 +109,7 @@ A small **optional Caddy** example for an existing Caddy installation is below. 
 ```caddyfile
 {$GATEWAY_HOST} {
     reverse_proxy {$GATEWAY_BACKEND} {
-        header_up Host {http.request.host}
+        header_up Host {http.request.hostport}
         header_up -Forwarded
         header_up -X-Forwarded-*
         flush_interval -1
