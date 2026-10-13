@@ -11,6 +11,9 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import select
+import socket
+import socketserver
 import ssl
 import subprocess
 import tempfile
@@ -66,6 +69,44 @@ def read_sse_frame(response):
     return bytes(frame)
 
 
+class LoopbackRelay:
+    """Raw, bounded TCP ingress to an internal bridge; never terminate TLS."""
+    def __init__(self, target):
+        self.stopping = threading.Event()
+        stopping = self.stopping
+
+        class Handler(socketserver.BaseRequestHandler):
+            def handle(self):
+                try:
+                    with socket.create_connection(target, timeout=3) as upstream:
+                        self.request.settimeout(1)
+                        upstream.settimeout(1)
+                        sockets = (self.request, upstream)
+                        deadline = time.monotonic() + 180
+                        while not stopping.is_set() and time.monotonic() < deadline:
+                            readable, _, _ = select.select(sockets, [], [], 0.2)
+                            for source in readable:
+                                data = source.recv(16384)
+                                if not data:
+                                    return
+                                sockets[1 if source is sockets[0] else 0].sendall(data)
+                except OSError:
+                    # Connection failures are observed by the qualifying client.
+                    pass
+
+        self.server = socketserver.ThreadingTCPServer(('127.0.0.1', 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': 0.1})
+        self.thread.start()
+        self.port = self.server.server_address[1]
+
+    def close(self):
+        self.stopping.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join(timeout=5)
+        require(not self.thread.is_alive(), 'loopback relay cleanup unconfirmed')
+
+
 class Qualification(Smoke):
     def __init__(self, run=command):
         super().__init__(run)
@@ -87,6 +128,7 @@ class Qualification(Smoke):
         self.admin = ''
         self.token = ''
         self.operations = {}
+        self.relays = {}
 
     def case(self, name, work):
         self.current_case = name
@@ -129,7 +171,7 @@ class Qualification(Smoke):
         self.docker('build', '--platform', 'linux/amd64', '--label', self.label, '-t', self.derived, str(build), timeout=300)
         self.report['derived_image'] = self.docker('image', 'inspect', '--format', '{{.Id}}', self.derived)[1].strip()
         self.start_peer(self.peer, self.public_network, ['--ip', PUBLIC_IP, '--network-alias', 'external.test'])
-        self.start_peer(self.private_peer, self.network, ['--network-alias', 'notes-mcp', '-p', '127.0.0.1::9443'])
+        self.start_peer(self.private_peer, self.network, ['--network-alias', 'notes-mcp'])
         self.proxy_port = self.port(self.private_peer, '9443/tcp')
         self.origin = 'https://localhost:' + str(self.proxy_port)
         (config / 'origin').write_text(self.origin)
@@ -151,7 +193,7 @@ class Qualification(Smoke):
         caddyfile.write_text('{\n admin off\n auto_https off\n}\n:9443 {\n tls /fixture-config/cert.pem /fixture-config/key.pem\n reverse_proxy gateway:18210 {\n header_up Host {http.request.host}\n header_up -Forwarded\n header_up -X-Forwarded-*\n flush_interval -1\n lb_try_duration 0\n }\n}\n')
         caddyfile.chmod(0o644)
         self.docker('run', '-d', '--platform', 'linux/amd64', '--name', self.caddy, '--label', self.label, '--network', self.network,
-                    '-p', '127.0.0.1::9443', '--read-only', '--cap-drop', 'ALL',
+                    '--read-only', '--cap-drop', 'ALL',
                     '--security-opt', 'no-new-privileges:true', '--tmpfs', '/data', '--tmpfs', '/config',
                     '-v', str(config) + ':/fixture-config:ro', CADDY_IMAGE,
                     'caddy', 'run', '--config', '/fixture-config/Caddyfile', timeout=120)
@@ -175,10 +217,19 @@ class Qualification(Smoke):
                     '--entrypoint', '/usr/bin/python3', self.derived, '/opt/fixture.py')
 
     def port(self, container, port):
-        raw = self.docker('inspect', '--format', '{{json .NetworkSettings.Ports}}', container)[1]
-        mappings = json.loads(raw)[port]
-        require(len(mappings) == 1 and mappings[0]['HostIp'] == '127.0.0.1', 'fixture publication must be loopback-only')
-        return int(mappings[0]['HostPort'])
+        # Docker does not publish ports for internal-only networks. The Linux CI
+        # host can reach their bridge addresses without giving peers external egress.
+        key = (container, port)
+        if key not in self.relays:
+            raw = self.docker('inspect', '--format', '{{json .}}', container)[1]
+            info = json.loads(raw)
+            require(info['State']['Running'], 'ingress fixture exited before relay setup')
+            address = info['NetworkSettings']['Networks'][self.network]['IPAddress']
+            ip = ipaddress.ip_address(address)
+            require(ip.version == 4 and ip.is_private and not ip.is_loopback, 'ingress requires owned private bridge address')
+            require(port in ('9443/tcp', '18212/tcp'), 'unexpected ingress fixture port')
+            self.relays[key] = LoopbackRelay((address, int(port.split('/')[0])))
+        return self.relays[key].port
 
     def api(self, method, path, body=None, status=200, headers=None):
         code, fields, raw = request(self.origin, method, path, body,
@@ -636,6 +687,12 @@ class Qualification(Smoke):
 
     def cleanup_extra(self):
         failures = []
+        for relay in self.relays.values():
+            try:
+                relay.close()
+            except (OSError, RuntimeError) as error:
+                failures.append(type(error).__name__)
+        self.relays.clear()
         for name in (self.peer, self.private_peer, self.caddy, self.name + '-basehash', self.name + '-derivedhash'):
             try:
                 raw = self.docker('ps', '-a', '--filter', 'label=' + self.label, '--format', '{{.Names}}')[1]

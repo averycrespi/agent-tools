@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
-from docker_qualification import CASES, PUBLIC_IP, PUBLIC_SUBNET, Qualification, read_sse_frame, request
+from docker_qualification import CASES, PUBLIC_IP, PUBLIC_SUBNET, LoopbackRelay, Qualification, read_sse_frame, request
 from docker_smoke import ROOT, Smoke, command
 from docker_smoke_test import FakeDocker
 
@@ -91,8 +91,9 @@ class AdapterTests(unittest.TestCase):
                 return 0, '[{"dst":"default"},{"dst":"172.20.0.0/16"}]'
             if args[1:3] == ['network', 'inspect']:
                 return 0, 'true\n'
-            if args[1] == 'inspect' and 'Ports' in ' '.join(args):
-                return 0, json.dumps({'9443/tcp': [{'HostIp': '127.0.0.1', 'HostPort': '19443'}]})
+            if args[1:4] == ['inspect', '--format', '{{json .}}']:
+                return 0, json.dumps({'State': {'Running': True}, 'NetworkSettings': {
+                    'Ports': {}, 'Networks': {owner.network: {'IPAddress': '172.20.0.2'}}}})
             return 0, 'sha256:fixture-image\n'
         owner = Qualification(run)
         try:
@@ -111,8 +112,54 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(any(args[1:4] == ['network', 'create', '--internal'] for args in calls))
             self.assertFalse(any('push' in args or '--privileged' in args or '--network=host' in args for args in calls))
             self.assertEqual(owner.report['cases']['image-network-isolation'], 'passed')
+            self.assertFalse(any('-p' in args for args in calls), 'internal-only peers cannot publish ports')
+            self.assertEqual(owner.port(owner.private_peer, '9443/tcp'), owner.proxy_port)
+            self.assertEqual(len(owner.relays), 2)
+            self.assertTrue(all(relay.server.server_address[0] == '127.0.0.1' for relay in owner.relays.values()))
+        finally:
+            for relay in owner.relays.values():
+                relay.close()
+            owner.temp.cleanup()
+
+    def test_ingress_refuses_exited_peer_before_creating_listener(self):
+        owner = Qualification(lambda *_args, **_kwargs: (0, '{"State":{"Running":false}}'))
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'exited before relay'):
+                owner.port(owner.private_peer, '9443/tcp')
+            self.assertFalse(owner.relays)
         finally:
             owner.temp.cleanup()
+
+    def test_relay_cleanup_closes_listener_and_active_stream(self):
+        accepted, closed = threading.Event(), threading.Event()
+        server = socket.socket()
+        server.bind(('127.0.0.1', 0))
+        server.listen()
+        server.settimeout(5)
+        def upstream():
+            with server.accept()[0] as conn:
+                conn.settimeout(5)
+                conn.sendall(b'frame\n\n')
+                accepted.set()
+                if conn.recv(1) == b'':
+                    closed.set()
+        thread = threading.Thread(target=upstream)
+        thread.start()
+        relay = LoopbackRelay(server.getsockname())
+        try:
+            with socket.create_connection(('127.0.0.1', relay.port), timeout=5) as client:
+                self.assertTrue(accepted.wait(5))
+                self.assertEqual(client.recv(7), b'frame\n\n')
+                relay.close()
+                self.assertEqual(client.recv(1), b'')
+                self.assertTrue(closed.wait(5))
+            with self.assertRaises(OSError):
+                socket.create_connection(('127.0.0.1', relay.port), timeout=1)
+        finally:
+            relay.close()
+            server.close()
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
 
     def test_stopped_owner_fault_helper_has_only_required_effective_capabilities(self):
         calls = []
@@ -252,12 +299,15 @@ class WirePeerTests(unittest.TestCase):
         server.socket = tls.wrap_socket(server.socket, server_side=True)
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
+        relay = LoopbackRelay(server.server_address)
         try:
-            origin = 'https://localhost:' + str(server.server_port)
-            self.assertEqual(request(origin, 'GET', '/stats', context=ssl.create_default_context(cafile=str(cert)))[0], 200)
-            with self.assertRaises(ssl.SSLCertVerificationError):
-                request(origin, 'GET', '/stats', context=ssl.create_default_context())
+            for port in (server.server_port, relay.port):
+                origin = 'https://localhost:' + str(port)
+                self.assertEqual(request(origin, 'GET', '/stats', context=ssl.create_default_context(cafile=str(cert)))[0], 200)
+                with self.assertRaises(ssl.SSLCertVerificationError):
+                    request(origin, 'GET', '/stats', context=ssl.create_default_context())
         finally:
+            relay.close()
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
