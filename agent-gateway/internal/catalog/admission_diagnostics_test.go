@@ -70,6 +70,7 @@ func TestCatalogAuditSettlementRefusalKeepsPrimaryStageAndGrid(t *testing.T) {
 			var outcome runtimes.CatalogOutcome
 			require.NoError(t, store.Mutate(context.Background(), func(*sql.Tx) error {
 				unblock()
+				exhaustCatalogAuditWaits(t, scheduler)
 				select {
 				case outcome = <-results:
 					return nil
@@ -85,12 +86,12 @@ func TestCatalogAuditSettlementRefusalKeepsPrimaryStageAndGrid(t *testing.T) {
 			assert.Equal(t, contract.ReasonConnectivity, *outcome.Reason)
 			assert.Equal(t, 1, client.callCount())
 			assert.Zero(t, registry.Status(server.ID).ToolCount)
-			require.Equal(t, 1, scheduler.count())
+			require.Equal(t, 4, scheduler.count())
 			pollAt := NextPoll(clock.now, PollOffset(catalogInstallationID, server.ID))
-			assert.Equal(t, pollAt.Sub(clock.now), scheduler.call(0).delay)
+			assert.Equal(t, pollAt.Sub(clock.now), scheduler.call(3).delay)
 			clock.now = pollAt
-			scheduler.fire(t, 0)
-			require.Eventually(t, func() bool { return scheduler.count() == 2 }, time.Second, time.Millisecond)
+			scheduler.fire(t, 3)
+			require.Eventually(t, func() bool { return scheduler.count() == 5 }, time.Second, time.Millisecond)
 			assert.Equal(t, 2, client.callCount())
 			assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
 			coordinator.Shutdown()

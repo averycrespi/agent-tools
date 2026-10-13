@@ -146,7 +146,7 @@ func (coordinator *Coordinator) run(ctx context.Context, candidate runtimes.Cand
 	coordinator.candidates[serverID] = candidate
 	coordinator.mu.Unlock()
 
-	result := coordinator.execute(workCtx, candidate, intent)
+	result := coordinator.execute(workCtx, current, intent)
 	cancel()
 	coordinator.mu.Lock()
 	current.result = result
@@ -251,7 +251,8 @@ func (coordinator *Coordinator) ServerStatus(serverID string) contract.LimitStat
 	return contract.LimitStatus{InUse: inUse, Limit: 1, Saturated: inUse == 1}
 }
 
-func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent) runtimes.CatalogOutcome {
+func (coordinator *Coordinator) execute(ctx context.Context, work *refreshWork, intent runtimes.CatalogTraversalIntent) runtimes.CatalogOutcome {
+	candidate := work.candidate
 	if !coordinator.live(candidate) {
 		_, err := coordinator.active.WithdrawAudited(audit.WithCause(context.Background(), candidate.Cause), candidate.Server.ID, candidate.RuntimeID, candidate.Generation, contract.ActiveCatalogUnavailable)
 		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonSuperseded)
@@ -271,7 +272,9 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", catalogDiagnosticOperation("prepare refresh audit", err), candidate.Server.ID, err)
 		return outcome
 	}
-	if err := audit.Append(ctx, coordinator.repository.store, attempt); err != nil {
+	if err := coordinator.persistAudit(ctx, ctx, work, false, func(writeCtx context.Context) error {
+		return audit.Append(writeCtx, coordinator.repository.store, attempt)
+	}); err != nil {
 		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
 		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", catalogDiagnosticOperation("append refresh audit", err), candidate.Server.ID, err)
 		return outcome
@@ -281,7 +284,7 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	if err != nil {
 		outcome = "unknown"
 	}
-	if evidenceErr := audit.Finish(ctx, coordinator.repository.store, attempt, coordinator.clock.Now(), outcome); evidenceErr != nil {
+	if evidenceErr := coordinator.finishAudit(ctx, work, attempt, outcome); evidenceErr != nil {
 		return coordinator.failure(candidate, intent, "settle refresh audit", errors.Join(err, fmt.Errorf("refresh audit settlement: %w", evidenceErr)), nil)
 	}
 	if err != nil {
