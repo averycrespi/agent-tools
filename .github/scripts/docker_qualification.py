@@ -9,6 +9,7 @@ import ipaddress
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import select
@@ -133,14 +134,25 @@ def settlement_log_summary(text, resources):
             'truncated': len(causes) > 8 or len(lines) > 100 or len(raw) > 16384}
 
 
-def catalog_log_summary(text, server_id):
-    """Keep only closed catalog audit facts for the exact private server resource."""
+def catalog_log_summary(text, server_id, display_name=None):
+    """Match complete fixture resources without emulating arbitrary diagnostic escaping."""
+    label_supported = (isinstance(display_name, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,32}', display_name) is not None
+                       and isinstance(server_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,40}', server_id) is not None)
+    resources = {server_id}
+    if label_supported:
+        resources.add(display_name + ' (' + server_id + ')')
     raw = text.encode('utf-8')
     lines = raw[-16384:].decode('utf-8', errors='replace').splitlines()
     if len(raw) > 16384:
         lines = lines[1:]  # Never interpret a possibly partial first record.
     events = []
-    operations = {'prepare refresh audit': 'prepare-audit', 'append refresh audit': 'append-audit'}
+    operations = {'prepare refresh audit': 'prepare-audit', 'append refresh audit': 'append-audit',
+                  'settle refresh audit': 'settle-audit', 'traverse catalog': 'traverse',
+                  'read catalog status': 'read-status', 'publish catalog': 'publish',
+                  'resolve catalog client': 'client', 'activate committed candidate': 'activate-committed'}
+    labels = {operation: {'operation': stage, 'cause': 'other'} for operation, stage in operations.items()}
+    labels.update({operation + ' (capacity)': {'operation': stage, 'cause': 'capacity'}
+                   for operation, stage in operations.items() if stage != 'activate-committed'})
     for line in lines[-100:]:
         try:
             value = json.loads(line)
@@ -148,11 +160,11 @@ def catalog_log_summary(text, server_id):
             continue
         if (isinstance(value, dict) and value.get('event') == 'upstream_unhealthy'
                 and value.get('phase') == 'tool_discovery' and value.get('component') == 'catalog'
-                and value.get('resource') == server_id):
-            events.append({'operation': operations.get(value.get('operation'), 'other')
-                           if isinstance(value.get('operation'), str) else 'other',
-                           'cause': 'capacity' if value.get('explanation') == 'storage mutation capacity is exhausted' else 'other'})
-    return {'window_only': True, 'events': events[:8],
+                and isinstance(value.get('resource'), str) and value['resource'] in resources):
+            operation = value.get('operation')
+            events.append(labels.get(operation, {'operation': 'other', 'cause': 'other'})
+                          if isinstance(operation, str) else {'operation': 'other', 'cause': 'other'})
+    return {'window_only': True, 'label_supported': label_supported, 'events': events[:8],
             'truncated': len(events) > 8 or len(lines) > 100 or len(raw) > 16384}
 
 
@@ -388,7 +400,7 @@ class Qualification(Smoke):
             code, text = self.docker('logs', '--tail', '100', self.container, timeout=10, check=False)
             observed['settlement_diagnostics'] = settlement_log_summary(text, resources) if code == 0 else {}
             observed['settlement_diagnostics']['read_ok'] = code == 0
-            observed['catalog_diagnostics'] = catalog_log_summary(text, sid) if code == 0 else {}
+            observed['catalog_diagnostics'] = catalog_log_summary(text, sid, value.get('display_name')) if code == 0 else {}
             observed['catalog_diagnostics']['read_ok'] = code == 0
         except (RuntimeError, subprocess.TimeoutExpired):
             observed['settlement_diagnostics'] = {'read_ok': False}

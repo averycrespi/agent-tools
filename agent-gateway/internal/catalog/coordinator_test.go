@@ -120,6 +120,8 @@ func TestCoordinatorInitialAndNoPriorRefreshFailuresRemainHealthyAndRecoverable(
 				outcome = coordinator.Refresh(context.Background(), candidate)
 			}
 			assert.Equal(t, intent, outcome.Intent)
+			assert.Equal(t, "traverse catalog", outcome.DiagnosticDetail.Operation)
+			assert.Equal(t, server.DisplayName+" ("+server.ID+")", outcome.DiagnosticDetail.Resource)
 			assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
 			assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
 			assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
@@ -148,7 +150,7 @@ func TestCoordinatorInitialAuditRefusalWaitsForGridWithoutTraversal(t *testing.T
 		outcome = coordinator.Activate(context.Background(), candidate)
 		return nil
 	}))
-	require.Equal(t, "append refresh audit", outcome.DiagnosticDetail.Operation)
+	require.Equal(t, "append refresh audit (capacity)", outcome.DiagnosticDetail.Operation)
 	require.Equal(t, storage.ErrMutationBusy.Error(), outcome.DiagnosticDetail.Explanation)
 	assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
 	assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)

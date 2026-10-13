@@ -62,14 +62,14 @@ class AdapterTests(unittest.TestCase):
     def test_catalog_logs_keep_only_exact_server_closed_audit_facts(self):
         resource = 'private-canary-server'
         record = {'event': 'upstream_unhealthy', 'phase': 'tool_discovery', 'component': 'catalog',
-                  'resource': resource, 'operation': 'append refresh audit',
+                  'resource': resource, 'operation': 'append refresh audit (capacity)',
                   'explanation': 'storage mutation capacity is exhausted', 'extra': 'private-canary'}
         unrelated = [{**record, key: 'private-canary-foreign'} for key in ('event', 'phase', 'component', 'resource')]
         text = '\n'.join(['private-canary-invalid', '[]'] + [json.dumps(r) for r in unrelated] + [json.dumps(record),
                          json.dumps({**record, 'operation': ['private-canary'], 'explanation': 'private-canary'}),
                          json.dumps({**record, 'operation': 'prepare refresh audit', 'explanation': 'private-canary'})])
         result = catalog_log_summary(text, resource)
-        self.assertEqual(result, {'window_only': True, 'events': [{'operation': 'append-audit', 'cause': 'capacity'},
+        self.assertEqual(result, {'window_only': True, 'label_supported': False, 'events': [{'operation': 'append-audit', 'cause': 'capacity'},
                                                                {'operation': 'other', 'cause': 'other'},
                                                                {'operation': 'prepare-audit', 'cause': 'other'}], 'truncated': False})
         self.assertNotIn('private-canary', json.dumps(result))
@@ -78,6 +78,29 @@ class AdapterTests(unittest.TestCase):
         self.assertTrue(limited['truncated'])
         self.assertTrue(catalog_log_summary('x' * 17000, resource)['truncated'])
         self.assertTrue(catalog_log_summary('\n'.join(['{}'] * 101), resource)['truncated'])
+
+    def test_catalog_logs_match_whole_safe_labels_and_typed_operations(self):
+        sid, name = 'private-canary-id', 'https'
+        record = {'event': 'upstream_unhealthy', 'phase': 'tool_discovery', 'component': 'catalog',
+                  'resource': name + ' (' + sid + ')', 'operation': 'settle refresh audit (capacity)',
+                  'explanation': 'private-canary'}
+        result = catalog_log_summary(json.dumps(record), sid, name)
+        self.assertEqual(result['events'], [{'operation': 'settle-audit', 'cause': 'capacity'}])
+        self.assertTrue(result['label_supported'])
+        self.assertNotIn('private-canary', json.dumps(result))
+        for resource in ('foreign (' + sid + ')', name + ' (foreign)', record['resource'] + '-suffix',
+                         record['resource'][:-1], [record['resource']]):
+            self.assertEqual(catalog_log_summary(json.dumps({**record, 'resource': resource}), sid, name)['events'], [])
+        for label in ('unsafe name', 'é', 'x' * 100, None, ['https']):
+            result = catalog_log_summary(json.dumps(record), sid, label)
+            self.assertFalse(result['label_supported'])
+            self.assertEqual(result['events'], [])
+        for operation, expected in (('settle refresh audit', 'settle-audit'), ('traverse catalog', 'traverse'),
+                                    ('publish catalog', 'publish'), ('activate committed candidate', 'activate-committed'),
+                                    ('private-canary (capacity)', 'other')):
+            result = catalog_log_summary(json.dumps({**record, 'operation': operation,
+                                                     'explanation': 'storage mutation capacity is exhausted'}), sid, name)
+            self.assertEqual(result['events'], [{'operation': expected, 'cause': 'other'}])
 
     def test_private_log_windows_count_utf8_bytes_and_discard_cut_records(self):
         server = 'private-canary-server'
@@ -198,7 +221,7 @@ class AdapterTests(unittest.TestCase):
                         owner.wait_server('private-canary-server')
                 expected.update(runtime_id_present=True, runtime_reason='other', catalog_state='current', operations_truncated=True,
                                 settlement_diagnostics={'read_ok': True, 'window_only': True, 'causes': [], 'truncated': False},
-                                catalog_diagnostics={'read_ok': True, 'window_only': True, 'events': [], 'truncated': False},
+                                catalog_diagnostics={'read_ok': True, 'window_only': True, 'label_supported': False, 'events': [], 'truncated': False},
                                 operations=[{'tracked': True, 'activate': True, 'state': 'succeeded', 'started': False, 'finished': True}]
                                 + [{'tracked': False, 'activate': False, 'state': 'other', 'started': False, 'finished': False}] * 7)
                 self.assertEqual(owner.report['server_settlement_failure'], expected)

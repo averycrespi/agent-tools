@@ -15,6 +15,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/runtimes"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
 const (
@@ -262,17 +263,17 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	client, ok := coordinator.client(candidate)
 	if !ok {
 		failure := runtimes.ClassifyFailure(downstream.ErrUnsupportedProtocol)
-		return coordinator.failure(candidate, intent, downstream.ErrUnsupportedProtocol, &failure)
+		return coordinator.failure(candidate, intent, "resolve catalog client", downstream.ErrUnsupportedProtocol, &failure)
 	}
 	attempt, err := audit.NewAttempt(ctx, coordinator.clock.Now(), "catalog", "refresh", contract.AuditTarget{Type: "server", ID: candidate.Server.ID})
 	if err != nil {
 		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
-		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "prepare refresh audit", candidate.Server.ID, err)
+		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", catalogDiagnosticOperation("prepare refresh audit", err), candidate.Server.ID, err)
 		return outcome
 	}
 	if err := audit.Append(ctx, coordinator.repository.store, attempt); err != nil {
 		outcome := catalogOutcome(intent, contract.ActiveCatalogUnavailable, contract.ReasonConnectivity)
-		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "append refresh audit", candidate.Server.ID, err)
+		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", catalogDiagnosticOperation("append refresh audit", err), candidate.Server.ID, err)
 		return outcome
 	}
 	raw, err := coordinator.traverser.Traverse(ctx, client, candidate.Server.Namespace)
@@ -281,17 +282,17 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 		outcome = "unknown"
 	}
 	if evidenceErr := audit.Finish(ctx, coordinator.repository.store, attempt, coordinator.clock.Now(), outcome); evidenceErr != nil {
-		return coordinator.failure(candidate, intent, errors.Join(err, fmt.Errorf("refresh audit settlement: %w", evidenceErr)), nil)
+		return coordinator.failure(candidate, intent, "settle refresh audit", errors.Join(err, fmt.Errorf("refresh audit settlement: %w", evidenceErr)), nil)
 	}
 	if err != nil {
-		return coordinator.failure(candidate, intent, err, catalogRuntimeFailure(err, client))
+		return coordinator.failure(candidate, intent, "traverse catalog", err, catalogRuntimeFailure(err, client))
 	}
 	runtime, _ := client.(*downstream.Runtime)
 	normalized := NormalizeCandidate(raw, NormalizeOptions{ServerID: candidate.Server.ID, AllowHeaderBindings: allowsHeaderBindings(candidate, runtime)})
 	durable, err := coordinator.repository.Status(ctx, candidate.Server.ID)
 	if err != nil {
 		cause := diagnostics.WithDetail(servers.ErrStorageUnavailable, diagnostics.Snapshot("catalog", "read status", candidate.Server.ID, err))
-		return coordinator.failure(candidate, intent, cause, nil)
+		return coordinator.failure(candidate, intent, "read catalog status", cause, nil)
 	}
 	revision := "0"
 	if durable.Revision != nil {
@@ -317,7 +318,7 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 			detail.Effect = "durable=ack; candidate_activation=not_ack"
 			return runtimes.CatalogOutcome{State: active.State, Reason: &reason, Phase: runtimes.CatalogPublicationDurableOnly, Cause: cause, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy, DiagnosticDetail: detail, DiagnosticReason: diagnostics.PublicReason(&reason)}
 		}
-		return coordinator.failure(candidate, intent, err, nil)
+		return coordinator.failure(candidate, intent, "publish catalog", err, nil)
 	}
 	result := runtimes.CatalogOutcome{State: status.State, Phase: runtimes.CatalogPublicationInstalled, Intent: intent, RuntimeHealth: runtimes.CatalogRuntimeHealthy}
 	if len(normalized.Issues) != 0 {
@@ -327,9 +328,18 @@ func (coordinator *Coordinator) execute(ctx context.Context, candidate runtimes.
 	return result
 }
 
-func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, err error, runtimeFailure *runtimes.FailureDisposition) (outcome runtimes.CatalogOutcome) {
+func catalogDiagnosticOperation(operation string, err error) string {
+	if errors.Is(err, storage.ErrMutationBusy) {
+		return operation + " (capacity)"
+	}
+	return operation
+}
+
+func (coordinator *Coordinator) failure(candidate runtimes.Candidate, intent runtimes.CatalogTraversalIntent, operation string, err error, runtimeFailure *runtimes.FailureDisposition) (outcome runtimes.CatalogOutcome) {
+	// Classify the primary failure before cleanup can join unrelated admission errors.
+	operation = catalogDiagnosticOperation(operation, err)
 	defer func() {
-		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", "reconcile", candidate.Server.DisplayName+" ("+candidate.Server.ID+")", err)
+		outcome.DiagnosticDetail = diagnostics.Snapshot("catalog", operation, candidate.Server.DisplayName+" ("+candidate.Server.ID+")", err)
 		outcome.DiagnosticReason = diagnostics.PublicReason(outcome.Reason)
 		if outcome.Reason != nil && *outcome.Reason == contract.ReasonConnectivity {
 			outcome.DiagnosticReason = diagnostics.ReasonUnknown
