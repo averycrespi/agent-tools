@@ -69,6 +69,22 @@ def read_sse_frame(response):
     return bytes(frame)
 
 
+def startup_failure(state, logs):
+    """Retain only fixed categories from private startup output, never its bytes."""
+    text = (str(state.get('Error', '')) + '\n' + logs).lower()
+    categories = (('unknown command', 'cli-command'), ('operation not permitted', 'capability'),
+                  ('permission denied', 'permissions'), ('read-only file system', 'read-only-filesystem'),
+                  ('no such file or directory', 'missing-file'), ('unrecognized directive', 'config-directive'),
+                  ('address already in use', 'socket-collision'), ('error decoding config', 'config-json'),
+                  ('adapting config', 'config-adapter'), ('loading initial config', 'config-provision'),
+                  ('panic:', 'panic'))
+    reason = next((category for marker, category in categories if marker in text), 'unclassified')
+    path = next((label for marker, label in (('/fixture-config/cert.pem', 'certificate'),
+                ('/fixture-config/key.pem', 'private-key'), ('/data/', 'data-store'),
+                ('/config/', 'config-store')) if marker in text), 'unspecified')
+    return {'exit_code': int(state.get('ExitCode', -1)), 'reason': reason, 'path': path}
+
+
 class LoopbackRelay:
     """Raw, bounded TCP ingress to an internal bridge; never terminate TLS."""
     def __init__(self, target):
@@ -223,7 +239,12 @@ class Qualification(Smoke):
         if key not in self.relays:
             raw = self.docker('inspect', '--format', '{{json .}}', container)[1]
             info = json.loads(raw)
-            require(info['State']['Running'], 'ingress fixture exited before relay setup')
+            if not info['State']['Running']:
+                _, logs = self.docker('logs', '--tail', '30', container, check=False)
+                failure = startup_failure(info['State'], logs)
+                failure['peer'] = 'caddy' if container == self.caddy else 'gateway' if container == getattr(self, 'container', None) else 'private-peer'
+                self.report['startup_failure'] = failure
+                raise RuntimeError('ingress fixture exited before relay setup: ' + json.dumps(failure))
             address = info['NetworkSettings']['Networks'][self.network]['IPAddress']
             ip = ipaddress.ip_address(address)
             require(ip.version == 4 and ip.is_private and not ip.is_loopback, 'ingress requires owned private bridge address')

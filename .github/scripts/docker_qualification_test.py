@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
-from docker_qualification import CASES, PUBLIC_IP, PUBLIC_SUBNET, LoopbackRelay, Qualification, read_sse_frame, request
+from docker_qualification import CASES, PUBLIC_IP, PUBLIC_SUBNET, LoopbackRelay, Qualification, read_sse_frame, request, startup_failure
 from docker_smoke import ROOT, Smoke, command
 from docker_smoke_test import FakeDocker
 
@@ -129,6 +129,19 @@ class AdapterTests(unittest.TestCase):
             self.assertFalse(owner.relays)
         finally:
             owner.temp.cleanup()
+
+    def test_startup_failure_never_exposes_runtime_output(self):
+        for message, expected in (('unknown command', 'cli-command'), ('operation not permitted', 'capability'),
+                                  ('permission denied', 'permissions'), ('read-only file system', 'read-only-filesystem'),
+                                  ('no such file or directory', 'missing-file'), ('opaque error', 'unclassified')):
+            with self.subTest(message=message):
+                failure = startup_failure({'ExitCode': 1, 'Error': ''},
+                                          'private-canary-token /fixture-config/key.pem ' + message)
+                self.assertEqual(failure, {'exit_code': 1, 'reason': expected, 'path': 'private-key'})
+                self.assertNotIn('private-canary', json.dumps(failure))
+        failure = startup_failure({'ExitCode': 126, 'Error': 'private-canary: operation not permitted'}, '')
+        self.assertEqual(failure['reason'], 'capability')
+        self.assertNotIn('private-canary', json.dumps(failure))
 
     def test_relay_cleanup_closes_listener_and_active_stream(self):
         accepted, closed = threading.Event(), threading.Event()
