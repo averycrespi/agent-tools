@@ -389,8 +389,11 @@ class Qualification(Smoke):
         self.principal = principal['principal']['id']
         issued, _ = self.api('POST', '/api/v2/principals/' + self.principal + '/credential', {}, 201, {'If-Match': fields['ETag']})
         self.token = issued['bearer']
-        for invalid in ('invalid', self.admin):
-            require(self.rpc('server/discover', token=invalid)[0] == 401, 'MCP authentication/credential-role boundary')
+        for invalid, expected, problem in (('invalid', 401, 'authentication_required'),
+                                           (self.admin, 403, 'credential_domain_mismatch')):
+            status, _, raw = self.rpc('server/discover', token=invalid)
+            require(status == expected, 'MCP credential boundary: expected ' + str(expected) + ', got ' + str(status))
+            require(json.loads(raw)['code'] == problem, 'MCP credential boundary returned wrong problem code')
         self.servers = []
         transports = [('stdio', {'kind': 'stdio', 'executable': '/usr/bin/python3', 'arguments': ['/opt/fixture.py', 'stdio'],
                                  'working_directory': '/tmp', 'environment': {}, 'secret_environment': {}}),

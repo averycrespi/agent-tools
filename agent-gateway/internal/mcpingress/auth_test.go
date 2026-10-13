@@ -2,6 +2,7 @@ package mcpingress
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -55,11 +56,13 @@ func TestAgentAuthenticationPrecedesMCPBodyAndHandlerWork(t *testing.T) {
 	for _, test := range []struct {
 		name, authorization string
 		status              int
+		code                contract.ProblemCode
 	}{
-		{name: "missing", status: http.StatusUnauthorized},
-		{name: "malformed", authorization: "Basic value", status: http.StatusUnauthorized},
-		{name: "wrong domain", authorization: "Bearer " + contract.AdminBearerPrefix + "value", status: http.StatusForbidden},
-		{name: "unknown agent", authorization: "Bearer " + contract.AgentBearerPrefix + "unknown", status: http.StatusUnauthorized},
+		{name: "missing", status: http.StatusUnauthorized, code: contract.ProblemAuthenticationRequired},
+		{name: "malformed", authorization: "Basic value", status: http.StatusUnauthorized, code: contract.ProblemAuthenticationRequired},
+		{name: "unrecognized prefix", authorization: "Bearer invalid", status: http.StatusUnauthorized, code: contract.ProblemAuthenticationRequired},
+		{name: "wrong domain", authorization: "Bearer " + contract.AdminBearerPrefix + "value", status: http.StatusForbidden, code: contract.ProblemCredentialDomainMismatch},
+		{name: "unknown agent", authorization: "Bearer " + contract.AgentBearerPrefix + "unknown", status: http.StatusUnauthorized, code: contract.ProblemAuthenticationRequired},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body := &readSpy{}
@@ -71,6 +74,9 @@ func TestAgentAuthenticationPrecedesMCPBodyAndHandlerWork(t *testing.T) {
 			response := httptest.NewRecorder()
 			boundary.ServeHTTP(response, request)
 			require.Equal(t, test.status, response.Code)
+			var problem contract.ProblemEnvelope
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &problem))
+			require.Equal(t, test.code, problem.Code)
 			require.Zero(t, body.reads.Load(), "authentication failure read MCP body")
 			require.Zero(t, handled.Load())
 		})
