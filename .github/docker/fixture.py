@@ -131,6 +131,10 @@ class Peer(http.server.BaseHTTPRequestHandler):
                 CODES[code] = get('code_challenge')
             location = callback + '?' + urllib.parse.urlencode({'state': get('state'), 'code': code, 'iss': ISSUER})
             return self.reply(302, headers={'Location': location})
+        if path.path == '/plain':
+            if any(name in self.headers for name in ('X-Fixture-Key', 'Authorization', 'Proxy-Authorization')):
+                return self.reply(403)
+            return self.reply(200, b'plain')
         if path.path == '/injected':
             count('http-injected')
             if self.headers.get('X-Fixture-Key') != 'synthetic-http-secret' or self.headers.get('Proxy-Authorization'):

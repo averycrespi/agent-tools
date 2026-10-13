@@ -529,11 +529,11 @@ class Qualification(Smoke):
         interrupted, self.pending_callback = start()
         self.pending_flow = interrupted['flow']['id']
 
-    def http_grant(self, scheme, port, credential=None):
+    def http_grant(self, scheme, port, credential=None, status=201):
         policy = {'version': 1, 'type': 'allow_requests', 'request': {'origin': {'scheme': scheme, 'host': 'external.test', 'port': port}, 'methods': {'any': True}, 'path': {'kind': 'any'}}}
         if credential:
             policy['credential_id'] = credential
-        return self.api('POST', '/api/v2/http/grants', {'principal_id': self.principal, 'description': None, 'expires_at': None, 'policy': policy}, 201)
+        return self.api('POST', '/api/v2/http/grants', {'principal_id': self.principal, 'description': None, 'expires_at': None, 'policy': policy}, status)
 
     def proxy_request(self, scheme, method='GET', path='/injected', trust='gateway', token=True):
         proxy_port = self.port(self.container, '18212/tcp')
@@ -563,9 +563,16 @@ class Qualification(Smoke):
             material, _ = self.api('POST', '/api/v2/http/credentials', {'name': 'fixture-' + scheme,
                      'boundary': {'host': 'external.test', 'port': port, 'allow_wildcard': False},
                      'recipe': {'header': 'X-Fixture-Key', 'prefix': ''}, 'secret': 'synthetic-http-secret'}, 201)
-            self.http_grant(scheme, port, material['id'])
-            status, raw = self.proxy_request(scheme)
-            require(status == 200 and raw == b'injected', 'proxy actual injection')
+            if scheme == 'http':
+                self.http_grant(scheme, port, material['id'], status=400)
+                require(self.proxy_request(scheme, path='/plain')[0] == 403, 'rejected HTTP credential grant allowed forwarding')
+                self.http_grant(scheme, port)
+                status, raw = self.proxy_request(scheme, path='/plain')
+                require(status == 200 and raw == b'plain', 'proxy HTTP forwarding without credentials')
+            else:
+                self.http_grant(scheme, port, material['id'])
+                status, raw = self.proxy_request(scheme)
+                require(status == 200 and raw == b'injected', 'proxy actual HTTPS injection')
         for trust in ('wrong', 'missing'):
             try:
                 self.proxy_request('https', trust=trust)

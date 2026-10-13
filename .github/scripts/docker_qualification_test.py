@@ -390,6 +390,14 @@ class WirePeerTests(unittest.TestCase):
         self.assertEqual(self.exchange('POST', '/oauth', rpc)[0], 401)
         self.assertEqual(self.exchange('POST', '/oauth', rpc, {'Authorization': 'Bearer ' + token})[0], 200)
 
+    def test_cleartext_peer_refuses_credentials(self):
+        status, _, body = self.exchange('GET', '/plain')
+        self.assertEqual((status, body), (200, b'plain'))
+        for name in ('X-Fixture-Key', 'Authorization', 'Proxy-Authorization'):
+            for value in ('synthetic-fixture-value', ''):
+                with self.subTest(header=name, value=value):
+                    self.assertEqual(self.exchange('GET', '/plain', headers={name: value})[0], 403)
+
     def test_injection_role_boundary_and_uncertain_wire_closes_once(self):
         self.assertEqual(self.exchange('GET', '/injected')[0], 403)
         self.assertEqual(self.exchange('GET', '/injected', headers={'X-Fixture-Key': 'synthetic-http-secret'})[0], 200)
