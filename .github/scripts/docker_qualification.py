@@ -269,19 +269,39 @@ class Qualification(Smoke):
 
     def wait_server(self, sid, active=True):
         deadline = time.monotonic() + 30
+        observed = {}
         while time.monotonic() < deadline:
             value, _ = self.api('GET', '/api/v2/mcp/servers/' + sid)
             settled = True
             if sid in self.operations:
                 operation, _ = self.api('GET', '/api/v2/mcp/servers/' + sid + '/operations/' + self.operations[sid])
                 settled = operation['state'] in ('succeeded', 'failed', 'cancelled', 'superseded', 'interrupted')
+            observed = {'tracked_operation_terminal': settled,
+                        'reconciliation_idle': value['runtime']['reconciliation']['in_use'] == 0,
+                        'runtime_active': value['runtime']['state'] == 'active',
+                        'runtime_id_present': bool(value['runtime'].get('runtime_id')),
+                        'catalog_one_tool': value['catalog']['active_tool_count'] == 1}
+            for key, field, allowed in (
+                    ('runtime_state', value['runtime']['state'], ('inactive', 'activating', 'active', 'stopping', 'retry_wait', 'degraded', 'authentication_required', 'deleted')),
+                    ('runtime_reason', value['runtime'].get('reason'), (None, 'connectivity', 'resource_limit', 'configuration_invalid', 'credential_absent', 'tls_failed', 'catalog_invalid', 'catalog_stale', 'stop_unconfirmed')),
+                    ('catalog_state', value['catalog'].get('active_state'), ('absent', 'refreshing', 'current', 'stale', 'unavailable'))):
+                observed[key] = field if field in allowed else 'other'
             if settled and value['runtime']['reconciliation']['in_use'] == 0:
                 if active and value['runtime']['state'] == 'active' and value['catalog']['active_tool_count'] == 1:
                     return value
                 if not active and value['runtime']['state'] != 'active':
                     return value
             time.sleep(0.1)
-        raise RuntimeError('server did not reach expected settled state')
+        self.report['server_settlement_failure'] = observed
+        # An old terminal operation does not prove restart activation was created.
+        operations, _ = self.api('GET', '/api/v2/mcp/servers/' + sid + '/operations')
+        observed['operations_truncated'] = bool(operations.get('next_cursor')) or len(operations['items']) > 8
+        observed['operations'] = [{'tracked': item['id'] == self.operations.get(sid),
+                                  'activate': item['kind'] == 'activate',
+                                  'state': item['state'] if item['state'] in ('scheduled', 'running', 'succeeded', 'failed', 'cancelled', 'superseded', 'interrupted') else 'other',
+                                  'started': item.get('started_at') is not None,
+                                  'finished': item.get('finished_at') is not None} for item in operations['items'][:8]]
+        raise RuntimeError('server did not reach expected settled state: ' + json.dumps(observed, sort_keys=True))
 
     def server(self, namespace, transport, enabled=True, status=201):
         value, fields = self.api('POST', '/api/v2/mcp/servers', {'namespace': namespace, 'display_name': namespace,

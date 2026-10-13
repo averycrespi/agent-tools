@@ -44,6 +44,35 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(inspect[-1][-1], 'replacement-container')
         self.assertEqual(sum('init' in args for args, _ in fake.calls), 1)
 
+    def test_server_timeout_reports_only_closed_bounded_observations(self):
+        for runtime, count, occupied, operation, expected in (
+                ('active', 0, 1, 'succeeded', {'tracked_operation_terminal': True, 'reconciliation_idle': False,
+                                             'runtime_active': True, 'catalog_one_tool': False, 'runtime_state': 'active'}),
+                ('private-canary-runtime', 1, 0, 'running', {'tracked_operation_terminal': False, 'reconciliation_idle': True,
+                                                          'runtime_active': False, 'catalog_one_tool': True, 'runtime_state': 'other'})):
+            with self.subTest(runtime=runtime):
+                owner = Qualification(FakeDocker())
+                owner.operations = {'private-canary-server': 'private-canary-operation'}
+                value = {'runtime': {'state': runtime, 'reason': 'private-canary-reason', 'runtime_id': 'private-canary-runtime-id',
+                                     'reconciliation': {'in_use': occupied}},
+                         'catalog': {'active_tool_count': count, 'active_state': 'current'}, 'secret': 'private-canary-secret'}
+                items = [{'id': 'private-canary-operation', 'kind': 'activate', 'state': 'succeeded', 'finished_at': 'private-canary-time'}]
+                items += [{'id': 'private-canary-new', 'kind': 'private-canary-kind', 'state': 'private-canary-state'}] * 8
+                def api(method, path):
+                    if path.endswith('/operations'):
+                        return {'items': items, 'next_cursor': 'private-canary-cursor'}, {}
+                    return ({'state': operation} if '/operations/' in path else value), {}
+                owner.api = api
+                with patch('docker_qualification.time.monotonic', side_effect=[0, 0, 31]), patch('docker_qualification.time.sleep'):
+                    with self.assertRaisesRegex(RuntimeError, 'server did not reach expected settled state') as caught:
+                        owner.wait_server('private-canary-server')
+                expected.update(runtime_id_present=True, runtime_reason='other', catalog_state='current', operations_truncated=True,
+                                operations=[{'tracked': True, 'activate': True, 'state': 'succeeded', 'started': False, 'finished': True}]
+                                + [{'tracked': False, 'activate': False, 'state': 'other', 'started': False, 'finished': False}] * 7)
+                self.assertEqual(owner.report['server_settlement_failure'], expected)
+                self.assertNotIn('private-canary', str(caught.exception))
+                self.assertNotIn('private-canary', json.dumps(owner.report))
+
     def test_case_failure_keeps_remaining_unrun_and_report_sanitized(self):
         owner = Qualification(FakeDocker())
         owner.admin = 'private-canary-admin'
