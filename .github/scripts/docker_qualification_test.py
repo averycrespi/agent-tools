@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 import urllib.parse
@@ -389,6 +390,34 @@ class WirePeerTests(unittest.TestCase):
         rpc = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call'})
         self.assertEqual(self.exchange('POST', '/oauth', rpc)[0], 401)
         self.assertEqual(self.exchange('POST', '/oauth', rpc, {'Authorization': 'Bearer ' + token})[0], 200)
+
+    def test_drain_peer_waits_for_explicit_release(self):
+        outcomes = []
+        def call():
+            try:
+                outcomes.append(self.exchange('POST', '/mcp', json.dumps({'jsonrpc': '2.0', 'id': 1,
+                    'method': 'tools/call', 'params': {'arguments': {'drain': True}}})))
+            except Exception as error:
+                outcomes.append(error)
+        worker = threading.Thread(target=call)
+        worker.start()
+        try:
+            deadline = time.monotonic() + 3
+            while json.loads(self.exchange('GET', '/stats')[2]).get('drain-started', 0) != 1:
+                self.assertLess(time.monotonic(), deadline, 'peer did not enter barrier')
+                time.sleep(0.01)
+            self.assertTrue(worker.is_alive())
+            self.assertEqual(json.loads(self.exchange('GET', '/stats')[2]).get('drain-completed', 0), 0)
+        finally:
+            (self.root / 'drain-release').touch()
+            worker.join(timeout=6)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(outcomes), 1)
+        self.assertIsInstance(outcomes[0], tuple)
+        self.assertEqual(outcomes[0][0], 200)
+        self.assertIn(b'container fixture success', outcomes[0][2])
+        self.assertEqual(json.loads(self.exchange('GET', '/stats')[2]),
+                         {'tools/call': 1, 'drain-started': 1, 'drain-completed': 1})
 
     def test_cleartext_peer_refuses_credentials(self):
         status, _, body = self.exchange('GET', '/plain')

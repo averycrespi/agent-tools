@@ -43,7 +43,11 @@ def rpc(request):
     elif method == 'tools/call':
         if request.get('params', {}).get('arguments', {}).get('drain') is True:
             count('drain-started')
-            time.sleep(2)
+            deadline = time.monotonic() + 45
+            while not (ROOT / 'drain-release').exists():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError('drain fixture release deadline')
+                time.sleep(0.01)
             count('drain-completed')
         result = {'content': [{'type': 'text', 'text': 'container fixture success'}]}
     else:

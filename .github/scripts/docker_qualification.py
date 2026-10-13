@@ -656,10 +656,24 @@ class Qualification(Smoke):
                 time.sleep(0.05)
             self.stop()
         finally:
-            worker.join(timeout=20)
+            # Local clean shutdown does not prove remote effects stopped. Release
+            # the separate peer only after stop, then observe its own settlement.
+            try:
+                self.docker('exec', self.peer, 'touch', '/fixture-state/drain-release')
+            finally:
+                worker.join(timeout=20)
         require(not worker.is_alive() and len(outcomes) == 1 and outcomes[0] is not None, 'drain call did not settle')
-        require(outcomes[0][0] == 200 and b'container fixture success' in outcomes[0][2], 'SIGTERM failed to drain admitted call')
-        require(self.fixture_get('/stats').get('drain-completed', 0) == 1, 'drain upstream work was replayed or incomplete')
+        require(outcomes[0][0] == 200, 'drain call did not return an MCP response')
+        result = json.loads(outcomes[0][2])
+        error = result.get('error', {})
+        data = error.get('data', {})
+        require('result' not in result and error.get('code') == -32000 and data.get('code') == 'outcome_unknown'
+                and data.get('outcomeUnknown') is True and bool(data.get('invocationId')), 'SIGTERM did not classify handed-off call as uncertain')
+        deadline = time.monotonic() + 5
+        while self.fixture_get('/stats').get('drain-completed', 0) != 1:
+            require(time.monotonic() < deadline, 'drain peer did not settle after release')
+            time.sleep(0.05)
+        require(self.fixture_get('/stats').get('drain-started', 0) == 1, 'drain upstream work was replayed')
         self.shell('test -s stdio-stopped; test ! -e run.unclean')
         self.dc('rm', '--force', 'gateway')
         self.start()
@@ -668,6 +682,7 @@ class Qualification(Smoke):
         current, _ = self.api('POST', '/api/v2/backups', {}, 201, {'Idempotency-Key': 'after-replacement'})
         require(current['installation_id'] == backup['installation_id'], 'replacement changed installation identity')
         self.wait_server(self.servers[2])
+        require(self.fixture_get('/stats').get('drain-started', 0) == 1, 'replacement replayed uncertain call')
         self.call('https.echo')
         require(self.proxy_request('https')[0] == 200, 'replacement lost encrypted HTTP credential or CA')
         parsed = urllib.parse.urlsplit(self.pending_callback)
