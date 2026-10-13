@@ -448,6 +448,17 @@ class WirePeerTests(unittest.TestCase):
         self.assertEqual(json.loads(self.exchange('GET', '/stats')[2]),
                          {'tools/call': 1, 'drain-started': 1, 'drain-completed': 1})
 
+    def test_stdio_subprocess_creates_private_markers(self):
+        program = "import os,runpy,sys; from pathlib import Path; os.umask(0o022); runpy.run_path(sys.argv[1])['stdio'](Path(sys.argv[2]))"
+        result = subprocess.run([sys.executable, '-c', program, str(ROOT / '.github/docker/fixture.py'), str(self.root)],
+                                input=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'server/discover'}) + '\n',
+                                capture_output=True, text=True, timeout=5, check=True)
+        self.assertIn('2026-07-28', json.loads(result.stdout)['result']['supportedVersions'])
+        self.assertEqual((self.root / 'stdio-stopped').read_text(), 'terminated\n')
+        self.assertTrue((self.root / 'stdio-pid').read_text().isdigit())
+        for name in ('stdio-stopped', 'stdio-pid'):
+            self.assertEqual((self.root / name).stat().st_mode & 0o777, 0o600)
+
     def test_cleartext_peer_refuses_credentials(self):
         status, _, body = self.exchange('GET', '/plain')
         self.assertEqual((status, body), (200, b'plain'))

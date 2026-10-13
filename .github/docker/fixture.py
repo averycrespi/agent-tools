@@ -55,13 +55,15 @@ def rpc(request):
     return {'jsonrpc': '2.0', 'id': request['id'], 'result': result}
 
 
-def stdio():
-    marker = Path('/var/lib/agent-gateway/stdio-stopped')
+def stdio(directory=Path('/var/lib/agent-gateway')):
+    # Stopped maintenance validates every file in the private installation tree.
+    os.umask(0o077)
+    marker = directory / 'stdio-stopped'
     def stop(_sig, _frame):
         marker.write_text('terminated\n')
         raise SystemExit(0)
     signal.signal(signal.SIGTERM, stop)
-    Path('/var/lib/agent-gateway/stdio-pid').write_text(str(os.getpid()))
+    (directory / 'stdio-pid').write_text(str(os.getpid()))
     for line in sys.stdin:
         if len(line) > 65536:
             raise SystemExit(2)
