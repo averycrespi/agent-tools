@@ -62,12 +62,19 @@ class Smoke:
         if code == 0:
             raise RuntimeError("serve unexpectedly accepted missing/unsafe installation")
 
+    def prepare(self):
+        """Optional qualification setup owned by the same disposable run."""
+
+    def qualify(self, container):
+        """Optional protocol cases before the common clean-stop assertion."""
+
     def exercise(self):
         print("Build exact checkout image (linux/amd64); no registry push", flush=True)
         self.docker("build", "--platform", "linux/amd64", "--label", self.label,
                     "--tag", self.image, str(ROOT / "agent-gateway"), timeout=600)
         self.docker("volume", "create", "--label", self.label, self.volume)
         self.docker("network", "create", "--label", self.label, self.network)
+        self.prepare()
         self.dc("config", "--quiet")
         print("Verify empty mount refuses serve without creating authority", flush=True)
         self.refuses_uninitialized_or_unsafe()
@@ -91,6 +98,7 @@ class Smoke:
             raise RuntimeError("expected exactly one Gateway container")
         self.dc("exec", "-T", "gateway", "agent-gateway", "doctor", "--online",
                 "--address", "http://127.0.0.1:18210", timeout=30)
+        container = self.qualify(container) or container
         print("Stop with SIGTERM and 30-second grace; require clean exit", flush=True)
         started = time.monotonic()
         self.dc("stop", "--timeout", "30", "gateway", timeout=40)
@@ -102,12 +110,19 @@ class Smoke:
             raise RuntimeError("Gateway exceeded stop grace")
         self.shell('test ! -e run.unclean; test "$(stat -c %a .)" = 700')
 
+    def cleanup_extra(self):
+        """Dispose extension peers/images after the shared Gateway stops."""
+
     def cleanup(self):
         # Down removes only this random Compose project's containers. External resources
         # are deleted only after label reconciliation, including uncertain create results.
         failures = []
         try:
             self.dc("down", "--timeout", "30", "--remove-orphans", timeout=60)
+        except (RuntimeError, subprocess.TimeoutExpired) as error:
+            failures.append(str(error))
+        try:
+            self.cleanup_extra()
         except (RuntimeError, subprocess.TimeoutExpired) as error:
             failures.append(str(error))
         for kind, name in (("volume", self.volume), ("network", self.network), ("image", self.image)):
@@ -126,10 +141,25 @@ class Smoke:
 
 
 def main():
-    smoke = Smoke()
+    import sys
+    if sys.argv[1:] == ["--qualify"]:
+        from docker_qualification import Qualification
+        smoke = Qualification()
+    elif not sys.argv[1:]:
+        smoke = Smoke()
+    else:
+        raise SystemExit("usage: docker_smoke.py [--qualify]")
+    import signal
+    def interrupted(_signal, _frame):
+        raise SystemExit("container owner interrupted; cleanup required")
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
+    signal.signal(signal.SIGALRM, interrupted)
+    signal.alarm(25 * 60)
     try:
         smoke.exercise()
     finally:
+        signal.alarm(0)
         smoke.cleanup()
 
 

@@ -69,7 +69,8 @@ class SelectionTests(unittest.TestCase):
     def test_docker_inputs_select_blocking_gateway_owners(self):
         for path in ("agent-gateway/Dockerfile", "agent-gateway/.dockerignore",
                      "agent-gateway/examples/docker/compose.yaml", ".github/scripts/docker_smoke.py",
-                     "agent-gateway/docs/operators/docker.md"):
+                     "agent-gateway/docs/operators/docker.md", ".github/docker/fixture.py",
+                     ".github/docker/browser.mjs", ".github/scripts/docker_qualification.py"):
             with self.subTest(path=path):
                 self.assertTrue(self.select([path])["gateway"])
                 self.assertEqual(self.select([path])["tools"], TOOLS)
@@ -287,8 +288,9 @@ class CacheTests(unittest.TestCase):
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
         job = jobs["gateway-docker"]
         for fragment in ("needs: changes", "if: needs.changes.outputs.gateway == 'true'",
-                         "runs-on: ubuntu-latest", "timeout-minutes: 20",
-                         "run: python3 -B .github/scripts/docker_smoke.py"):
+                         "runs-on: ubuntu-latest", "timeout-minutes: 35",
+                         "run: make test-docker", "npx playwright install --with-deps chromium --only-shell",
+                         "name: gateway-docker-qualification", "if-no-files-found: error"):
             self.assertIn(fragment, job)
         self.assertNotIn("continue-on-error", job)
         self.assertNotIn("branches:", workflow.split("  pull_request:")[1].split("  push:")[0])

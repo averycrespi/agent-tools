@@ -120,15 +120,33 @@ jobs:
           fi
 
   gateway-docker:
-    name: Gateway Docker smoke
+    name: Gateway Docker qualification
     needs: changes
     if: needs.changes.outputs.gateway == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - name: Build and exercise disposable image
-        run: python3 -B .github/scripts/docker_smoke.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium --only-shell
+      - name: Qualify exact-revision disposable image
+        run: make test-docker
+        env:
+          GATEWAY_DOCKER_REPORT: ${{ runner.temp }}/gateway-docker-report.json
+          GATEWAY_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          GATEWAY_TARGET_BASE: ${{ github.event.pull_request.base.sha }}
+      - name: Upload sanitized container case report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gateway-docker-qualification
+          path: ${{ runner.temp }}/gateway-docker-report.json
+          if-no-files-found: error
+          retention-days: 14
 
   gateway-lint:
     name: Gateway lint
