@@ -56,6 +56,8 @@ func TestExternalBoundaryTrustAndLocalAccess(t *testing.T) {
 		{name: "local sign in", host: "127.0.0.1:8210", path: "/api/v2/admin-sessions", origin: origin, bearer: "fixture", status: 421},
 		{name: "wildcard not host", host: "0.0.0.0:8210", path: "/readyz", status: 421},
 		{name: "local wrong port", host: "127.0.0.1:8211", path: "/readyz", status: 421},
+		{name: "alias API", host: "inside.example", path: "/api/v2/system-status", bearer: "fixture", status: 204},
+		{name: "alias API origin", host: "inside.example", path: "/api/v2/system-status", origin: "http://inside.example", bearer: "fixture", status: 421},
 		{name: "alias MCP", host: "inside.example:1234", path: "/mcp", bearer: "fixture", status: 204},
 		{name: "alias origin", host: "inside.example:1234", path: "/mcp", origin: "https://inside.example:1234", bearer: "fixture", status: 421},
 	} {

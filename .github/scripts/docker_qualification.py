@@ -381,7 +381,8 @@ class Qualification(Smoke):
             require(int(raw.strip()) == expected, 'direct Host/forwarding boundary')
         program = "import http.client,json,sys; token=sys.stdin.read(); out=[]\nfor extra in [{},{'Origin':'http://internal.example'}]:\n c=http.client.HTTPConnection('gateway',18210,timeout=5); c.request('GET','/api/v2/system-status',headers={'Host':'internal.example','Authorization':'Bearer '+token,**extra}); r=c.getresponse(); out.append(r.status); r.read(); c.close()\nprint(json.dumps(out))"
         statuses = json.loads(self.input_command(['docker', 'exec', '-i', self.private_peer, 'python3', '-c', program], self.admin.encode()))
-        require(statuses == [200, 403], 'allowed alias granted browser Origin authority or lost authenticated API access')
+        # Browser traffic on an internal alias fails Host authority before Origin validation.
+        require(statuses == [200, 421], 'alias API/browser boundary: expected [200, 421], got ' + str(statuses))
 
     def mcp(self):
         principal, fields = self.api('POST', '/api/v2/principals', {'display_name': 'Docker agent', 'visibility': 'all'}, 201)
