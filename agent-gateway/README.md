@@ -28,6 +28,11 @@ make install
 
 This installs only `agent-gateway` into `$(go env GOPATH)/bin`; put that directory on your `PATH` before the commands below.
 
+For a fresh Docker installation behind an existing HTTPS proxy, use the
+[Docker operator guide](docs/operators/docker.md) and standalone Compose example.
+The image runs non-root with one persistent installation volume; build/runtime
+qualification runs in CI, and no registry image is published by this repository.
+
 ## Quick start
 
 For a new installation, initialize the owner-only data directory and start the foreground service:

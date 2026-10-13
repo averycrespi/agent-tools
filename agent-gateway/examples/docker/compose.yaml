@@ -1,0 +1,57 @@
+# Copy this file outside the source tree and configure its nonsecret variables.
+services:
+  gateway:
+    image: ${GATEWAY_IMAGE:?set a locally built image tag}
+    user: "10001:10001"
+    command:
+      - serve
+      - --data-dir
+      - /var/lib/agent-gateway
+      - --listen
+      - 0.0.0.0:${GATEWAY_PORT:-8210}
+      - --external-origin
+      - ${GATEWAY_EXTERNAL_ORIGIN:?set the canonical HTTPS origin}
+      - --http-proxy-listen
+      - 0.0.0.0:${GATEWAY_PROXY_PORT:-8212}
+      # Optional direct MCP/API aliases (not browser Origin authority):
+      # - --allowed-host
+      # - internal.example
+    volumes:
+      - installation:/var/lib/agent-gateway
+    networks:
+      - proxy
+    # Only the separate HTTP/Git forward proxy is published, never browser/MCP.
+    ports:
+      - "${GATEWAY_PROXY_BIND:-127.0.0.1}:${GATEWAY_PROXY_HOST_PORT:-8212}:${GATEWAY_PROXY_PORT:-8212}"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - -T
+        - "2"
+        - -O
+        - /dev/null
+        - http://127.0.0.1:${GATEWAY_PORT:-8210}/readyz
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  installation:
+    external: true
+    name: ${GATEWAY_VOLUME:?set the pre-created installation volume name}
+
+networks:
+  proxy:
+    external: true
+    name: ${GATEWAY_PROXY_NETWORK:?set the existing reverse-proxy network name}

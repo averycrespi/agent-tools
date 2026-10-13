@@ -11,6 +11,7 @@ Start with the [Gateway README](../README.md) for installation and the quick sta
 - [Installation safety](operators/installation-safety.md) — existing-root selection, retained tombstones and recovery artifacts, and operator cleanup after migration retirement.
 - [Run as a macOS launchd agent](operators/launchd.md) — operator-owned plist, raw launchctl procedures, graceful maintenance and qualification boundaries.
 - [Run with Linux systemd](operators/systemd.md) — operator-owned user unit, account custody, bounded stop and safe maintenance.
+- [Run in Docker](operators/docker.md) — fresh non-root installation, standalone Compose, existing HTTPS proxy and complete volume custody.
 - [Remote HTTPS serving](operators/remote-serving.md) — explicit listeners, public origin, generic proxy headers, streaming and local CLI access.
 - [Upstream server configuration](operators/upstream-servers.md) — servers, credentials, OAuth, operations, and catalogs.
 - [Access control](operators/access-control.md) — agents, agent credentials, grants, and grant requests.

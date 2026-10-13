@@ -1,0 +1,17 @@
+# Deny by default: no checkout metadata, dependencies, fixtures or local custody.
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/**/
+!cmd/**/*.go
+!internal/
+!internal/**/
+!internal/**/*.go
+!internal/storage/migrations/*.sql
+!internal/api/static/app.js
+!internal/api/static/app.css
+!internal/api/static/index.html
+!internal/api/static/favicon.svg
+**/*_test.go
+**/testdata/**

@@ -12,6 +12,7 @@ Start with the smallest applicable owner; release acceptance is not the default 
 - **Suite/executor/fixtures:** `make test-harness`; inspect `make suite-inventory` before changing ownership.
 - **Frontend:** `npm ci`, then `make test-frontend-browser` for the [mocked state/gallery suite](docs/maintainers/frontend-browser-tests.md); use [disposable demo/live reload](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for real-service development.
 - **CI/cache:** root `make test-ci`, then affected disjoint leaves; see [CI mapping](docs/maintainers/release-verification.md#ci-mapping).
+- **Docker packaging:** root `make test-ci` validates deterministic packaging/smoke contracts without Docker. The blocking CI `Gateway Docker smoke` owns real image build/init/start/readiness/stop and finite disposable-resource cleanup; never claim local execution where Docker is unavailable. See the [Docker guide](docs/operators/docker.md); no registry publication or installed-host qualification is implied.
 - **Docs:** check links, `npm run format:check`, and affected harness documentation tests.
 - **Go commits:** `make verify` plus focused behavioral evidence.
 - **Release:** only when authorized, [release verification](docs/maintainers/release-verification.md); native/external work requires its own authority.

@@ -120,6 +120,12 @@ Gateway is the sole active Go module. Root `test` runs Gateway alone; the empty 
 
 The root repository aggregate deliberately excludes Gateway acceptance. The Gateway `accept` profile now includes `make test-ci` once as its disjoint `repository-ci` leaf, binding the current tool inventory, selection/cache/gate definitions and suite-ownership tests instead of qualifying removed tools. This changes the acceptance definition/manifest identity; old reports remain historical evidence and cannot qualify the new revision. Do not wrap `accept` in another aggregate or repeat that leaf in the same evidence set.
 
+### Docker packaging smoke
+
+The blocking **Gateway Docker smoke** job runs `.github/scripts/docker_smoke.py` when Gateway is selected, including PRs targeting an unmerged stack branch. Required rejects failed, missing, canceled or unexpectedly skipped smoke results. `make test-ci` owns deterministic classifier/gate, smoke orchestration, packaging and guide checks without Docker access; it is not container execution evidence.
+
+The Linux amd64 CI owner builds from the module's allowlisted context, checks empty/unsafe installation refusal, initializes explicitly as UID 10001, runs the standalone Compose service on a disposable external network/volume, requires readiness and authenticated local CLI access, then asserts SIGTERM exit 0 within the 30-second grace. Commands and cleanup are bounded, resources are random-name/label-owned, and cleanup failure blocks success. No fixture credentials or container logs are emitted. CI builds but does not publish images. No local Docker execution is required where unavailable. Full private-service MCP, HTTP/Git, OAuth, restart/security qualification remains a separate container owner; this smoke is not live Debian/proxy/provider adoption or full release acceptance. See the [operator guide](../operators/docker.md).
+
 ## Constrained-memory linting
 
 Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.9; repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.

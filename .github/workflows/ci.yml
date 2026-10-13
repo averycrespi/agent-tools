@@ -119,6 +119,17 @@ jobs:
             make -C "$TOOL" test
           fi
 
+  gateway-docker:
+    name: Gateway Docker smoke
+    needs: changes
+    if: needs.changes.outputs.gateway == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and exercise disposable image
+        run: python3 -B .github/scripts/docker_smoke.py
+
   gateway-lint:
     name: Gateway lint
     needs: changes
@@ -281,6 +292,7 @@ jobs:
       - e2e-tests
       - gateway-demo
       - gateway-lint
+      - gateway-docker
       - gateway-harness
       - gateway-macos
       - frontend-browser
