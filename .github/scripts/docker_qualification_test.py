@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
-from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, LoopbackRelay, Qualification, read_sse_frame, request, startup_failure
+from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, STOPPED_SNAPSHOT, LoopbackRelay, Qualification, read_sse_frame, request, startup_failure, validate_stopped_plan
 from docker_smoke import ROOT, Smoke, command
 from docker_smoke_test import FakeDocker
 
@@ -28,6 +28,55 @@ spec.loader.exec_module(peer)
 
 
 class AdapterTests(unittest.TestCase):
+    def test_stopped_plan_requires_exact_sidecar_contract(self):
+        plan = {'dry_run': True, 'operation': 'verify-and-recover-storage', 'installation_id': 'fixture'}
+        refusal = {'code': 'inspection_unavailable', 'exit_code': 7, 'uncertain': False}
+        self.assertEqual(validate_stopped_plan(0, json.dumps(plan), False, 'fixture'), 'closed-plan')
+        self.assertEqual(validate_stopped_plan(7, json.dumps(refusal), True, 'fixture'), 'refused-control-sidecar')
+        for code, result, pending in [(7, refusal, False), (0, plan, True), (7, {'code': 'maintenance_unavailable'}, True),
+                                      (7, {**refusal, 'uncertain': True}, True), (0, {**plan, 'installation_id': 'foreign'}, False),
+                                      (7, {**refusal, 'code': 'PRIVATE-CANARY'}, True)]:
+            with self.assertRaises(RuntimeError) as caught:
+                validate_stopped_plan(code, json.dumps(result), pending, 'fixture')
+            self.assertNotIn('PRIVATE-CANARY', str(caught.exception))
+
+    def test_stopped_snapshot_is_read_only_and_detects_evidence_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'run.unclean').write_text('unclean\n')
+            private = root / 'master-key'
+            private.write_text('PRIVATE-CANARY')
+            private.chmod(0o600)
+            def snapshot():
+                result = subprocess.run([sys.executable, '-c', STOPPED_SNAPSHOT, directory],
+                                        capture_output=True, text=True, timeout=5, check=True)
+                self.assertNotIn('PRIVATE-CANARY', result.stdout)
+                self.assertNotIn('master-key', result.stdout)
+                return json.loads(result.stdout)
+            before = snapshot()
+            self.assertEqual(snapshot(), before)
+            self.assertTrue(before['marker'])
+            self.assertFalse(before['control_pending'])
+            (root / 'traffic-fixture.db-wal').write_bytes(b'optional history')
+            self.assertFalse(snapshot()['control_pending'])
+            for suffix in ('-wal', '-journal'):
+                sidecar = root / ('gateway.db' + suffix)
+                sidecar.write_bytes(b'')
+                self.assertFalse(snapshot()['control_pending'])
+                sidecar.write_bytes(b'control evidence')
+                self.assertTrue(snapshot()['control_pending'])
+                sidecar.unlink()
+            baseline = snapshot()
+            private.chmod(0o640)
+            self.assertNotEqual(snapshot()['digest'], baseline['digest'])
+            baseline = snapshot()
+            private.write_text('changed evidence')
+            self.assertNotEqual(snapshot()['digest'], baseline['digest'])
+            private.unlink()
+            private.symlink_to(root / 'run.unclean')
+            with self.assertRaises(subprocess.CalledProcessError):
+                snapshot()
+
     def test_extension_keeps_one_init_and_uses_replacement_identity(self):
         class Extended(Smoke):
             def qualify(self, container):

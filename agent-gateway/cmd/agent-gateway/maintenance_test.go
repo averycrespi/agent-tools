@@ -76,6 +76,64 @@ func TestMaintenanceDryRunAndUnconfirmedExecutionDoNotWrite(t *testing.T) {
 	}
 }
 
+func TestMaintenanceCrashMarkerPlanningPreservesClosedAndWALState(t *testing.T) {
+	for _, sidecar := range []string{"", "-wal", "-journal"} {
+		t.Run("control"+sidecar, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "gateway")
+			initialize := newTestRootCmd(t)
+			initialize.SetOut(new(bytes.Buffer))
+			initialize.SetErr(new(bytes.Buffer))
+			initialize.SetArgs([]string{"init", "--data-dir", root, "--confirm"})
+			require.NoError(t, initialize.ExecuteContext(t.Context()))
+			layout, err := gatewaypaths.Resolve(root)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(layout.RunMarker, []byte("unclean\n"), 0o600))
+			if sidecar != "" {
+				// Immutable planning must refuse before interpreting sidecar bytes.
+				require.NoError(t, os.WriteFile(layout.Database+sidecar, []byte("retained control sidecar"), 0o600))
+			}
+			before := treeBytes(t, root)
+			metadata := map[string]os.FileInfo{}
+			for path := range before {
+				info, statErr := os.Stat(path)
+				require.NoError(t, statErr)
+				metadata[path] = info
+			}
+			command := newTestRootCmd(t)
+			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+			command.SetOut(stdout)
+			command.SetErr(stderr)
+			command.SetArgs([]string{"maintenance", "verify-and-recover-storage", "--data-dir", root, "--dry-run", "--json"})
+			err = command.ExecuteContext(t.Context())
+			if sidecar == "" {
+				require.NoError(t, err, stderr.String())
+				var plan maintenancePlan
+				require.NoError(t, json.Unmarshal(stdout.Bytes(), &plan))
+				require.True(t, plan.DryRun)
+				require.Equal(t, "verify-and-recover-storage", plan.Operation)
+				require.NotEmpty(t, plan.InstallationID)
+			} else {
+				require.Error(t, err)
+				require.Equal(t, 7, commandExitCode(err))
+				require.Empty(t, stdout.String())
+				var problem map[string]any
+				require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
+				require.Equal(t, "inspection_unavailable", problem["code"])
+				require.Equal(t, float64(7), problem["exit_code"])
+				require.Equal(t, false, problem["uncertain"])
+			}
+			require.Equal(t, before, treeBytes(t, root))
+			for path, original := range metadata {
+				info, statErr := os.Stat(path)
+				require.NoError(t, statErr)
+				require.Equal(t, original.Mode(), info.Mode())
+				require.Equal(t, original.ModTime(), info.ModTime())
+				require.True(t, os.SameFile(original, info))
+			}
+		})
+	}
+}
+
 func TestSecurityMaintenanceLeavesOptionalHistoryUntouched(t *testing.T) {
 	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials"} {
 		t.Run(operation, func(t *testing.T) {

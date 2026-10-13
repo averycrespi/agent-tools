@@ -38,6 +38,45 @@ CASES = ('image-network-isolation', 'shipped-image-then-derived', 'browser-gener
          'replacement-persistence', 'stopped-backup-maintenance', 'forced-stop-diagnostics')
 
 
+# Read-only fingerprints stay private; no file bytes or paths enter the report.
+STOPPED_SNAPSHOT = r'''
+import hashlib,itertools,json,stat,sys
+from pathlib import Path
+root=Path(sys.argv[1]); entries=[]; total=0; pending=False; marker=False
+for path in itertools.chain([root],root.rglob('*')):
+    if len(entries)>=4096: raise RuntimeError('snapshot entry bound')
+    info=path.lstat(); name=str(path.relative_to(root)); digest=None
+    if stat.S_ISREG(info.st_mode):
+        total+=info.st_size
+        if info.st_size>64*1024*1024 or total>256*1024*1024: raise RuntimeError('snapshot byte bound')
+        with path.open('rb') as stream: digest=hashlib.file_digest(stream,'sha256').hexdigest()
+        pending |= name in ('gateway.db-wal','gateway.db-journal') and info.st_size>0
+        marker |= name=='run.unclean' and info.st_size>0
+    elif not stat.S_ISDIR(info.st_mode): raise RuntimeError('snapshot unsafe file type')
+    entries.append([name,info.st_mode,info.st_uid,info.st_gid,info.st_ino,info.st_nlink,info.st_size,info.st_mtime_ns,info.st_ctime_ns,digest])
+entries.sort(key=lambda entry:entry[0])
+print(json.dumps({'digest':hashlib.sha256(json.dumps(entries).encode()).hexdigest(),'control_pending':pending,'marker':marker}))
+'''
+
+
+def validate_stopped_plan(code, text, pending, installation):
+    try:
+        result = json.loads(text)
+    except (ValueError, TypeError):
+        raise RuntimeError('stopped dry-run returned invalid JSON; output withheld') from None
+    require(isinstance(result, dict), 'stopped dry-run did not return an object')
+    if pending:
+        require(code == 7 and result.get('code') == 'inspection_unavailable'
+                and result.get('exit_code') == 7 and result.get('uncertain') is False,
+                'nonempty control sidecar did not yield exact immutable-inspection refusal')
+        return 'refused-control-sidecar'
+    require(code == 0 and result.get('dry_run') is True
+            and result.get('operation') == 'verify-and-recover-storage'
+            and result.get('installation_id') == installation,
+            'closed control storage did not yield the expected dry-run plan')
+    return 'closed-plan'
+
+
 def require(value, message):
     if not value:
         raise RuntimeError(message)
@@ -743,15 +782,26 @@ class Qualification(Smoke):
         self.docker('kill', '--signal', 'KILL', self.container)
         state = json.loads(self.docker('inspect', '--format', '{{json .State}}', self.container)[1])
         require(not state['Running'] and state['ExitCode'] == 137, 'forced stop not observed')
-        self.shell('test -s run.unclean')
+        def snapshot():
+            _, text = self.dc('run', '--rm', '--no-deps', '--entrypoint', 'python3', 'gateway',
+                              '-c', STOPPED_SNAPSHOT, '/var/lib/agent-gateway', timeout=60)
+            return json.loads(text)
+        before = snapshot()
+        require(before['marker'], 'forced-stop marker absent')
         # A crash marker alone is not corruption: normal startup verifies integrity.
         # Stopped diagnostic inspection must neither remove it nor repair/reinitialize.
         _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--verify-storage', '--json', check=False)
         diagnostics = json.loads(text)
         require(any(check['name'] == 'process ownership' and check['state'] == 'stopped' for check in diagnostics['checks']), 'forced-stop ownership diagnostic absent')
-        self.shell('test -s run.unclean')
-        self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance', 'verify-and-recover-storage', '--dry-run', timeout=60)
-        self.shell('test -s run.unclean')
+        expected = 'failed' if before['control_pending'] else 'ok'
+        require(any(check['name'] == 'storage inspection' and check['state'] == expected
+                    for check in diagnostics['checks']), 'forced-stop storage diagnostic did not match control sidecar state')
+        require(snapshot() == before, 'stopped doctor changed installation evidence')
+        code, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance',
+                             'verify-and-recover-storage', '--dry-run', '--json', timeout=60, check=False)
+        require(snapshot() == before, 'stopped dry-run changed installation evidence')
+        self.report['forced_stop_inspection'] = validate_stopped_plan(
+            code, text, before['control_pending'], self.report['installation_identity'])
         self.start()
         self.api('GET', '/api/v2/system-status')
         self.wait_server(self.servers[2])
