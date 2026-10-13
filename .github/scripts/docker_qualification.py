@@ -115,7 +115,10 @@ def read_sse_frame(response):
 
 def settlement_log_summary(text, resources):
     """Project only exact-operation diagnostic causes from a bounded private window."""
-    lines = text[-16384:].splitlines()
+    raw = text.encode('utf-8')
+    lines = raw[-16384:].decode('utf-8', errors='replace').splitlines()
+    if len(raw) > 16384:
+        lines = lines[1:]  # Never interpret a possibly partial first record.
     causes = []
     for line in lines[-100:]:
         try:
@@ -127,7 +130,30 @@ def settlement_log_summary(text, resources):
             cause = value.get('cause')
             causes.append(cause if cause in ('capacity', 'unavailable', 'stopped') else 'other')
     return {'window_only': True, 'causes': causes[:8],
-            'truncated': len(causes) > 8 or len(lines) > 100 or len(text) > 16384}
+            'truncated': len(causes) > 8 or len(lines) > 100 or len(raw) > 16384}
+
+
+def catalog_log_summary(text, server_id):
+    """Keep only closed catalog audit facts for the exact private server resource."""
+    raw = text.encode('utf-8')
+    lines = raw[-16384:].decode('utf-8', errors='replace').splitlines()
+    if len(raw) > 16384:
+        lines = lines[1:]  # Never interpret a possibly partial first record.
+    events = []
+    operations = {'prepare refresh audit': 'prepare-audit', 'append refresh audit': 'append-audit'}
+    for line in lines[-100:]:
+        try:
+            value = json.loads(line)
+        except ValueError:
+            continue
+        if (isinstance(value, dict) and value.get('event') == 'upstream_unhealthy'
+                and value.get('phase') == 'tool_discovery' and value.get('component') == 'catalog'
+                and value.get('resource') == server_id):
+            events.append({'operation': operations.get(value.get('operation'), 'other')
+                           if isinstance(value.get('operation'), str) else 'other',
+                           'cause': 'capacity' if value.get('explanation') == 'storage mutation capacity is exhausted' else 'other'})
+    return {'window_only': True, 'events': events[:8],
+            'truncated': len(events) > 8 or len(lines) > 100 or len(raw) > 16384}
 
 
 def startup_failure(state, logs):
@@ -362,8 +388,11 @@ class Qualification(Smoke):
             code, text = self.docker('logs', '--tail', '100', self.container, timeout=10, check=False)
             observed['settlement_diagnostics'] = settlement_log_summary(text, resources) if code == 0 else {}
             observed['settlement_diagnostics']['read_ok'] = code == 0
+            observed['catalog_diagnostics'] = catalog_log_summary(text, sid) if code == 0 else {}
+            observed['catalog_diagnostics']['read_ok'] = code == 0
         except (RuntimeError, subprocess.TimeoutExpired):
             observed['settlement_diagnostics'] = {'read_ok': False}
+            observed['catalog_diagnostics'] = {'read_ok': False}
         raise RuntimeError('server did not reach expected settled state: ' + json.dumps(observed, sort_keys=True))
 
     def server(self, namespace, transport, enabled=True, status=201):

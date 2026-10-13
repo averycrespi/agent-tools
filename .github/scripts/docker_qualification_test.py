@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
-from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, STOPPED_SNAPSHOT, LoopbackRelay, Qualification, read_sse_frame, request, settlement_log_summary, startup_failure, validate_stopped_plan
+from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, STOPPED_SNAPSHOT, LoopbackRelay, Qualification, catalog_log_summary, read_sse_frame, request, settlement_log_summary, startup_failure, validate_stopped_plan
 from docker_smoke import ROOT, Smoke, command
 from docker_smoke_test import FakeDocker
 
@@ -58,6 +58,54 @@ class AdapterTests(unittest.TestCase):
         self.assertTrue(limited['truncated'])
         self.assertTrue(settlement_log_summary('x' * 17000, {resource})['truncated'])
         self.assertTrue(settlement_log_summary('\n'.join(['{}'] * 101), {resource})['truncated'])
+
+    def test_catalog_logs_keep_only_exact_server_closed_audit_facts(self):
+        resource = 'private-canary-server'
+        record = {'event': 'upstream_unhealthy', 'phase': 'tool_discovery', 'component': 'catalog',
+                  'resource': resource, 'operation': 'append refresh audit',
+                  'explanation': 'storage mutation capacity is exhausted', 'extra': 'private-canary'}
+        unrelated = [{**record, key: 'private-canary-foreign'} for key in ('event', 'phase', 'component', 'resource')]
+        text = '\n'.join(['private-canary-invalid', '[]'] + [json.dumps(r) for r in unrelated] + [json.dumps(record),
+                         json.dumps({**record, 'operation': ['private-canary'], 'explanation': 'private-canary'}),
+                         json.dumps({**record, 'operation': 'prepare refresh audit', 'explanation': 'private-canary'})])
+        result = catalog_log_summary(text, resource)
+        self.assertEqual(result, {'window_only': True, 'events': [{'operation': 'append-audit', 'cause': 'capacity'},
+                                                               {'operation': 'other', 'cause': 'other'},
+                                                               {'operation': 'prepare-audit', 'cause': 'other'}], 'truncated': False})
+        self.assertNotIn('private-canary', json.dumps(result))
+        limited = catalog_log_summary('\n'.join([json.dumps(record)] * 12), resource)
+        self.assertEqual(len(limited['events']), 8)
+        self.assertTrue(limited['truncated'])
+        self.assertTrue(catalog_log_summary('x' * 17000, resource)['truncated'])
+        self.assertTrue(catalog_log_summary('\n'.join(['{}'] * 101), resource)['truncated'])
+
+    def test_private_log_windows_count_utf8_bytes_and_discard_cut_records(self):
+        server = 'private-canary-server'
+        settlement = {'event': 'reconciliation_settlement_failure', 'resource': server + '/operation', 'cause': 'capacity'}
+        catalog = {'event': 'upstream_unhealthy', 'phase': 'tool_discovery', 'component': 'catalog',
+                   'resource': server, 'operation': 'append refresh audit', 'explanation': 'storage mutation capacity is exhausted'}
+        for summarize, resource, record, field in ((settlement_log_summary, {server + '/operation'}, settlement, 'causes'),
+                                                    (catalog_log_summary, server, catalog, 'events')):
+            with self.subTest(field=field):
+                oversized = json.dumps({**record, 'ignored': 'é' * 9000}, ensure_ascii=False)
+                self.assertLess(len(oversized), 16384)
+                self.assertGreater(len(oversized.encode('utf-8')), 16384)
+                result = summarize(oversized, resource)
+                self.assertTrue(result['truncated'])
+                self.assertEqual(result[field], [])
+                cut_codepoint = oversized + '\n'
+                self.assertEqual(cut_codepoint.encode('utf-8')[-16384], 0xa9)
+                result = summarize(cut_codepoint, resource)
+                self.assertTrue(result['truncated'])
+                self.assertEqual(result[field], [])
+                complete = json.dumps(record)
+                result = summarize(oversized + '\n' + complete, resource)
+                self.assertTrue(result['truncated'])
+                self.assertEqual(len(result[field]), 1)
+                self.assertNotIn('private-canary', json.dumps(result))
+                result = summarize(json.dumps({**record, 'ignored': 'é' * 100}, ensure_ascii=False), resource)
+                self.assertFalse(result['truncated'])
+                self.assertEqual(len(result[field]), 1)
 
     def test_stopped_plan_requires_exact_sidecar_contract(self):
         plan = {'dry_run': True, 'operation': 'verify-and-recover-storage', 'installation_id': 'fixture'}
@@ -150,6 +198,7 @@ class AdapterTests(unittest.TestCase):
                         owner.wait_server('private-canary-server')
                 expected.update(runtime_id_present=True, runtime_reason='other', catalog_state='current', operations_truncated=True,
                                 settlement_diagnostics={'read_ok': True, 'window_only': True, 'causes': [], 'truncated': False},
+                                catalog_diagnostics={'read_ok': True, 'window_only': True, 'events': [], 'truncated': False},
                                 operations=[{'tracked': True, 'activate': True, 'state': 'succeeded', 'started': False, 'finished': True}]
                                 + [{'tracked': False, 'activate': False, 'state': 'other', 'started': False, 'finished': False}] * 7)
                 self.assertEqual(owner.report['server_settlement_failure'], expected)

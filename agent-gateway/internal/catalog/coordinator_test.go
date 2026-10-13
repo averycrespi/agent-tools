@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"sync"
@@ -129,6 +130,42 @@ func TestCoordinatorInitialAndNoPriorRefreshFailuresRemainHealthyAndRecoverable(
 			require.Len(t, scheduler.calls, 1)
 		})
 	}
+}
+
+func TestCoordinatorInitialAuditRefusalWaitsForGridWithoutTraversal(t *testing.T) {
+	repository, serverRepository, clock, store := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[{"name":"one","inputSchema":{"type":"object"}}]}`)}
+	scheduler := newCatalogScheduler()
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+
+	var outcome runtimes.CatalogOutcome
+	require.NoError(t, store.Mutate(context.Background(), func(*sql.Tx) error {
+		outcome = coordinator.Activate(context.Background(), candidate)
+		return nil
+	}))
+	require.Equal(t, "append refresh audit", outcome.DiagnosticDetail.Operation)
+	require.Equal(t, storage.ErrMutationBusy.Error(), outcome.DiagnosticDetail.Explanation)
+	assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
+	require.NotNil(t, outcome.Reason)
+	assert.Equal(t, contract.ReasonConnectivity, *outcome.Reason)
+	assert.Equal(t, contract.ActiveCatalogAbsent, registry.Status(server.ID).State)
+	assert.Zero(t, client.callCount())
+	require.Equal(t, 1, scheduler.count())
+	pollAt := NextPoll(clock.now, PollOffset(catalogInstallationID, server.ID))
+	assert.Equal(t, pollAt.Sub(clock.now), scheduler.call(0).delay)
+
+	clock.now = pollAt
+	scheduler.fire(t, 0)
+	require.Eventually(t, func() bool { return scheduler.count() == 2 }, time.Second, time.Millisecond)
+	assert.Equal(t, 1, client.callCount())
+	assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
+	assert.Equal(t, 5*time.Minute, scheduler.call(1).delay)
 }
 
 func TestCoordinatorPollAndExplicitRefreshShareOneExactTraversal(t *testing.T) {
