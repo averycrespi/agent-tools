@@ -27,6 +27,11 @@ PUBLIC_SUBNET = '11.254.139.0/29'
 PUBLIC_IP = '11.254.139.2'
 ISSUER = 'https://external.test:8443'
 CADDY_IMAGE = 'caddy:2.10.2-alpine@sha256:d8c17a862962def15cde69863a3a463f25a2664942eafd7bdbf050e9c3116b83'
+# The official Caddy binary has a file capability incompatible with cap_drop ALL.
+# Copy bytes, not inode metadata, and keep the fixture's empty capability set.
+CADDY_START = ('test "$(awk \'/^CapEff:/ {print $2}\' /proc/self/status)" = 0000000000000000; '
+               'cat /usr/bin/caddy > /tmp/caddy; chmod 0700 /tmp/caddy; '
+               'cmp /usr/bin/caddy /tmp/caddy; exec /tmp/caddy run --config /fixture-config/Caddyfile')
 CASES = ('image-network-isolation', 'shipped-image-then-derived', 'browser-generic-proxy', 'boundary-and-caddy',
          'mcp-stdio-http-https-stream', 'mcp-address-denials', 'oauth-callbacks',
          'forward-http-https-trust', 'native-git-permissions', 'one-shot-uncertain',
@@ -211,8 +216,8 @@ class Qualification(Smoke):
         self.docker('run', '-d', '--platform', 'linux/amd64', '--name', self.caddy, '--label', self.label, '--network', self.network,
                     '--read-only', '--cap-drop', 'ALL',
                     '--security-opt', 'no-new-privileges:true', '--tmpfs', '/data', '--tmpfs', '/config',
-                    '-v', str(config) + ':/fixture-config:ro', CADDY_IMAGE,
-                    'caddy', 'run', '--config', '/fixture-config/Caddyfile', timeout=120)
+                    '--tmpfs', '/tmp:exec,mode=0700,size=128m', '--entrypoint', '/bin/sh',
+                    '-v', str(config) + ':/fixture-config:ro', CADDY_IMAGE, '-ec', CADDY_START, timeout=120)
         self.caddy_port = self.port(self.caddy, '9443/tcp')
         self.report['caddy_image'] = self.docker('inspect', '--format', '{{.Image}}', self.caddy)[1].strip()
         for network in (self.network, self.public_network):

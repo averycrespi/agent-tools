@@ -17,7 +17,7 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
-from docker_qualification import CASES, PUBLIC_IP, PUBLIC_SUBNET, LoopbackRelay, Qualification, read_sse_frame, request, startup_failure
+from docker_qualification import CADDY_IMAGE, CADDY_START, CASES, PUBLIC_IP, PUBLIC_SUBNET, LoopbackRelay, Qualification, read_sse_frame, request, startup_failure
 from docker_smoke import ROOT, Smoke, command
 from docker_smoke_test import FakeDocker
 
@@ -112,6 +112,13 @@ class AdapterTests(unittest.TestCase):
             self.assertTrue(any(args[1:4] == ['network', 'create', '--internal'] for args in calls))
             self.assertFalse(any('push' in args or '--privileged' in args or '--network=host' in args for args in calls))
             self.assertEqual(owner.report['cases']['image-network-isolation'], 'passed')
+            caddy = next(args for args in calls if CADDY_IMAGE in args)
+            self.assertEqual(caddy[-2:], ['-ec', CADDY_START])
+            self.assertIn('0000000000000000', CADDY_START)
+            self.assertIn('/tmp:exec,mode=0700,size=128m', caddy)
+            self.assertNotIn('--cap-add', caddy)
+            self.assertIn('--cap-drop', caddy)
+            self.assertIn('no-new-privileges:true', caddy)
             self.assertFalse(any('-p' in args for args in calls), 'internal-only peers cannot publish ports')
             self.assertEqual(owner.port(owner.private_peer, '9443/tcp'), owner.proxy_port)
             self.assertEqual(len(owner.relays), 2)
@@ -120,6 +127,22 @@ class AdapterTests(unittest.TestCase):
             for relay in owner.relays.values():
                 relay.close()
             owner.temp.cleanup()
+
+    @unittest.skipUnless(sys.platform.startswith('linux'), 'Linux fixture inode metadata')
+    def test_caddy_launch_copies_bytes_without_extended_attributes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, target = Path(directory) / 'source', Path(directory) / 'target'
+            source.write_text('#!/bin/sh\n[ "$1" = run ] && [ "$2" = --config ]\n')
+            source.chmod(0o755)
+            os.setxattr(source, 'user.fixture-canary', b'not-to-be-inherited')
+            # Exercise the byte-copy/exec seam without constraining the test host's caps.
+            program = CADDY_START.partition('; ')[2].replace('/usr/bin/caddy', str(source)).replace('/tmp/caddy', str(target))
+            result = subprocess.run(['/bin/sh', '-ec', program], capture_output=True, timeout=5, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(source.read_bytes(), target.read_bytes())
+            self.assertIn('user.fixture-canary', os.listxattr(source))
+            self.assertEqual(os.listxattr(target), [])
+            self.assertEqual(target.stat().st_mode & 0o777, 0o700)
 
     def test_ingress_refuses_exited_peer_before_creating_listener(self):
         owner = Qualification(lambda *_args, **_kwargs: (0, '{"State":{"Running":false}}'))
