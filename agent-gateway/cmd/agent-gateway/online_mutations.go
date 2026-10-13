@@ -346,6 +346,12 @@ func validateHTTPTransportInput(object map[string]json.RawMessage) error {
 		return invalidServerMutationInput(contract.ServerConfigurationFieldAuthentication, contract.ServerConfigurationRuleRequired)
 	}
 	members := []string{"kind", "url", "protocol_mode", "authentication"}
+	if raw, present := object["allow_private_http"]; present {
+		members = append(members, "allow_private_http")
+		if !jsonBoolean(raw) {
+			return invalidServerMutationInput(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
+		}
+	}
 	if raw, present := object["headers"]; present {
 		members = append(members, "headers")
 		if string(raw) != "null" {

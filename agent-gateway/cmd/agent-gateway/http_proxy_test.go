@@ -10,7 +10,7 @@ import (
 )
 
 func TestHTTPProxyInvalidSelectionPrecedesInstallationAccess(t *testing.T) {
-	for _, authority := range []string{"", "0.0.0.0:8212", "localhost:8212", "127.0.0.1:0", "127.0.0.1:8210"} {
+	for _, authority := range []string{"", "224.0.0.1:8212", "localhost:8212", "127.0.0.1:0", "127.0.0.1:8210"} {
 		t.Run(authority, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "must-not-be-created")
 			command := newRootCmd()

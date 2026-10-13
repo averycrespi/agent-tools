@@ -698,7 +698,28 @@ export async function runServerCreateUpdate(
       exact: true,
     })
     .click();
+  await expect(page.getByTestId("server-private-http")).not.toBeChecked();
   await capture(page, "create-http-transport");
+  await page.getByTestId("server-private-http").check();
+  await page.locator("#server-url").fill("http://notes-mcp:8080/mcp");
+  await page.locator("#server-auth-none").check();
+  await page.locator("#server-namespace").fill("private-notes");
+  await page.locator("#server-display-name").fill("Private notes");
+  await capture(page, "create-private-http", true);
+  await page.getByTestId("server-editor-submit").click();
+  await expect(page.getByTestId("server-creation-review")).toContainText(
+    "Allowed — unauthenticated plaintext only",
+  );
+  await capture(page, "create-private-http-review", true);
+  await page.getByTestId("server-change-confirm-cancel").click();
+  await page.locator("#server-auth-bearer").check();
+  await page.getByTestId("server-editor-submit").click();
+  await expect(
+    page.getByText("Bearer authentication and OAuth require HTTPS."),
+  ).toBeVisible();
+  if (creates !== 0) fail("plaintext bearer submitted a create");
+  await capture(page, "create-private-http-auth-error");
+  await page.getByTestId("server-private-http").uncheck();
   await page.locator("#server-url").fill("file:///tmp/mcp");
   await page.locator("#server-auth-none").check();
   await page.locator("#server-namespace").fill("url-validation");
@@ -1406,6 +1427,20 @@ async function assertOAuthScopeEditing(
     if (submitted.length !== previous + 1)
       fail("OAuth scope edit did not submit exactly once");
   };
+  const callback = page.locator("#server-callback-uri");
+  await callback.fill("https://gateway.example/other");
+  await save.click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "Use Gateway's exact configured HTTPS origin followed by /oauth/callback, or leave blank for the default.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(submitted).toHaveLength(0);
+  await capture(page, "settings-oauth-remote-invalid");
+  await callback.fill("https://gateway.example:8443/oauth/callback");
+  await capture(page, "settings-oauth-remote-configured", true);
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
   await scopeRows.nth(1).fill("fixture.write");
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
@@ -1420,6 +1455,10 @@ async function assertOAuthScopeEditing(
     '["fixture.read","fixture.write"]'
   )
     fail("scope rows were not normalized in the actual update request");
+  expect(submitted.at(-1)?.callback_uri).toBe(
+    "https://gateway.example:8443/oauth/callback",
+  );
+  await callback.fill("");
   await capture(page, "settings-oauth-validation");
   for (let index = 3; index > 0; index -= 1)
     await page
@@ -1428,6 +1467,7 @@ async function assertOAuthScopeEditing(
   await submit();
   if (JSON.stringify(submitted.at(-1)?.scopes) !== "[]")
     fail("explicit empty scopes were not serialized as an empty list");
+  expect(Object.hasOwn(submitted.at(-1) ?? {}, "callback_uri")).toBe(false);
   await capture(page, "settings-oauth-empty-scopes");
   await page.getByRole("button", { name: "Add scope", exact: true }).click();
   await scopeRows.fill("fixture.inactive");

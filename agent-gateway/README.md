@@ -10,7 +10,7 @@ Agent Gateway is a local access-control service for three independent workflows:
 
 Each agent has its own identity and one Gateway credential. Upstream credentials and OAuth stay with Gateway, encrypted in control SQLite with a separate owner-only master key. Manage access through the browser or CLI, inspect optional traffic history, and keep administrative audit separate from execution evidence.
 
-Gateway works with your preferred client and sandbox. Sandbox Manager, Lima and a particular agent harness are not dependencies. It listens on loopback; VMs and containers need a separately trusted forwarding path. It is not an OS sandbox or network-enforced egress boundary.
+Gateway works with your preferred client and sandbox. Sandbox Manager, Lima and a particular agent harness are not dependencies. It defaults to loopback; VMs and containers need an operator-controlled forwarding path or explicit remote-serving configuration. It is not an OS sandbox or network-enforced egress boundary.
 
 ![Gateway Overview with status, storage, attention and populated HTTP, Git and MCP cards](docs/images/overview.png)
 
@@ -27,6 +27,11 @@ make install
 ```
 
 This installs only `agent-gateway` into `$(go env GOPATH)/bin`; put that directory on your `PATH` before the commands below.
+
+For a fresh Docker installation behind an existing HTTPS proxy, use the
+[Docker operator guide](docs/operators/docker.md) and standalone Compose example.
+The image runs non-root with one persistent installation volume; build/runtime
+qualification runs in CI, and no registry image is published by this repository.
 
 ## Quick start
 
@@ -72,6 +77,20 @@ For HTTP or Git, reuse the agent identity and credential but configure **separat
 HTTP proxy listening is default-on at `127.0.0.1:8212`; client use and CA trust are explicit setup. Use `serve --clear-http-proxy-listen` for MCP-only startup. [Proxy setup](docs/operators/http-proxy.md) explains custom listeners and the narrow historical launchd exception. Supervise the foreground process with operator-owned [launchd](docs/operators/launchd.md) or [systemd](docs/operators/systemd.md) configuration.
 
 To explore without your real credentials, run `make serve-demo` **from the `agent-gateway` directory**. It creates a disposable installation with encrypted custody and curated MCP/HTTP/Git examples, not OS sandbox isolation. [Demo instructions](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) own datasets, credentials and cleanup.
+
+## Remote serving behind an HTTPS proxy
+
+For an initialized installation behind an operator-owned HTTPS reverse proxy:
+
+```bash
+agent-gateway serve --listen 0.0.0.0:8210 \
+  --external-origin https://gateway.example \
+  --clear-http-proxy-listen
+```
+
+Replace the example with your canonical public HTTPS origin, without a trailing slash. Non-loopback administration requires this flag; bare `serve` remains local-only. The configured origin selects exact public Host/Origin trust and Secure cookies, independently of the bind address. Internal aliases do not grant browser trust.
+
+Follow the [generic proxy contract](docs/operators/remote-serving.md) for Host/Origin preservation, forwarding-header stripping, streaming, no caching/replay, narrow local health/CLI access and security limits. HTTP/Git forwarding remains a separate direct listener, not a website route. Remote HTTPS CLI, external OAuth callbacks, container qualification and live proxy adoption are separate work.
 
 ## Existing installations and upgrades
 

@@ -14,14 +14,14 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
-func TestValidateAuthorityAcceptsOnlyNumericIPv4Loopback(t *testing.T) {
+func TestValidateAuthorityAcceptsNumericIPv4Binds(t *testing.T) {
 	t.Parallel()
-	for _, authority := range []string{"127.0.0.1:8210", "127.12.34.56:1"} {
+	for _, authority := range []string{"127.0.0.1:8210", "127.12.34.56:1", "0.0.0.0:8210", "10.0.0.2:8210"} {
 		if err := ValidateAuthority(authority); err != nil {
 			t.Fatalf("ValidateAuthority(%q): %v", authority, err)
 		}
 	}
-	for _, authority := range []string{"localhost:8210", "[::1]:8210", "0.0.0.0:8210", "127.0.0.1", "127.0.0.1:0", "127.0.0.1:http"} {
+	for _, authority := range []string{"localhost:8210", "[::1]:8210", "224.0.0.1:8210", "127.0.0.1", "127.0.0.1:0", "127.0.0.1:http"} {
 		if err := ValidateAuthority(authority); err == nil {
 			t.Errorf("ValidateAuthority(%q) succeeded", authority)
 		}

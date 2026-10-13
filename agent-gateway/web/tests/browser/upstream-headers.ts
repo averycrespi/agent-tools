@@ -31,7 +31,9 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   await page.locator("#server-namespace").fill("header-fixture");
   await page.locator("#server-display-name").fill("Header fixture");
   await page.locator("#server-transport-http").check();
-  await page.locator("#server-url").fill("https://resource.example/mcp");
+  await expect(page.getByTestId("server-private-http")).not.toBeChecked();
+  await page.locator("#server-url").fill("http://notes-mcp:8080/mcp");
+  await page.getByTestId("server-private-http").check();
   await page.locator("#server-auth-none").check();
   await expect(
     page.getByText(
@@ -94,13 +96,23 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   expect(created.status()).toBe(201);
   expect(created.headers()["x-mcp-toolsets"]).toBeUndefined();
   const body = (await created.json()) as {
-    server: { id: string; transport: { headers: Record<string, string> } };
+    server: {
+      id: string;
+      transport: {
+        headers: Record<string, string>;
+        allow_private_http?: boolean;
+        url: string;
+      };
+    };
   };
   expect(body.server.transport.headers).toEqual({ "X-MCP-Toolsets": value });
+  expect(body.server.transport.allow_private_http).toBe(true);
+  expect(body.server.transport.url).toBe("http://notes-mcp:8080/mcp");
   await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page.getByLabel("Header value 1", { exact: true })).toHaveValue(
     value,
   );
+  await expect(page.getByTestId("server-private-http")).toBeChecked();
   await capture("edit-populated");
   await page
     .getByLabel("Header value 1", { exact: true })
@@ -147,6 +159,8 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
   await page
     .getByRole("button", { name: "Remove custom http headers row 1" })
     .click();
+  await page.getByTestId("server-private-http").uncheck();
+  await page.locator("#server-url").fill("https://resource.example/mcp");
   await capture("edit-cleared");
   await save();
   await expect(page.getByTestId("server-header-name")).toHaveCount(0);
@@ -168,6 +182,10 @@ export async function exerciseUpstreamHeaders(page: Page): Promise<string[]> {
       });
     });
   await expect(page.getByTestId("server-header-name")).toHaveCount(0);
+  await expect(page.getByTestId("server-private-http")).not.toBeChecked();
+  await expect(page.locator("#server-url")).toHaveValue(
+    "https://resource.example/mcp",
+  );
   await page.evaluate(() => {
     location.hash = "#/mcp/servers";
   });

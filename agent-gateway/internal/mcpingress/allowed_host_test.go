@@ -24,6 +24,13 @@ func loopbackRequest(request *http.Request, host string) *http.Request {
 }
 
 func TestAllowedHostSDKTransports(t *testing.T) {
+	for _, origin := range []string{"", "https://gateway.example:8443"} {
+		t.Run("origin="+origin, func(t *testing.T) { testAllowedHostSDKTransports(t, origin) })
+	}
+}
+
+func testAllowedHostSDKTransports(t *testing.T, origin string) {
+	t.Helper()
 	authority := newTestAuthority(t)
 	authority.add(t, "valid", contract.VisibilityRequestable)
 	list := listToolsFunc(func(ctx context.Context, lease *authorization.Lease, cursor string, encode ToolsListEncoder) ([]byte, error) {
@@ -34,12 +41,16 @@ func TestAllowedHostSDKTransports(t *testing.T) {
 	ingress := New(Options{Authenticator: authority, ListTools: list})
 	t.Cleanup(ingress.Shutdown)
 	boundary, err := httpboundary.New(httpboundary.Options{
-		Authority: contract.DefaultAuthority, AllowedHosts: []string{"host.docker.internal"},
+		Authority: contract.DefaultAuthority, ExternalOrigin: origin, AllowedHosts: []string{"host.docker.internal"},
 		Authenticate: ingress.Authenticate,
 		Next:         ingress,
 	})
 	require.NoError(t, err)
-	for _, host := range []string{contract.DefaultAuthority, "host.docker.internal:8210"} {
+	hosts := []string{contract.DefaultAuthority, "host.docker.internal:8210"}
+	if origin != "" {
+		hosts = append(hosts, strings.TrimPrefix(origin, "https://"))
+	}
+	for _, host := range hosts {
 		t.Run(host, func(t *testing.T) {
 			t.Run("modern SDK discovery", func(t *testing.T) {
 				request := loopbackRequest(modernRequest(http.MethodPost, strings.Replace(modernPing, `"ping"`, `"server/discover"`, 1)), host)

@@ -73,9 +73,34 @@ agent-gateway mcp server update SERVER_ID --file PATH --yes
 
 Omitting `--etag` performs one validated server read and uses that exact strong value once. Supplying `--etag ETAG` pins the explicit value and skips the convenience read. A patch that changes `enabled` or `transport` requires consequence confirmation because it can withdraw a runtime or replace behavior. A display-name-only patch does not prompt. The CLI never refreshes a stale ETag or replays an update automatically. On conflict, read the current server, review the new state, and prepare fresh intent.
 
+## Private HTTP MCP servers
+
+For an unauthenticated MCP server on a trusted private network, explicitly enable **Allow private HTTP** in the browser create/edit form or set `allow_private_http: true` in its transport. This opt-in is per server, not a global bypass. For example, save this definition and use `agent-gateway mcp server create --file PATH`:
+
+```json
+{
+  "namespace": "notes",
+  "display_name": "Private notes",
+  "enabled": false,
+  "transport": {
+    "kind": "streamable_http",
+    "url": "http://notes-mcp:8080/mcp",
+    "protocol_mode": "auto",
+    "authentication": { "mode": "none" },
+    "allow_private_http": true
+  }
+}
+```
+
+Gateway must resolve `notes-mcp` on its own network. Only RFC 1918 IPv4 (`10/8`, `172.16/12`, `192.168/16`) and IPv6 ULA (`fc00::/7`) answers are allowed, including IPv4-mapped forms. Every answer must qualify on every connection. Public addresses, shared/CGNAT addresses, link-local metadata endpoints, multicast, unspecified addresses and DNS-to-loopback are rejected. Existing unauthenticated numeric-loopback HTTP endpoints need no opt-in. Private HTTPS access is not expanded.
+
+Plaintext has no confidentiality or server authentication: use only operator-controlled trusted networks and never put secrets in custom headers. Bearer and OAuth modes require HTTPS even with this option enabled. This setting is unrelated to inbound `--allowed-host` or HTTP/Git proxy grants. It neither creates a Docker network nor qualifies a deployment.
+
+The boolean persists across restart. Omitted or false denies private HTTP; null is invalid. A full replacement transport without it clears permission; a patch omitting transport preserves it. To remove permission, also replace a private HTTP URL with a permitted endpoint, or delete the server. Changing the policy replaces the runtime and fences old calls/catalog; merely disabling the server retains its saved configuration. Review the complete transport and current ETag when using `agent-gateway mcp server update SERVER_ID --file PATH --yes`.
+
 ## Custom upstream HTTP headers
 
-Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows directly below **HTTP endpoint**, before **Protocol preference**, to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
+Streamable HTTP create files and complete update transports accept an optional `headers` string map. The web create/edit form provides **Custom HTTP headers** rows below **HTTP endpoint** and **Allow private HTTP**, before **Protocol preference**, to add, edit, or remove entries. For example, this disabled GitHub server selects the requested toolsets:
 
 ```json
 {
@@ -117,7 +142,7 @@ These headers apply only to this server's MCP requests (all protocol modes, init
 
 Server create files, complete transport replacements in server update files, and the web form's **Advanced OAuth settings** accept three optional fields under `transport.authentication`:
 
-- `callback_uri`: the exact HTTP loopback redirect registered with the provider, including explicit port and canonical path. `localhost`, canonical IPv4 loopback, and `[::1]` are accepted; remote names, wildcard addresses, credentials, query, fragment, encoded paths, and ambiguous spellings are rejected. Omission uses the main numeric-loopback `/oauth/callback` listener.
+- `callback_uri`: omit for Gateway's default `/oauth/callback`. With `--external-origin`, the default uses that exact HTTPS origin, and an explicit override must equal that origin plus `/oauth/callback` byte-for-byte. No other host, port, path or loopback override is accepted in remote mode. Without external origin, supported overrides remain exact HTTP loopback redirects with an explicit port and canonical path: `localhost`, canonical IPv4 loopback, and `[::1]`. Credentials, query, fragment, encoded paths, wildcard addresses and ambiguous spellings are rejected. Configuration saves check the current serving origin, and flow creation rechecks it before provider work (including after a serving-origin change).
 - `auth_server_metadata_url`: an exact canonical HTTPS metadata location with a path and optional bounded query. This changes the fetch location for authorization and refresh, never issuer identity or protected-resource authority. Invalid metadata fails without fallback. Existing TLS, address, trusted-origin, no-redirect, size, and deadline controls still apply.
 - `scopes`: initial scope tokens replacing resource-metadata defaults. Tokens are deduplicated and sorted, bounded to 64 entries, 256 bytes each, and 8192 bytes including separators. `[]` explicitly sends an empty scope value; omission uses metadata defaults. `request_offline_access` separately adds `offline_access` only when advertised. Token responses may narrow, never expand the requested set; later expansion requires a new foreground authorization, without tool-call replay.
 
@@ -149,7 +174,9 @@ This disabled synthetic example illustrates all three settings together; its met
 
 Save as a JSON file and use `agent-gateway mcp server create --file PATH`. For updates, put the complete `transport` object under `transport` in the patch file and use `agent-gateway mcp server update SERVER_ID --file PATH --yes`.
 
-Registration, browser authorization, and code exchange use identical redirect bytes. Gateway acquires a separate numeric-loopback, callback-only listener before exposing the authorization URL. A port collision—including another Broker or flow—fails without random-port fallback: stop the conflicting listener and start a new flow. The default callback URI reuses the main callback route. Additional listeners never expose MCP, administration, health, or assets, and main `--allowed-host` configuration neither registers nor admits them. Listeners close on terminal state, cancellation, expiry, supersession, shutdown, and rejected late preparation. Configuration changes fence stale flows and incompatible token authority. Restart never resumes listeners or authorization pages.
+Registration, browser authorization, and code exchange use identical redirect bytes. HTTPS callbacks use the existing main listener through the [remote-serving proxy contract](remote-serving.md#remote-browser-oauth), never a new public listener. Dynamic registration sends application type `web` for HTTPS and `native` for HTTP loopback; a provider may still require manual client registration or impose additional redirect/client-authentication restrictions. This support does not qualify any particular provider.
+
+For a nondefault local callback, Gateway acquires a separate numeric-loopback, callback-only listener before exposing the authorization URL. A port collision—including another Broker or flow—fails without random-port fallback: stop the conflicting listener and start a new flow. The default callback URI reuses the main callback route. Additional listeners never expose MCP, administration, health, or assets, and main `--allowed-host` configuration neither registers nor admits them. Listeners close on terminal state, cancellation, expiry, supersession, shutdown, and rejected late preparation. Configuration changes fence stale flows and incompatible token authority. Restart never resumes listeners or authorization pages.
 
 Deterministic fixtures are not live Slack qualification. Use actual provider configuration and credentials only under separately authorized live testing.
 
@@ -214,7 +241,7 @@ agent-gateway mcp server auth-flow start SERVER_ID --etag ETAG --open
 
 Flow start requires a prepared controlling terminal in human and JSON modes. It publishes the one-time authorization URL only to that sink; safe metadata goes to ordinary output. `--open` opens the validated URL explicitly without a referrer. Gateway does not retain or reconstruct a lost URL and never retries flow creation automatically.
 
-The OAuth callback remains Gateway-owned, on its main origin by default or the configured callback-only loopback listener, never the frontend development origin. Flow state is process-local where sensitive and bounded where durable; restart interrupts nonterminal work. To cancel an eligible flow after reading its current state:
+The OAuth callback remains Gateway-owned, on its configured external HTTPS origin or local main origin by default, or the configured callback-only loopback listener in local mode, never the frontend development origin. Flow state is process-local where sensitive and bounded where durable; restart interrupts nonterminal work. To cancel an eligible flow after reading its current state:
 
 ```bash
 agent-gateway mcp server auth-flow cancel SERVER_ID FLOW_ID

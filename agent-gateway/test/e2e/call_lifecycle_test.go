@@ -61,6 +61,33 @@ func TestGatewayBinaryCallOccupancyDrainsAndNeverReplaysAfterRestart(t *testing.
 	}
 }
 
+func TestGatewayBinarySignalDrainClassifiesInFlightCallWithoutReplay(t *testing.T) {
+	harness := newGatewayHarness(t)
+	harness.Start()
+	catalog := harness.SetupCurrentCatalog("signal-drain", []fixtureTool{{Name: "alpha", InputSchema: json.RawMessage(`{"type":"object"}`)}})
+	principal := harness.CreatePrincipal("Drain caller", contract.VisibilityAll)
+	issued := harness.IssueCredential(principal)
+	harness.CreateGrant(grantSpec{PrincipalID: principal.Resource.ID, Effect: contract.GrantAllow, ServerID: catalog.ServerID, UpstreamName: pointerTo("alpha")})
+	barrier := catalog.Fixture.Arm("tools/call")
+	defer barrier.Release()
+	completed := make(chan responseSnapshot, 1)
+	go func() {
+		completed <- harness.ModernCall(issued.Bearer, json.RawMessage(`"draining"`), "signal-drain.alpha", json.RawMessage(`{}`))
+	}()
+	awaitFixtureSignal(t, barrier.entered, "call did not reach downstream before signal")
+	harness.Stop(syscall.SIGTERM)
+	awaitFixtureSignal(t, barrier.cancelled, "signal did not cancel handed-off call")
+	assertCallError(t, <-completed, json.RawMessage(`"draining"`), contract.OutcomeUnknown, true)
+	barrier.Release()
+	awaitFixtureSignal(t, barrier.completed, "downstream handler did not settle")
+	_, err := os.Stat(filepath.Join(harness.root, "run.unclean"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	harness.Start()
+	waitForStdioServer(t, harness, catalog.ServerID, activeCatalog)
+	assert.Equal(t, 1, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"), "restart replayed uncertain call")
+	harness.Stop(syscall.SIGTERM)
+}
+
 func TestGatewayBinaryClassifiesCompleteLossCancellationAndReplacementOnce(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()

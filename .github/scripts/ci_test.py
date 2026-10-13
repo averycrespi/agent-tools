@@ -66,6 +66,15 @@ class SelectionTests(unittest.TestCase):
                 self.assertEqual(result["e2e"], TOOLS)
                 self.assertTrue(result["gateway"])
 
+    def test_docker_inputs_select_blocking_gateway_owners(self):
+        for path in ("agent-gateway/Dockerfile", "agent-gateway/.dockerignore",
+                     "agent-gateway/examples/docker/compose.yaml", ".github/scripts/docker_smoke.py",
+                     "agent-gateway/docs/operators/docker.md", ".github/docker/fixture.py",
+                     ".github/docker/browser.mjs", ".github/scripts/docker_qualification.py"):
+            with self.subTest(path=path):
+                self.assertTrue(self.select([path])["gateway"])
+                self.assertEqual(self.select([path])["tools"], TOOLS)
+
     def test_repeated_paths_are_unique_and_stably_ordered(self):
         self.assertEqual(self.select(["agent-gateway/a.go", "README.md", "agent-gateway/c.go"])["tools"], TOOLS)
 
@@ -167,7 +176,7 @@ class GateTests(unittest.TestCase):
         }
         for job, key in {"unit-tests": "tools", "integration-tests": "integration", "e2e-tests": "e2e",
                          "vulnerability-scan": "tools", "gateway-demo": "gateway", "gateway-lint": "gateway", "gateway-harness": "gateway",
-                         "gateway-macos": "gateway", "frontend-browser": "gateway"}.items():
+                         "gateway-macos": "gateway", "gateway-docker": "gateway", "frontend-browser": "gateway"}.items():
             needs[job] = {"result": "success" if selection[key] else "skipped"}
         return needs
 
@@ -273,6 +282,24 @@ class CacheTests(unittest.TestCase):
         del needs["frontend-browser"]
         with self.assertRaises(ValueError):
             check_gate(needs)
+
+    def test_docker_smoke_is_target_independent_and_required(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
+        job = jobs["gateway-docker"]
+        for fragment in ("needs: changes", "if: needs.changes.outputs.gateway == 'true'",
+                         "runs-on: ubuntu-latest", "timeout-minutes: 35",
+                         "run: make test-docker", "npx playwright install --with-deps chromium --only-shell",
+                         "name: gateway-docker-qualification", "if-no-files-found: error"):
+            self.assertIn(fragment, job)
+        self.assertNotIn("continue-on-error", job)
+        self.assertNotIn("branches:", workflow.split("  pull_request:")[1].split("  push:")[0])
+        self.assertIn("      - gateway-docker\n", jobs["required"])
+        for result in ("failure", "cancelled", "skipped", None):
+            needs = GateTests().needs(["agent-gateway/Dockerfile"])
+            needs["gateway-docker"]["result"] = result
+            with self.assertRaises(ValueError):
+                check_gate(needs)
 
     def test_quality_executes_node_foundations_once(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()

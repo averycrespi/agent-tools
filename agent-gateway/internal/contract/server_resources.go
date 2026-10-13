@@ -18,11 +18,12 @@ type StdioTransport struct {
 func (StdioTransport) isTransport() {}
 
 type StreamableHTTPTransport struct {
-	Headers        map[string]string  `json:"headers,omitempty"`
-	Kind           TransportKind      `json:"kind"`
-	URL            string             `json:"url"`
-	ProtocolMode   ProtocolMode       `json:"protocol_mode"`
-	Authentication HTTPAuthentication `json:"authentication"`
+	AllowPrivateHTTP bool               `json:"allow_private_http,omitempty"`
+	Headers          map[string]string  `json:"headers,omitempty"`
+	Kind             TransportKind      `json:"kind"`
+	URL              string             `json:"url"`
+	ProtocolMode     ProtocolMode       `json:"protocol_mode"`
+	Authentication   HTTPAuthentication `json:"authentication"`
 }
 
 func (StreamableHTTPTransport) isTransport() {}

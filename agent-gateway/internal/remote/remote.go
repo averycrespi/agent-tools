@@ -28,6 +28,7 @@ var (
 
 type Policy struct {
 	AllowLoopbackHTTP bool
+	AllowPrivateHTTP  bool
 	AllowRestricted   bool
 	AllowQuery        bool
 }
@@ -35,6 +36,8 @@ type Policy struct {
 type Endpoint struct {
 	url             *url.URL
 	allowRestricted bool
+	privateHTTP     bool
+	loopbackHTTP    bool
 }
 
 func (endpoint Endpoint) String() string { return endpoint.url.String() }
@@ -121,8 +124,12 @@ func Parse(raw string, policy Policy) (Endpoint, error) {
 	}
 	if parsed.Scheme != "https" {
 		address, addressErr := netip.ParseAddr(parsed.Hostname())
-		if parsed.Scheme != "http" || !policy.AllowLoopbackHTTP || addressErr != nil || !address.IsLoopback() {
+		loopback := policy.AllowLoopbackHTTP && addressErr == nil && address.IsLoopback()
+		if parsed.Scheme != "http" || (!loopback && !policy.AllowPrivateHTTP) {
 			return Endpoint{}, ErrInvalidURL
+		}
+		if !loopback && addressErr == nil && !privateHTTPAddress(address) {
+			return Endpoint{}, ErrAddressPolicy
 		}
 	}
 	if parsed.Port() != "" {
@@ -133,7 +140,9 @@ func Parse(raw string, policy Policy) (Endpoint, error) {
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	parsed.Host = canonicalHost(parsed)
-	return Endpoint{url: parsed, allowRestricted: policy.AllowRestricted || (policy.AllowLoopbackHTTP && parsed.Scheme == "http")}, nil
+	address, addressErr := netip.ParseAddr(parsed.Hostname())
+	loopback := parsed.Scheme == "http" && policy.AllowLoopbackHTTP && addressErr == nil && address.IsLoopback()
+	return Endpoint{url: parsed, allowRestricted: policy.AllowRestricted, privateHTTP: parsed.Scheme == "http" && !loopback, loopbackHTTP: loopback}, nil
 }
 
 func canonicalHost(parsed *url.URL) string {
@@ -268,11 +277,23 @@ func (factory *Factory) dialPinned(ctx context.Context, network string, endpoint
 		return nil, ErrAddressPolicy
 	}
 	for _, address := range addresses {
-		if !allowedAddress(address, endpoint.allowRestricted) {
+		allowed := allowedAddress(address, endpoint.allowRestricted)
+		if endpoint.privateHTTP {
+			allowed = privateHTTPAddress(address)
+		} else if endpoint.loopbackHTTP {
+			allowed = address.Zone() == "" && address.Unmap().IsLoopback()
+		}
+		if !allowed {
 			return nil, ErrAddressPolicy
 		}
 	}
 	return factory.dial(ctx, network, net.JoinHostPort(addresses[0].String(), port))
+}
+
+// Private plaintext MCP admits only RFC 1918 and RFC 4193 unicast, not
+// shared address space, link-local metadata, or public destinations.
+func privateHTTPAddress(address netip.Addr) bool {
+	return address.Zone() == "" && address.Unmap().IsPrivate()
 }
 
 func allowedAddress(address netip.Addr, allowRestricted bool) bool {

@@ -2,9 +2,11 @@ package catalog
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -119,6 +121,8 @@ func TestCoordinatorInitialAndNoPriorRefreshFailuresRemainHealthyAndRecoverable(
 				outcome = coordinator.Refresh(context.Background(), candidate)
 			}
 			assert.Equal(t, intent, outcome.Intent)
+			assert.Equal(t, "traverse catalog", outcome.DiagnosticDetail.Operation)
+			assert.Equal(t, server.DisplayName+" ("+server.ID+")", outcome.DiagnosticDetail.Resource)
 			assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
 			assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
 			assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
@@ -129,6 +133,46 @@ func TestCoordinatorInitialAndNoPriorRefreshFailuresRemainHealthyAndRecoverable(
 			require.Len(t, scheduler.calls, 1)
 		})
 	}
+}
+
+func TestCoordinatorInitialAuditRefusalWaitsForGridWithoutTraversal(t *testing.T) {
+	repository, serverRepository, clock, store := newCatalogRepository(t)
+	server := createCatalogServer(t, serverRepository, "sample")
+	registry, err := NewActiveRegistry(repository, clock, activeProcessID)
+	require.NoError(t, err)
+	client := &coordinatorClient{result: json.RawMessage(`{"tools":[{"name":"one","inputSchema":{"type":"object"}}]}`)}
+	scheduler := newCatalogScheduler()
+	candidate := coordinatorCandidate(t, serverRepository, server)
+	coordinator, err := NewCoordinator(CoordinatorOptions{InstallationID: catalogInstallationID, Repository: repository, Active: registry, Traverser: NewTraverser(), Clock: clock, Scheduler: scheduler, Client: func(runtimes.Candidate) (PageClient, bool) { return client, true }, Current: func(runtimes.Candidate) bool { return true }})
+	require.NoError(t, err)
+
+	t.Cleanup(coordinator.Shutdown)
+	var outcome runtimes.CatalogOutcome
+	require.NoError(t, store.Mutate(context.Background(), func(*sql.Tx) error {
+		results := make(chan runtimes.CatalogOutcome, 1)
+		go func() { results <- coordinator.Activate(context.Background(), candidate) }()
+		exhaustCatalogAuditWaits(t, scheduler)
+		outcome = receiveCatalogAuditResult(t, results)
+		return nil
+	}))
+	require.Equal(t, "append refresh audit (capacity)", outcome.DiagnosticDetail.Operation)
+	require.Equal(t, storage.ErrMutationBusy.Error(), outcome.DiagnosticDetail.Explanation)
+	assert.Equal(t, runtimes.CatalogRuntimeHealthy, outcome.RuntimeHealth)
+	assert.Equal(t, contract.ActiveCatalogUnavailable, outcome.State)
+	require.NotNil(t, outcome.Reason)
+	assert.Equal(t, contract.ReasonConnectivity, *outcome.Reason)
+	assert.Equal(t, contract.ActiveCatalogAbsent, registry.Status(server.ID).State)
+	assert.Zero(t, client.callCount())
+	require.Equal(t, 4, scheduler.count())
+	pollAt := NextPoll(clock.now, PollOffset(catalogInstallationID, server.ID))
+	assert.Equal(t, pollAt.Sub(clock.now), scheduler.call(3).delay)
+
+	clock.now = pollAt
+	scheduler.fire(t, 3)
+	require.Eventually(t, func() bool { return scheduler.count() == 5 }, time.Second, time.Millisecond)
+	assert.Equal(t, 1, client.callCount())
+	assert.Equal(t, contract.ActiveCatalogCurrent, registry.Status(server.ID).State)
+	assert.Equal(t, 5*time.Minute, scheduler.call(4).delay)
 }
 
 func TestCoordinatorPollAndExplicitRefreshShareOneExactTraversal(t *testing.T) {
@@ -315,7 +359,7 @@ func TestCoordinatorRuntimeLossWithdrawsPriorSnapshotAndStopsPolling(t *testing.
 	assert.Equal(t, contract.ReasonConnectivity, *failure.Reason)
 	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
 	assert.Zero(t, registry.Status(server.ID).ToolCount)
-	assert.True(t, scheduler.last().stopped)
+	assert.True(t, scheduler.last().stopped.Load())
 	assert.Equal(t, 1, scheduler.count())
 }
 
@@ -465,7 +509,7 @@ func TestCoordinatorHealthyFailureRetainsStaleAndWithdrawalCancelsTimer(t *testi
 
 	require.NoError(t, coordinator.Withdraw(candidate, contract.ActiveCatalogUnavailable))
 	assert.Equal(t, contract.ActiveCatalogUnavailable, registry.Status(server.ID).State)
-	assert.True(t, scheduler.last().stopped)
+	assert.True(t, scheduler.last().stopped.Load())
 	coordinator.Shutdown()
 }
 
@@ -538,10 +582,10 @@ func (client *coordinatorClient) callCount() int {
 
 type catalogTimer struct {
 	callback func()
-	stopped  bool
+	stopped  atomic.Bool
 }
 
-func (timer *catalogTimer) Stop() bool { timer.stopped = true; return true }
+func (timer *catalogTimer) Stop() bool { return !timer.stopped.Swap(true) }
 
 type catalogScheduledCall struct {
 	delay time.Duration
@@ -564,7 +608,7 @@ func (scheduler *catalogScheduler) AfterFunc(delay time.Duration, callback func(
 func (scheduler *catalogScheduler) fire(t *testing.T, index int) {
 	t.Helper()
 	call := scheduler.call(index)
-	require.False(t, call.timer.stopped)
+	require.False(t, call.timer.stopped.Load())
 	call.timer.callback()
 }
 func (scheduler *catalogScheduler) count() int {

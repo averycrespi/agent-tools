@@ -14,6 +14,7 @@ SUITE_JOBS = {
     "vulnerability-scan": "tools",
     "gateway-demo": "gateway",
     "gateway-lint": "gateway",
+    "gateway-docker": "gateway",
     "gateway-harness": "gateway",
     "gateway-macos": "gateway",
     "frontend-browser": "gateway",

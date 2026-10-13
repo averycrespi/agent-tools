@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -169,8 +170,12 @@ func (registrar *Registrar) registerDynamic(ctx context.Context, request Registr
 	if !ok {
 		return servers.OAuthRegistrationAuthority{}, ErrRegistrationRejected
 	}
+	applicationType := "native"
+	if strings.HasPrefix(request.CallbackURL, "https://") {
+		applicationType = "web"
+	}
 	payload, err := json.Marshal(dynamicRequest{
-		ApplicationType: "native", RedirectURIs: []string{request.CallbackURL}, ResponseTypes: []string{"code"},
+		ApplicationType: applicationType, RedirectURIs: []string{request.CallbackURL}, ResponseTypes: []string{"code"},
 		GrantTypes: []string{"authorization_code", "refresh_token"}, TokenEndpointAuthMethod: method,
 	})
 	if err != nil {

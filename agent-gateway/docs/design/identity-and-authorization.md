@@ -177,7 +177,7 @@ allow grant for the current principal. Request permission cannot come from a
 tunnel grant or a different path; tunnel permission cannot come from a request
 grant. The global default does not confer it. Link-local, metadata (including
 `fd00:ec2::254`), unspecified, multicast, unsafe IPv4 reserved ranges and
-Gateway-owned listener endpoints always reject. IPv6 transition/translation and
+Gateway-owned listener endpoints always reject. A wildcard listener conservatively reserves its port for every destination, both at policy evaluation and immediately before dial, rather than treating `0.0.0.0` as the only self-address. This also covers interfaces added after startup; use a specific bind if outbound access to that port is needed. IPv6 transition/translation and
 unallocated space are conservatively refused: outside ULA/loopback, only global
 `2000::/3` excluding `2001::/23`, documentation and 6to4 ranges qualifies.
 

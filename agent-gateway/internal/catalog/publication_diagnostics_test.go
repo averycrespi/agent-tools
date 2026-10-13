@@ -31,6 +31,8 @@ func TestPollPostCommitFailureDoesNotRecoverPriorCurrent(t *testing.T) {
 		outcome := coordinator.run(t.Context(), candidate, runtimes.CatalogTraversalPoll)
 		require.Equal(t, contract.ActiveCatalogCurrent, outcome.State, "old usable routes remain current")
 		require.Equal(t, runtimes.CatalogPublicationDurableOnly, outcome.Phase)
+		require.Equal(t, "activate committed candidate", outcome.DiagnosticDetail.Operation)
+		require.Equal(t, "durable=ack; candidate_activation=not_ack", outcome.DiagnosticDetail.Effect)
 	}
 	require.Equal(t, "1", *registry.Status(server.ID).Revision)
 	require.EqualValues(t, 1, registry.Status(server.ID).ToolCount)

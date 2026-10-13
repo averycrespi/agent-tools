@@ -35,10 +35,10 @@ Export is public metadata only: it proves neither signing readiness nor client t
 Inspect an export failure rather than trusting an incomplete output file. Init preserves
 an existing CA; replacement is a distinct deliberate stopped operation. Public output defaults to `<data-dir>/http-ca.pem`; `--stdout` explicitly streams PEM.
 
-Administration/MCP stays at `127.0.0.1:8210`; HTTP defaults separately to
-`127.0.0.1:8212`. Use `--http-proxy-listen 127.0.0.1:8213` for a custom address. Both listeners accept only canonical numeric IPv4 loopback addresses.
+Administration/MCP defaults to `127.0.0.1:8210`; HTTP defaults separately to
+`127.0.0.1:8212`. Use `--http-proxy-listen 127.0.0.1:8213` for a custom address. Both listeners accept explicit canonical numeric IPv4 non-loopback or wildcard addresses. Non-loopback administration also requires [HTTPS external-origin configuration](../../README.md#remote-serving-behind-an-https-proxy). HTTP/Git forwarding remains a separate direct listener, never a route on the website reverse proxy.
 The proxy has no administrative routes. Gateway-owned destinations, including
-its temporary OAuth callbacks, are forbidden even with private-network permission.
+its temporary OAuth callbacks, are forbidden even with private-network permission. Wildcard binds conservatively forbid outgoing proxy destinations on the same port, including nonlocal destinations; use a specific bind if that outbound port is needed.
 A trusted VM forwarding path must be supplied separately; do not expose either
 listener to an untrusted network. Plain proxy authentication is not encrypted on
 the client-to-proxy hop.

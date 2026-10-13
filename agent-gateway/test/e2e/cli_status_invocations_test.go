@@ -54,7 +54,9 @@ func idleStatusSnapshot(t *testing.T, body []byte) map[string]any {
 
 func TestCLIStatusInvocations(t *testing.T) {
 	harness := newGatewayHarness(t)
-	harness.Start()
+	// Scheduled catalog publication withdraws held calls; keep the sequential
+	// CLI/API projections in one stable missing-terminal observation window.
+	harness.StartBetweenCatalogPolls()
 	waitTrafficStatus(t, harness, func(s *contract.TrafficStatus) bool { return s.Ready })
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))

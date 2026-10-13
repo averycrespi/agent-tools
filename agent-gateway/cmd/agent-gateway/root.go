@@ -147,8 +147,9 @@ func newServeCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().StringVar(&dataDir, "data-dir", "", "owner-only Gateway data directory")
 	storageSizeFlag(command.Flags(), &budget, composition.DefaultTrafficBudget, "combined traffic database/WAL budget (1 MiB–16 GiB)")
 	command.Flags().StringVar(&logLevel, "log-level", "warn", "serve diagnostic level: warn, info, or debug (JSON stderr)")
-	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "exact numeric IPv4 loopback authority")
-	command.Flags().String("http-proxy-listen", contract.DefaultHTTPProxyAuthority, "HTTP proxy numeric IPv4 loopback authority; requires an existing CA")
+	command.Flags().StringVar(&authority, "listen", contract.DefaultAuthority, "numeric IPv4 bind authority; non-loopback requires --external-origin")
+	command.Flags().String("http-proxy-listen", contract.DefaultHTTPProxyAuthority, "HTTP proxy numeric IPv4 bind authority; requires an existing CA")
+	command.Flags().String("external-origin", "", "canonical public HTTPS origin; independent of bind address")
 	command.Flags().Bool("clear-http-proxy-listen", false, "disable the HTTP proxy for MCP-only startup")
 	command.Flags().StringArrayVar(&allowedHosts, "allowed-host", nil, "additional exact ASCII DNS hostname for trusted local forwarding (repeatable; no port; does not trust browser Origins)")
 	command.Flags().StringVar(&output, "output", "human", "output mode: human or json")
@@ -203,15 +204,21 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	if selectionErr != nil {
 		return false, selectionErr
 	}
-	if err := httpboundary.ValidateAuthority(authority); err != nil {
-		return false, err
+	externalOrigin, _ := command.Flags().GetString("external-origin")
+	if command.Flags().Changed("external-origin") && externalOrigin == "" {
+		return false, controlclient.NewInputError("Provide one canonical HTTPS --external-origin or omit the flag for local serving.")
+	}
+	origin, originErr := httpboundary.BrowserOrigin(authority, externalOrigin)
+	if originErr != nil {
+		return false, controlclient.NewInputError(originErr.Error())
 	}
 	if proxyAuthority != "" {
 		if err := httpboundary.ValidateAuthority(proxyAuthority); err != nil {
 			return false, err
 		}
-		if proxyAuthority == authority {
-			return false, controlclient.NewInputError("Proxy and administration listen authorities must differ.")
+		mainAddress, proxyAddress := netip.MustParseAddrPort(authority), netip.MustParseAddrPort(proxyAuthority)
+		if mainAddress.Port() == proxyAddress.Port() && (mainAddress == proxyAddress || mainAddress.Addr().IsUnspecified() || proxyAddress.Addr().IsUnspecified()) {
+			return false, controlclient.NewInputError("Proxy and administration listen authorities must not overlap; choose distinct ports for wildcard listeners.")
 		}
 	}
 	ctx := command.Context()
@@ -240,7 +247,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 	}
 	runtime, err := newComposition(composition.Options{
 		Ownership: ownership, TrafficBudget: budget,
-		Store: store, InstallationID: identity.InstallationID, CallbackURL: "http://" + authority + "/oauth/callback",
+		Store: store, InstallationID: identity.InstallationID, CallbackURL: origin + "/oauth/callback",
 		Clock: dependencies.clock, Entropy: dependencies.entropy, Invalidate: eventHub.Publish, Ready: ready.Load,
 		Diagnostics:         dependencies.diagnostics,
 		DiagnosticProcessID: dependencies.diagnostics.ProcessID(),
@@ -301,7 +308,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Backups:       backupManager,
 		Events:        eventHub,
 		Invalidate:    eventHub.Publish,
-		Origin:        "http://" + authority,
+		Origin:        origin,
 		Servers:       serverRepository,
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
@@ -413,6 +420,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		AuthenticatedProblem: apiHandler.RecordAuthenticatedProblem,
 		AllowedHosts:         allowedHosts,
 		Authority:            authority,
+		ExternalOrigin:       externalOrigin,
 		Ready:                ready.Load,
 		Draining:             draining.Load,
 		Authenticate: func(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -506,7 +514,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		stopBeforeAcknowledgement()
 		return false, err
 	}
-	human := "Gateway started successfully.\nWeb address: http://" + controlclient.TerminalSafePath(authority) + "/\nInstallation: " + identity.InstallationID
+	human := "Gateway started successfully.\nWeb address: " + controlclient.TerminalSafePath(origin) + "/\nInstallation: " + identity.InstallationID
 	if err := phases.Acknowledge(encoded, human); err != nil {
 		stopBeforeAcknowledgement()
 		return false, err
@@ -692,7 +700,7 @@ func serveCommandProblem(err error, acknowledged bool, dataDir string) *controlc
 	case "gateway_running":
 		return &controlclient.Problem{Code: "gateway_running", Title: "Another Gateway process owns the selected installation. Stop it or choose a different data directory.", Exit: 5}
 	case "invalid_authority":
-		return &controlclient.Problem{Code: "invalid_authority", Title: "The listen address is invalid. Use an exact numeric IPv4 loopback authority such as 127.0.0.1:8210.", Exit: 2}
+		return &controlclient.Problem{Code: "invalid_authority", Title: "The listen address is invalid. Use a canonical numeric IPv4 address and nonzero port, such as 127.0.0.1:8210 or 0.0.0.0:8210.", Exit: 2}
 	default:
 		return &controlclient.Problem{Code: "storage_unavailable", Title: "The Gateway installation at " + boundedProblemPath(dataDir, "the selected data directory") + " could not be started safely.", Exit: 7}
 	}

@@ -22,6 +22,13 @@ import (
 )
 
 func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
+	for _, host := range []string{"127.0.0.1", "0.0.0.0"} {
+		t.Run(host, func(t *testing.T) { testHTTPProxyBind(t, host) })
+	}
+}
+
+func testHTTPProxyBind(t *testing.T, host string) {
+	t.Helper()
 	options, cleanup := newCompositionOptions(t)
 	defer cleanup()
 	var diagnosticOutput bytes.Buffer
@@ -34,10 +41,10 @@ func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	require.Nil(t, built.httpProxy, "ordinary construction must not select an engine")
 	ctx := audit.WithSystem(t.Context())
 	require.NoError(t, built.httpCA.Replace(ctx, "0"))
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := net.Listen("tcp4", net.JoinHostPort(host, "0"))
 	require.NoError(t, err)
 	endpoint := netip.MustParseAddrPort(listener.Addr().String())
-	engine, err := built.PrepareHTTPProxy(ctx, netip.MustParseAddrPort("127.0.0.1:8210"), endpoint)
+	engine, err := built.PrepareHTTPProxy(ctx, netip.MustParseAddrPort(net.JoinHostPort(host, "8210")), endpoint)
 	require.NoError(t, err)
 	require.NoError(t, built.Start(ctx))
 	require.True(t, built.HTTPProxyStatus().Ready)
@@ -62,7 +69,7 @@ func TestOptionalHTTPProxyCompositionAndDynamicListenerExclusion(t *testing.T) {
 	require.NoError(t, err)
 	_, err = built.authorization.PutHTTPGrant(ctx, "", "", authorization.HTTPGrantInput{PrincipalID: principal.Principal.ID, Policy: policy})
 	require.NoError(t, err)
-	proxyURL := &url.URL{Scheme: "http", Host: listener.Addr().String(), User: url.UserPassword("agent", credential.Bearer)}
+	proxyURL := &url.URL{Scheme: "http", Host: netip.AddrPortFrom(netip.MustParseAddr("127.0.0.1"), endpoint.Port()).String(), User: url.UserPassword("agent", credential.Bearer)}
 	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}

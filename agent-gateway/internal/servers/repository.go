@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"path"
 	"path/filepath"
@@ -136,11 +135,12 @@ type stdioTransportEnvelope struct {
 }
 
 type httpTransportEnvelope struct {
-	Headers        json.RawMessage        `json:"headers"`
-	Kind           contract.TransportKind `json:"kind"`
-	URL            string                 `json:"url"`
-	ProtocolMode   contract.ProtocolMode  `json:"protocol_mode"`
-	Authentication json.RawMessage        `json:"authentication"`
+	AllowPrivateHTTP json.RawMessage        `json:"allow_private_http"`
+	Headers          json.RawMessage        `json:"headers"`
+	Kind             contract.TransportKind `json:"kind"`
+	URL              string                 `json:"url"`
+	ProtocolMode     contract.ProtocolMode  `json:"protocol_mode"`
+	Authentication   json.RawMessage        `json:"authentication"`
 }
 
 type authenticationDiscriminator struct {
@@ -272,6 +272,15 @@ func DecodeTransport(contents []byte) (contract.Transport, error) {
 		if err != nil {
 			return nil, err
 		}
+		allowPrivateHTTP := false
+		if len(raw.AllowPrivateHTTP) != 0 {
+			if !configurationJSONValue[bool](raw.AllowPrivateHTTP) || string(raw.AllowPrivateHTTP) == "null" {
+				return invalid(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
+			}
+			if err := json.Unmarshal(raw.AllowPrivateHTTP, &allowPrivateHTTP); err != nil {
+				return invalid(contract.ServerConfigurationFieldTransport, contract.ServerConfigurationRuleInvalid)
+			}
+		}
 		var headers map[string]string
 		if len(raw.Headers) != 0 && string(raw.Headers) != "null" {
 			var values map[string]json.RawMessage
@@ -290,7 +299,7 @@ func DecodeTransport(contents []byte) (contract.Transport, error) {
 				headers[name] = text
 			}
 		}
-		transport = contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication, Headers: headers}
+		transport = contract.StreamableHTTPTransport{Kind: raw.Kind, URL: raw.URL, ProtocolMode: raw.ProtocolMode, Authentication: authentication, Headers: headers, AllowPrivateHTTP: allowPrivateHTTP}
 	default:
 		return invalid(contract.ServerConfigurationFieldTransportKind, contract.ServerConfigurationRuleInvalid)
 	}
@@ -550,11 +559,17 @@ func validateHTTPTransport(transport contract.StreamableHTTPTransport) error {
 	if _, err := contract.ParseAuthenticationMode(string(mode)); err != nil {
 		return NewConfigurationError(contract.ServerConfigurationFieldAuthenticationMode, contract.ServerConfigurationRuleInvalid)
 	}
-	if endpoint.Scheme == "http" && (mode != contract.AuthenticationNone || !isLoopbackLiteral(endpoint.Hostname())) {
+	if endpoint.Scheme == "http" && mode != contract.AuthenticationNone {
 		return NewConfigurationError(contract.ServerConfigurationFieldURL, contract.ServerConfigurationRuleTransportPolicy)
 	}
 	if mode == contract.AuthenticationOAuth && endpoint.Scheme != "https" {
 		return NewConfigurationError(contract.ServerConfigurationFieldURL, contract.ServerConfigurationRuleTransportPolicy)
+	}
+	if endpoint.Scheme == "http" {
+		parsed, err := remote.Parse(transport.URL, remote.Policy{AllowLoopbackHTTP: true, AllowPrivateHTTP: transport.AllowPrivateHTTP})
+		if err != nil || parsed.String() != transport.URL {
+			return NewConfigurationError(contract.ServerConfigurationFieldURL, contract.ServerConfigurationRuleTransportPolicy)
+		}
 	}
 	return validateHTTPAuthentication(transport.Authentication)
 }
@@ -666,11 +681,6 @@ func parseEndpointURL(value string) (*url.URL, error) {
 		return nil, errors.New("resource URL is invalid")
 	}
 	return parsed, nil
-}
-
-func isLoopbackLiteral(host string) bool {
-	address := net.ParseIP(host)
-	return address != nil && address.IsLoopback()
 }
 
 func validID(value string) bool {

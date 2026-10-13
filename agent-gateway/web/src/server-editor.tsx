@@ -44,6 +44,7 @@ interface Draft {
   secretEnvironment: PairItem[];
   url: string;
   headers: PairItem[];
+  allowPrivateHTTP: boolean;
   protocolMode: "modern" | "legacy" | "auto";
   authMode: AuthMode;
   registrationMode: RegistrationMode;
@@ -158,7 +159,7 @@ function serverConfigurationContextMessage(
       return `${label} must be an absolute canonical path without a trailing slash, empty segment, ".", or ".." segment.`;
     case "canonical_url":
       if (context.field === "transport.authentication.callback_uri")
-        return "Callback URI must be an exact HTTP loopback URL with an explicit port and path, without credentials, query, fragment, or encoded path.";
+        return "Callback URI must match Gateway's configured HTTPS origin and /oauth/callback, or use an HTTP loopback URL with an explicit port and path in local mode.";
       if (context.field === "transport.authentication.auth_server_metadata_url")
         return "Authorization metadata URL must be an exact canonical HTTPS URL with a path and without credentials or fragment. A bounded query is allowed.";
       return `${label} must be a canonical URL without credentials, a query, fragment, uppercase hostname, or default port.`;
@@ -209,6 +210,7 @@ function blankDraft(): Draft {
     secretEnvironment: [],
     url: "",
     headers: [],
+    allowPrivateHTTP: false,
     protocolMode: "auto",
     authMode: "",
     registrationMode: "dynamic",
@@ -405,6 +407,11 @@ function transportFromDraft(draft: Draft): unknown {
       "url",
       "HTTP URL cannot contain credentials, query, or fragment.",
     );
+  if (parsedURL.protocol === "http:" && draft.authMode !== "none")
+    throw new DraftValidationError(
+      "url",
+      "Bearer authentication and OAuth require HTTPS.",
+    );
   let authentication: unknown;
   if (draft.authMode === "none" || draft.authMode === "bearer") {
     authentication = { mode: draft.authMode };
@@ -461,7 +468,29 @@ function transportFromDraft(draft: Draft): unknown {
     if (draft.registrationMode === "static" && clientID.length === 0)
       throw new DraftValidationError("clientID", "Enter the OAuth client ID.");
     const callbackURI = draft.callbackURI;
-    if (callbackURI !== "") {
+    if (callbackURI.startsWith("https://")) {
+      let parsed: URL | undefined;
+      try {
+        parsed = new URL(callbackURI);
+      } catch {
+        // The field error below covers invalid URL syntax.
+      }
+      if (
+        parsed === undefined ||
+        parsed.href !== callbackURI ||
+        parsed.username !== "" ||
+        parsed.password !== "" ||
+        parsed.pathname !== "/oauth/callback" ||
+        parsed.search !== "" ||
+        parsed.hash !== "" ||
+        /[?#%\\\\\s]/.test(callbackURI) ||
+        new TextEncoder().encode(callbackURI).byteLength > 8192
+      )
+        throw new DraftValidationError(
+          "callbackURI",
+          "Use Gateway's exact configured HTTPS origin followed by /oauth/callback, or leave blank for the default.",
+        );
+    } else if (callbackURI !== "") {
       const match =
         /^http:\/\/(localhost|127(?:\.[0-9]{1,3}){3}|\[::1\]):([1-9][0-9]{0,4})(\/[^?#%\\\s]*)$/.exec(
           callbackURI,
@@ -481,7 +510,7 @@ function transportFromDraft(draft: Draft): unknown {
       )
         throw new DraftValidationError(
           "callbackURI",
-          "Use an exact HTTP localhost or numeric-loopback URI with an explicit port and canonical path, such as http://localhost:3118/callback. No credentials, query, fragment, or encoded path.",
+          "Use Gateway's exact configured HTTPS origin followed by /oauth/callback. In local mode, use an exact HTTP loopback URI with an explicit port and canonical path.",
         );
     }
     const metadataURL = draft.authServerMetadataURL;
@@ -546,6 +575,7 @@ function transportFromDraft(draft: Draft): unknown {
   return {
     kind: "streamable_http",
     url: normalizedURL,
+    ...(draft.allowPrivateHTTP ? { allow_private_http: true } : {}),
     protocol_mode: draft.protocolMode,
     ...(draft.headers.length === 0
       ? {}
@@ -579,6 +609,7 @@ function draftFromServer(server: ServerView): Draft {
   }
   draft.transportKind = "streamable_http";
   draft.url = transport.url as string;
+  draft.allowPrivateHTTP = transport.allow_private_http === true;
   draft.headers = pairItems(
     "header",
     (transport.headers as Record<string, string> | undefined) ?? {},
@@ -1107,6 +1138,21 @@ function EditorForm({
               />
             )}
           </FormField>
+          <FormField
+            id="server-private-http"
+            label="Allow private HTTP"
+            hint="Allow unauthenticated plaintext MCP on trusted private networks (RFC 1918 / IPv6 ULA). Traffic is not encrypted. Does not permit credentials or change HTTPS access."
+          >
+            {(attributes) => (
+              <BinaryToggle
+                attributes={attributes}
+                checked={draft.allowPrivateHTTP}
+                disabled={disabled}
+                testID="server-private-http"
+                onChange={(value) => update("allowPrivateHTTP", value)}
+              />
+            )}
+          </FormField>
           <PairListEditor
             id="server-header"
             label="Custom HTTP headers"
@@ -1313,7 +1359,7 @@ function EditorForm({
                   id="server-callback-uri"
                   label="Callback URI"
                   optional
-                  hint="Leave blank to use Gateway's default callback. To use a different callback, enter the exact HTTP loopback redirect URL registered with your provider, including port and path. That port must be free; Gateway listens there only during authorization."
+                  hint="Leave blank for Gateway's default callback. Remote mode requires the exact configured HTTPS origin followed by /oauth/callback. Local mode also supports an HTTP loopback redirect with an explicit free port and path."
                   {...(compatibilityErrors.callbackURI === undefined
                     ? {}
                     : { error: compatibilityErrors.callbackURI })}
@@ -1507,6 +1553,14 @@ function CreationReview({ draft }: { draft: Draft }) {
             <div>
               <dt>Protocol</dt>
               <dd>{protocolLabels[draft.protocolMode]}</dd>
+            </div>
+            <div>
+              <dt>Private HTTP</dt>
+              <dd>
+                {draft.allowPrivateHTTP
+                  ? "Allowed — unauthenticated plaintext only"
+                  : "Not allowed"}
+              </dd>
             </div>
             <div>
               <dt>Custom HTTP headers (plaintext)</dt>

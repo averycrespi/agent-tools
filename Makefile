@@ -15,10 +15,11 @@ ifeq ($(filter __test-%,$(MAKECMDGOALS)),)
 .NOTPARALLEL:
 endif
 
-.PHONY: help install install-dev setup build test test-ci test-integration test-e2e lint fmt fmt-check tidy check vulncheck check-other-tools test-browser test-frontend-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
+.PHONY: help install install-dev setup build test test-ci test-docker test-integration test-e2e lint fmt fmt-check tidy check vulncheck check-other-tools test-browser test-frontend-browser test-frontend-development frontend-typecheck frontend-build frontend-verify-generated frontend-verify-supply-chain frontend-audit qualify-external-evidence accept adopt-acceptance-report audit $(TOOLS)
 
 help:
 	@printf '%s\n' 'LOCAL_TEST_JOBS=1|2 bounds non-Gateway ordinary tests; Gateway and linters stay isolated'
+	@printf '%s\n' 'test-docker: CI-only exact-revision Docker qualification (disposable resources)'
 	@$(MAKE) -s -C agent-gateway help
 
 install:
@@ -41,6 +42,10 @@ test:
 
 test-ci:
 	python3 -B -m unittest discover -s .github/scripts -p '*_test.py'
+
+# CI-only runtime owner; never included in Docker-unavailable local aggregates.
+test-docker:
+	python3 -B .github/scripts/docker_smoke.py --qualify
 
 test-integration:
 	@set -e; for dir in $(INTEGRATION_TOOLS); do $(MAKE) -C $$dir test-integration; done

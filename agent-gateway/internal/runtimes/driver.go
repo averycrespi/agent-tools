@@ -218,7 +218,7 @@ func (driver *ConcreteDriver) constructHTTP(candidate Candidate, desired contrac
 	default:
 		return nil, servers.ErrInvalidInput
 	}
-	endpoint, err := remote.ParseEndpoint(desired.URL, allowLoopbackHTTP)
+	endpoint, err := remote.Parse(desired.URL, remote.Policy{AllowLoopbackHTTP: allowLoopbackHTTP, AllowPrivateHTTP: allowLoopbackHTTP && desired.AllowPrivateHTTP})
 	if err != nil {
 		return nil, err
 	}

@@ -1332,6 +1332,7 @@ export async function runOverview(
       protocol_mode: "modern",
       authentication: { mode: "bearer" },
       ...(customHeaders === undefined ? {} : { headers: customHeaders }),
+      allow_private_http: true,
     },
   });
   let serverMode:

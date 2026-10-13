@@ -38,6 +38,7 @@ type Options struct {
 	Diagnostics          diagnostics.HTTPProxyObserver
 	AllowedHosts         []string
 	Authority            string
+	ExternalOrigin       string
 	Ready                func() bool
 	Draining             func() bool
 	Authenticate         AuthenticateFunc
@@ -50,6 +51,8 @@ type Boundary struct {
 	allowedHosts         map[string]struct{}
 	authority            string
 	origin               string
+	publicAuthority      string
+	localAuthority       string
 	ready                func() bool
 	draining             func() bool
 	authenticate         AuthenticateFunc
@@ -71,11 +74,11 @@ func (failure Error) Error() string { return string(failure.Code) }
 func ValidateAuthority(authority string) error {
 	host, port, err := net.SplitHostPort(authority)
 	if err != nil || host == "" || port == "" {
-		return fmt.Errorf("authority must be a numeric IPv4 loopback address and port")
+		return fmt.Errorf("authority must be a numeric IPv4 address and port")
 	}
 	address := net.ParseIP(host)
-	if address == nil || address.To4() == nil || !address.IsLoopback() || strings.Contains(host, ":") {
-		return fmt.Errorf("authority must use IPv4 loopback")
+	if address == nil || address.To4() == nil || address.IsMulticast() || strings.Contains(host, ":") {
+		return fmt.Errorf("authority must use a numeric unicast or wildcard IPv4 address")
 	}
 	value, err := strconv.ParseUint(port, 10, 16)
 	if err != nil || value == 0 {
@@ -91,8 +94,13 @@ func New(options Options) (*Boundary, error) {
 	if options.Authority == "" {
 		options.Authority = contract.DefaultAuthority
 	}
-	if err := ValidateAuthority(options.Authority); err != nil {
+	origin, err := BrowserOrigin(options.Authority, options.ExternalOrigin)
+	if err != nil {
 		return nil, err
+	}
+	publicAuthority := ""
+	if options.ExternalOrigin != "" {
+		publicAuthority = strings.TrimPrefix(origin, "https://")
 	}
 	allowedHosts := make(map[string]struct{}, len(options.AllowedHosts))
 	for _, host := range options.AllowedHosts {
@@ -115,7 +123,9 @@ func New(options Options) (*Boundary, error) {
 		diagnostics:          options.Diagnostics,
 		allowedHosts:         allowedHosts,
 		authority:            options.Authority,
-		origin:               "http://" + options.Authority,
+		origin:               origin,
+		publicAuthority:      publicAuthority,
+		localAuthority:       LocalAuthority(options.Authority),
 		ready:                options.Ready,
 		draining:             options.Draining,
 		authenticate:         options.Authenticate,
@@ -168,9 +178,9 @@ func (boundary *Boundary) ServeHTTP(writer http.ResponseWriter, request *http.Re
 	if request.Header.Get("Origin") == boundary.origin &&
 		(route.Pattern == "/api/v2/admin-sessions" || route.Pattern == "/api/v2/admin-sessions/current") {
 		if _, err := request.Cookie(contract.LegacySessionCookieName); err == nil {
-			http.SetCookie(writer, &http.Cookie{ //nolint:gosec // The exact plain-loopback HTTP contract intentionally omits Secure.
+			http.SetCookie(writer, &http.Cookie{ //nolint:gosec // Secure follows configured origin; only local plain-loopback intentionally omits it.
 				Name: contract.LegacySessionCookieName, Path: "/", MaxAge: -1,
-				Expires: time.Unix(1, 0).UTC(), HttpOnly: true, SameSite: http.SameSiteStrictMode,
+				Expires: time.Unix(1, 0).UTC(), HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: boundary.publicAuthority != "",
 			})
 		}
 	}
@@ -260,8 +270,13 @@ func (boundary *Boundary) validateEarly(request *http.Request) contract.ProblemC
 	if len(target) > limit("request_target_bytes") || request.URL.IsAbs() || strings.HasPrefix(target, "//") {
 		return contract.ProblemMalformedRequest
 	}
-	if !boundary.acceptsHost(request.Host) {
+	if !boundary.acceptsRequestHost(request) {
 		return contract.ProblemMisdirectedRequest
+	}
+	if request.URL.Path == "/oauth/callback" {
+		if request.URL.RawPath != "" || request.ContentLength != 0 || len(request.TransferEncoding) != 0 {
+			return contract.ProblemMalformedRequest
+		}
 	}
 	count, total := 0, 0
 	for name, values := range request.Header {
@@ -281,17 +296,48 @@ func (boundary *Boundary) validateEarly(request *http.Request) contract.ProblemC
 	if count > limit("request_header_count") || total > limit("request_header_bytes") {
 		return contract.ProblemMalformedRequest
 	}
-	if origin := request.Header.Get("Origin"); origin != "" {
-		parsed, err := url.Parse(origin)
-		if err != nil || parsed.String() != boundary.origin {
-			return contract.ProblemForbiddenOrigin
-		}
+	origins := request.Header.Values("Origin")
+	if boundary.publicAuthority != "" && strings.HasPrefix(request.URL.Path, "/api/v2/admin-sessions") && len(origins) == 0 {
+		return contract.ProblemForbiddenOrigin
+	}
+	if len(origins) > 1 || (len(origins) == 1 && origins[0] != boundary.origin) {
+		return contract.ProblemForbiddenOrigin
 	}
 	return ""
 }
 
+// Remote-mode internal hosts are only transport reachability: they cannot
+// exchange or use browser cookies, even with a forged public Origin.
+func (boundary *Boundary) acceptsRequestHost(request *http.Request) bool {
+	if boundary.publicAuthority == "" {
+		return boundary.acceptsHost(request.Host)
+	}
+	if request.Host == boundary.publicAuthority {
+		return true
+	}
+	publicURL := url.URL{Host: boundary.publicAuthority}
+	requestURL := url.URL{Host: request.Host}
+	if request.Host != boundary.localAuthority && strings.EqualFold(requestURL.Hostname(), publicURL.Hostname()) {
+		return false
+	}
+	if request.Host != boundary.localAuthority && !boundary.acceptsHost(request.Host) {
+		return false
+	}
+	if len(request.Header.Values("Origin")) != 0 || len(request.Header.Values("Cookie")) != 0 {
+		return false
+	}
+	if request.URL.Path == "/livez" || request.URL.Path == "/readyz" {
+		return true
+	}
+	if strings.HasPrefix(request.URL.Path, "/api/v2/admin-sessions") {
+		return false
+	}
+	route, known := contract.RouteForPath(request.URL.Path)
+	return known && requiresAuthentication(contract.AuthorityForMethod(route, request.Method))
+}
+
 func (boundary *Boundary) acceptsHost(authority string) bool {
-	if authority == boundary.authority {
+	if authority == boundary.authority && !strings.HasPrefix(authority, "0.0.0.0:") {
 		return true
 	}
 	host := authority
