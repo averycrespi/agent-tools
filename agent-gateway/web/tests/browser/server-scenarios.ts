@@ -2388,6 +2388,11 @@ export async function runAuthFlows(
       active: "unavailable",
     }),
     desired_revision: "7",
+    credential_revisions: {
+      static_credential: "0",
+      oauth_client: "0",
+      oauth_tokens: "0",
+    },
     transport: {
       kind: "streamable_http",
       url: "https://resource.example/mcp",
@@ -2410,6 +2415,8 @@ export async function runAuthFlows(
   let listReads = 0;
   let starts = 0;
   let cancels = 0;
+  let registrationRevision = "1";
+  let creationOverrides: Record<string, unknown> = {};
   let releaseThirdStart: (() => void) | undefined;
   const thirdStartBarrier = new Promise<void>((resolve) => {
     releaseThirdStart = resolve;
@@ -2419,7 +2426,7 @@ export async function runAuthFlows(
     server_id: serverID,
     state: state,
     target_desired_revision: "7",
-    registration_revision: "3",
+    registration_revision: registrationRevision,
     created_at: "2026-08-28T15:00:00Z",
     expires_at: "2026-08-28T15:05:00Z",
     finished_at:
@@ -2611,7 +2618,10 @@ export async function runAuthFlows(
         status: 201,
         contentType: "application/json",
         body: JSON.stringify({
-          flow: flow(createdID, "awaiting_callback"),
+          flow: {
+            ...flow(createdID, "awaiting_callback"),
+            ...creationOverrides,
+          },
           authorization_url: authorizationURL,
         }),
       });
@@ -2805,8 +2815,16 @@ export async function runAuthFlows(
   if ((await page.locator("body").textContent())?.includes(`Flow ${createdID}`))
     fail("authorization exposed a redundant internal flow notice");
 
+  // A later registration generation also need not equal an installed secret's revision.
+  registrationRevision = "8";
+  server.credential_revisions.oauth_client = "3";
+  server.credential_state = "ready";
+  await page.getByTestId("manual-refresh").click();
+  // The changed action proves the new server snapshot reached the component.
+  await page.getByRole("button", { name: "Reauthorize server" }).waitFor();
   await page.locator('[data-testid="start-auth-flow"]').click();
   await display.waitFor();
+  await expect(display).toHaveText(authorizationURL);
   await page.getByRole("button", { name: "Dismiss and clear" }).click();
   await display.waitFor({ state: "hidden" });
   if (starts !== 2) fail("auth flow start count changed");
@@ -2853,6 +2871,35 @@ export async function runAuthFlows(
   ).toHaveCount(0);
   expect(starts).toBe(4);
   await captureStateFeedback(page, "oauth-start-unknown");
+
+  // Malformed or mismatched successful responses must lose the URL, not replay.
+  for (const invalid of [
+    { server_id: terminalID },
+    { state: "preparing" },
+    { state: "succeeded" },
+    { target_desired_revision: "6" },
+    { registration_revision: "invalid" },
+    { finished_at: "2026-08-28T15:01:00Z" },
+    { reason: "oauth_rejected" },
+  ]) {
+    creationOverrides = invalid;
+    const before = starts;
+    await page.getByTestId("start-auth-flow").click();
+    await expect(
+      page.getByText(
+        "No authorization URL can be displayed. Start a new flow from current state.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect(display).toHaveCount(0);
+    await page.getByRole("button", { name: "Dismiss and clear" }).click();
+    await expect(
+      page.getByText("Flow start outcome unknown", { exact: true }),
+    ).toBeVisible();
+    await page.getByTestId("manual-refresh").click();
+    expect(starts).toBe(before + 1);
+  }
+  creationOverrides = {};
 
   await page.evaluate((id) => {
     window.location.hash = `#/mcp/servers/${id}/auth-flows/${"01ARZ3NDEKTSV4RRFFQ69G5FE6"}`;

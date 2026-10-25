@@ -32,7 +32,7 @@
     "preact": "10.29.8",
     "prettier": "^3.8.1",
     "typescript": "7.0.2",
-    "vite": "8.2.2"
+    "vite": "8.2.4"
   },
   "lint-staged": {
     "*.go": "gofmt -w",
