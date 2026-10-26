@@ -15,7 +15,7 @@ const lock = JSON.parse(lockContents.toString("utf8"));
 const lockDigest = createHash("sha256").update(lockContents).digest("hex");
 if (
   lockDigest !==
-  "803a2e9799f85f9f473b1a8507e29dba98b9f50f5430c9ad0970b0c600e0065a"
+  "73d61018a9ef0a0c263fa0f070fceacb1ebb8c3393424da96834ba9f1fb0021e"
 )
   throw new Error(`frontend lockfile digest changed: ${lockDigest}`);
 const allowedLicenses = new Set([

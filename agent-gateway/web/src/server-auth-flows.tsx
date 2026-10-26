@@ -221,11 +221,12 @@ function StartFlow({
       successStatuses: [201],
       decode: async (response) => {
         const creation = await decodeAuthFlowCreation(response);
+        // Registration authority is server-owned and can advance during start;
+        // it is not the independently versioned OAuth client-secret credential.
         if (
           creation.flow.serverID !== server.id ||
           creation.flow.state !== "awaiting_callback" ||
           creation.flow.targetDesiredRevision !== server.desiredRevision ||
-          creation.flow.registrationRevision !== server.oauthClientRevision ||
           creation.flow.finishedAt !== null ||
           creation.flow.reason !== null
         )

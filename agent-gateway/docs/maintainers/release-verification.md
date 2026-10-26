@@ -132,7 +132,7 @@ Commands, readiness, streams and cleanup have finite bounds. The owner has a 25-
 
 ## Constrained-memory linting
 
-Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.9; repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.
+Gateway pins golangci-lint v2.13.1, including Staticcheck's newer IR implementation. Its module and the shared workspace require patched Go 1.26.10 (including the `crypto/x509` fix for GO-2026-6809); repository CI selects that version from `go.work`, and cache compatibility already includes the resolved toolchain and module/linter definitions. Other standalone tool modules retain their independent pins. Because lint tools are dependencies of the Gateway module, upgrading them can also raise shared library versions; qualify affected product tests, not just the lint executable.
 
 `make lint` runs all configured linters, including analysis of normal test source (not behavioral test execution), with `GOMEMLIMIT=512MiB`, `GOGC=50`, and `GOMAXPROCS=1`. The linter configuration fixes package concurrency at one, including direct `go tool golangci-lint` invocations. `make verify` reuses that lint recipe after its nonmutating module and format checks. Runtime memory tuning trades CPU for headroom; `GOMEMLIMIT` is a soft Go runtime target, not a guaranteed resident-memory bound.
 

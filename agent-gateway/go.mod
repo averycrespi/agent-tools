@@ -1,6 +1,6 @@
 module github.com/averycrespi/agent-tools/agent-gateway
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/gowebpki/jcs v1.0.1
