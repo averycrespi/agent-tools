@@ -18,7 +18,7 @@ _Synthetic example: Overview links configuration and retained activity across th
 
 ## Installation
 
-The Gateway **host requires Linux or macOS**, Go 1.26.9 or later, and GNU Make. No operating-system keyring is required. Clients can use other environments with compatible transports and trust configuration.
+The Gateway **host requires Linux or macOS**, Go 1.26.10 or later, and GNU Make. No operating-system keyring is required. Clients can use other environments with compatible transports and trust configuration.
 
 From the `agent-gateway` directory:
 

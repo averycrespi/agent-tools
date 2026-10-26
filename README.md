@@ -39,7 +39,7 @@ Source retirement does not uninstall binaries, remove configurations or credenti
 
 Requirements:
 
-- Go 1.26.9 or later and GNU Make
+- Go 1.26.10 or later and GNU Make
 - For Agent Gateway, a Linux or macOS host; `agent-gateway init` creates the owner-only data directory and protected master key for a new installation
 
 From the repository root, run the install command for the tools you need:
