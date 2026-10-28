@@ -46,6 +46,8 @@ func TestIntegrationShardsPartitionExecutableOwnership(t *testing.T) {
 				}
 			}
 			assert.Equal(t, wanted, seen, "exact independently discovered union")
+			assert.Equal(t, "test-integration-1", packageOwners["./internal/catalog"])
+			assert.Equal(t, "test-integration-2", packageOwners["./internal/mcpingress"])
 		})
 	}
 }
