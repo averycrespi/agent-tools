@@ -383,14 +383,14 @@ func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, co
 	return result, nil
 }
 
-// The first shard holds seven measured heavy owners. Audit stays away from
-// backup's parallel restore fixtures; keyring fills the second shard's headroom.
+// The first shard holds six measured heavy owners. Audit stays away from
+// backup's parallel restore fixtures; authorization and keyring fill shard two.
 // All other and newly discovered packages go to shard two: this is a partition,
 // never a second executable inventory. A package never spans runners; invocation
 // uses sequential test binaries within that same fixture owner.
 func integrationShard(pkg string) string {
 	switch pkg {
-	case "./internal/invocation", "./internal/storage", "./internal/authorization", "./internal/composition", "./internal/audit", "./internal/admin", "./internal/catalog":
+	case "./internal/invocation", "./internal/storage", "./internal/composition", "./internal/audit", "./internal/admin", "./internal/catalog":
 		return "test-integration-1"
 	default:
 		return "test-integration-2"

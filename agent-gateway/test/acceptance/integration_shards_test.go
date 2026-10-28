@@ -50,6 +50,7 @@ func TestIntegrationShardsPartitionExecutableOwnership(t *testing.T) {
 			assert.Equal(t, "test-integration-1", packageOwners["./internal/audit"])
 			assert.Equal(t, "test-integration-2", packageOwners["./internal/backup"])
 			assert.Equal(t, "test-integration-2", packageOwners["./internal/keyring"])
+			assert.Equal(t, "test-integration-2", packageOwners["./internal/authorization"])
 			assert.Equal(t, "test-integration-2", packageOwners["./internal/mcpingress"])
 		})
 	}
