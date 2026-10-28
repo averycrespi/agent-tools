@@ -55,6 +55,7 @@ func TestIntegrationInvocationPartitionsStaySequentialAndComplete(t *testing.T) 
 		"agent-gateway/internal/invocation/first_test.go": "package invocation\nimport \"testing\"\nfunc TestZulu(t *testing.T) {}\nfunc TestAlpha(t *testing.T) {}\nfunc TestMiddle(t *testing.T) {}\n",
 		"agent-gateway/internal/invocation/new_test.go":   "package invocation\nimport \"testing\"\nfunc TestNew(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\n",
 		"agent-gateway/internal/other/other_test.go":      "package other\nimport \"testing\"\nfunc TestOther(t *testing.T) {}\n",
+		"agent-gateway/internal/storage/store_test.go":    "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
 	})
 	module := filepath.Join(root, "agent-gateway")
 	inventory, err := DiscoverSuiteInventory(module, "linux", "amd64")
@@ -75,7 +76,9 @@ func TestIntegrationInvocationPartitionsStaySequentialAndComplete(t *testing.T) 
 		}
 	}
 	require.Len(t, commands[0].Tests, 4)
-	require.Len(t, commands[1].Tests, 2)
+	require.Len(t, commands[1].Tests, 3)
+	assert.NotContains(t, commands[0].Argv, "./internal/storage")
+	assert.Contains(t, commands[1].Argv, "./internal/storage")
 	for _, test := range inventory.Tests {
 		require.True(t, seen[test.Package+"/"+test.Name], "source identity omitted")
 	}

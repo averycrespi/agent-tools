@@ -347,11 +347,14 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, commands []SuiteGoCommand, repeats int) ([]SuiteGoCommand, error) {
 	var result []SuiteGoCommand
 	for _, command := range commands {
-		var invocation, other []SuiteTest
+		var invocation, other, storage []SuiteTest
 		for _, test := range command.Tests {
-			if test.Package == "./internal/invocation" {
+			switch test.Package {
+			case "./internal/invocation":
 				invocation = append(invocation, test)
-			} else {
+			case "./internal/storage":
+				storage = append(storage, test)
+			default:
 				other = append(other, test)
 			}
 		}
@@ -360,7 +363,9 @@ func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, co
 			continue
 		}
 		sort.Slice(invocation, func(i, j int) bool { return invocation[i].Name < invocation[j].Name })
-		groups := [2][]SuiteTest{other, nil}
+		// Storage overlaps the otherwise standalone second invocation batch.
+		// Keep Go's existing package-worker bound and sequential batch ownership.
+		groups := [2][]SuiteTest{other, storage}
 		for index, test := range invocation {
 			groups[index%2] = append(groups[index%2], test)
 		}
