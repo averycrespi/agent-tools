@@ -254,7 +254,7 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 	if repeats < 1 || (id != "test-stress" && repeats != 1) {
 		return nil, fmt.Errorf("only stress permits repeated execution")
 	}
-	if id == "test-integration-1" || id == "test-integration-2" {
+	if id == "test-integration-1" || id == "test-integration-2" || id == "test-integration-3" {
 		commands, err := PlanSuite(moduleRoot, "test-integration", inventory, repeats)
 		if err != nil {
 			return nil, err
@@ -383,15 +383,18 @@ func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, co
 	return result, nil
 }
 
-// The first shard holds six measured heavy owners. Audit stays away from
-// backup's parallel restore fixtures; authorization and keyring fill shard two.
+// Keep audit and invocation away from backup's parallel restore fixtures.
+// The third shard carries composition and credential authority to bound the
+// measured second-shard critical path without increasing per-runner concurrency.
 // All other and newly discovered packages go to shard two: this is a partition,
-// never a second executable inventory. A package never spans runners; invocation
+// never another executable inventory. A package never spans runners; invocation
 // uses sequential test binaries within that same fixture owner.
 func integrationShard(pkg string) string {
 	switch pkg {
-	case "./internal/invocation", "./internal/storage", "./internal/composition", "./internal/audit", "./internal/admin", "./internal/catalog":
+	case "./internal/invocation", "./internal/storage", "./internal/audit", "./internal/admin", "./internal/catalog":
 		return "test-integration-1"
+	case "./internal/composition", "./internal/authorization", "./internal/keyring", "./internal/gitcredentials", "./internal/httpcredentials":
+		return "test-integration-3"
 	default:
 		return "test-integration-2"
 	}
@@ -501,7 +504,7 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 	if err != nil {
 		return err
 	}
-	if id == "test-integration" || id == "test-integration-1" || id == "test-integration-2" {
+	if id == "test-integration" || id == "test-integration-1" || id == "test-integration-2" || id == "test-integration-3" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, suiteCommandBudget("test-integration"))
 		defer cancel()

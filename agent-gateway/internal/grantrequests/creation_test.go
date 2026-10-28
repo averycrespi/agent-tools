@@ -18,6 +18,7 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,6 +26,31 @@ import (
 const requestTestInstallationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 
 var requestTestTime = time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
+var requestDatabaseTemplate = storagefixture.New(requestTestInstallationID)
+
+func TestRequestFixturesKeepIndependentDatabaseState(t *testing.T) {
+	first, firstStore := newRequestRepository(t, requestRepositoryOptions{
+		namespaces: &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
+			"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled},
+		}},
+	})
+	created, err := first.CreateOrExisting(t.Context(), CreateRequest{PrincipalID: requestID(200), Policy: contract.Policy{
+		Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true,
+	}})
+	require.NoError(t, err)
+	require.Equal(t, contract.RequestCreated, created.Outcome)
+	_, secondStore := newRequestRepository(t, requestRepositoryOptions{})
+	for index, store := range []*storage.Store{secondStore, firstStore} {
+		require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
+			var requests, identities int
+			require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM grant_requests`).Scan(&requests))
+			require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM grant_request_identities`).Scan(&identities))
+			require.Equal(t, index, requests)
+			require.Equal(t, index, identities)
+			return nil
+		}))
+	}
+}
 
 func TestRequestCreatePersistsBoundedEvidenceAndInvalidates(t *testing.T) {
 	namespaces := &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{
@@ -171,7 +197,7 @@ func TestSemanticDedupeConcurrentSubmissionNeverQueuesOrDuplicates(t *testing.T)
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
-	store, err := storage.Initialize(context.Background(), ownership, requestTestInstallationID)
+	store, err := requestDatabaseTemplate.Open(context.Background(), ownership)
 	require.NoError(t, err)
 	repository, err := New(Options{
 		Store: store, Clock: &countingRequestClock{now: requestTestTime}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x66}, 20)),
@@ -413,7 +439,7 @@ func newRequestRepository(t *testing.T, options requestRepositoryOptions) (*Repo
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
-	store, err := storage.Initialize(context.Background(), ownership, requestTestInstallationID)
+	store, err := requestDatabaseTemplate.Open(context.Background(), ownership)
 	require.NoError(t, err)
 	if options.clock == nil {
 		options.clock = &countingRequestClock{now: requestTestTime}

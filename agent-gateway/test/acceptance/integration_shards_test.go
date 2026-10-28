@@ -25,7 +25,7 @@ func TestIntegrationShardsPartitionExecutableOwnership(t *testing.T) {
 			}
 			seen := map[string]bool{}
 			packageOwners := map[string]string{}
-			for _, shard := range []string{"test-integration-1", "test-integration-2"} {
+			for _, shard := range []string{"test-integration-1", "test-integration-2", "test-integration-3"} {
 				commands, err := PlanSuite(root, shard, inventory, 1)
 				require.NoError(t, err)
 				require.NotEmpty(t, commands)
@@ -49,9 +49,37 @@ func TestIntegrationShardsPartitionExecutableOwnership(t *testing.T) {
 			assert.Equal(t, "test-integration-1", packageOwners["./internal/catalog"])
 			assert.Equal(t, "test-integration-1", packageOwners["./internal/audit"])
 			assert.Equal(t, "test-integration-2", packageOwners["./internal/backup"])
-			assert.Equal(t, "test-integration-2", packageOwners["./internal/keyring"])
-			assert.Equal(t, "test-integration-2", packageOwners["./internal/authorization"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/keyring"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/authorization"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/composition"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/gitcredentials"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/httpcredentials"])
 			assert.Equal(t, "test-integration-2", packageOwners["./internal/mcpingress"])
+		})
+	}
+}
+
+func TestIntegrationShardExecutionPreservesOwnerBudget(t *testing.T) {
+	root := filepath.Dir(purposeTargetModuleRoot(t))
+	for _, shard := range []string{"test-integration-1", "test-integration-2", "test-integration-3"} {
+		t.Run(shard, func(t *testing.T) {
+			var sharedDeadline time.Time
+			calls := 0
+			executor := suiteExecutorFunc(func(ctx context.Context, _ string, command Command) ([]byte, error) {
+				deadline, bounded := ctx.Deadline()
+				require.True(t, bounded)
+				require.Positive(t, time.Until(deadline))
+				require.LessOrEqual(t, time.Until(deadline), 15*time.Minute)
+				if calls == 0 {
+					sharedDeadline = deadline
+				}
+				calls++
+				assert.Equal(t, sharedDeadline, deadline)
+				assert.Equal(t, 15*time.Minute, command.Timeout)
+				return nil, nil
+			})
+			require.NoError(t, RunSuite(t.Context(), root, shard, 1, executor))
+			require.Positive(t, calls)
 		})
 	}
 }
@@ -128,7 +156,7 @@ func TestIntegrationShardsIncludeNewPackagesAndRejectInvalidRequests(t *testing.
 	require.NoError(t, err)
 	require.Len(t, commands, 1)
 	assert.Contains(t, commands[0].Argv, "./internal/newowner")
-	_, err = PlanSuite(root, "test-integration-3", inventory, 1)
+	_, err = PlanSuite(root, "test-integration-4", inventory, 1)
 	require.Error(t, err)
 	_, err = PlanSuite(root, "test-integration-1", inventory, 2)
 	require.ErrorContains(t, err, "only stress")

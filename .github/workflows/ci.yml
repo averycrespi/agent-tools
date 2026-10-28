@@ -188,7 +188,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [integration-1, integration-2, harness]
+        suite: [integration-1, integration-2, integration-3, harness]
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/go-cache

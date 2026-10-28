@@ -85,15 +85,16 @@ class SelectionTests(unittest.TestCase):
 
 
 class IntegrationMatrixTests(unittest.TestCase):
-    def test_gateway_has_exactly_two_shards_and_other_tools_run_once(self):
+    def test_gateway_has_exactly_three_shards_and_other_tools_run_once(self):
         self.assertEqual(integration_matrix([]), [])
         self.assertEqual(integration_matrix(["agent-gateway"]), [
             {"tool": "agent-gateway", "suite": "integration-1"},
             {"tool": "agent-gateway", "suite": "integration-2"},
+            {"tool": "agent-gateway", "suite": "integration-3"},
         ])
         selected = inventory(ROOT)["integration"]
         actual = integration_matrix(selected)
-        self.assertEqual(len(actual), len(selected) + 1)
+        self.assertEqual(len(actual), len(selected) + 2)
         self.assertEqual(len({(item["tool"], item["suite"]) for item in actual}), len(actual))
         for tool in selected:
             if tool != "agent-gateway":
@@ -244,8 +245,8 @@ class CacheTests(unittest.TestCase):
     def test_integration_shards_have_independent_cache_writers(self):
         for platform in ("Linux/X64", "macOS/ARM64"):
             prefixes = [self.identity(role=role, platform=platform)["prefix"]
-                        for role in ("integration", "integration-1", "integration-2")]
-            self.assertEqual(len(set(prefixes)), 3)
+                        for role in ("integration", "integration-1", "integration-2", "integration-3")]
+            self.assertEqual(len(set(prefixes)), 4)
 
     def test_workspace_dependencies_and_linter_configuration_invalidate(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -357,7 +358,7 @@ class CacheTests(unittest.TestCase):
         jobs = dict(re.findall(r"^  ([a-z0-9-]+):\n(.*?)(?=^  [a-z0-9-]+:|\Z)", workflow, re.M | re.S))
         job = jobs["gateway-macos"]
         for fragment in ("needs: changes", "if: needs.changes.outputs.gateway == 'true'",
-                         "runs-on: macos-latest", "fail-fast: false", "suite: [integration-1, integration-2, harness]",
+                         "runs-on: macos-latest", "fail-fast: false", "suite: [integration-1, integration-2, integration-3, harness]",
                          "role: ${{ matrix.suite }}", "tool: agent-gateway",
                          'run: make -C agent-gateway "test-$SUITE"', "SUITE: ${{ matrix.suite }}"):
             self.assertIn(fragment, job)
