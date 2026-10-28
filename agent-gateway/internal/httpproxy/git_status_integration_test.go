@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,12 +27,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type gitStatusTrafficLoss struct {
+	mu     sync.Mutex
+	counts diagnostics.TrafficLossCounts
+}
+
+func (*gitStatusTrafficLoss) Traffic(diagnostics.Facts) {}
+
+func (o *gitStatusTrafficLoss) TrafficLoss(reason diagnostics.TrafficLossReason, terminal bool, count uint64) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	index := 0
+	if terminal {
+		index = 1
+	}
+	o.counts[reason][index] += count
+}
+
 func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 	pkt := func(s string) string { return fmt.Sprintf("%04x%s", len(s)+4, s) }
 	full := pkt("unpack ok\n") + pkt("ok refs/heads/private-a\n") + pkt("ng refs/heads/private-b secret-message-canary\n") + "0000"
 	for _, mode := range []string{"partial", "success", "failure", "truncated", "missing", "gzip", "unsupported_encoding", "sideband", "interrupted", "http401", "http403"} {
 		t.Run(mode, func(t *testing.T) {
 			f := fixture(t)
+			loss := &gitStatusTrafficLoss{}
+			f.traffic.SetTrafficDiagnostics(loss)
+			t.Cleanup(func() {
+				if t.Failed() {
+					status := f.traffic.Status(context.Background())
+					history, historyErr := f.traffic.GitHistory(context.Background(), 0, 10)
+					completed := 0
+					for _, record := range history.Records {
+						if record.Completion != nil {
+							completed++
+						}
+					}
+					loss.mu.Lock()
+					counts := loss.counts
+					loss.mu.Unlock()
+					// Closed facts only: no response, repository, ref or raw read error.
+					t.Logf("traffic delivery=%+v incident=%+v loss=%v history_available=%t records=%d completions=%d", status.Delivery, status.Incident, counts, historyErr == nil, len(history.Records), completed)
+				}
+			})
 			wire := []byte(full)
 			want := "reported_partial"
 			encoding := ""
