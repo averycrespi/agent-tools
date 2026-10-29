@@ -243,6 +243,7 @@ class Qualification(Smoke):
         self.admin = ''
         self.token = ''
         self.operations = {}
+        self.fixture_servers = []
         self.relays = {}
 
     def case(self, name, work):
@@ -414,6 +415,7 @@ class Qualification(Smoke):
         if status != 201:
             return None, None
         sid = value['server']['id']
+        self.fixture_servers.append(sid)
         if value.get('operation'):
             self.operations[sid] = value['operation']['id']
         return sid, fields['ETag']
@@ -761,7 +763,25 @@ class Qualification(Smoke):
         self.dc('up', '-d', '--no-build', '--wait', '--wait-timeout', '90', timeout=120)
         self.container = self.dc('ps', '--quiet', 'gateway')[1].strip()
 
+    def quiesce_fixture_servers(self, keep):
+        # Completed protocol cases must not race later restart reconstruction
+        # for the fail-fast control writer. Settle each disable before the next.
+        for sid in self.fixture_servers:
+            if sid in keep:
+                continue
+            path = '/api/v2/mcp/servers/' + sid
+            value, fields = self.api('GET', path)
+            if value['desired_state'] != 'enabled':
+                continue
+            updated, _ = self.api('PATCH', path, {'enabled': False}, 200, {'If-Match': fields['ETag']})
+            if updated.get('operation'):
+                self.operations[sid] = updated['operation']['id']
+            self.wait_server(sid, False)
+
     def persistence(self):
+        # Keep STDIO for the real SIGTERM child-stop assertion and HTTPS for
+        # the admitted drain call. Disabled OAuth's pending callback is untouched.
+        self.quiesce_fixture_servers({self.servers[0], self.servers[2]})
         before = self.dc('exec', '-T', 'gateway', 'sha256sum', 'admin-bearer', 'master-key', 'http-ca.pem')[1]
         backup, _ = self.api('POST', '/api/v2/backups', {}, 201, {'Idempotency-Key': 'before-replacement'})
         self.report['installation_identity'] = backup['installation_id']
@@ -823,6 +843,9 @@ class Qualification(Smoke):
         require(self.fixture_get('/stats')['token-exchange'] == 1, 'restart repeated token exchange')
 
     def maintenance(self):
+        # STDIO stop and OAuth reactivation were already qualified above. Only
+        # HTTPS must reconstruct during the stopped-maintenance/crash cases.
+        self.quiesce_fixture_servers({self.servers[2]})
         self.dc('exec', '-T', 'gateway', 'agent-gateway', 'backup', 'create', '--address', 'http://127.0.0.1:18210', timeout=60)
         code, _ = self.dc('exec', '-T', 'gateway', 'agent-gateway', 'maintenance', 'verify-and-recover-storage', '--dry-run', check=False)
         require(code != 0, 'maintenance admitted while serving')
