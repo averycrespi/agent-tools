@@ -69,8 +69,8 @@ test-integration:
 	go run ./test/acceptance/cmd run-suite test-integration $(SUITE_OUTPUT_FLAG)
 
 # CI-only package partitions; ordinary developer/release owners remain unsharded.
-.PHONY: test-integration-1 test-integration-2
-test-integration-1 test-integration-2:
+.PHONY: test-integration-1 test-integration-2 test-integration-3
+test-integration-1 test-integration-2 test-integration-3:
 	go run ./test/acceptance/cmd run-suite $@ $(SUITE_OUTPUT_FLAG)
 
 test-e2e:

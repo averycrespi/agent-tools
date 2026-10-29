@@ -33,7 +33,7 @@ func TestTrafficLocalUnknownDoesNotInventTerminal(t *testing.T) {
 func TestMCPExecutionAndResponseDoNotWaitForOptionalHistory(t *testing.T) {
 	for _, mode := range []string{"stalled", "full", "unavailable", "uncertain", "identity failure", "recovering"} {
 		t.Run(mode, func(t *testing.T) {
-			_, audits, authority, _, credential := newAdmissionCoordinator(t, func(storage.FaultPoint) error { return nil })
+			_, audits, authority, _, credential := newAdmissionCoordinatorWithoutTraffic(t, func(storage.FaultPoint) error { return nil })
 			entered, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })
 			defer unblock()

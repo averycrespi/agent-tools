@@ -15,7 +15,7 @@ import (
 )
 
 func TestHTTPRecordingExpiryIsNotAdmissionFailure(t *testing.T) {
-	coordinator, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+	coordinator, audits, authority, principal, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -68,7 +68,7 @@ func TestHTTPRecordingExpiryIsNotAdmissionFailure(t *testing.T) {
 }
 
 func TestHTTPAdmissionEvaluationDiagnostic(t *testing.T) {
-	coordinator, audits, _, principal, _ := newAdmissionCoordinator(t, nil)
+	coordinator, audits, _, principal, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
 	identity, err := audits.PrepareIdentity()

@@ -72,7 +72,7 @@ func publicHTTPFacts() httppolicy.AddressFacts {
 func TestHTTPOptionalRecordingNeverGrantsOrBlocksExecution(t *testing.T) {
 	for _, mode := range []string{"stalled", "full", "unavailable", "uncertain", "invalid capture", "deny", "malformed"} {
 		t.Run(mode, func(t *testing.T) {
-			c, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+			c, audits, authority, principal, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 			if mode != "deny" {
 				allow := contract.HTTPDefaultAllow
 				_, err := authority.PatchPrincipal(t.Context(), principal.ID, authorization.PatchPrincipalRequest{ExpectedRevision: credential.Principal.Revision, HTTPDefault: &allow})

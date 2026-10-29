@@ -28,6 +28,64 @@ spec.loader.exec_module(peer)
 
 
 class AdapterTests(unittest.TestCase):
+    def test_completed_servers_quiesce_serially_without_disabling_live_proofs(self):
+        owner = Qualification(FakeDocker())
+        self.addCleanup(owner.temp.cleanup)
+        names = ['stdio', 'private', 'https', 'stream', 'denied', 'oauth']
+        states = {sid: 'enabled' for sid in names}
+        states.update(private='disabled', oauth='disabled')
+        pending, events = set(), []
+        def api(method, path, body=None, status=200, headers=None):
+            if method == 'POST':
+                if status == 400:
+                    return None, {}
+                sid = body['namespace']
+                return {'server': {'id': sid}}, {'ETag': sid + '-revision'}
+            sid = path.rsplit('/', 1)[-1]
+            if method == 'GET':
+                return {'desired_state': states[sid]}, {'ETag': sid + '-revision'}
+            self.assertEqual(method, 'PATCH')
+            self.assertFalse(pending, 'next mutation raced unfinished disable')
+            self.assertEqual(headers, {'If-Match': sid + '-revision'})
+            self.assertEqual(body, {'enabled': False})
+            pending.add(sid)
+            events.append(('disable', sid))
+            return {'operation': {'id': sid + '-disable'}}, {}
+        def settle(sid, active=True):
+            self.assertFalse(active)
+            self.assertEqual(pending, {sid})
+            self.assertEqual(owner.operations[sid], sid + '-disable')
+            pending.remove(sid)
+            states[sid] = 'disabled'
+            events.append(('settled', sid))
+        with patch.object(owner, 'api', side_effect=api), patch.object(owner, 'wait_server', side_effect=settle):
+            for name in names:
+                owner.server(name, {}, enabled=states[name] == 'enabled')
+            owner.server('refused', {}, status=400)
+            self.assertEqual(owner.fixture_servers, names)
+            owner.quiesce_fixture_servers({'stdio', 'https'})
+            self.assertEqual({sid for sid, state in states.items() if state == 'enabled'}, {'stdio', 'https'})
+            self.assertEqual(events, [('disable', 'stream'), ('settled', 'stream'), ('disable', 'denied'), ('settled', 'denied')])
+            # Persistence has now proved STDIO stop and explicitly reactivated OAuth.
+            states['oauth'] = 'enabled'
+            owner.quiesce_fixture_servers({'https'})
+            self.assertEqual({sid for sid, state in states.items() if state == 'enabled'}, {'https'})
+            self.assertEqual(events[-4:], [('disable', 'stdio'), ('settled', 'stdio'), ('disable', 'oauth'), ('settled', 'oauth')])
+        self.assertFalse(pending)
+
+    def test_unsettled_fixture_disable_prevents_maintenance_restart(self):
+        owner = Qualification(FakeDocker())
+        self.addCleanup(owner.temp.cleanup)
+        owner.servers = ['stdio', 'private', 'https']
+        owner.fixture_servers = ['stdio', 'https']
+        responses = [({'desired_state': 'enabled'}, {'ETag': 'revision'}), ({'operation': {'id': 'disable'}}, {})]
+        with (patch.object(owner, 'api', side_effect=responses),
+              patch.object(owner, 'wait_server', side_effect=RuntimeError('disable unsettled')),
+              patch.object(owner, 'dc') as commands):
+            with self.assertRaisesRegex(RuntimeError, 'disable unsettled'):
+                owner.maintenance()
+            commands.assert_not_called()
+
     def test_unsettled_replacement_does_not_start_backup_mutation(self):
         owner = Qualification(FakeDocker())
         self.addCleanup(owner.temp.cleanup)

@@ -84,11 +84,11 @@ def check_gate(needs):
 
 def integration_matrix(tools):
     return [{"tool": tool, "suite": suite} for tool in tools
-            for suite in (("integration-1", "integration-2") if tool == "agent-gateway" else ("integration",))]
+            for suite in (("integration-1", "integration-2", "integration-3") if tool == "agent-gateway" else ("integration",))]
 
 
 def cache_identity(root, role, tool, toolchain, platform, run, attempt):
-    if role not in {"quality", "unit", "lint", "integration", "integration-1", "integration-2", "harness", "e2e", "demo", "vulnerability"}:
+    if role not in {"quality", "unit", "lint", "integration", "integration-1", "integration-2", "integration-3", "harness", "e2e", "demo", "vulnerability"}:
         raise ValueError("Unknown build-cache role")
     if tool not in {"all", *inventory(root)["tools"]}:
         raise ValueError("Unknown build-cache tool")

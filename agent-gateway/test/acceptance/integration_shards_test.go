@@ -25,7 +25,7 @@ func TestIntegrationShardsPartitionExecutableOwnership(t *testing.T) {
 			}
 			seen := map[string]bool{}
 			packageOwners := map[string]string{}
-			for _, shard := range []string{"test-integration-1", "test-integration-2"} {
+			for _, shard := range []string{"test-integration-1", "test-integration-2", "test-integration-3"} {
 				commands, err := PlanSuite(root, shard, inventory, 1)
 				require.NoError(t, err)
 				require.NotEmpty(t, commands)
@@ -46,6 +46,40 @@ func TestIntegrationShardsPartitionExecutableOwnership(t *testing.T) {
 				}
 			}
 			assert.Equal(t, wanted, seen, "exact independently discovered union")
+			assert.Equal(t, "test-integration-2", packageOwners["./internal/catalog"])
+			assert.Equal(t, "test-integration-1", packageOwners["./internal/audit"])
+			assert.Equal(t, "test-integration-2", packageOwners["./internal/backup"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/keyring"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/authorization"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/composition"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/gitcredentials"])
+			assert.Equal(t, "test-integration-3", packageOwners["./internal/httpcredentials"])
+			assert.Equal(t, "test-integration-2", packageOwners["./internal/mcpingress"])
+		})
+	}
+}
+
+func TestIntegrationShardExecutionPreservesOwnerBudget(t *testing.T) {
+	root := filepath.Dir(purposeTargetModuleRoot(t))
+	for _, shard := range []string{"test-integration-1", "test-integration-2", "test-integration-3"} {
+		t.Run(shard, func(t *testing.T) {
+			var sharedDeadline time.Time
+			calls := 0
+			executor := suiteExecutorFunc(func(ctx context.Context, _ string, command Command) ([]byte, error) {
+				deadline, bounded := ctx.Deadline()
+				require.True(t, bounded)
+				require.Positive(t, time.Until(deadline))
+				require.LessOrEqual(t, time.Until(deadline), 15*time.Minute)
+				if calls == 0 {
+					sharedDeadline = deadline
+				}
+				calls++
+				assert.Equal(t, sharedDeadline, deadline)
+				assert.Equal(t, 15*time.Minute, command.Timeout)
+				return nil, nil
+			})
+			require.NoError(t, RunSuite(t.Context(), root, shard, 1, executor))
+			require.Positive(t, calls)
 		})
 	}
 }
@@ -55,6 +89,7 @@ func TestIntegrationInvocationPartitionsStaySequentialAndComplete(t *testing.T) 
 		"agent-gateway/internal/invocation/first_test.go": "package invocation\nimport \"testing\"\nfunc TestZulu(t *testing.T) {}\nfunc TestAlpha(t *testing.T) {}\nfunc TestMiddle(t *testing.T) {}\n",
 		"agent-gateway/internal/invocation/new_test.go":   "package invocation\nimport \"testing\"\nfunc TestNew(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\n",
 		"agent-gateway/internal/other/other_test.go":      "package other\nimport \"testing\"\nfunc TestOther(t *testing.T) {}\n",
+		"agent-gateway/internal/storage/store_test.go":    "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
 	})
 	module := filepath.Join(root, "agent-gateway")
 	inventory, err := DiscoverSuiteInventory(module, "linux", "amd64")
@@ -75,7 +110,9 @@ func TestIntegrationInvocationPartitionsStaySequentialAndComplete(t *testing.T) 
 		}
 	}
 	require.Len(t, commands[0].Tests, 4)
-	require.Len(t, commands[1].Tests, 2)
+	require.Len(t, commands[1].Tests, 3)
+	assert.NotContains(t, commands[0].Argv, "./internal/storage")
+	assert.Contains(t, commands[1].Argv, "./internal/storage")
 	for _, test := range inventory.Tests {
 		require.True(t, seen[test.Package+"/"+test.Name], "source identity omitted")
 	}
@@ -119,7 +156,7 @@ func TestIntegrationShardsIncludeNewPackagesAndRejectInvalidRequests(t *testing.
 	require.NoError(t, err)
 	require.Len(t, commands, 1)
 	assert.Contains(t, commands[0].Argv, "./internal/newowner")
-	_, err = PlanSuite(root, "test-integration-3", inventory, 1)
+	_, err = PlanSuite(root, "test-integration-4", inventory, 1)
 	require.Error(t, err)
 	_, err = PlanSuite(root, "test-integration-1", inventory, 2)
 	require.ErrorContains(t, err, "only stress")

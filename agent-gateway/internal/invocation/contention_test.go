@@ -14,7 +14,7 @@ import (
 )
 
 func TestConcurrentExecutionAndCompletionsIgnoreStalledRecorder(t *testing.T) {
-	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	_, audits, authority, _, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	entered, release := make(chan struct{}), make(chan struct{})
 	unblock := sync.OnceFunc(func() { close(release) })
 	defer unblock()

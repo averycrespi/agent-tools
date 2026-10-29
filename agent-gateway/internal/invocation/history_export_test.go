@@ -11,7 +11,7 @@ import (
 )
 
 func TestHistoryExportByteBoundReturnsHonestCoverage(t *testing.T) {
-	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, repository, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.BudgetBytes = 64 << 20 }, nil)
 	repository.traffic = traffic
 	reader, err := NewReadService(repository, authority, nil, nil)
@@ -39,7 +39,7 @@ func TestHistoryExportByteBoundReturnsHonestCoverage(t *testing.T) {
 }
 
 func TestHistoryExportTraversesInitialBoundaryWithoutChasingArrivals(t *testing.T) {
-	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, repository, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 512 }, nil)
 	repository.traffic = traffic
 	reader, err := NewReadService(repository, authority, nil, nil)
@@ -76,7 +76,7 @@ func TestHistoryExportTraversesInitialBoundaryWithoutChasingArrivals(t *testing.
 }
 
 func TestHistoryExportBoundDoesNotHidePruning(t *testing.T) {
-	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, repository, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 2 }, nil)
 	repository.traffic = traffic
 	reader, err := NewReadService(repository, authority, nil, nil)
@@ -98,7 +98,7 @@ func TestHistoryExportBoundDoesNotHidePruning(t *testing.T) {
 }
 
 func TestHistoryExportSeparatesSnapshotCoverageFromExecution(t *testing.T) {
-	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, repository, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	repository.traffic = traffic
 	reader, err := NewReadService(repository, authority, nil, nil)

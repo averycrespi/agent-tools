@@ -27,7 +27,9 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -195,8 +197,16 @@ func newNativeGitFixture(t *testing.T) *nativeGitFixture {
 			}
 			require.Error(t, dialErr, "owned native Git listener survived cleanup")
 		}
-		history, err := n.proxy.traffic.GitHistory(ctx, 0, 256)
-		require.NoError(t, err)
+		// Engine shutdown joins dispatch, not optional history persistence. A
+		// fresh SQLite reader can contend with the final writer's close; wait
+		// for readable evidence within the original cleanup deadline.
+		deadline, _ := ctx.Deadline()
+		var history invocation.GitTrafficHistory
+		require.EventuallyWithT(t, func(collect *assert.CollectT) {
+			var err error
+			history, err = n.proxy.traffic.GitHistory(ctx, 0, 256)
+			assert.NoError(collect, err)
+		}, time.Until(deadline), 10*time.Millisecond)
 		encoded, err := json.Marshal(history)
 		require.NoError(t, err)
 		for _, canary := range [][]byte{n.secret, []byte(n.proxy.credential.Bearer)} {

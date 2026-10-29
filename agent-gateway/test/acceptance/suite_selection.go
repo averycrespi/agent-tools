@@ -254,7 +254,7 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 	if repeats < 1 || (id != "test-stress" && repeats != 1) {
 		return nil, fmt.Errorf("only stress permits repeated execution")
 	}
-	if id == "test-integration-1" || id == "test-integration-2" {
+	if id == "test-integration-1" || id == "test-integration-2" || id == "test-integration-3" {
 		commands, err := PlanSuite(moduleRoot, "test-integration", inventory, repeats)
 		if err != nil {
 			return nil, err
@@ -347,11 +347,14 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, commands []SuiteGoCommand, repeats int) ([]SuiteGoCommand, error) {
 	var result []SuiteGoCommand
 	for _, command := range commands {
-		var invocation, other []SuiteTest
+		var invocation, other, storage []SuiteTest
 		for _, test := range command.Tests {
-			if test.Package == "./internal/invocation" {
+			switch test.Package {
+			case "./internal/invocation":
 				invocation = append(invocation, test)
-			} else {
+			case "./internal/storage":
+				storage = append(storage, test)
+			default:
 				other = append(other, test)
 			}
 		}
@@ -360,7 +363,9 @@ func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, co
 			continue
 		}
 		sort.Slice(invocation, func(i, j int) bool { return invocation[i].Name < invocation[j].Name })
-		groups := [2][]SuiteTest{other, nil}
+		// Storage overlaps the otherwise standalone second invocation batch.
+		// Keep Go's existing package-worker bound and sequential batch ownership.
+		groups := [2][]SuiteTest{other, storage}
 		for index, test := range invocation {
 			groups[index%2] = append(groups[index%2], test)
 		}
@@ -378,14 +383,18 @@ func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, co
 	return result, nil
 }
 
-// The first shard holds six heavy owners (~half of the measured macOS package time).
+// Keep audit and invocation away from backup's parallel restore fixtures.
+// The third shard carries composition and credential authority to bound the
+// measured second-shard critical path without increasing per-runner concurrency.
 // All other and newly discovered packages go to shard two: this is a partition,
-// never a second executable inventory. A package never spans runners; invocation
+// never another executable inventory. A package never spans runners; invocation
 // uses sequential test binaries within that same fixture owner.
 func integrationShard(pkg string) string {
 	switch pkg {
-	case "./internal/invocation", "./internal/storage", "./internal/authorization", "./internal/composition", "./internal/keyring", "./internal/admin":
+	case "./internal/invocation", "./internal/storage", "./internal/audit", "./internal/admin":
 		return "test-integration-1"
+	case "./internal/composition", "./internal/authorization", "./internal/keyring", "./internal/gitcredentials", "./internal/httpcredentials":
+		return "test-integration-3"
 	default:
 		return "test-integration-2"
 	}
@@ -495,7 +504,7 @@ func RunSuite(ctx context.Context, root, id string, repeats int, executor Execut
 	if err != nil {
 		return err
 	}
-	if id == "test-integration" || id == "test-integration-1" || id == "test-integration-2" {
+	if id == "test-integration" || id == "test-integration-1" || id == "test-integration-2" || id == "test-integration-3" {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, suiteCommandBudget("test-integration"))
 		defer cancel()

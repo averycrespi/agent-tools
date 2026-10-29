@@ -140,44 +140,40 @@ func TestProductionCompositionAuthorityMatrixUsesOneGraphAndActualOwners(t *test
 	publishStaticCompositionCredential(t, built, bearer, []string{"bearer"}, map[string]string{"bearer": "bearer-canary"})
 	publishOAuthCompositionAuthority(t, built, options, public, contract.TokenEndpointAuthNone, "", "public-token-canary")
 	publishOAuthCompositionAuthority(t, built, options, confidential, contract.TokenEndpointAuthClientSecretBasic, "client-canary", "confidential-token-canary")
-	credentialFree = enableCompositionServer(t, built.servers, credentialFree)
-	static = enableCompositionServer(t, built.servers, static)
-	bearer = enableCompositionServer(t, built.servers, bearer)
-	public = enableCompositionServer(t, built.servers, public)
-	confidential = enableCompositionServer(t, built.servers, confidential)
 	serversByKind := []servers.Server{credentialFree, static, bearer, public, confidential}
 
 	require.NoError(t, built.Start(context.Background()))
-	startupContext, cancelStartup := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancelStartup()
-	require.True(t, built.manager.Wait(startupContext), "initial reconciliation wave did not complete")
-	for _, server := range serversByKind {
-		server := server
-		require.Eventually(t, func() bool {
+	// This matrix qualifies five live authority paths, not simultaneous startup.
+	// Wait joins current workers, not scheduled retries: settle each real activation
+	// before the next fixture mutation competes for nonqueueing writer admission.
+	for index, server := range serversByKind {
+		require.Equal(t, contract.RuntimeInactive, built.RuntimeStatus(server.ID).State)
+		enabled := true
+		activation, err := built.servers.Patch(t.Context(), server.ID, server.DesiredRevision, servers.Patch{Enabled: &enabled})
+		require.NoError(t, err)
+		require.NotNil(t, activation.Operation)
+		serversByKind[index] = activation.Server
+		require.Equal(t, activation.DesiredRevision, activation.Operation.TargetDesiredRevision)
+		authority, err := built.servers.Authority(t.Context(), server.ID)
+		require.NoError(t, err)
+		require.Equal(t, authority.CredentialRevisions, activation.Operation.TargetCredentialRevisions)
+		built.TriggerServer(t.Context(), server.ID, &activation.Operation.ID, true)
+		if !assert.Eventually(t, func() bool {
 			status := built.RuntimeStatus(server.ID)
-			return status.State != contract.RuntimeInactive && status.State != contract.RuntimeActivating && status.Reconciliation.InUse == 0
-		}, 2*time.Second, time.Millisecond, server.Namespace)
-		if built.RuntimeStatus(server.ID).State != contract.RuntimeActive {
-			built.manager.Trigger(server.ID, nil, true)
-			require.Eventually(t, func() bool {
-				status := built.RuntimeStatus(server.ID)
-				return status.State == contract.RuntimeActive && status.Reconciliation.InUse == 0
-			}, 2*time.Second, time.Millisecond, server.Namespace)
+			operation, getErr := built.servers.GetOperation(t.Context(), activation.Operation.ID)
+			owned, waiting := options.Store.MutationOccupancy()
+			return getErr == nil && operation.State == contract.OperationSucceeded &&
+				status.State == contract.RuntimeActive && status.CatalogState == contract.ActiveCatalogCurrent &&
+				status.Reconciliation.InUse == 0 && built.CatalogServerStatus(server.ID).InUse == 0 && !owned && waiting == 0
+		}, 2*time.Second, time.Millisecond, server.Namespace) {
+			status := built.RuntimeStatus(server.ID)
+			reason := contract.PublicReason("")
+			if status.Reason != nil {
+				reason = *status.Reason
+			}
+			owned, waiting := options.Store.MutationOccupancy()
+			t.Fatalf("runtime state=%s reason=%s credentials=%s catalog=%s reconciliation=%d retry=%d writer_owned=%t writer_waiting=%d", status.State, reason, status.CredentialState, status.CatalogState, status.Reconciliation.InUse, status.RetryAttempt, owned, waiting)
 		}
-	}
-	for _, server := range serversByKind {
-		if built.RuntimeStatus(server.ID).CatalogState != contract.ActiveCatalogCurrent {
-			var operation servers.OperationResult
-			require.Eventually(t, func() bool {
-				var createErr error
-				operation, createErr = built.servers.CreateOperation(context.Background(), servers.OperationRequest{ServerID: server.ID, Kind: contract.OperationRefreshCatalog, ExpectedDesiredRevision: server.DesiredRevision})
-				return createErr == nil
-			}, 2*time.Second, time.Millisecond)
-			built.manager.Trigger(server.ID, &operation.Operation.ID, false)
-		}
-		require.Eventually(t, func() bool {
-			return built.RuntimeStatus(server.ID).CatalogState == contract.ActiveCatalogCurrent
-		}, 2*time.Second, time.Millisecond, server.Namespace)
 		assert.Equal(t, int64(0), built.CatalogServerStatus(server.ID).InUse)
 		assert.Equal(t, int64(0), built.DispatchServerStatus(server.ID).InUse)
 	}

@@ -13,8 +13,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/require"
 )
+
+var authorityTemplate = storagefixture.New("01ARZ3NDEKTSV4RRFFQ69G5FAV")
 
 type ingressClock struct{ now time.Time }
 
@@ -51,7 +54,7 @@ func newTestAuthority(t *testing.T) *testAuthority {
 	require.NoError(t, os.Mkdir(root, 0o700))
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
-	store, err := storage.Initialize(context.Background(), ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	store, err := authorityTemplate.Open(t.Context(), ownership)
 	require.NoError(t, err)
 	entropy := make([]byte, 128*1024)
 	for index := range entropy {
@@ -70,6 +73,21 @@ func newTestAuthority(t *testing.T) *testAuthority {
 		_ = ownership.Close()
 	})
 	return authority
+}
+
+func TestAuthorityFixturesKeepIndependentDatabaseState(t *testing.T) {
+	first := newTestAuthority(t)
+	first.add(t, "first", contract.VisibilityRequestable)
+	bearer := first.bearers[contract.AgentBearerPrefix+"first"]
+
+	second := newTestAuthority(t)
+	lease, err := second.repository.Authenticate(t.Context(), bearer)
+	require.ErrorIs(t, err, authorization.ErrAuthenticationRequired)
+	require.Nil(t, lease)
+
+	lease, err = first.repository.Authenticate(t.Context(), bearer)
+	require.NoError(t, err)
+	lease.Release()
 }
 
 func (authority *testAuthority) add(t *testing.T, alias string, visibility contract.PrincipalVisibility) {
