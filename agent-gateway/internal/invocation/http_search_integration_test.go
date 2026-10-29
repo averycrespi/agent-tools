@@ -13,7 +13,7 @@ import (
 )
 
 func TestHTTPTrafficAuthoritativeSearchIntegration(t *testing.T) {
-	_, audits, _, _, _ := newAdmissionCoordinator(t, nil)
+	_, audits, _, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
 	agent, other, missing := invocationID(80), invocationID(81), invocationID(82)

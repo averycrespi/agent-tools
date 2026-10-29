@@ -15,7 +15,7 @@ import (
 )
 
 func TestIntegrationInFlightPruningPreservesSelfContainedTerminal(t *testing.T) {
-	_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+	_, audits, authority, _, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, func(c *TrafficConfig) { c.RetainedRecords = 4; c.BatchRecords = 1 }, nil)
 	audits.traffic = traffic
 	lease, err := authority.Authenticate(t.Context(), credential.Bearer)

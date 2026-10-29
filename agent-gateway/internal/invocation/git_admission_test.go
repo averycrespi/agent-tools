@@ -95,7 +95,7 @@ func TestGitOnlyBoundedRefsEnterTrafficAndBackup(t *testing.T) {
 func TestGitOptionalRecordingNeverGrantsOrBlocksExecution(t *testing.T) {
 	for _, mode := range []string{"stalled", "full", "unavailable", "uncertain", "invalid capture", "deny"} {
 		t.Run(mode, func(t *testing.T) {
-			c, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+			c, audits, authority, principal, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 			request := invocationGitRequest(t, authority, principal.ID, mode != "deny", "0000")
 			entered, release := make(chan struct{}), make(chan struct{})
 			unblock := sync.OnceFunc(func() { close(release) })

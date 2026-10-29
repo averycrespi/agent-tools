@@ -10,7 +10,7 @@ import (
 )
 
 func TestTrafficHTTPTerminationHistoricalAndRestart(t *testing.T) {
-	_, repository, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, repository, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	s, owner := trafficFixture(t, nil, nil)
 	repository.traffic = s
 	reader, err := NewReadService(repository, authority, nil, nil)

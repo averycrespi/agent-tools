@@ -8,7 +8,7 @@ import (
 )
 
 func TestGitTrafficReadsBindHistoryAndPreserveReports(t *testing.T) {
-	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, audits, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
 	reader, err := NewReadService(audits, authority, nil, nil)
@@ -53,7 +53,7 @@ func TestGitTrafficReadsBindHistoryAndPreserveReports(t *testing.T) {
 }
 
 func TestGitTrafficFiltersSelectRecordedHistory(t *testing.T) {
-	_, audits, authority, _, _ := newAdmissionCoordinator(t, nil)
+	_, audits, authority, _, _ := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	traffic, _ := trafficFixture(t, nil, nil)
 	audits.traffic = traffic
 	reader, err := NewReadService(audits, authority, nil, nil)

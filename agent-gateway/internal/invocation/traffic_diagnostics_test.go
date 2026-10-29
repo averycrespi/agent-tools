@@ -20,7 +20,7 @@ func TestTrafficServicePersistsSafeFailureDiagnostics(t *testing.T) {
 		`{"version":1,"category":"authentication","phase":"response_status","raw":"` + canary + `"}`,
 	} {
 		t.Run(metadata, func(t *testing.T) {
-			_, audits, authority, _, credential := newAdmissionCoordinator(t, nil)
+			_, audits, authority, _, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 			traffic, _ := trafficFixture(t, nil, nil)
 			audits.traffic = traffic
 			lease, err := authority.Authenticate(t.Context(), credential.Bearer)

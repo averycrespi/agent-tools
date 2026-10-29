@@ -65,6 +65,42 @@ func TestAdmissionBindingOnlyAndPolicyBranches(t *testing.T) {
 			}
 		})
 	}
+	t.Run("fixture isolation", func(t *testing.T) {
+		var first *TrafficStore
+		for index := range 2 {
+			factory := newAdmissionCoordinator
+			if index == 1 {
+				factory = newAdmissionCoordinatorWithoutTraffic
+			}
+			coordinator, audits, authority, _, credential := factory(t, nil)
+			if index == 1 {
+				require.Nil(t, audits.traffic)
+				audits.traffic, _ = trafficFixture(t, nil, nil)
+			}
+			before, err := audits.traffic.History(t.Context(), 0, 10)
+			require.NoError(t, err)
+			require.Empty(t, before.Records)
+			lease, err := authority.Authenticate(t.Context(), credential.Bearer)
+			require.NoError(t, err)
+			defer lease.Release()
+			identity := PreparedAdmission{Identity: trafficPrepared(1).Identity}
+			result, err := coordinator.Admit(t.Context(), lease, identity, testAuditRequest(contract.AdmissionUnknownTool))
+			require.NoError(t, err)
+			require.True(t, result.Evaluated)
+			waitTraffic(t, audits.traffic)
+			record, found, err := audits.Read(t.Context(), identity.InvocationID)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, contract.AdmissionUnknownTool, record.AdmissionClass)
+			if index == 0 {
+				first = audits.traffic
+				first.BeginDrain()
+			}
+		}
+		history, err := first.History(t.Context(), 0, 10)
+		require.NoError(t, err)
+		require.Len(t, history.Records, 1)
+	})
 }
 
 func TestAdmissionCaptureFailureDoesNotChangeAuthority(t *testing.T) {
@@ -133,10 +169,24 @@ func newAdmissionCoordinator(t *testing.T, fault func(storage.FaultPoint) error)
 	return coordinator, audits, authority, principal, credential
 }
 
+// Callers attach their own fresh traffic fixture before exercising the coordinator.
+func newAdmissionCoordinatorWithoutTraffic(t *testing.T, fault func(storage.FaultPoint) error) (*AdmissionCoordinator, *Repository, *authorization.Repository, contract.Principal, contract.AgentCredentialCreation) {
+	t.Helper()
+	coordinator, audits, authority, principal, credential, _ := newAdmissionCoordinatorFixture(t, fault, false)
+	return coordinator, audits, authority, principal, credential
+}
+
 func newAdmissionCoordinatorWithOwnership(t *testing.T, fault func(storage.FaultPoint) error) (*AdmissionCoordinator, *Repository, *authorization.Repository, contract.Principal, contract.AgentCredentialCreation, *gatewaypaths.Ownership) {
 	t.Helper()
+	return newAdmissionCoordinatorFixture(t, fault, true)
+}
+
+func newAdmissionCoordinatorFixture(t *testing.T, fault func(storage.FaultPoint) error, defaultTraffic bool) (*AdmissionCoordinator, *Repository, *authorization.Repository, contract.Principal, contract.AgentCredentialCreation, *gatewaypaths.Ownership) {
+	t.Helper()
 	audits, store, clock, owner := newInvocationRepositoryWithOwnership(t, fault, entropyBytes(1024))
-	audits.traffic, _ = trafficFixture(t, nil, nil)
+	if defaultTraffic {
+		audits.traffic, _ = trafficFixture(t, nil, nil)
+	}
 	authority, err := authorization.New(store, clock, entropyBytes(8192))
 	require.NoError(t, err)
 	principal, err := authority.CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{DisplayName: "Agent", Visibility: contract.VisibilityRequestable})

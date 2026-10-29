@@ -30,7 +30,7 @@ func (s *isolationDiagnosticSink) Write(p []byte) (int, error) {
 }
 
 func TestExecutionHealthAndRevocationWithBothSinksBlocked(t *testing.T) {
-	_, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
+	_, audits, authority, principal, credential := newAdmissionCoordinatorWithoutTraffic(t, nil)
 	historyEntered, historyRelease := make(chan struct{}), make(chan struct{})
 	releaseHistory := sync.OnceFunc(func() { close(historyRelease) })
 	defer releaseHistory()
