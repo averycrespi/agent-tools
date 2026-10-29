@@ -2454,6 +2454,50 @@ func TestManagerStartupListsAllServersBeforeStartingReconstruction(t *testing.T)
 	}
 }
 
+func TestManagerStartupReconstructsEnabledServersWithinCapacity(t *testing.T) {
+	repository := newFakeRepository(5)
+	driver := newBlockingDriver()
+	manager, err := New(Options{Repository: repository, Driver: driver})
+	require.NoError(t, err)
+	defer manager.Shutdown()
+	require.NoError(t, manager.Start(t.Context()))
+	require.True(t, repository.interrupted)
+	started := make(map[string]Candidate)
+	for range 4 {
+		candidate := receiveCandidate(t, driver.started)
+		require.NotContains(t, started, candidate.Server.ID)
+		started[candidate.Server.ID] = candidate
+	}
+	require.True(t, manager.AdmissionStatus().Saturated)
+	select {
+	case candidate := <-driver.started:
+		t.Fatalf("startup exceeded reconciliation capacity: %s", candidate.Server.ID)
+	default:
+	}
+	driver.release <- activeOutcome()
+	candidate := receiveCandidate(t, driver.started)
+	require.NotContains(t, started, candidate.Server.ID)
+	started[candidate.Server.ID] = candidate
+	for range 4 {
+		driver.release <- activeOutcome()
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	require.True(t, manager.Wait(ctx))
+	require.Len(t, started, 5)
+	for id, candidate := range started {
+		require.NotNil(t, candidate.OperationID)
+		operation, err := repository.GetOperation(t.Context(), *candidate.OperationID)
+		require.NoError(t, err)
+		require.Equal(t, contract.OperationActivate, operation.Kind)
+		require.Equal(t, candidate.Server.DesiredRevision, operation.TargetDesiredRevision)
+		require.Equal(t, contract.OperationSucceeded, operation.State)
+		require.Equal(t, contract.RuntimeActive, manager.Status(id).State)
+	}
+	require.Zero(t, manager.AdmissionStatus().InUse)
+	require.Empty(t, driver.started, "startup must not replay completed activations")
+}
+
 func TestManagerStartupInterruptsAndReconstructsOnlyEnabledServers(t *testing.T) {
 	repository := newFakeRepository(2)
 	var disabledID string
