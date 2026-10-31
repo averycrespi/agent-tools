@@ -58,6 +58,12 @@ func fixture(t *testing.T) (*Service, *storage.Store, string) {
 
 func fixtureWithFault(t *testing.T, fault func(storage.FaultPoint) error) (*Service, *storage.Store, string) {
 	t.Helper()
+	s, store, owner := fixtureWithOwnership(t, fault)
+	return s, store, owner.Layout().Root
+}
+
+func fixtureWithOwnership(t *testing.T, fault func(storage.FaultPoint) error) (*Service, *storage.Store, *gatewaypaths.Ownership) {
+	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	owner, err := gatewaypaths.Acquire(root)
@@ -78,7 +84,7 @@ func fixtureWithFault(t *testing.T, fault func(storage.FaultPoint) error) (*Serv
 	require.NoError(t, err)
 	service, err := NewService(repo, keyring.NewCoordinator(provider, store, clock{}, rand.Reader), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.NoError(t, err)
-	return service, store, root
+	return service, store, owner
 }
 func resourceRef(t *testing.T, r Resource) contract.HTTPRevisionRef {
 	t.Helper()

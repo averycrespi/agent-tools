@@ -40,6 +40,38 @@ The explicit installation seam used after authorization-server success invalidat
 
 Deterministic tests exercise real encrypted custody, generation faults, N/N+1 candidates, authority cutover and legacy refusal. Native-provider qualification targets are retired; ordinary tests neither access nor mutate native credential stores.
 
+## Imported credential setup
+
+Credential requirements are configuration, independently of material. MCP retains
+its validated transport/slot/OAuth requirements and identity with revision `0`
+and null handles. HTTP/Git retain complete scoped definitions and references with
+material revision `0` and a null handle. Only the stopped, supplied-transaction
+`StageImportedDefinitionTx` seams reserve unset HTTP/Git definitions; there is no
+live empty-create route or checkbox. Ordinary creation/replacement still requires
+valid nonempty material; existing definition-only MCP/OAuth setup is unchanged.
+The fresh-install importer owns identity remapping and atomic stage publication.
+
+Safe HTTP/Git reads include `material_state`: `not_configured` for an untouched
+zero-material-revision definition, `ready` for selected unfenced material, otherwise
+`unavailable`. Availability remains metadata evidence, not upstream acceptance.
+Invalidated or failed attempted material has a positive material revision and is
+not relabeled as first setup. MCP uses `absent` for initial required setup and
+retains established rejection/expiry/reauthentication classifications. Metadata
+projection is transport-specific; unrelated credential kinds cannot imply ready.
+
+Missing required material never grants dispatch, ambient credentials, another
+credential, an old generation or public-access fallback. Only the affected binding
+is unavailable; other capabilities remain usable. Startup accepts valid unset
+metadata using the existing validation rules, without accepting malformed handles,
+invalid scopes, orphan authority or inconsistent generations. Existing rotation,
+server credential replacement and OAuth actions complete the same definition and
+preserve references; secret values never enter reads, diagnostics or exports.
+
+Each credential owner exposes bounded `SetupFactsTx` read-only facts for stopped
+doctor/setup consumers: resource ID, kind, `supply_value` or `sign_in`, and declared
+static slots when relevant. These are missing-setup facts only, not material probes
+or authority. This seam does not add an endpoint or change doctor defaults/output.
+
 ## Scoped HTTP credentials
 
 `internal/httpcredentials` owns reusable HTTP credential metadata separately from MCP server credentials. Schema 19 stores only permanent ID, bounded name, revision, one HTTPS host/port boundary with explicit wildcard opt-in, one header name and optional fixed prefix, timestamps, deletion tombstone, and opaque material-generation metadata. There are at most 256 live credentials and 1,024 permanent identities. No arbitrary templates or multiple-secret recipes exist. Host normalization and whole-grant containment delegate to `httppolicy`; wildcard spelling without opt-in, wildcard IPs, apex escape and port/scheme expansion fail closed.

@@ -16,11 +16,12 @@ import (
 )
 
 var (
-	ErrNotFound    = errors.New("HTTP credential not found")
-	ErrStale       = errors.New("HTTP credential revision is stale")
-	ErrReferenced  = errors.New("HTTP credential is referenced")
-	ErrLimit       = errors.New("HTTP credential limit reached")
-	ErrUnavailable = errors.New("HTTP credential unavailable")
+	ErrNotFound      = errors.New("HTTP credential not found")
+	ErrStale         = errors.New("HTTP credential revision is stale")
+	ErrReferenced    = errors.New("HTTP credential is referenced")
+	ErrLimit         = errors.New("HTTP credential limit reached")
+	ErrUnavailable   = errors.New("HTTP credential unavailable")
+	ErrNotConfigured = errors.New("HTTP credential not configured: supply a value using this credential's rotate action")
 )
 
 const identityLimit = 1024
@@ -42,11 +43,12 @@ type Reference struct {
 type Resource struct {
 	ID string `json:"id"`
 	Definition
-	Revision   string      `json:"revision"`
-	Available  bool        `json:"available"`
-	References []Reference `json:"referencing_grants"`
-	CreatedAt  string      `json:"created_at"`
-	UpdatedAt  string      `json:"updated_at"`
+	Revision      string                           `json:"revision"`
+	Available     bool                             `json:"available"`
+	MaterialState contract.CredentialMaterialState `json:"material_state"`
+	References    []Reference                      `json:"referencing_grants"`
+	CreatedAt     string                           `json:"created_at"`
+	UpdatedAt     string                           `json:"updated_at"`
 }
 
 type record struct {
@@ -125,6 +127,7 @@ func (r *Repository) Get(ctx context.Context, id string) (Resource, error) {
 	}
 	if r.store.Latched() {
 		rec.Available = false
+		rec.MaterialState = contract.MaterialState(rec.materialRevision, false)
 	}
 	return rec.Resource, nil
 }
@@ -133,6 +136,7 @@ func availabilityTx(ctx context.Context, tx *sql.Tx, rec *record) error {
 	var current int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM keyring_authorities a WHERE a.owner=? AND a.kind='http_credential' AND a.handle=? AND a.revision=? AND NOT EXISTS (SELECT 1 FROM keyring_authority_fences f WHERE f.owner=a.owner AND f.kind=a.kind)`, rec.ID, rec.handle, rec.materialRevision).Scan(&current)
 	rec.Available = !rec.deleted && rec.handle.Valid && current == 1
+	rec.MaterialState = contract.MaterialState(rec.materialRevision, rec.Available)
 	return err
 }
 
@@ -172,6 +176,7 @@ func (r *Repository) List(ctx context.Context) ([]Resource, error) {
 			}
 			if r.store.Latched() {
 				rec.Available = false
+				rec.MaterialState = contract.MaterialState(rec.materialRevision, false)
 			}
 			out = append(out, rec.Resource)
 		}

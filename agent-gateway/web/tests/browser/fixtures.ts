@@ -262,6 +262,7 @@ export function serverReadFixture(
       | "authentication_required"
       | "deleted";
     credential:
+      | "absent"
       | "ready"
       | "reauthentication_required"
       | "not_required"

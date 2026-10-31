@@ -97,7 +97,17 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:c40fc03102a555532f7a7da127b0cf9179430b83ab76fcbb2385a725687ec4c6", digest)
+	assert.Equal(t, "sha256:2be1b6c316dda51f15b09f94c7307272aacdf719d35952ef95537ccc8cd514a9", digest)
+}
+
+func TestCLICredentialSetupHelp(t *testing.T) {
+	for _, path := range []string{"http credential rotate", "git credential rotate", "mcp server credential replace"} {
+		command, _, err := newRootCmd().Find(strings.Fields(path))
+		require.NoError(t, err)
+		for _, expected := range []string{"Not configured", "identity or bindings", "Empty material is invalid", "no ambient or unrelated credential fallback"} {
+			assert.Contains(t, command.Long, expected, path)
+		}
+	}
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {

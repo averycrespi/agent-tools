@@ -1325,6 +1325,18 @@ function serverUsesOAuth(server: ServerView): boolean {
   );
 }
 
+function setupLabel(server: ServerView, label: string): string {
+  return label === "Authorization required" &&
+    server.credentialState === "absent" &&
+    (serverUsesOAuth(server)
+      ? server.oauthTokensRevision === "0"
+      : server.staticRevision === "0")
+    ? serverUsesOAuth(server)
+      ? "Sign-in required"
+      : "Not configured"
+    : label;
+}
+
 function serverPresentation(server: ServerView): ServerPresentation {
   const root = `#/mcp/servers/${server.id}`;
   if (server.desiredState === "deleted")
@@ -1470,7 +1482,9 @@ function ServerNavigation({
         <div class="server-context-heading">
           <h1 tabindex={-1}>{server.displayName}</h1>
           <StatusLabel state={fresh ? presentation.state : "stale"}>
-            {fresh ? presentation.label : `Last known · ${presentation.label}`}
+            {fresh
+              ? setupLabel(server, presentation.label)
+              : `Last known · ${setupLabel(server, presentation.label)}`}
           </StatusLabel>
         </div>
         <p class="technical-value">
@@ -1577,8 +1591,8 @@ function ServerRows({
                 state={controls.stale ? "stale" : presentation.state}
               >
                 {controls.stale
-                  ? `Last known · ${presentation.label}`
-                  : presentation.label}
+                  ? `Last known · ${setupLabel(server, presentation.label)}`
+                  : setupLabel(server, presentation.label)}
               </StatusLabel>
             );
           },

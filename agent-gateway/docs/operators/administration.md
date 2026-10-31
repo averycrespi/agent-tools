@@ -237,6 +237,23 @@ Follow [Git setup](git.md) for repositories, read/ref grants, Git-only credentia
 
 Use **Git → Traffic** or `agent-gateway git traffic list|get`. The [Git evidence guide](git.md#git-traffic-history) explains admission, transport and upstream-reported outcomes. HTTP 200 is not proof of push success; missing completion is unknown, not permission to retry.
 
+## Complete missing credential setup
+
+Imported definitions can retain their scopes and references before values are
+supplied. **Not configured** means no material has been initialized, not that an
+upstream rejected or expired it. **Sign-in required** identifies initial OAuth
+authorization. Unset required authentication blocks only dependent operations;
+Gateway never substitutes ambient credentials or public access.
+
+Use the existing definition: supply HTTP/Git values with **Rotate** (or
+`http credential rotate` / `git credential rotate`), and MCP values with
+`mcp server credential replace`. For OAuth, supply a required client secret first,
+then start the server's authorization flow. Keep the ID and bindings; do not create
+a duplicate credential or use dummy values. Reads/JSON expose only safe setup
+state (`material_state` for HTTP/Git), never values. Ordinary credential creation
+still requires a real secret; only the internal import staging seam creates unset
+scoped definitions. Configuration import itself is a separate workflow.
+
 ## Scoped HTTP credentials
 
 Use **HTTP → Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.

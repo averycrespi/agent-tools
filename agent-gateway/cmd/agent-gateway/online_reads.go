@@ -330,9 +330,30 @@ func serverHeaders() []string {
 	return []string{"ID", "DISPLAY", "NAMESPACE", "DESIRED", "RUNTIME", "CREDENTIAL", "DURABLE", "ACTIVE", "UPDATED"}
 }
 
+func serverCredentialLabel(server serverWire) string {
+	if server.CredentialState != contract.ServerCredentialAbsent {
+		return string(server.CredentialState)
+	}
+	var transport struct {
+		Authentication struct {
+			Mode string `json:"mode"`
+		} `json:"authentication"`
+	}
+	if json.Unmarshal(server.Transport, &transport) == nil && transport.Authentication.Mode == "oauth" {
+		if server.CredentialRevisions.OAuthTokens == "0" {
+			return "Sign-in required"
+		}
+		return string(server.CredentialState)
+	}
+	if server.CredentialRevisions.StaticCredential == "0" {
+		return "Not configured"
+	}
+	return string(server.CredentialState)
+}
+
 func serverRow(server serverWire) []string {
 	return []string{
-		server.ID, server.DisplayName, server.Namespace, string(server.DesiredState), string(server.Runtime.State), string(server.CredentialState),
+		server.ID, server.DisplayName, server.Namespace, string(server.DesiredState), string(server.Runtime.State), serverCredentialLabel(server),
 		fmt.Sprintf("%s revision=%s tools=%d", server.Catalog.DurableState, pointerText(server.Catalog.DurableRevision), server.Catalog.DurableToolCount),
 		fmt.Sprintf("%s revision=%s tools=%d", server.Catalog.ActiveState, pointerText(server.Catalog.ActiveRevision), server.Catalog.ActiveToolCount), server.UpdatedAt,
 	}

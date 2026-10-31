@@ -3047,7 +3047,7 @@ export async function runServerCredentials(
     credential_revisions: {
       static_credential: "1",
       oauth_client: "4",
-      oauth_tokens: "5",
+      oauth_tokens: "0",
     },
   };
   const stdioTransport = currentServer.transport;
@@ -3242,6 +3242,7 @@ export async function runServerCredentials(
   await assertEligible("credential-slot-primary");
   currentServer = {
     ...currentServer,
+    credential_state: "absent",
     credential_revisions: {
       ...currentServer.credential_revisions,
       static_credential: "0",
@@ -3250,6 +3251,9 @@ export async function runServerCredentials(
   await page.getByTestId("manual-refresh").click();
   await assertEligible("credential-slot-primary");
   await assertCreationPlaceholders(page);
+  await expect(
+    page.getByText("Not configured", { exact: true }).first(),
+  ).toBeVisible();
   await capture(page, "stdio-secret-slots");
   await page.getByTestId("credential-replacement-submit").click();
   await expect(
@@ -3269,6 +3273,9 @@ export async function runServerCredentials(
   await page.locator('[data-testid="manual-refresh"]').click();
   await assertEligible("credential-slot-bearer");
   await assertCreationPlaceholders(page);
+  await expect(
+    page.getByText("Not configured", { exact: true }).first(),
+  ).toBeVisible();
   await capture(page, "http-bearer-slot");
   await page
     .getByRole("textbox", { name: "Bearer token", exact: true })
@@ -3329,6 +3336,9 @@ export async function runServerCredentials(
     .fill("SYNTHETIC_INITIAL_SECRET");
   await assertCreationPlaceholders(page);
   await page.locator("#credential-slot-client_secret").fill("");
+  await expect(
+    page.getByText("Sign-in required", { exact: true }).first(),
+  ).toBeVisible();
   await capture(page, "oauth-client-secret-missing");
   currentServer = {
     ...currentServer,
@@ -3390,6 +3400,7 @@ export async function runServerCredentials(
   currentServer = {
     ...currentServer,
     transport: stdioTransport,
+    credential_state: "ready",
     credential_revisions: {
       ...currentServer.credential_revisions,
       static_credential: "1",

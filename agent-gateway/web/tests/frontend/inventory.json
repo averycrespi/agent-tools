@@ -4,9 +4,9 @@
     "audit.tsx": "e94151f8f53f99a0ff72946891b12c534be89f775e39f7b141871a7278d3d76c",
     "git-coverage.tsx": "582d5abc7e19f9ae5d30e97726682fc36ee59f6dc9ad0ecf89bb55a436e76478",
     "git-routing.tsx": "50ec15850826c8bb484e5dcdaf0048d61940a4f0db30b859f60cab780aed5c23",
-    "git.tsx": "5f9b3f65bab6828b353df87dd3baafa07c0c619c94b917bf1cc94306a99897f7",
+    "git.tsx": "25b2461828bbcc4f8c0905fd6a80d6b3a417a3bd630d171d22e22083b63e0c3a",
     "grants.tsx": "6d18acbfffd3a736b5cc7cf78113d1ce2e264157dfe7f2abffe03fcfbbd692e3",
-    "http-credentials.tsx": "a59071cddf5c688a3eca964b0ba0cef9e682c4d92da3dcdce400cb0aa340b8a2",
+    "http-credentials.tsx": "b8dca543b0fc26abb388b525cd902a76119f7e0d0d626b731556d4c01bea8b3f",
     "http-grants.tsx": "694df6122c22703b83e4d53b5526c64c28f12af67045da6b801cc59775dd7bff",
     "http-traffic.tsx": "5dfef54745e1ef8f0149ac39c99cc75b3e6da096e448da03e76e29730ec74693",
     "invocations.tsx": "7645ae1b8f9e9e18c69af62a411a2f31381e03e464d7fa6872e928cd9bafb204",
@@ -20,11 +20,11 @@
     "recorded-activity-view.tsx": "5db4b29ea4a07a75d1d5e438fc17a743e65708d4fee4d93e05a6f352f0aa718e",
     "requests.tsx": "b1e01238dd6b94867608312a0255495459ecb8566e58ac13518d32a12f16cf10",
     "server-auth-flows.tsx": "957336afd6767d5766930ed856fc5f4a79ef93120f611be393df3e159dd311b8",
-    "server-credentials.tsx": "284d44979ead9450dcd7e1fcdb7131f0a647273920fa35ca30fd039a6bfe8927",
+    "server-credentials.tsx": "d18764593d3fb8524cf48c711353a18d3a8cfee9b86c4303448b87c07c4f54c8",
     "server-destructive.tsx": "e791c5576ee662f6d982dc9ea4e7c7d53e1efb533b21e8547c3f6c7b6b0c42b1",
     "server-editor.tsx": "b52a1a32f83ac4de6f1bcbe473be80deb50d9c852cb4e40ef8f186a88a4ffd56",
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
-    "server-reads.tsx": "6b4d427bf75f7371818404d8246e6bf301522423064eb4065b090e8400a6c211",
+    "server-reads.tsx": "6c6f7e394d67b269c04dccaee7cdc91373ed492491f88f99df4bac8866b553e7",
     "sinks-ui.tsx": "909c10148e7213c91e1b435be7a0805d3b899a0464b51ff47053bda244880406",
     "styles.css": "38f6ad6061917de4279fdd62191b91d9659f71f1e69dc7b990243ac87c6b5022",
     "system.tsx": "6642edb4f32a69661067f04575448ba3b1fb4ac4406004548dc821e1a263d285",
@@ -37,6 +37,18 @@
   },
   "themes": ["light", "dark"],
   "scenarios": {
+    "http-credential-setup": {
+      "unset-list": "standard",
+      "unset-detail": "standard",
+      "completed-detail": "standard",
+      "completed-list": "standard"
+    },
+    "git-credential-setup": {
+      "unset-list": "standard",
+      "unset-detail": "standard",
+      "completed-detail": "standard",
+      "completed-list": "standard"
+    },
     "git-rotation-reconciliation": {
       "rotation-clean": "standard",
       "rotation-retained-draft": "standard",
