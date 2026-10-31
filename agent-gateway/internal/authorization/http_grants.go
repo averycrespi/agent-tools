@@ -21,13 +21,14 @@ type HTTPGrantInput struct {
 	ExpiresAt   *time.Time
 }
 
-const httpGrantSelect = `SELECT id,principal_id,description,revision,policy_json,expires_at,created_at,updated_at FROM http_grants`
+const httpGrantSelect = `SELECT id,principal_id,description,revision,policy_json,expires_at,created_at,updated_at,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='http' AND e.id=http_grants.id AND e.expires_at=http_grants.expires_at) FROM http_grants`
 
 func scanHTTPGrant(row interface{ Scan(...any) error }, now time.Time) (contract.HTTPGrant, httppolicy.Policy, error) {
 	var g contract.HTTPGrant
 	var description, expires sql.NullString
 	var raw string
-	if err := row.Scan(&g.ID, &g.PrincipalID, &description, &g.Revision, &raw, &expires, &g.CreatedAt, &g.UpdatedAt); err != nil {
+	var importedExpiry bool
+	if err := row.Scan(&g.ID, &g.PrincipalID, &description, &g.Revision, &raw, &expires, &g.CreatedAt, &g.UpdatedAt, &importedExpiry); err != nil {
 		return g, httppolicy.Policy{}, err
 	}
 	if description.Valid {
@@ -47,7 +48,7 @@ func scanHTTPGrant(row interface{ Scan(...any) error }, now time.Time) (contract
 	g.State = contract.GrantActive
 	if expires.Valid {
 		expiry, ok := canonicalTimestamp(expires.String)
-		if !ok || !expiry.After(created) {
+		if !ok || !expiry.After(created) && !importedExpiry {
 			return g, p, ErrInvalidState
 		}
 		if !expiry.After(now) {

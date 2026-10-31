@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/configimport"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
@@ -38,6 +39,17 @@ func initializeOwned(ctx context.Context, owner *gatewaypaths.Ownership, plan ga
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	layout := owner.Layout()
+	var imported configimport.Input
+	if plan.ImportDigest != "" {
+		data, readErr := gatewaypaths.ReadInitializationInput(layout, plan)
+		if readErr != nil {
+			return identity, readErr
+		}
+		imported, err = configimport.Decode(data)
+		if err != nil || imported.Digest != plan.ImportDigest {
+			return identity, errors.Join(err, storage.ErrPlanChanged)
+		}
+	}
 	recorded, complete, err := gatewaypaths.ReadInitialization(layout)
 	if err != nil || recorded != plan || complete {
 		return identity, errors.Join(err, storage.ErrPlanChanged)
@@ -234,6 +246,14 @@ func initializeOwned(ctx context.Context, owner *gatewaypaths.Ownership, plan ga
 	if err := step("certificate", initializationDigest(certificate)); err != nil {
 		return identity, err
 	}
+	if plan.ImportDigest != "" {
+		if err := initializeConfiguration(ctx, owner, imported, clock, entropy, fault); err != nil {
+			return identity, err
+		}
+		if err := step("import", plan.ImportDigest); err != nil {
+			return identity, err
+		}
+	}
 	verified, err := inspectInitialization(ctx, owner, plan, clock)
 	if err != nil {
 		return identity, err
@@ -242,6 +262,9 @@ func initializeOwned(ctx context.Context, owner *gatewaypaths.Ownership, plan ga
 		return identity, storage.ErrPlanChanged
 	}
 	if err := step("complete", "complete"); err != nil {
+		return identity, err
+	}
+	if err := gatewaypaths.RemoveInitializationInput(owner); err != nil {
 		return identity, err
 	}
 	identity.Identity = verified.snapshot.Identity
@@ -275,6 +298,22 @@ func inspectInitialization(ctx context.Context, owner *gatewaypaths.Ownership, p
 		result.ca, err = httpca.InspectTx(ctx, tx)
 		if err != nil {
 			return err
+		}
+		digest, err := configimport.ReceiptTx(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if digest != "" {
+			if digest != plan.ImportDigest {
+				return storage.ErrPlanChanged
+			}
+			if err := configimport.VerifyReceiptTx(ctx, tx, plan.ImportDigest); err != nil {
+				return err
+			}
+		}
+		receipt, err := gatewaypaths.InitializationReceipt(layout, "import")
+		if err != nil || receipt != "" && receipt != digest {
+			return errors.Join(err, storage.ErrPlanChanged)
 		}
 		return keyring.InspectInitialCustodyTx(ctx, owner, tx)
 	})

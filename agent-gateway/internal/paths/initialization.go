@@ -18,7 +18,7 @@ const InitializationName = "initialization"
 
 var ErrInitializationIncomplete = errors.New("initialization is incomplete; preserve artifacts and run init --resume or doctor")
 
-// InitializationPlan is immutable, secret-free consent and identity evidence.
+// InitializationPlan is immutable consent and identity evidence.
 // It is local to this exact selected root, not portable configuration input.
 type initializationDocument struct {
 	Plan        InitializationPlan `json:"plan"`
@@ -31,6 +31,7 @@ type InitializationPlan struct {
 	Bearer       string `json:"bearer"`
 	Installation string `json:"installation"`
 	Traffic      string `json:"traffic"`
+	ImportDigest string `json:"import_digest,omitempty"`
 }
 
 // AcquireInitialization takes stopped ownership without a run marker. Callers
@@ -78,17 +79,29 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 	if err != nil {
 		return plan, false, err
 	}
-	entries, readErr := handle.ReadDir(10)
+	entries, readErr := handle.ReadDir(12)
 	if errors.Is(readErr, io.EOF) {
 		readErr = nil
 	}
 	if err := errors.Join(readErr, handle.Close()); err != nil {
 		return plan, false, err
 	}
-	if len(entries) > 9 {
+	if len(entries) > 11 {
+		return plan, false, ErrUnsafePath
+	}
+	if plan.ImportDigest != "" && !validInitializationDigest(plan.ImportDigest) {
 		return plan, false, ErrUnsafePath
 	}
 	for _, entry := range entries {
+		if entry.Name() == "input" && plan.ImportDigest != "" {
+			if _, err := ReadInitializationInput(layout, plan); err != nil {
+				return plan, false, err
+			}
+			continue
+		}
+		if entry.Name() == "import" && plan.ImportDigest == "" {
+			return plan, false, ErrUnsafePath
+		}
 		if entry.Name() != "plan" && !initializationStep(entry.Name()) {
 			return plan, false, ErrUnsafePath
 		}
@@ -116,7 +129,12 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 		return plan, false, ErrUnsafePath
 	}
 	missing := false
-	for _, name := range []string{"control", "custody", "traffic", "administrator", "ca", "certificate", "complete"} {
+	steps := []string{"control", "custody", "traffic", "administrator", "ca", "certificate"}
+	if plan.ImportDigest != "" {
+		steps = append(steps, "import")
+	}
+	steps = append(steps, "complete")
+	for _, name := range steps {
 		receipt, err := InitializationReceipt(layout, name)
 		if err != nil {
 			return plan, false, err
@@ -137,6 +155,10 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 			if receipt != plan.Traffic {
 				return plan, false, ErrUnsafePath
 			}
+		case "import":
+			if receipt != plan.ImportDigest {
+				return plan, false, ErrUnsafePath
+			}
 		case "complete":
 			expected, err := initializationCompletionEvidence(layout)
 			if err != nil || receipt != expected {
@@ -150,12 +172,17 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 			}
 		}
 	}
+	if plan.ImportDigest != "" {
+		if _, err := ReadInitializationInput(layout, plan); err != nil {
+			return plan, false, err
+		}
+	}
 	return plan, false, nil
 }
 
 func initializationStep(step string) bool {
 	switch step {
-	case "control", "custody-attempt", "custody", "traffic", "administrator", "ca", "certificate", "complete":
+	case "control", "custody-attempt", "custody", "traffic", "administrator", "ca", "certificate", "import", "complete":
 		return true
 	}
 	return false
@@ -228,6 +255,9 @@ func beginInitialization(owner *Ownership, plan InitializationPlan, publication 
 	if rootErr != nil || canonicalPlanRoot != layout.Root || !filepath.IsAbs(plan.Root) || filepath.Clean(plan.Root) != plan.Root || len(data) > 16384 || plan.Version != 1 || !contract.ValidAuditID(plan.Installation) || !contract.ValidAuditID(plan.Traffic) || !filepath.IsAbs(plan.Bearer) || filepath.Clean(plan.Bearer) != plan.Bearer || len(plan.Bearer) > 4096 {
 		return ErrUnsafePath
 	}
+	if plan.ImportDigest != "" && !validInitializationDigest(plan.ImportDigest) {
+		return ErrUnsafePath
+	}
 	if err := os.Mkdir(directory, 0700); err != nil {
 		return err
 	}
@@ -286,7 +316,19 @@ func sealInitialization(owner *Ownership, step, evidence string, publication ini
 
 func initializationCompletionEvidence(layout Layout) (string, error) {
 	hash := sha256.New()
-	for _, name := range []string{"plan", "control", "custody-attempt", "custody", "traffic", "administrator", "ca", "certificate"} {
+	names := []string{"plan", "control", "custody-attempt", "custody", "traffic", "administrator", "ca", "certificate"}
+	planData, err := readInitializationFile(filepath.Join(layout.Root, InitializationName, "plan"))
+	if err != nil {
+		return "", err
+	}
+	var document initializationDocument
+	if err := json.Unmarshal(planData, &document); err != nil {
+		return "", err
+	}
+	if document.Plan.ImportDigest != "" {
+		names = append(names, "import")
+	}
+	for _, name := range names {
 		data, err := readInitializationFile(filepath.Join(layout.Root, InitializationName, name))
 		if err != nil {
 			return "", err
@@ -311,7 +353,13 @@ func ConfirmInitialization(owner *Ownership, expected InitializationPlan) error 
 	if complete || actual != expected {
 		return ErrUnsafePath
 	}
-	return syncInitializationFile(layout, "plan", initializationPublication{})
+	if err := syncInitializationFile(layout, "plan", initializationPublication{}); err != nil {
+		return err
+	}
+	if expected.ImportDigest != "" {
+		return syncInitializationFile(layout, "input", initializationPublication{})
+	}
+	return nil
 }
 
 type initializationPublication struct {
@@ -351,7 +399,11 @@ func syncInitializationFile(layout Layout, name string, publication initializati
 }
 
 func writeInitializationFile(directory, name string, data []byte, publication initializationPublication) error {
-	if len(data) == 0 || len(data) > 16384 {
+	limit := 16384
+	if name == "input" {
+		limit = contract.ConfigExportMaxBytes
+	}
+	if len(data) == 0 || len(data) > limit {
 		return ErrUnsafePath
 	}
 	file, err := CreateOwnerOnlyFile(filepath.Join(directory, name))

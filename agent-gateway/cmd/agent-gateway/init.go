@@ -12,6 +12,8 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/configimport"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
@@ -53,10 +55,10 @@ func inspectInit(ctx context.Context, owner *gatewaypaths.Ownership) (initInspec
 
 func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 	var confirm, jsonOutput, resume bool
-	var secretOutput string
-	command := &cobra.Command{Use: "init", Aliases: []string{"initialize"}, Short: "Create a local installation", Long: "Create a fully provisioned installation only in an absent or empty safe directory. Use --resume explicitly for recognized interrupted initialization; unknown or damaged state is never repaired. Requires confirmation or --confirm. Does not start listeners, install client trust, change shell settings or install services. Initial bearer publication uses a new 0600 file; it cannot be recovered or displayed again. Secrets are never displayed.", Example: "  agent-gateway init --confirm\n  agent-gateway init --resume --confirm"}
+	var secretOutput, from string
+	command := &cobra.Command{Use: "init", Aliases: []string{"initialize"}, Short: "Create a local installation", Long: "Create a fully provisioned installation only in an absent or empty safe directory. Use --from PATH to transfer a complete version-1 configuration export with fresh identity, credentials and CA. All imported secrets are unset and upstreams require explicit reload activation. Use --resume (without --from) explicitly for recognized interrupted initialization; unknown or damaged state is never repaired. Requires confirmation or --confirm. Does not start listeners, install client trust, change shell settings or install services. Initial bearer publication uses a new 0600 file; it cannot be recovered or displayed again. Secrets are never displayed.", Example: "  agent-gateway init --confirm\n  agent-gateway init --from configuration.json --confirm\n  agent-gateway init --resume --confirm"}
 	fail := func(message string) error {
-		return writeOfflineProblem(command, offlineMode(jsonOutput), offlineUsageProblem(message, "agent-gateway init [--resume] --confirm"))
+		return writeOfflineProblem(command, offlineMode(jsonOutput), offlineUsageProblem(message, "agent-gateway init [--from PATH | --resume] --confirm"))
 	}
 	command.Args = func(_ *cobra.Command, args []string) error {
 		if len(args) != 0 {
@@ -65,6 +67,9 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 		return nil
 	}
 	command.RunE = func(command *cobra.Command, _ []string) error {
+		if command.Flags().Changed("from") && (from == "" || resume) {
+			return fail("Choose --from PATH for fresh creation or --resume for retained input, not both.")
+		}
 		root, _ := command.Root().PersistentFlags().GetString("data-dir")
 		layout, err := gatewaypaths.Resolve(root)
 		if err != nil {
@@ -101,6 +106,9 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 			}
 			fresh = len(entries) == 0
 			if !fresh {
+				if from != "" {
+					return refused("Configuration import requires an absent or empty selected directory; merge and overwrite are not supported.")
+				}
 				var complete bool
 				plan, complete, err = gatewaypaths.ReadInitialization(layout)
 				_, evidenceErr := os.Lstat(filepath.Join(layout.Root, gatewaypaths.InitializationName))
@@ -115,6 +123,20 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 					return refused("Initialization evidence is unsafe, inconsistent or damaged.")
 				}
 				if complete {
+					if resume && plan.ImportDigest != "" {
+						if _, statErr := os.Lstat(filepath.Join(layout.Root, gatewaypaths.InitializationName, "input")); statErr == nil {
+							owner, err := gatewaypaths.AcquireStoppedExisting(layout.Root)
+							if err != nil {
+								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
+							}
+							cleanupErr := gatewaypaths.RemoveInitializationInput(owner)
+							if err := errors.Join(cleanupErr, owner.Close()); err != nil {
+								return refused("Import is complete but temporary input cleanup could not be confirmed.")
+							}
+						} else if !errors.Is(statErr, os.ErrNotExist) {
+							return refused("Completed import input cannot be inspected.")
+						}
+					}
 					return offlineResult(command, jsonOutput, map[string]any{"ok": true, "operation": "init", "data_dir": layout.Root, "changed": false, "state": "already_initialized", "next_command": serve}, "Gateway is already initialized; setup is complete. Nothing changed.\nStart: "+serve+"\nDiagnose: "+doctor)
 				}
 				if !resume {
@@ -124,6 +146,31 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 		}
 		if resume && fresh {
 			return refused("There is no recognized interrupted initialization to resume.")
+		}
+		var imported configimport.Input
+		if from != "" {
+			info, err := os.Lstat(from)
+			if err != nil || !info.Mode().IsRegular() || info.Size() > contract.ConfigExportMaxBytes {
+				return fail("The configuration export must be a readable regular file within the documented size bound.")
+			}
+			file, err := os.Open(from)
+			if err != nil {
+				return fail("The configuration export cannot be opened. Check the selected path and permissions.")
+			}
+			imported, err = configimport.Read(file)
+			err = errors.Join(err, file.Close())
+			if err != nil {
+				return fail("The configuration export is incomplete, invalid or unsupported. Use a complete version-1 export; no installation files were created.")
+			}
+		} else if !fresh && plan.ImportDigest != "" {
+			data, err := gatewaypaths.ReadInitializationInput(layout, plan)
+			if err != nil {
+				return refused("Retained configuration input is missing, changed or unsafe.")
+			}
+			imported, err = configimport.Decode(data)
+			if err != nil {
+				return refused("Retained configuration input is invalid.")
+			}
 		}
 		bearerPath := secretOutput
 		if bearerPath == "" {
@@ -162,7 +209,12 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 		if !fresh {
 			description = "Continue only proven-missing setup in the recorded installation"
 		}
-		if err := offlinePlan(command, jsonOutput, map[string]any{"operation": "init", "data_dir": layout.Root, "admin_bearer_file": bearerPath, "certificate_path": certificatePath, "resume": resume}, fmt.Sprintf("Target: %s\nProposed changes: %s\nAdministrator bearer file: %s\nPublic certificate: %s", controlclient.TerminalSafePath(layout.Root), description, controlclient.TerminalSafePath(bearerPath), controlclient.TerminalSafePath(certificatePath))); err != nil {
+		importSummary := ""
+		if imported.Digest != "" {
+			value := imported.Document
+			importSummary = fmt.Sprintf("\nImport: %d agents, %d MCP servers, %d HTTP credentials, %d Git credentials, %d Git repositories; %d MCP / %d HTTP / %d Git grants.\nAll secrets remain unset; agent bearers and CA identity are new. Every imported upstream requires explicit reload activation, including credential-free servers. No upstream calls, subprocesses or OAuth flows run.", len(value.Agents), len(value.MCP.Servers), len(value.HTTP.Credentials), len(value.Git.Credentials), len(value.Git.Repositories), len(value.MCP.Grants), len(value.HTTP.Grants), len(value.Git.Grants))
+		}
+		if err := offlinePlan(command, jsonOutput, map[string]any{"operation": "init", "data_dir": layout.Root, "admin_bearer_file": bearerPath, "certificate_path": certificatePath, "resume": resume, "import_summary": strings.TrimSpace(importSummary)}, fmt.Sprintf("Target: %s\nProposed changes: %s\nAdministrator bearer file: %s\nPublic certificate: %s", controlclient.TerminalSafePath(layout.Root), description, controlclient.TerminalSafePath(bearerPath), controlclient.TerminalSafePath(certificatePath))+importSummary); err != nil {
 			return err
 		}
 		if err := confirmOffline(command, confirm, "Prepare this installation without starting services or installing client trust?"); err != nil {
@@ -177,7 +229,7 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 			if err != nil {
 				return refused("Could not prepare storage identity. No installation was created.")
 			}
-			plan = gatewaypaths.InitializationPlan{Version: 1, Root: layout.Root, Bearer: bearerPath, Installation: installation, Traffic: traffic}
+			plan = gatewaypaths.InitializationPlan{Version: 1, Root: layout.Root, Bearer: bearerPath, Installation: installation, Traffic: traffic, ImportDigest: imported.Digest}
 		}
 		var owner *gatewaypaths.Ownership
 		if fresh {
@@ -193,6 +245,11 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 			if err := gatewaypaths.BeginInitialization(owner, plan); err != nil {
 				return refused("The selected directory changed before creation; no existing files were replaced.")
 			}
+			if imported.Digest != "" {
+				if err := gatewaypaths.RetainInitializationInput(owner, plan, imported.Bytes); err != nil {
+					return refused("Configuration input publication could not be confirmed; no domain definitions were imported.")
+				}
+			}
 		}
 		identity, err := composition.InitializeOwned(command.Context(), owner, plan, dependencies.clock, dependencies.entropy)
 		err = errors.Join(err, owner.Close())
@@ -206,11 +263,17 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 			return writeOfflineProblem(command, offlineMode(jsonOutput), problem)
 		}
 		result := map[string]any{"ok": true, "operation": "init", "data_dir": layout.Root, "admin_bearer_file": bearerPath, "certificate_path": certificatePath, "fingerprint": fingerprint, "installation_id": identity.InstallationID, "revision": fmt.Sprint(identity.Revision), "next_command": serve, "changed": true}
-		return offlineResult(command, jsonOutput, result, "Gateway setup is complete.\nData directory: "+controlclient.TerminalSafePath(layout.Root)+"\nAdministrator bearer file: "+controlclient.TerminalSafePath(bearerPath)+"\nThe bearer cannot be shown again; retain its file securely.\nPublic certificate: "+controlclient.TerminalSafePath(certificatePath)+"\nFingerprint: "+fingerprint+"\nStart: "+serve+"\nBrowser: http://127.0.0.1:8210 — sign in with the administrator bearer file\nClients must explicitly trust the public CA certificate for HTTPS interception. No client trust or shell settings were installed.")
+		setupTasks := ""
+		if plan.ImportDigest != "" {
+			setupTasks = "\nImported setup tasks: run " + doctor + " --verbose to identify unset credentials; after serve, supply HTTP/Git credential values and MCP static/client secrets, and authorize OAuth afresh. Use agent list and agent credential issue ID --secret-output NEW_PATH for each new agent bearer; old source tokens cannot authenticate. Use mcp server list, then mcp server operation start ID --kind reload to explicitly activate each intended-enabled imported server. Disabled servers require an explicit enable followed by reload. Configure clients with the new endpoint/bearers and explicitly adopt the new CA; source CA trust does not transfer."
+			result["setup_tasks"] = setupTasks
+		}
+		return offlineResult(command, jsonOutput, result, "Gateway setup is complete.\nData directory: "+controlclient.TerminalSafePath(layout.Root)+"\nAdministrator bearer file: "+controlclient.TerminalSafePath(bearerPath)+"\nThe bearer cannot be shown again; retain its file securely.\nPublic certificate: "+controlclient.TerminalSafePath(certificatePath)+"\nFingerprint: "+fingerprint+"\nStart: "+serve+"\nBrowser: http://127.0.0.1:8210 — sign in with the administrator bearer file\nClients must explicitly trust the public CA certificate for HTTPS interception. No client trust or shell settings were installed."+setupTasks)
 	}
 	command.Flags().BoolVar(&confirm, "confirm", false, "consent to the displayed setup without a prompt")
 	command.Flags().BoolVar(&resume, "resume", false, "continue recognized interrupted initialization without replacing existing material")
 	command.Flags().BoolVar(&jsonOutput, "json", false, "structured results and errors")
+	command.Flags().StringVar(&from, "from", "", "configuration export file for fresh creation (resume uses privately retained input)")
 	command.Flags().StringVar(&secretOutput, "secret-output", "", "initial bearer destination (default <data-dir>/admin-bearer; resume retains the recorded path)")
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return fail(offlineFlagMessage(err)) })
 	return command

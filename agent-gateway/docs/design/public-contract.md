@@ -144,8 +144,10 @@ synthetic target is `mcp/mcp_gateway`, without a server definition. Static secre
 references are `mcp/<namespace>/static/<slot>`; OAuth client-secret references are
 `mcp/<namespace>/oauth/client_secret`; HTTP/Git credential secret references append
 `/secret` to their credential reference. These are declarations, not resolvable
-installation handles or values. An eventual fresh-install importer must create
-fresh internal identities, remap every relationship and supply material separately.
+installation handles or values. `init --from PATH` creates
+fresh internal identities, remaps every relationship and leaves material unset;
+[initialization](administrative-control-plane.md#installation-and-stopped-commands)
+owns its stopped import/resume and explicit activation contract.
 Reference numbers are scoped to this document and may change after inventory edits;
 never persist them as installation authority or infer uniqueness from display names.
 

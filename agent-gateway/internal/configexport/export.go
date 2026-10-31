@@ -4,6 +4,7 @@ package configexport
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -41,6 +42,23 @@ func (s *Service) ExportConfiguration(ctx context.Context) ([]byte, error) {
 		return nil, fmt.Errorf("portable configuration exceeds document limit")
 	}
 	return append(body, '\n'), nil
+}
+
+// DigestTx binds a stopped import receipt to the complete resulting portable
+// graph, independently of input ordering and fresh identity assignment.
+func DigestTx(ctx context.Context, tx *sql.Tx) (string, error) {
+	value, err := configurationTx(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	if err := contract.ValidateConfigExport(value); err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(raw)), nil
 }
 
 func configurationTx(ctx context.Context, tx *sql.Tx) (contract.ConfigExport, error) {

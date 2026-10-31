@@ -42,7 +42,7 @@ agent-gateway init
 agent-gateway serve
 ```
 
-`init` creates only in an absent or empty safe directory after default-no confirmation. It provisions control/traffic storage, the protected `<data-dir>/master-key`, initial administrator authority, MCP and HTTP/Git proxy capability, and the interception CA. It reports the administrator bearer at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. Setup is ready for `serve`, not listening; no service supervisor, client trust or shell settings are installed. Existing installations are never repaired by ordinary init. Recognized interrupted setup requires explicit `init --resume`; preserve refused artifacts and follow [initialization guidance](docs/operators/administration.md#installation-root).
+`init` creates only in an absent or empty safe directory after default-no confirmation. It provisions control/traffic storage, the protected `<data-dir>/master-key`, initial administrator authority, MCP and HTTP/Git proxy capability, and the interception CA. It reports the administrator bearer at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. Setup is ready for `serve`, not listening; no service supervisor, client trust or shell settings are installed. Import with [`init --from PATH`](docs/operators/administration.md#initialize-from-a-configuration-export). Existing installations are never repaired by ordinary init. Recognized interrupted setup requires explicit `init --resume`; preserve refused artifacts and follow [initialization guidance](docs/operators/administration.md#installation-root).
 
 In another terminal:
 

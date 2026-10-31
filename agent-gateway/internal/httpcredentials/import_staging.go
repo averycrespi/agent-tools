@@ -32,6 +32,17 @@ func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def D
 	return audit.MutationTx(ctx, tx, now, "http_credential", "create", contract.AuditTarget{Type: "http_credential", ID: id})
 }
 
+func ValidateImportedUnsetTx(ctx context.Context, tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM http_credentials WHERE material_revision<>0 OR handle IS NOT NULL OR deleted<>0`).Scan(&count); err != nil {
+		return err
+	}
+	if count != 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
 // SetupFactsTx supplies only missing setup, on the stopped doctor's read view.
 // Failed/invalidated material is deliberately not reported as never configured.
 func SetupFactsTx(ctx context.Context, tx *sql.Tx) ([]contract.CredentialSetupFact, error) {

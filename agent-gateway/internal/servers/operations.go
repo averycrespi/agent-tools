@@ -83,6 +83,13 @@ func (repository *Repository) CreateOperation(ctx context.Context, request Opera
 				return nil
 			}
 		}
+		// Only an explicit reload consents to first activation of an imported
+		// upstream. Startup and credential replacement cannot release this fence.
+		if request.Kind == contract.OperationReload && request.TriggerState != nil {
+			if _, err := transaction.ExecContext(ctx, `DELETE FROM server_import_activation WHERE server_id=?`, request.ServerID); err != nil {
+				return err
+			}
+		}
 		if request.Kind == contract.OperationDisconnectCredentials {
 			if err := supersedeAuthFlowsTx(ctx, transaction, request.ServerID, now); err != nil {
 				return err

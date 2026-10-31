@@ -35,6 +35,17 @@ func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def c
 	return audit.MutationTx(ctx, tx, now, "git_credential", "create", contract.AuditTarget{Type: "git_credential", ID: id})
 }
 
+func ValidateImportedUnsetTx(ctx context.Context, tx *sql.Tx) error {
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM git_credentials WHERE material_revision<>0 OR handle IS NOT NULL OR deleted<>0`).Scan(&count); err != nil {
+		return err
+	}
+	if count != 0 {
+		return ErrInvalid
+	}
+	return nil
+}
+
 // SetupFactsTx is a focused input for stopped doctor/setup consumers, not a
 // material probe or an alternate authorization path.
 func SetupFactsTx(ctx context.Context, tx *sql.Tx) ([]contract.CredentialSetupFact, error) {

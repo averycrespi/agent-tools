@@ -62,7 +62,7 @@ func TestControlPlaneCapabilityManifest(t *testing.T) {
 		lifecycleIDs = append(lifecycleIDs, "product.lifecycle."+strings.ReplaceAll(row.ID, "-", "."))
 		if row.ID == "cli-initialize" {
 			assert.Equal(t, []string{"init"}, row.CLIUses)
-			for _, boundary := range []string{"creation-only", "--resume", "default-no", "bounded durable progress", "single-owner", "proven-missing", "no uncertain replay", "no bearer or history validation"} {
+			for _, boundary := range []string{"creation-only", "--from", "strict full-format", "fresh authority", "remapped references", "unset credentials", "explicit upstream activation", "retained input", "atomic import receipts", "--resume", "default-no", "bounded durable progress", "single-owner", "proven-missing", "no uncertain replay", "no upstream/process/OAuth effects", "no bearer or history validation"} {
 				assert.Contains(t, row.Mechanics, boundary)
 			}
 		}
