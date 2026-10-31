@@ -97,7 +97,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:6f828c5f4ff91020da289e067a5cd77642cf9582e83b866194454992a7c2d853", digest)
+	assert.Equal(t, "sha256:c40fc03102a555532f7a7da127b0cf9179430b83ab76fcbb2385a725687ec4c6", digest)
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -271,6 +271,22 @@ func testCLICommandErrors(t *testing.T) {
 	for _, spec := range onlineCommandSpecs() {
 		spec := spec
 		assert.Equal(t, requiredFlags[spec.ManifestUse], spec.RequiredFlags, spec.ManifestUse)
+		if strings.Join(spec.Path, " ") == "export config" {
+			// JSON-only success has no output-mode flag; errors remain stderr-only.
+			for _, suffix := range [][]string{{"EXTRA"}, {"--definitely-invalid"}} {
+				command := newRootCmd()
+				var out, stderr bytes.Buffer
+				command.SetOut(&out)
+				command.SetErr(&stderr)
+				command.SetArgs(append(append([]string(nil), spec.Path...), suffix...))
+				err := command.ExecuteContext(t.Context())
+				require.Error(t, err)
+				assert.Equal(t, 2, commandExitCode(err))
+				assert.Empty(t, out.String())
+				assert.Contains(t, stderr.String(), "Usage: agent-gateway export config")
+			}
+			continue
+		}
 		t.Run("arguments/"+strings.Join(spec.Path, "_"), func(t *testing.T) {
 			args := append([]string(nil), spec.Path...)
 			positionals := positionalArguments(spec.Use)

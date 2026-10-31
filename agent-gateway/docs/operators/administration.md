@@ -102,6 +102,50 @@ agent-gateway --data-dir /path/to/gateway-data \
 
 See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-authority workflows.
 
+## Export portable configuration
+
+Run the authenticated online command against the selected Gateway:
+
+```bash
+(umask 077; agent-gateway export config > gateway-config.json)
+# Explicitly select a different installation's administrator credential:
+(umask 077; agent-gateway --data-dir /path/to/gateway-data export config > gateway-config.json)
+```
+
+`agent-gateway export --help` and `agent-gateway export config --help` describe the
+command. It always writes one versioned JSON document to stdout, without progress,
+confirmation or a human summary. There is no file flag, output-mode selector,
+per-protocol filter or secret-inclusion option. The shell owns file creation and
+permissions: `umask 077` makes a new file owner-private, but does not repair an
+existing file's permissions. Use a new private destination, verify the exit status
+and discard incomplete output after failure. Diagnostics go to stderr; do not merge
+stderr into the export.
+
+The export contains agent settings, MCP definitions and intended enabled settings,
+exact MCP/HTTP/Git policies and bindings, Git repositories/routing intent, and
+nonsecret credential definitions with portable secret references. It preserves
+expired grants and inactive deleted targets; it does not restore them to active
+access. No healthy upstream, configured secret value or external connection is
+needed. The command changes no storage or upstream state.
+
+Secret values, administrator/agent bearers, OAuth tokens/client secrets,
+installation master keys/CA identity, internal IDs/revisions, history, pending
+requests, operations and runtime/session state are excluded by projection, not by
+scanning. Supported MCP stdio secret slots and credential bindings remain explicit
+references even when material is absent. Ordinary authored strings are preserved:
+review arguments, ordinary environment values, URLs, headers and names before
+sharing because accidental secrets in unsupported fields cannot be detected
+reliably. Keep exports private even though supported secret material is excluded.
+
+The [version-one format](../design/public-contract.md#portable-configuration-export)
+defines document-local references and exact fields. It is independent of database
+schema versions and is the portable configuration transfer/recovery artifact, not
+an installation backup or secret backup. Absolute executable/working-directory
+paths and configured OAuth callback addresses may still need deliberate adaptation
+on another host. Fresh-install import and separate material supply are not provided
+by this command. Existing [backup and stopped recovery](backup-and-recovery.md)
+remain available and unchanged.
+
 ## Confirmations and one-time values
 
 Commands with irreversible or authority-changing consequences require a controlling terminal confirmation unless `--yes` is explicitly supported and selected. Confirmation never implies automatic replay.
@@ -364,7 +408,7 @@ Current human stderr and schema-2 serve diagnostics retain bounded, source-maske
 
 ## Output and failures
 
-Human output is the default. Online resource commands and `serve` accept `--output json` or `--json`; conflicting selectors fail before work begins. `init`, `doctor`, maintenance and CA commands use `--json`. CA `--output` is a certificate file path, never a format selector; `--stdout` explicitly streams public PEM and conflicts with JSON.
+Human output is the default except for `export config`, which always emits its versioned JSON document and has no output-mode selector. Other online resource commands and `serve` accept `--output json` or `--json`; conflicting selectors fail before work begins. `init`, `doctor`, maintenance and CA commands use `--json`. CA `--output` is a certificate file path, never a format selector; `--stdout` explicitly streams public PEM and conflicts with JSON.
 
 Stopped mutations display their safe plan on stderr before consent and mutation, including with `--confirm`. With `--json`, stderr is a diagnostic JSON-lines stream: a plan may precede a terminal problem. Successful finite results alone use stdout; errors leave stdout empty. Dry-run plans are results on stdout and need no confirmation. Doctor emits one partial checklist, with authenticated public status under `system` when `--online` succeeds; individual failed checks remain visible rather than being suppressed by a single global status.
 

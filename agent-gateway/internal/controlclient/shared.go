@@ -1,6 +1,7 @@
 package controlclient
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -313,6 +314,43 @@ func DecodeResponse(body []byte, destination any) error {
 	}
 	if err := strictjson.Decode(body, destination, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth, RejectUnknownMembers: true}); err != nil {
 		return ErrResponseInvalid
+	}
+	return nil
+}
+
+// DecodeConfigResponse retains strict closed JSON and required-member checks for
+// the one complete configuration resource, independently of ordinary page bounds.
+func DecodeConfigResponse(body []byte, destination any) error {
+	options := strictjson.Options{MaxBytes: MaxConfigResponseBytes, MaxDepth: MaxJSONDepth, RejectUnknownMembers: true}
+	if destination == nil || strictjson.Decode(body, destination, options) != nil {
+		return ErrResponseInvalid
+	}
+	canonical, err := json.Marshal(destination)
+	if err != nil {
+		return ErrResponseInvalid
+	}
+	equal, err := strictjson.CanonicalEqual(body, canonical, options)
+	if err != nil || !equal {
+		return ErrResponseInvalid
+	}
+	return nil
+}
+
+// WriteConfigDocument delivers one prevalidated document. Broken and short sinks
+// fail without a trailer, retry, progress, or success summary.
+func WriteConfigDocument(writer io.Writer, body []byte) error {
+	if len(body) == 0 || len(body) > MaxConfigResponseBytes {
+		return ErrResponseInvalid
+	}
+	if body[len(body)-1] != '\n' {
+		body = append(bytes.Clone(body), '\n')
+	}
+	n, err := writer.Write(body)
+	if err != nil {
+		return err
+	}
+	if n != len(body) {
+		return io.ErrShortWrite
 	}
 	return nil
 }

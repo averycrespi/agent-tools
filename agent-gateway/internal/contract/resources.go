@@ -124,6 +124,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/http/credentials/{id}/rotate", Method: "POST", RequestSchema: "HTTPCredentialRotate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v2/protocol-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "ProtocolActivity", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/recorded-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "RecordedActivitySummary", SuccessStatuses: []int{200}},
+	{Pattern: ConfigExportPath, Method: "GET", RequestSchema: "None", SuccessSchema: "ConfigExport", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/history/export", Method: "GET", RequestSchema: "HistoryExportQuery", SuccessSchema: "HistoryExport", SuccessStatuses: []int{200}},
 }
 

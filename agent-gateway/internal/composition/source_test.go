@@ -72,7 +72,7 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 					assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, value.Sel.Name, "local control consumes only finite diagnostic values, not the serve writer")
 				}
 				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/agent-gateway/internal/contract" {
-					assert.Equal(t, "NormalizeHostname", value.Sel.Name, "controlclient may consume only the hostname grammar")
+					assert.True(t, value.Sel.Name == "NormalizeHostname" || source.path == "internal/controlclient/controlclient.go" && (value.Sel.Name == "ConfigExportPath" || value.Sel.Name == "ConfigExportMaxBytes"), "controlclient may consume only hostname grammar and exact configuration resource bounds")
 				}
 			case *ast.CompositeLit:
 				selector, ok := value.Type.(*ast.SelectorExpr)

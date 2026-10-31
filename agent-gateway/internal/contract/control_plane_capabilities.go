@@ -81,6 +81,12 @@ func GitControlPlaneCapabilityManifest() []ControlPlaneCapability {
 	}
 }
 
+// Configuration export is a CLI-only administration surface, not a browser
+// workflow or a one-time secret sink.
+func ConfigurationControlPlaneCapabilityManifest() []ControlPlaneCapability {
+	return []ControlPlaneCapability{{ID: "config-export", Operation: "Portable configuration export", CLIUses: []string{"export config"}, Mechanics: "one authenticated coherent configuration-only snapshot; versioned JSON; no material resolution or mutation", CLIScenario: "cli.config-export"}}
+}
+
 func ControlPlaneLifecycleManifest() []ControlPlaneCapability {
 	return []ControlPlaneCapability{
 		{ID: "web-exchange", Operation: "Browser bearer exchange", WebControl: "Sign in", Mechanics: "POST exchange", WebScenario: "browser.exchange"},

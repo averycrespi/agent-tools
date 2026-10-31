@@ -17,6 +17,7 @@ func TestCommandDescriptionsFollowConventions(t *testing.T) {
 		"git": "Manage Git configuration and access", "help": "Show command help", "http": "Manage HTTP access", "init": "Initialize or complete local setup",
 		"maintenance": "Inspect and recover stopped installations", "mcp": "Manage MCP servers, tools, and access",
 		"history": "View optional traffic history",
+		"export":  "Export portable configuration",
 		"serve":   "Run Gateway in the foreground",
 	}
 	for _, command := range root.Commands() {

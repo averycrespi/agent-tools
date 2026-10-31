@@ -157,8 +157,10 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	flags.StringVar(&options.address, "address", controlclient.DefaultAddress, "HTTP Gateway URL with port: numeric 127/8 or an explicitly trusted local forwarding hostname")
 	flags.StringVar(&options.bearerFile, "admin-bearer-file", "", "owner-readable admin bearer file")
 	flags.BoolVar(&options.bearerStdin, "admin-bearer-stdin", false, "read the admin bearer from standard input")
-	flags.StringVar(&options.output, "output", string(controlclient.OutputHuman), "output mode: human or json")
-	flags.BoolVar(&options.jsonOutput, "json", false, "shorthand for --output json")
+	if strings.Join(spec.Path, " ") != "export config" {
+		flags.StringVar(&options.output, "output", string(controlclient.OutputHuman), "output mode: human or json")
+		flags.BoolVar(&options.jsonOutput, "json", false, "shorthand for --output json")
+	}
 	for _, flag := range spec.Flags {
 		if direct, toggle := onlineIntentFlag(spec, flag); direct {
 			if toggle {
@@ -213,6 +215,8 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 
 func onlineLongDescription(spec onlineCommandSpec) string {
 	switch strings.Join(spec.Path, " ") {
+	case "export config":
+		return spec.Short + ". Emits one coherent versioned JSON document to stdout, without secret material or runtime state. No confirmation or upstream connection is required. Use an owner-private shell umask when redirecting: (umask 077; agent-gateway export config > gateway-config.json). See docs/operators/administration.md."
 	case "history export":
 		return spec.Short + ". One bounded MCP/HTTP/Git snapshot; --json includes records and explicit coverage. --after-sequence starts a new snapshot, not a continuation of the previous transaction. Missing records never establish nonexecution."
 	case "backup create":
@@ -442,6 +446,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"http", "credential", "update"}, "update ID", "http credential update ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "rotate"}, "rotate ID", "http credential rotate ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "delete"}, "delete ID", "http credential delete ID [--etag ETAG]", "etag", "yes"),
+		onlineSpec([]string{"export", "config"}, "config", "export config"),
 		onlineSpec([]string{"history", "export"}, "export", "history export", "limit", "after-sequence"),
 		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
 		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),
@@ -515,6 +520,7 @@ var onlineGroupDescriptions = map[string]string{
 	"admin credential":      "Manage administrator credentials",
 	"backup":                "Manage backups",
 	"history":               "View optional traffic history",
+	"export":                "Export portable configuration",
 	"mcp":                   "Manage MCP servers, tools, and access",
 	"mcp server":            "Manage MCP servers",
 	"mcp server operation":  "Manage server operations",
@@ -549,6 +555,7 @@ var onlineLeafDescriptions = map[string]string{
 	"http credential rotate ID --file PATH [--etag ETAG]": "Rotate an HTTP credential",
 	"http credential delete ID [--etag ETAG]":             "Delete an HTTP credential",
 	"history export":                                      "Export optional traffic history",
+	"export config":                                       "Export portable Gateway configuration",
 	"audit list":                                          "List audit events",
 	"audit get AUDIT_EVENT_ID":                            "Get an audit event",
 	"admin credential list":                               "List administrator credentials",

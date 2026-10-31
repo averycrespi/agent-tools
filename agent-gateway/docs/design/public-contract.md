@@ -79,6 +79,7 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/mcp/invocations/{id}`                       | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
+| `/api/v2/config/export`                              | `GET`                | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
@@ -87,6 +88,107 @@ MCP invocation reads have moved from `/api/v2/invocations` and its item resource
 The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for the collection and `None` → `Invocation` for an item. The invocation read service composes the sole invocation repository with the authorization-owned separately snapshotted principal-name reader; it introduces no mutation, replay, event, or mutable join into retained evidence projections.
 
 Item reads additionally return a detail-only `recognition` sidecar with nullable `server` (`server_id`, `display_name`) and `grant` (`grant_id`, `description`). These are current control metadata, not admission-time evidence. After closing the traffic snapshot, the service makes at most one targeted owner-local read per recorded downstream server and grant, under one shared 500 ms deadline. No inventory traversal, cross-store SQL, write-time enrichment or schema migration occurs. Server reads exclude deleted resources; existing undescribed grants return an empty description. Missing or unavailable metadata yields a null relationship without failing the retained item or asserting deletion. Gateway-local/unresolved targets do not acquire server recognition, and absent grant IDs do not acquire grants. Labels retain their 256-byte UTF-8 bounds. Clients validate sidecar identities against the recorded relationship, reject extra fields and mismatches, and fall back to recorded IDs for null recognition or older responses omitting the sidecar. Recorded IDs, tool/requested/upstream names, authorization, timestamps, capture bytes, history exports and collection projections remain unchanged.
+
+## Portable configuration export
+
+`GET /api/v2/config/export` is an administrator bearer/session authenticated,
+bodyless, queryless, `no-store` read (`None` → `ConfigExport`, 200). Unknown query
+members, even an empty `?`, and request bodies refuse. There is no pagination,
+filtering, confirmation, secret-inclusion mode or file destination. The online
+`agent-gateway export config` command always emits one JSON document to stdout;
+diagnostics use stderr. It uses only the public controlclient transport.
+
+The closed format identifier is `"agent-gateway-config"`, with integer `version:1`,
+independent of SQLite schema and MCP/HTTP/Git policy dialect versions. Unknown
+versions, unknown members, duplicate keys, invalid UTF-8, trailing JSON and missing
+required members refuse. Empty collections/maps are `[]`/`{}`, never null. Nullable
+members below are required unless explicitly marked optional. Bounds remain the
+existing domain capacities; the complete serialized document has a separate
+512 MiB ceiling and depth 64, rather than the ordinary one-MiB page-response bound.
+The ceiling covers the combined maximum bounded configuration inventories; it
+never authorizes an oversized individual domain definition.
+
+Top-level members are exactly `{format,version,agents,mcp,http,git}`:
+
+| Object             | Required members and semantics                                                                                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| agent              | `{ref,display_name,state,visibility,http_default}`; current shared agent settings, not bearer issuance or availability                                                                       |
+| mcp                | `{servers,grants}`                                                                                                                                                                           |
+| MCP server         | `{ref,namespace,display_name,enabled,deleted,transport,credentials}`; intended enabled setting, never runtime health                                                                         |
+| server credentials | `{static,oauth_client_secret,oauth_authorization}`; `static` maps declared slot names to portable secret references; nullable client-secret reference; fresh OAuth authorization requirement |
+| MCP grant          | `{agent,server,description,effect,upstream_name,constraint,read_only,expires_at}`; nullable description, exact upstream name, constraint and expiry                                          |
+| http               | `{credentials,grants}`                                                                                                                                                                       |
+| HTTP credential    | `{ref,name,boundary,recipe,secret_ref}`; boundary `{host,port,allow_wildcard}` and recipe `{header,prefix}` retain exact scope and injection intent                                          |
+| HTTP grant         | `{agent,description,policy,expires_at}`; nullable description and expiry                                                                                                                     |
+| HTTP policy        | Existing closed v1 policy union, except optional `credential_ref` replaces `credential_id`; all other fields, explicit false values, selectors and matcher semantics are unchanged           |
+| git                | `{credentials,repositories,grants,routing_origins}`; routing origins are independent of repositories, without derived activation state                                                       |
+| Git credential     | `{ref,name,origin,recipe,secret_ref}`; exact HTTPS origin and one-header recipe                                                                                                              |
+| Git repository     | `{ref,name,url,aliases,credential_ref,deleted}`; nullable credential reference, explicit aliases, exact canonical destination                                                                |
+| Git grant          | `{agent,repository,description,policy,expires_at}`; nullable description/expiry; unchanged closed v1 ref/action policy                                                                       |
+
+Live MCP transports use the existing sanitized closed transport/authentication
+unions, including nonsecret headers, declared `secret_environment` mappings,
+private-HTTP intent and configured OAuth registration/trust/callback/metadata/scope
+settings. Omitted OAuth overrides remain omitted; explicit `scopes:[]` remains
+empty. Export never reads acquired OAuth registration authority. Each unique
+stdio slot has a `credentials.static` reference, even without configured values;
+multiple environment names can share one slot. Bearer transport declares slot
+`bearer`. Static OAuth registrations requiring a client secret have an explicit
+`oauth_client_secret` reference; dynamic registration results are not portable.
+OAuth servers declare `oauth_authorization:true`, never tokens or session state.
+
+References are document-local, not installation IDs. Agents use `agent/N`, HTTP
+credentials `http-credential/N`, Git credentials `git-credential/N`, repositories
+`repository/N` (one-based array order). MCP uses `mcp/<namespace>`; the fixed local
+synthetic target is `mcp/mcp_gateway`, without a server definition. Static secret
+references are `mcp/<namespace>/static/<slot>`; OAuth client-secret references are
+`mcp/<namespace>/oauth/client_secret`; HTTP/Git credential secret references append
+`/secret` to their credential reference. These are declarations, not resolvable
+installation handles or values. An eventual fresh-install importer must create
+fresh internal identities, remap every relationship and supply material separately.
+Reference numbers are scoped to this document and may change after inventory edits;
+never persist them as installation authority or infer uniqueness from display names.
+
+All retained grants, including expired grants and duplicates, are preserved. MCP
+constraints preserve lexical number tokens and their original versioned matching
+semantics, including object-only JSON pointers, exact scalar equality and anchored
+RE2 matching. HTTP selectors retain exact/wildcard hosts, effective ports, methods,
+path kinds, allow-private and credential bindings; Git retains independent read and
+ref actions with exact/prefix matching. Export does not evaluate, broaden, renew,
+sort for precedence or synthesize default grants.
+
+Deleted MCP targets retain namespace/name with `enabled:false`, `deleted:true`,
+`transport:null` and empty credential requirements. Deleted Git repositories retain
+their nonsecret configuration with `deleted:true`. These inactive configuration
+targets preserve otherwise dangling policies without resurrecting access; they
+are not installation tombstone IDs, revisions or recovery markers. Unreferenced
+retained target reservations are included. Deleted HTTP/Git credential identities
+have no policy references and are omitted. Import must not reinterpret a deleted
+target as live. Historical creation/update/deletion timestamps are absent; grant
+expiry remains policy. Servers sort by namespace; other definitions and grants
+retain stable internal identity order, but those identities are never serialized.
+Array ordering conveys no policy precedence.
+
+`internal/configexport` composes restricted owner-local SELECT projections inside
+one `storage.Store.View` read transaction. No projection selects bearer verifiers,
+credential handles, encrypted generations, tokens, OAuth secrets, installation
+keys/CA identity, revisions/markers, audit/traffic, pending requests, operations,
+catalogs or runtime/session state. It never invokes material resolution, DNS or an
+upstream, and writes no audit or storage state. Configuration is valid with absent
+material or unhealthy servers. The complete graph is validated and serialized
+before response headers; failed export returns `storage_unavailable` (503), not a
+partial document. The response declares its complete byte length; failed delivery
+terminates. The CLI validates the complete response before writing and fails on
+broken or short stdout writes without replay or a success summary. A partial
+shell redirection after sink failure is not a usable export.
+
+Arbitrary operator-authored strings remain configuration; no scanner can guarantee
+that a name, argument, URL, ordinary environment value or header lacks an
+accidentally embedded secret. Export does not scan/refuse or silently redact such
+strings. Supported secret inputs must use the explicit slot/reference boundary.
+Operator procedure and private-file guidance belong to
+[administration](../operators/administration.md#export-portable-configuration).
+Import and material supply are separate deliveries; no import command is implied.
 
 ## Optional history export
 
