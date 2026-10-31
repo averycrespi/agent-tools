@@ -22,7 +22,18 @@ agent-gateway serve --data-dir /path/to/gateway-data
 agent-gateway --data-dir /path/to/gateway-data doctor
 ```
 
-The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. `init` inspects and confirms missing setup, creates owner-only storage and initial administrator authority, prepares the initial CA, and writes its public certificate to `<root>/http-ca.pem`. Existing state, credentials and CA are preserved. `initialize` remains a quiet alias. Missing existing credential material never triggers a reset. Noninteractive changes require `--confirm`; no service, proxy or client trust changes occur. Interrupted setup resumes only demonstrably missing work. Unresolved markers, protected-generation evidence or nonempty WAL/journal state refuse rather than replay. A fully configured idle running installation may return an inspection-only no-op; changes require stopped ownership. If init reports active WAL or journal data, stop the selected Gateway cleanly and rerun init. Do not delete SQLite sidecars or change their permissions to force inspection; active data is not corruption.
+The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. Ordinary `init` creates only in an absent or empty safe directory. It asks for default-no confirmation (`[y/N]`); `--confirm` permits noninteractive consent. Setup provisions control/traffic storage, the protected master key, initial administrator authority, MCP and HTTP/Git proxy capability, the CA and its public `<root>/http-ca.pem` export. It is ready for `serve` but not listening. No supervisor, client trust, shell settings or client proxy settings are installed. `initialize` remains a quiet alias.
+
+An existing completed installation returns an already-initialized result and suggests `serve` or `doctor`, with no changes. This does not authenticate a bearer or validate optional history, even while Gateway is running; it is not a current health check. Missing credentials or certificates never authorize regeneration or a reset.
+
+For recognized interrupted setup only, inspect the selected directory with `doctor`, then explicitly continue using the same directory and recorded credential destination:
+
+```bash
+agent-gateway doctor --data-dir /path/to/gateway-data
+agent-gateway init --resume --data-dir /path/to/gateway-data --confirm
+```
+
+Resume retains one stopped owner, reconciles durable evidence and completes only proven-missing work. It preserves established key, CA and credential identity. Unknown/damaged evidence, changed files, missing established material, uncertain publication, unresolved recovery markers or nonempty WAL/journal state can require a separate stopped diagnosis rather than continuation. A refusal is not permission to rerun an uncertain step, replace a credential, delete the directory, remove evidence or discard SQLite sidecars. Keep `<root>/initialization` with the installation; it is local progress evidence, not a portable configuration export. `serve` refuses incomplete initialization. Importing configuration is a separate workflow.
 
 Exact syntax and defaults:
 

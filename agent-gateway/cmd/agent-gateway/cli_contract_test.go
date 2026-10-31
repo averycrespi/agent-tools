@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:2a5203888f2f6ba99c3667ac88d6c5654d6d8821cce63f38542fcd20a4465f95", digest)
+	assert.Equal(t, "sha256:0edc57957d276db6304dfedf2c1a873cee5f394560dfd3971ec8f4c0859fda12", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -122,7 +122,7 @@ func TestCLIContract(t *testing.T) {
 			use   string
 			flags []string
 		}{
-			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "secret-output"}},
+			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "resume", "secret-output"}},
 			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "recovery-key", "secret-output", "security-only", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "rotate-master-key"}, use: "rotate-master-key", flags: []string{"confirm", "dry-run", "installation-id", "json", "recover", "retain-recovery-keys"}},

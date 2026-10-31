@@ -45,6 +45,36 @@ func event(number int) contract.AuditEvent {
 	}}
 }
 
+func TestAttemptRecognitionNeverAuthorizesReplayAfterPruning(t *testing.T) {
+	store, _ := fixture(t)
+	read := func() (bool, error) {
+		var attempted bool
+		err := store.View(t.Context(), func(tx *sql.Tx) error {
+			var err error
+			attempted, err = audit.AttemptedTx(t.Context(), tx, "admin_credential", "initialize")
+			return err
+		})
+		return attempted, err
+	}
+	attempted, err := read()
+	require.NoError(t, err)
+	require.False(t, attempted)
+	attempt, err := audit.NewAttempt(audit.WithOffline(t.Context()), eventBase, "admin_credential", "initialize", contract.AuditTarget{Type: "admin_credential", ID: credentialID})
+	require.NoError(t, err)
+	require.NoError(t, audit.Append(t.Context(), store, attempt))
+	attempted, err = read()
+	require.NoError(t, err)
+	require.True(t, attempted)
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `UPDATE control_audit_history SET pruned=1 WHERE singleton=1`)
+		return err
+	}))
+	_, err = read()
+	require.ErrorIs(t, err, audit.ErrUnavailable)
+	_, err = audit.AttemptedTx(t.Context(), nil, "admin_credential", "initialize")
+	require.ErrorIs(t, err, audit.ErrInvalidInput)
+}
+
 func TestAuditSettlementSurvivesEffectCancellation(t *testing.T) {
 	store, repository := fixture(t)
 	attempt := event(1)

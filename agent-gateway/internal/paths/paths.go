@@ -136,6 +136,10 @@ func AcquireExisting(root string) (*Ownership, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := RequireInitializationComplete(ownership.Layout()); err != nil {
+		_ = ownership.Close()
+		return nil, err
+	}
 	if err := ownership.establishRunMarker(); err != nil {
 		_ = ownership.Close()
 		return nil, err

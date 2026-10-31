@@ -225,6 +225,12 @@ func InitializedTx(ctx context.Context, transaction *sql.Tx) (bool, error) {
 	return count != 0, nil
 }
 
+// InitializationAttemptedTx distinguishes never-attempted authority from an
+// interrupted one-time publication. Missing output never permits replay.
+func InitializationAttemptedTx(ctx context.Context, transaction *sql.Tx) (bool, error) {
+	return audit.AttemptedTx(ctx, transaction, "admin_credential", "initialize")
+}
+
 func (service *Service) prepareCredential(expiresAt *time.Time) (credentialCandidate, error) {
 	secret := make([]byte, bearerEntropyBytes)
 	if _, err := io.ReadFull(service.entropy, secret); err != nil {

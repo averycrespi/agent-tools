@@ -90,6 +90,24 @@ func AppendTx(ctx context.Context, tx *sql.Tx, event contract.AuditEvent) (contr
 	return event, nil
 }
 
+// AttemptedTx supports stopped one-time initialization reconciliation. Absence
+// is meaningful only with complete retained history; pruning cannot grant replay.
+func AttemptedTx(ctx context.Context, tx *sql.Tx, category, action string) (bool, error) {
+	if tx == nil || category == "" || action == "" || contract.ValidateAuditFilters(contract.AuditFilters{Category: category, Action: action}) != nil {
+		return false, ErrInvalidInput
+	}
+	history, err := historyTx(ctx, tx)
+	if err != nil {
+		return false, err
+	}
+	if history.Pruned {
+		return false, ErrUnavailable
+	}
+	var attempted bool
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM control_audit_events WHERE category=? AND action=? AND json_extract(event, '$.phase')='attempt')`, category, action).Scan(&attempted)
+	return attempted, err
+}
+
 // ReplaceHistoryTx changes continuity and records the restore attempt in the
 // staged generation together. Installation success must be appended only after
 // the replacement has actually been installed.

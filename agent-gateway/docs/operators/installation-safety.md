@@ -28,6 +28,10 @@ The selected installation directory must be owned by your account with permissio
 
 A permissions error identifies the affected path and expected condition. Do not delete files to bypass it. Nonempty WAL or journal files are a separate inspection constraint: they can contain committed data, and read-only closed-generation inspection will refuse to ignore them even when permissions are valid. Stop Gateway cleanly before setup changes; preserve sidecars after an unsuccessful stop.
 
+## Initialization progress
+
+Ordinary `init` never fills gaps in a nonempty installation. Preserve the bounded `<root>/initialization` evidence with its exact directory: it binds the root filesystem identity and one-time destinations. Recognized interruption can be continued only with explicit `init --resume`, stopped ownership and confirmation. Copied/replaced roots, damaged evidence, missing established material or uncertain effects require diagnosis, not another creation attempt. Completion evidence is not proof of current credential, CA or history health. See [initialization and resume](administration.md#installation-root).
+
 ## Retain tombstones and recovery evidence
 
 A completed migration left an owner-only `0600` regular-file tombstone at the old source path. Its persisted v1 record binds the exact source/destination paths and original directory device/inode. It no longer controls canonical default selection. The file still blocks binaries from preparing a directory at that exact legacy path.

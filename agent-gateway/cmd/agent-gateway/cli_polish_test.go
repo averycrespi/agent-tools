@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInitActiveWALExplainsBlockerWithoutMutation(t *testing.T) {
+func TestInitExistingActiveWALDoesNotInspectOrMutate(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	owner, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
@@ -30,12 +30,11 @@ func TestInitActiveWALExplainsBlockerWithoutMutation(t *testing.T) {
 	command.SetOut(stdout)
 	command.SetErr(stderr)
 	command.SetArgs([]string{"init", "--data-dir", root})
-	require.Error(t, command.ExecuteContext(t.Context()))
-	require.Empty(t, stdout.String())
-	require.Contains(t, stderr.String(), "Cannot verify setup while Gateway has active WAL or journal data")
-	require.Contains(t, stderr.String(), "Nothing changed")
-	require.Contains(t, stderr.String(), "agent-gateway init --data-dir '"+root+"'")
-	require.NotContains(t, stderr.String(), "unsafe")
+	require.NoError(t, command.ExecuteContext(t.Context()))
+	require.Contains(t, stdout.String(), "Existing installation files detected")
+	require.Contains(t, stdout.String(), "Nothing changed")
+	require.Contains(t, stdout.String(), "agent-gateway doctor --data-dir '"+root+"'")
+	require.Empty(t, stderr.String())
 	require.Equal(t, before, treeBytes(t, root))
 }
 

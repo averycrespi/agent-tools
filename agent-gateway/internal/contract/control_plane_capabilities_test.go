@@ -60,6 +60,12 @@ func TestControlPlaneCapabilityManifest(t *testing.T) {
 	var lifecycleIDs []string
 	for _, row := range lifecycle {
 		lifecycleIDs = append(lifecycleIDs, "product.lifecycle."+strings.ReplaceAll(row.ID, "-", "."))
+		if row.ID == "cli-initialize" {
+			assert.Equal(t, []string{"init"}, row.CLIUses)
+			for _, boundary := range []string{"creation-only", "--resume", "default-no", "bounded durable progress", "single-owner", "proven-missing", "no uncertain replay", "no bearer or history validation"} {
+				assert.Contains(t, row.Mechanics, boundary)
+			}
+		}
 		if row.ID == "cli-bearer" {
 			assert.Equal(t, "owner-only explicit file/exclusive stdin/resolved default file", row.Mechanics)
 			assert.NotContains(t, row.Mechanics, "prompt")

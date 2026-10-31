@@ -256,7 +256,9 @@ func TestInitRunningNoopPreservesCredentialsAndCA(t *testing.T) {
 	command.SetOut(new(bytes.Buffer))
 	command.SetErr(new(bytes.Buffer))
 	command.SetArgs([]string{"init", "--data-dir", root, "--confirm"})
-	require.Error(t, command.ExecuteContext(t.Context()))
+	require.NoError(t, command.ExecuteContext(t.Context()), "ordinary init must not repair or inspect completed setup")
+	_, err = os.Stat(filepath.Join(root, gatewaypaths.PublicCertificateName))
+	require.ErrorIs(t, err, os.ErrNotExist, "missing certificate is not silently republished")
 	_, err = composition.HTTPCA(t.Context(), root, "", "export", systemClock{}, bytes.NewReader(nil))
 	require.ErrorIs(t, err, gatewaypaths.ErrInUse)
 }

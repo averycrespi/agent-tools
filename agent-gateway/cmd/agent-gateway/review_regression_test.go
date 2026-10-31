@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInitRefusesUnverifiedSelectedTrafficWithoutWriting(t *testing.T) {
+func TestInitCompleteIgnoresOptionalTrafficWithoutWriting(t *testing.T) {
 	for _, state := range []string{"missing", "corrupt", "wal", "journal"} {
 		t.Run(state, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "gateway")
@@ -40,7 +40,8 @@ func TestInitRefusesUnverifiedSelectedTrafficWithoutWriting(t *testing.T) {
 			default:
 				require.NoError(t, os.WriteFile(traffic+"-"+state, []byte("uncheckpointed"), 0o600))
 			}
-			// Missing public output must not authorize writes around bad traffic.
+			// Neither missing public output nor bad optional history authorizes
+			// repair or makes ordinary init depend on history validation.
 			require.NoError(t, os.Remove(filepath.Join(root, gatewaypaths.PublicCertificateName)))
 			before := treeBytes(t, root)
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
@@ -48,9 +49,9 @@ func TestInitRefusesUnverifiedSelectedTrafficWithoutWriting(t *testing.T) {
 			command.SetOut(stdout)
 			command.SetErr(stderr)
 			command.SetArgs([]string{"init", "--data-dir", root, "--confirm", "--json"})
-			require.Error(t, command.ExecuteContext(t.Context()))
-			require.Empty(t, stdout.String())
-			require.NotContains(t, stderr.String(), "setup is complete")
+			require.NoError(t, command.ExecuteContext(t.Context()))
+			require.Contains(t, stdout.String(), `"state":"already_initialized"`)
+			require.Empty(t, stderr.String())
 			require.Equal(t, before, treeBytes(t, root))
 		})
 	}
