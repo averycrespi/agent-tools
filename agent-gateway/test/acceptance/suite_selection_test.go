@@ -265,6 +265,49 @@ func (execute suiteExecutorFunc) Run(ctx context.Context, root string, command C
 	return execute(ctx, root, command)
 }
 
+func TestSuitePartitionsCompositionLifecycleWithoutChangingBoundsOrCoverage(t *testing.T) {
+	root := suiteFixture(t, map[string]string{
+		"internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestGamma(t *testing.T) {}\nfunc TestDelta(t *testing.T) {}\n",
+		"internal/invocation/lifecycle_test.go":  "package invocation\nimport \"testing\"\nfunc TestInvokeAlpha(t *testing.T) {}\nfunc TestInvokeBeta(t *testing.T) {}\n",
+		"internal/storage/lifecycle_test.go":     "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
+	})
+	for _, goos := range []string{"linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			inventory, err := DiscoverSuiteInventory(root, goos, "arm64")
+			require.NoError(t, err)
+			for _, id := range []string{"test-integration", "test-integration-3"} {
+				t.Run(id, func(t *testing.T) {
+					plan, err := PlanSuite(root, id, inventory, 1)
+					require.NoError(t, err)
+					require.Len(t, plan, 2)
+					seen := map[string]bool{}
+					for _, command := range plan {
+						require.NoError(t, validateSuiteCommand(root, inventory, command))
+						assert.Contains(t, command.Argv, "-race")
+						assert.Contains(t, command.Argv, "-count=1")
+						assert.Contains(t, command.Argv, "-timeout=5m0s")
+						count := 0
+						for _, test := range command.Tests {
+							key := test.Package + "/" + test.Name
+							assert.False(t, seen[key], key)
+							seen[key] = true
+							if test.Package == "./internal/composition" {
+								count++
+							}
+						}
+						assert.Equal(t, 2, count, "composition must not consume one cumulative five-minute binary")
+					}
+					wanted := 7
+					if id == "test-integration-3" {
+						wanted = 4
+					}
+					assert.Len(t, seen, wanted)
+				})
+			}
+		})
+	}
+}
+
 func TestSuiteRunnerKeepsPackageAndCommandDeadlinesSeparate(t *testing.T) {
 	root := suiteFixture(t, map[string]string{
 		"agent-gateway/internal/first/first_test.go":   "package first\nimport \"testing\"\nfunc TestFirst(t *testing.T) {}\n",

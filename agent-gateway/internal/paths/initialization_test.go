@@ -185,11 +185,17 @@ func TestInitializationReceiptPublicationFaultBoundaries(t *testing.T) {
 
 func initializationPublicationFixture(t *testing.T) (*Ownership, InitializationPlan) {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "gateway")
+	// Exercise macOS-style parent aliases on every host so fault selectors cannot
+	// accidentally compare an input spelling with the canonical owned layout.
+	parent := t.TempDir()
+	alias := filepath.Join(t.TempDir(), "parent-alias")
+	require.NoError(t, os.Symlink(parent, alias))
+	require.NoError(t, os.Mkdir(filepath.Join(parent, "selected-parent"), 0700))
+	root := filepath.Join(alias, "selected-parent", "gateway")
 	owner, err := AcquireInitialization(root)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, owner.Close()) })
-	return owner, InitializationPlan{Version: 1, Root: root, Bearer: owner.Layout().AdminBearer, Installation: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Traffic: "01ARZ3NDEKTSV4RRFFQ69G5FAW"}
+	return owner, InitializationPlan{Version: 1, Root: owner.Layout().Root, Bearer: owner.Layout().AdminBearer, Installation: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Traffic: "01ARZ3NDEKTSV4RRFFQ69G5FAW"}
 }
 
 func initializationEvidenceBytes(t *testing.T, root string) map[string]string {

@@ -336,38 +336,42 @@ func PlanSuite(moduleRoot, id string, inventory SuiteInventory, repeats int) ([]
 		}
 	}
 	if id == "test-integration" {
-		return partitionInvocationCommands(moduleRoot, inventory, commands, repeats)
+		return partitionLifecycleCommands(moduleRoot, inventory, commands, repeats)
 	}
 	return commands, nil
 }
 
-// Invocation's real SQLite lifecycle coverage exceeds one test binary's budget
-// on hosted runners. Keep every source-discovered identity, but distribute the
-// sorted inventory across two sequential binaries on the same fixture owner.
-func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, commands []SuiteGoCommand, repeats int) ([]SuiteGoCommand, error) {
+// Invocation and composition's real SQLite lifecycle coverage exceeds one test
+// binary's budget on hosted runners. Keep every source-discovered identity, but
+// distribute each sorted inventory across two sequential binaries on its owner.
+func partitionLifecycleCommands(moduleRoot string, inventory SuiteInventory, commands []SuiteGoCommand, repeats int) ([]SuiteGoCommand, error) {
 	var result []SuiteGoCommand
 	for _, command := range commands {
-		var invocation, other, storage []SuiteTest
+		var invocation, composition, other, storage []SuiteTest
 		for _, test := range command.Tests {
 			switch test.Package {
 			case "./internal/invocation":
 				invocation = append(invocation, test)
+			case "./internal/composition":
+				composition = append(composition, test)
 			case "./internal/storage":
 				storage = append(storage, test)
 			default:
 				other = append(other, test)
 			}
 		}
-		if len(invocation) < 2 {
+		if len(invocation) < 2 && len(composition) < 2 {
 			result = append(result, command)
 			continue
 		}
-		sort.Slice(invocation, func(i, j int) bool { return invocation[i].Name < invocation[j].Name })
-		// Storage overlaps the otherwise standalone second invocation batch.
+		// Storage overlaps the otherwise standalone second lifecycle batch.
 		// Keep Go's existing package-worker bound and sequential batch ownership.
 		groups := [2][]SuiteTest{other, storage}
-		for index, test := range invocation {
-			groups[index%2] = append(groups[index%2], test)
+		for _, lifecycle := range [][]SuiteTest{invocation, composition} {
+			sort.Slice(lifecycle, func(i, j int) bool { return lifecycle[i].Name < lifecycle[j].Name })
+			for index, test := range lifecycle {
+				groups[index%2] = append(groups[index%2], test)
+			}
 		}
 		for _, tests := range groups {
 			if len(tests) == 0 {
@@ -388,7 +392,7 @@ func partitionInvocationCommands(moduleRoot string, inventory SuiteInventory, co
 // measured second-shard critical path without increasing per-runner concurrency.
 // All other and newly discovered packages go to shard two: this is a partition,
 // never another executable inventory. A package never spans runners; invocation
-// uses sequential test binaries within that same fixture owner.
+// and composition use sequential test binaries within that same fixture owner.
 func integrationShard(pkg string) string {
 	switch pkg {
 	case "./internal/invocation", "./internal/storage", "./internal/audit", "./internal/admin":

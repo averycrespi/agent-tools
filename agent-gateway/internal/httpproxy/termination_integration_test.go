@@ -158,6 +158,7 @@ func TestIntegrationTerminalLikeEventBeforeEOFCancellation(t *testing.T) {
 				f := fixtureWithListener(t, nil, func(l net.Listener) net.Listener {
 					return &terminationDeadlineListener{Listener: l, pending: &pendingWrite}
 				})
+				diagnoseProxyCompletionOnFailure(t, f)
 				if withoutHistory {
 					isolateProxyHistory(t, f, "stalled-open")
 				}
