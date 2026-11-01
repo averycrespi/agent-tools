@@ -20,7 +20,8 @@ type GitGrantInput struct {
 	ExpiresAt    *time.Time
 }
 
-const gitGrantSelect = `SELECT id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='git' AND e.id=git_grants.id AND e.expires_at=git_grants.expires_at) FROM git_grants`
+const gitGrantColumns = `SELECT id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at`
+const gitGrantSelect = gitGrantColumns + `,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='git' AND e.id=git_grants.id AND e.expires_at=git_grants.expires_at) FROM git_grants`
 
 func scanGitGrant(row interface{ Scan(...any) error }, now time.Time) (contract.GitGrant, error) {
 	var g contract.GitGrant
@@ -62,7 +63,15 @@ func gitGrantTx(ctx context.Context, tx *sql.Tx, id string, now time.Time) (cont
 }
 
 func readGitGrantsTx(ctx context.Context, tx *sql.Tx, now time.Time) ([]contract.GitGrant, error) {
-	rows, err := tx.QueryContext(ctx, gitGrantSelect+` ORDER BY id LIMIT ?`, contract.GitGrants+1)
+	return readGitGrantsForSchemaTx(ctx, tx, now, true)
+}
+
+func readGitGrantsForSchemaTx(ctx context.Context, tx *sql.Tx, now time.Time, importExpiries bool) ([]contract.GitGrant, error) {
+	selectGrants := gitGrantSelect
+	if !importExpiries {
+		selectGrants = gitGrantColumns + `,0 FROM git_grants`
+	}
+	rows, err := tx.QueryContext(ctx, selectGrants+` ORDER BY id LIMIT ?`, contract.GitGrants+1)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +249,7 @@ func (r *Repository) EvaluateGit(ctx context.Context, principalID, repositoryID 
 
 // ValidateGitBackupTx validates Git's complete retained graph on a read-only
 // artifact transaction. It neither migrates nor constructs a live authority owner.
-func ValidateGitBackupTx(ctx context.Context, tx *sql.Tx) error {
+func ValidateGitBackupTx(ctx context.Context, tx *sql.Tx, schema int) error {
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM principals ORDER BY id LIMIT ?`, mustLimit("principals")+1)
 	if err != nil {
 		return err
@@ -265,10 +274,17 @@ func ValidateGitBackupTx(ctx context.Context, tx *sql.Tx) error {
 	if int64(len(principals)) > mustLimit("principals") {
 		return ErrInvalidState
 	}
-	return validateGitAuthorityTx(ctx, tx, principals)
+	// Schema22-24 artifacts predate import expiry facts. Their caller supplies
+	// the independently verified artifact version; current stores never fall back
+	// on a missing table or a failed query.
+	return validateGitAuthorityForSchemaTx(ctx, tx, principals, schema >= 25)
 }
 
 func validateGitAuthorityTx(ctx context.Context, tx *sql.Tx, principals map[string]struct{}) error {
+	return validateGitAuthorityForSchemaTx(ctx, tx, principals, true)
+}
+
+func validateGitAuthorityForSchemaTx(ctx context.Context, tx *sql.Tx, principals map[string]struct{}, importExpiries bool) error {
 	repositories, err := readGitRepositoriesTx(ctx, tx)
 	if err != nil {
 		return err
@@ -283,7 +299,7 @@ func validateGitAuthorityTx(ctx context.Context, tx *sql.Tx, principals map[stri
 			return ErrInvalidState
 		}
 	}
-	grants, err := readGitGrantsTx(ctx, tx, time.Now())
+	grants, err := readGitGrantsForSchemaTx(ctx, tx, time.Now(), importExpiries)
 	if err != nil {
 		return err
 	}

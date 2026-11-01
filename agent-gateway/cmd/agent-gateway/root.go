@@ -41,11 +41,12 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now() }
 
 type offlineDependencies struct {
-	clock          admin.Clock
-	entropy        io.Reader
-	newComposition func(composition.Options) (*composition.Composition, error)
-	caOperation    func(context.Context, string, string, string, composition.Clock, io.Reader, composition.CACallbacks) ([]byte, error)
-	diagnostics    *diagnostics.Adapter
+	clock                 admin.Clock
+	entropy               io.Reader
+	newComposition        func(composition.Options) (*composition.Composition, error)
+	caOperation           func(context.Context, string, string, string, composition.Clock, io.Reader, composition.CACallbacks) ([]byte, error)
+	diagnostics           *diagnostics.Adapter
+	initializationCleanup func(*gatewaypaths.Ownership) error
 }
 
 func newRootCmd() *cobra.Command {

@@ -86,9 +86,19 @@ func removeInitializationInput(owner *Ownership, publication initializationPubli
 	if plan.ImportDigest == "" {
 		return nil
 	}
+	removed, err := InitializationReceipt(layout, "input-removed")
+	if err != nil {
+		return err
+	}
+	if removed != "" {
+		return nil
+	}
 	path := filepath.Join(layout.Root, InitializationName, "input")
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return syncDirectory(filepath.Dir(path))
+		if err := publication.directorySync(filepath.Dir(path)); err != nil {
+			return err
+		}
+		return sealInitialization(owner, "input-removed", plan.ImportDigest, publication)
 	} else if err != nil {
 		return err
 	}
@@ -104,8 +114,11 @@ func removeInitializationInput(owner *Ownership, publication initializationPubli
 	if err := publication.after("input:remove"); err != nil {
 		return err
 	}
-	if err := syncDirectory(filepath.Dir(path)); err != nil {
+	if err := publication.directorySync(filepath.Dir(path)); err != nil {
 		return err
 	}
-	return publication.after("input:remove-directory-sync")
+	if err := publication.after("input:remove-directory-sync"); err != nil {
+		return err
+	}
+	return sealInitialization(owner, "input-removed", plan.ImportDigest, publication)
 }

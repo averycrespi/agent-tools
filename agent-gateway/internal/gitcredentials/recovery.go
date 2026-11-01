@@ -142,7 +142,7 @@ func VerifyBackup(ctx context.Context, path string, schema int) error {
 		if err := validateTx(ctx, tx); err != nil {
 			return err
 		}
-		return authorization.ValidateGitBackupTx(ctx, tx)
+		return authorization.ValidateGitBackupTx(ctx, tx, schema)
 	})
 }
 

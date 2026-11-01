@@ -124,17 +124,23 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 				}
 				if complete {
 					if resume && plan.ImportDigest != "" {
-						if _, statErr := os.Lstat(filepath.Join(layout.Root, gatewaypaths.InitializationName, "input")); statErr == nil {
+						removed, err := gatewaypaths.InitializationReceipt(layout, "input-removed")
+						if err != nil {
+							return refused("Completed import cleanup evidence cannot be inspected.")
+						}
+						if removed == "" {
 							owner, err := gatewaypaths.AcquireStoppedExisting(layout.Root)
 							if err != nil {
 								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
 							}
-							cleanupErr := gatewaypaths.RemoveInitializationInput(owner)
+							cleanup := dependencies.initializationCleanup
+							if cleanup == nil {
+								cleanup = gatewaypaths.RemoveInitializationInput
+							}
+							cleanupErr := cleanup(owner)
 							if err := errors.Join(cleanupErr, owner.Close()); err != nil {
 								return refused("Import is complete but temporary input cleanup could not be confirmed.")
 							}
-						} else if !errors.Is(statErr, os.ErrNotExist) {
-							return refused("Completed import input cannot be inspected.")
 						}
 					}
 					return offlineResult(command, jsonOutput, map[string]any{"ok": true, "operation": "init", "data_dir": layout.Root, "changed": false, "state": "already_initialized", "next_command": serve}, "Gateway is already initialized; setup is complete. Nothing changed.\nStart: "+serve+"\nDiagnose: "+doctor)

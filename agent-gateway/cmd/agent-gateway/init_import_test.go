@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/configimport"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
@@ -92,6 +94,63 @@ func TestInitFromCreatesFreshInstallationAndKeepsSourceUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, complete)
 	require.NotEmpty(t, plan.ImportDigest)
+}
+
+func TestInitCompletedImportResumeConfirmsMissingInputDeletionBeforeNoop(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "gateway")
+	source := filepath.Join(t.TempDir(), "config.json")
+	require.NoError(t, os.WriteFile(source, []byte(cliImportDocument), 0600))
+	execute := func(dependencies offlineDependencies) error {
+		command := newRootCmdWithDependencies(dependencies)
+		stdout := new(bytes.Buffer)
+		command.SetOut(stdout)
+		command.SetErr(new(bytes.Buffer))
+		command.SetArgs([]string{"init", "--resume", "--confirm", "--data-dir", root})
+		return command.ExecuteContext(t.Context())
+	}
+	command := newTestRootCmd(t)
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{"init", "--from", source, "--confirm", "--data-dir", root})
+	require.NoError(t, command.ExecuteContext(t.Context()))
+	evidence := filepath.Join(root, gatewaypaths.InitializationName)
+	// Reproduce a completed import before cleanup, then fail the actual cleanup
+	// call after unlink and before directory sync; the next CLI sees ENOENT.
+	require.NoError(t, os.Remove(filepath.Join(evidence, "input-removed")))
+	require.NoError(t, os.WriteFile(filepath.Join(evidence, "input"), []byte(cliImportDocument), 0600))
+	injected := errors.New("directory sync failed")
+	err := execute(offlineDependencies{clock: systemClock{}, entropy: rand.Reader, newComposition: composition.New, initializationCleanup: func(owner *gatewaypaths.Ownership) error {
+		require.NoError(t, os.Remove(filepath.Join(owner.Layout().Root, gatewaypaths.InitializationName, "input")))
+		return injected
+	}})
+	require.Error(t, err)
+	calls := 0
+	err = execute(offlineDependencies{clock: systemClock{}, entropy: rand.Reader, newComposition: composition.New, initializationCleanup: func(owner *gatewaypaths.Ownership) error {
+		calls++
+		return gatewaypaths.RemoveInitializationInput(owner)
+	}})
+	require.NoError(t, err)
+	require.Equal(t, 1, calls, "absence is not durable cleanup proof")
+	layout, err := gatewaypaths.Resolve(root)
+	require.NoError(t, err)
+	plan, complete, err := gatewaypaths.ReadInitialization(layout)
+	require.NoError(t, err)
+	require.True(t, complete)
+	removed, err := gatewaypaths.InitializationReceipt(layout, "input-removed")
+	require.NoError(t, err)
+	require.Equal(t, plan.ImportDigest, removed)
+	// Confirmed cleanup preserves the completed-installation no-op while running.
+	running, err := gatewaypaths.AcquireExisting(root)
+	require.NoError(t, err)
+	before := treeBytes(t, root)
+	err = execute(offlineDependencies{clock: systemClock{}, entropy: rand.Reader, newComposition: composition.New, initializationCleanup: func(*gatewaypaths.Ownership) error {
+		t.Fatal("confirmed cleanup must need no stopped owner")
+		return nil
+	}})
+	require.NoError(t, err)
+	require.Equal(t, before, treeBytes(t, root))
+	require.NoError(t, running.MarkClean())
+	require.NoError(t, running.Close())
 }
 
 func TestInitFromResumesPrivateInputAfterSourceDeletionAndNeverMerges(t *testing.T) {

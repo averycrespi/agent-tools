@@ -65,4 +65,14 @@ func TestConfigurationImportPreservesExpiredAndDeletedPolicyWithoutSourceHistory
 		return err
 	}))
 	require.Error(t, built.authorization.ValidateStartup(t.Context(), built.servers))
+	require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
+		return authorization.ValidateGitBackupTx(t.Context(), tx, storage.CurrentSchema)
+	}))
+	require.NoError(t, store.Mutate(audit.WithOffline(t.Context()), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`DELETE FROM configuration_import_grant_expiries WHERE kind='git'`)
+		return err
+	}))
+	require.Error(t, store.View(t.Context(), func(tx *sql.Tx) error {
+		return authorization.ValidateGitBackupTx(t.Context(), tx, storage.CurrentSchema)
+	}), "current-schema backup validation must require the exact imported expiry receipt")
 }

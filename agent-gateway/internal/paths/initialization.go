@@ -79,14 +79,14 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 	if err != nil {
 		return plan, false, err
 	}
-	entries, readErr := handle.ReadDir(12)
+	entries, readErr := handle.ReadDir(13)
 	if errors.Is(readErr, io.EOF) {
 		readErr = nil
 	}
 	if err := errors.Join(readErr, handle.Close()); err != nil {
 		return plan, false, err
 	}
-	if len(entries) > 11 {
+	if len(entries) > 12 {
 		return plan, false, ErrUnsafePath
 	}
 	if plan.ImportDigest != "" && !validInitializationDigest(plan.ImportDigest) {
@@ -99,7 +99,7 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 			}
 			continue
 		}
-		if entry.Name() == "import" && plan.ImportDigest == "" {
+		if (entry.Name() == "import" || entry.Name() == "input-removed") && plan.ImportDigest == "" {
 			return plan, false, ErrUnsafePath
 		}
 		if entry.Name() != "plan" && !initializationStep(entry.Name()) {
@@ -112,6 +112,10 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 		if entry.Name() == "custody-attempt" && string(data) != "attempt" {
 			return plan, false, ErrUnsafePath
 		}
+	}
+	removed, err := InitializationReceipt(layout, "input-removed")
+	if err != nil || removed != "" && removed != plan.ImportDigest {
+		return plan, false, ErrUnsafePath
 	}
 	attempt, err := InitializationReceipt(layout, "custody-attempt")
 	if err != nil {
@@ -164,6 +168,11 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 			if err != nil || receipt != expected {
 				return plan, false, ErrUnsafePath
 			}
+			if removed != "" {
+				if _, err := os.Lstat(filepath.Join(layout.Root, InitializationName, "input")); !errors.Is(err, os.ErrNotExist) {
+					return plan, false, ErrUnsafePath
+				}
+			}
 			return plan, true, nil
 		default:
 			data, err := hex.DecodeString(receipt)
@@ -171,6 +180,9 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 				return plan, false, ErrUnsafePath
 			}
 		}
+	}
+	if removed != "" {
+		return plan, false, ErrUnsafePath
 	}
 	if plan.ImportDigest != "" {
 		if _, err := ReadInitializationInput(layout, plan); err != nil {
@@ -182,7 +194,7 @@ func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 
 func initializationStep(step string) bool {
 	switch step {
-	case "control", "custody-attempt", "custody", "traffic", "administrator", "ca", "certificate", "import", "complete":
+	case "control", "custody-attempt", "custody", "traffic", "administrator", "ca", "certificate", "import", "complete", "input-removed":
 		return true
 	}
 	return false
@@ -363,8 +375,30 @@ func ConfirmInitialization(owner *Ownership, expected InitializationPlan) error 
 }
 
 type initializationPublication struct {
-	fault func(string) error
-	write func(*os.File, []byte) (int, error)
+	fault     func(string) error
+	write     func(*os.File, []byte) (int, error)
+	syncFile  func(*os.File) error
+	closeFile func(*os.File) error
+	syncDir   func(string) error
+}
+
+func (publication initializationPublication) fileSync(file *os.File) error {
+	if publication.syncFile != nil {
+		return publication.syncFile(file)
+	}
+	return file.Sync()
+}
+func (publication initializationPublication) fileClose(file *os.File) error {
+	if publication.closeFile != nil {
+		return publication.closeFile(file)
+	}
+	return file.Close()
+}
+func (publication initializationPublication) directorySync(path string) error {
+	if publication.syncDir != nil {
+		return publication.syncDir(path)
+	}
+	return syncDirectory(path)
 }
 
 func (publication initializationPublication) after(point string) error {
@@ -380,19 +414,20 @@ func syncInitializationFile(layout Layout, name string, publication initializati
 	if err != nil {
 		return err
 	}
-	if err := errors.Join(file.Sync(), file.Close()); err != nil {
+	defer func() { _ = file.Close() }()
+	if err := errors.Join(publication.fileSync(file), publication.fileClose(file)); err != nil {
 		return err
 	}
 	if err := publication.after(name + ":file-sync"); err != nil {
 		return err
 	}
-	if err := syncDirectory(directory); err != nil {
+	if err := publication.directorySync(directory); err != nil {
 		return err
 	}
 	if err := publication.after(name + ":directory-sync"); err != nil {
 		return err
 	}
-	if err := syncDirectory(layout.Root); err != nil {
+	if err := publication.directorySync(layout.Root); err != nil {
 		return err
 	}
 	return publication.after(name + ":root-sync")
@@ -428,25 +463,25 @@ func writeInitializationFile(directory, name string, data []byte, publication in
 	if err := publication.after(name + ":write"); err != nil {
 		return err
 	}
-	if err := file.Sync(); err != nil {
+	if err := publication.fileSync(file); err != nil {
 		return err
 	}
 	if err := publication.after(name + ":file-sync"); err != nil {
 		return err
 	}
-	if err := file.Close(); err != nil {
+	if err := publication.fileClose(file); err != nil {
 		return err
 	}
 	if err := publication.after(name + ":close"); err != nil {
 		return err
 	}
-	if err := syncDirectory(directory); err != nil {
+	if err := publication.directorySync(directory); err != nil {
 		return err
 	}
 	if err := publication.after(name + ":directory-sync"); err != nil {
 		return err
 	}
-	if err := syncDirectory(filepath.Dir(directory)); err != nil {
+	if err := publication.directorySync(filepath.Dir(directory)); err != nil {
 		return err
 	}
 	return publication.after(name + ":root-sync")
