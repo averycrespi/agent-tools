@@ -93,6 +93,11 @@ func removeInitializationInput(owner *Ownership, publication initializationPubli
 	if removed != "" {
 		return nil
 	}
+	// Readable complete bytes can follow an uncertain publication acknowledgement.
+	// Confirm that seal's durability before destroying its retained recovery input.
+	if err := syncInitializationFile(layout, "complete", publication); err != nil {
+		return err
+	}
 	path := filepath.Join(layout.Root, InitializationName, "input")
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		if err := publication.directorySync(filepath.Dir(path)); err != nil {

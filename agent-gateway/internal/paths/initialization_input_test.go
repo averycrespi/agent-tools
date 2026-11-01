@@ -180,7 +180,17 @@ func TestInitializationInputRemovalPublicationFaultsPreserveCompletion(t *testin
 func TestInitializationInputRemovalDirectoryOperationError(t *testing.T) {
 	owner, plan := completedImportPublicationFixture(t)
 	injected := errors.New("directory fsync failed")
-	require.ErrorIs(t, removeInitializationInput(owner, initializationPublication{syncDir: func(string) error { return injected }}), injected)
+	calls := 0
+	require.ErrorIs(t, removeInitializationInput(owner, initializationPublication{syncDir: func(path string) error {
+		if path == filepath.Join(plan.Root, InitializationName) {
+			calls++
+			if calls == 2 {
+				return injected
+			}
+		}
+		return syncDirectory(path)
+	}}), injected)
+	require.Equal(t, 2, calls, "completion reseal must precede cleanup directory sync failure")
 	_, err := os.Lstat(filepath.Join(plan.Root, InitializationName, "input"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 	proof, err := InitializationReceipt(owner.Layout(), "input-removed")
@@ -232,14 +242,73 @@ func TestInitializationInputCleanupReceiptPublicationFailures(t *testing.T) {
 	}
 }
 
+func TestInitializationInputCleanupResealsReadableCompletionBeforeUnlink(t *testing.T) {
+	for _, operation := range []string{"file-sync", "file-close", "directory-sync", "root-sync"} {
+		t.Run(operation, func(t *testing.T) {
+			owner, plan := preparedImportPublicationFixture(t)
+			injected := errors.New("completion file sync failed")
+			require.ErrorIs(t, sealInitialization(owner, "complete", "complete", initializationPublication{syncFile: func(*os.File) error { return injected }}), injected)
+			_, complete, err := ReadInitialization(owner.Layout())
+			require.NoError(t, err)
+			require.True(t, complete, "readable bytes do not prove acknowledged durability")
+			inputPath := filepath.Join(plan.Root, InitializationName, "input")
+			input, err := os.ReadFile(inputPath)
+			require.NoError(t, err)
+			failed := errors.New("completion reseal operation failed")
+			publication := initializationPublication{}
+			switch operation {
+			case "file-sync":
+				publication.syncFile = func(*os.File) error { return failed }
+			case "file-close":
+				publication.closeFile = func(*os.File) error { return failed }
+			default:
+				publication.syncDir = func(path string) error {
+					target := filepath.Join(plan.Root, InitializationName)
+					if operation == "root-sync" {
+						target = plan.Root
+					}
+					if path == target {
+						return failed
+					}
+					return syncDirectory(path)
+				}
+			}
+			require.ErrorIs(t, removeInitializationInput(owner, publication), failed)
+			actual, err := os.ReadFile(inputPath)
+			require.NoError(t, err)
+			require.Equal(t, input, actual, "failed completion durability confirmation must retain input")
+			proof, err := InitializationReceipt(owner.Layout(), "input-removed")
+			require.NoError(t, err)
+			require.Empty(t, proof)
+			require.NoError(t, owner.Close())
+			reopened, err := AcquireStoppedExisting(plan.Root)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, reopened.Close()) }()
+			require.NoError(t, RemoveInitializationInput(reopened))
+			_, err = os.Lstat(inputPath)
+			require.ErrorIs(t, err, os.ErrNotExist)
+			proof, err = InitializationReceipt(reopened.Layout(), "input-removed")
+			require.NoError(t, err)
+			require.Equal(t, plan.ImportDigest, proof)
+		})
+	}
+}
+
 func completedImportPublicationFixture(t *testing.T) (*Ownership, InitializationPlan) {
+	t.Helper()
+	owner, plan := preparedImportPublicationFixture(t)
+	require.NoError(t, SealInitialization(owner, "complete", "complete"))
+	return owner, plan
+}
+
+func preparedImportPublicationFixture(t *testing.T) (*Ownership, InitializationPlan) {
 	t.Helper()
 	owner, plan := initializationPublicationFixture(t)
 	input := []byte(`{"configuration":"retained"}`)
 	plan.ImportDigest = fmt.Sprintf("%x", sha256.Sum256(input))
 	require.NoError(t, BeginInitialization(owner, plan))
 	require.NoError(t, RetainInitializationInput(owner, plan, input))
-	for _, step := range []struct{ name, evidence string }{{"control", plan.Installation}, {"custody-attempt", "attempt"}, {"custody", strings.Repeat("1", 64)}, {"traffic", plan.Traffic}, {"administrator", strings.Repeat("2", 64)}, {"ca", strings.Repeat("3", 64)}, {"certificate", strings.Repeat("3", 64)}, {"import", plan.ImportDigest}, {"complete", "complete"}} {
+	for _, step := range []struct{ name, evidence string }{{"control", plan.Installation}, {"custody-attempt", "attempt"}, {"custody", strings.Repeat("1", 64)}, {"traffic", plan.Traffic}, {"administrator", strings.Repeat("2", 64)}, {"ca", strings.Repeat("3", 64)}, {"certificate", strings.Repeat("3", 64)}, {"import", plan.ImportDigest}} {
 		require.NoError(t, SealInitialization(owner, step.name, step.evidence))
 	}
 	return owner, plan
