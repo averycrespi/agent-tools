@@ -111,7 +111,7 @@ agent-gateway --data-dir /path/to/gateway-data \
   doctor --online --admin-bearer-file /safe/new/admin-bearer
 ```
 
-See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-authority workflows.
+See [Recovery and fresh initialization](backup-and-recovery.md) for replacement-authority workflows.
 
 ## Export portable configuration
 
@@ -154,8 +154,7 @@ schema versions and is the portable configuration transfer/recovery artifact, no
 an installation backup or secret backup. Absolute executable/working-directory
 paths and configured OAuth callback addresses may still need deliberate adaptation
 on another host. Export itself supplies no material; [fresh import](#initialize-from-a-configuration-export)
-uses a separate stopped command. Existing [backup and stopped recovery](backup-and-recovery.md)
-remain available and unchanged.
+uses a separate stopped command. Installation-snapshot backup/restore is [removed without artifact cleanup](backup-and-recovery.md#backup-and-restore-removal); unrelated stopped recovery remains supported.
 
 ## Initialize from a configuration export
 
@@ -250,7 +249,7 @@ If durable publication itself fails after creation, the output path may contain 
 
 Use stopped-process `agent-gateway maintenance reset-admin-credentials` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `maintenance reset-admin-credentials` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
 
-For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
+For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For stopped-process failures, see [Recovery and fresh initialization](backup-and-recovery.md).
 
 ## Trusted local forwarding and sandbox administration
 
@@ -340,7 +339,7 @@ agent-gateway http credential delete ID --yes
 
 Create files contain `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, and `secret`. Update files contain the same complete metadata without `secret`; rotation files contain only `secret`. Treat input files as secrets and manage their permissions and removal yourself; Gateway neither persists nor deletes your source file. Never put a secret in argv, an environment variable or a browser URL. Browser input clears after submission, cancellation, navigation and sign-out; stored values cannot be revealed.
 
-Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Format-4 restore recovers backed-up HTTP material, not its present validity upstream; deliberate rotation may be needed after checking expiry or revocation. Legacy recovery does not recover native secrets. Every restore invalidates administrator and agent access tokens. See [backup recovery](backup-and-recovery.md#restore-a-backup) for custody and lineage requirements.
+Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Deliberate credential rotation may be needed after checking expiry or revocation. Installation-snapshot restore is removed; preserve [historical artifacts and key custody](backup-and-recovery.md#backup-and-restore-removal).
 
 ## HTTP traffic history
 
@@ -393,10 +392,7 @@ restarts at newest with a notice. MCP Invocations remains separate and unchanged
 On ordinary startup, existing selected traffic-schema-1 stores are fully validated
 and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
-pair is needed. Current format-4 control backups omit MCP, HTTP and Git traffic;
-restore disables capture. Preserve retained traffic through [separate history
-export](backup-and-recovery.md#export-optional-history). Paired verification and
-restoration apply only to historical format-2 artifacts. The stopped
+pair is needed. Preserve retained traffic through [history export](backup-and-recovery.md#export-optional-history). Installation-snapshot backup/restore is removed. The stopped
 `maintenance migrate-traffic-storage` command still rejects an already selected pair.
 [Proxy listener selection and manual client setup](http-proxy.md) remain separate from control administration.
 
@@ -525,7 +521,7 @@ agent-gateway mcp grant --help
 agent-gateway mcp grant-request --help
 agent-gateway mcp invocation --help
 agent-gateway audit --help
-agent-gateway backup --help
+agent-gateway history --help
 agent-gateway admin credential --help
 agent-gateway maintenance reset-admin-credentials --help
 ```
@@ -535,6 +531,6 @@ Focused workflow ownership:
 - [Upstream server configuration](upstream-servers.md)
 - [Access control](access-control.md)
 - [Invocation evidence and unknown outcomes](invocation-evidence.md)
-- [Backup, restore, and recovery](backup-and-recovery.md)
+- [Recovery and fresh initialization](backup-and-recovery.md)
 
 Consult [Administrative control plane](../design/administrative-control-plane.md) for normative CLI and administrator trust boundaries, and [Public contract](../design/public-contract.md) for public limits and failure vocabulary. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for installation and common workflows.

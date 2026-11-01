@@ -42,7 +42,7 @@ func TestCredentialSetupFactsSurviveRestartWithoutMaterial(t *testing.T) {
 			{ID: ids[2], Kind: "oauth_client", Action: "supply_value"},
 			{ID: ids[2], Kind: "oauth_tokens", Action: "sign_in"},
 		}, facts)
-		return VerifyBackupCredentialsTx(ctx, tx)
+		return nil
 	}))
 	for i, id := range ids {
 		server, err := repo.Get(ctx, id)

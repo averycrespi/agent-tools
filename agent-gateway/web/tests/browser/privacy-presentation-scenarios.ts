@@ -6,6 +6,9 @@ import {
 import { expect, type BrowserContext, type Page } from "@playwright/test";
 import { assertSecretAbsent, fail, waitForLifecycle } from "./shared.ts";
 import { createHash } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   invocationFixture,
   invocationIDs,
@@ -402,6 +405,10 @@ export async function runAccessibilityKeyboardResponsive(
 ): Promise<void> {
   let axeScans = 0;
   let scriptedAssertions = 0;
+  const attentionImages: string[] = [];
+  const attentionDirectory = await mkdtemp(
+    join(tmpdir(), "gateway-attention-layout-"),
+  );
   const scan = async (state: string) => {
     await page.waitForFunction(() =>
       document
@@ -523,6 +530,23 @@ export async function runAccessibilityKeyboardResponsive(
     await page.getByTestId("theme-preference").selectOption(theme);
     await page.setViewportSize({ width, height: 900 });
     await scan(`attention-preview-${theme}`);
+    const cardBounds = await attention.boundingBox();
+    const linkBounds = await attention
+      .getByRole("link", { name: "View all" })
+      .boundingBox();
+    expect(cardBounds).not.toBeNull();
+    expect(linkBounds).not.toBeNull();
+    expect(
+      linkBounds!.y + linkBounds!.height,
+      "attention footer must stay inside its card and clear the following toolbar",
+    ).toBeLessThanOrEqual(cardBounds!.y + cardBounds!.height + 1);
+    const image = join(attentionDirectory, `${theme}-${width}.png`);
+    await page.screenshot({
+      path: image,
+      fullPage: true,
+      animations: "disabled",
+    });
+    attentionImages.push(image);
     await attention.getByRole("link", { name: "View all" }).click();
     await expect(attention.locator("li")).toHaveCount(4);
     await scan(`attention-full-${theme}`);
@@ -866,7 +890,7 @@ export async function runAccessibilityKeyboardResponsive(
   }
 
   await page.evaluate(() => {
-    window.location.hash = "#/system?tab=backups";
+    window.location.hash = "#/system?tab=history";
   });
   const history = page.getByTestId("history-export");
   const downloadButton = history.getByRole("button", { name: "Download JSON" });
@@ -968,7 +992,7 @@ export async function runAccessibilityKeyboardResponsive(
     true,
   );
   process.stdout.write(
-    `${JSON.stringify({ event: "accessibility_keyboard_responsive_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_scans: axeScans, serious_critical: 0, scripted_assertions: scriptedAssertions })}\n`,
+    `${JSON.stringify({ event: "accessibility_keyboard_responsive_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), axe_scans: axeScans, serious_critical: 0, scripted_assertions: scriptedAssertions, attention_screenshots: attentionImages })}\n`,
   );
 }
 

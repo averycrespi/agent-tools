@@ -63,7 +63,7 @@ func TestLegacyCustodyRefusesOpenAndMaintenanceWithoutDiscardingEvidence(t *test
 				require.ErrorIs(t, err, ErrLegacyCustody)
 				require.Nil(t, reopened)
 			}
-			stage := filepath.Join(owner.Layout().Root, "legacy-restore-stage.db")
+			stage := filepath.Join(owner.Layout().Root, "legacy-migration-stage.db")
 			require.NoError(t, os.WriteFile(stage, before, 0o600))
 			replacement, err := OpenReplacement(t.Context(), owner, stage)
 			if state == "deleted" {
@@ -73,7 +73,7 @@ func TestLegacyCustodyRefusesOpenAndMaintenanceWithoutDiscardingEvidence(t *test
 				if replacement != nil {
 					require.NoError(t, replacement.Close())
 				}
-				require.ErrorIs(t, err, ErrLegacyCustody, "restore staging must not discard historical authority")
+				require.ErrorIs(t, err, ErrLegacyCustody, "migration staging must not discard historical authority")
 			}
 			stageAfter, err := os.ReadFile(stage)
 			require.NoError(t, err)

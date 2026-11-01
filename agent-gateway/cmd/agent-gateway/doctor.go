@@ -134,7 +134,7 @@ func newDoctorCmd() *cobra.Command {
 		}
 		add("protected CA signing material", "not-checked", "", "No protected-keyring probe was performed. Public certificate presence does not establish signing capability.", "")
 		if verifyStorage {
-			owner, openErr := gatewaypaths.AcquireStoppedExisting(layout.Root)
+			owner, openErr := gatewaypaths.AcquireStoppedControl(layout.Root)
 			switch {
 			case openErr == nil:
 				inspection, inspectErr := inspectInit(command.Context(), owner)

@@ -23,8 +23,6 @@ func TestFoundationRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v2/admin-credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v2/admin-credentials/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v2/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-		{Pattern: "/api/v2/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 		{Pattern: "/api/v2/events", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	}
 
@@ -54,8 +52,6 @@ func TestRouteForPathClassifiesOnlyOwnedPaths(t *testing.T) {
 		"/api/v2/admin-credentials":      "/api/v2/admin-credentials",
 		"/api/v2/admin-credentials/01ARZ3NDEKTSV4RRFFQ69G5FAV": "/api/v2/admin-credentials/{id}",
 		"/api/v2/system-status":                                "/api/v2/system-status",
-		"/api/v2/backups":                                      "/api/v2/backups",
-		"/api/v2/backups/01ARZ3NDEKTSV4RRFFQ69G5FAV":           "/api/v2/backups/{id}",
 		"/api/v2/events":                                       "/api/v2/events",
 	}
 	for path, pattern := range tests {
@@ -130,14 +126,10 @@ func TestFixedLimitsAcceptNAndRejectNPlusOne(t *testing.T) {
 		"legacy_sessions":              128,
 		"event_streams":                16,
 		"event_buffered_invalidations": 16,
-		"backup_work":                  1,
-		"backup_records":               64,
 		"admin_credentials":            128,
 		"admin_list_page":              100,
-		"backup_list_page":             100,
 		"database_bytes":               1 * 1024 * 1024 * 1024,
 		"idempotency_key_bytes":        128,
-		"idempotency_records":          1024,
 		"opaque_id_bytes":              26,
 		"cursor_bytes":                 512,
 		"sse_frame_bytes":              512,
@@ -179,7 +171,6 @@ func TestFoundationDurationsAndRangesAreExact(t *testing.T) {
 	require.Equal(t, 5*time.Minute, CredentialMinimumLifetime)
 	require.Equal(t, 365*24*time.Hour, CredentialMaximumLifetime)
 	require.Equal(t, 50, AdminListPageDefault)
-	require.Equal(t, 50, BackupListPageDefault)
 	require.Equal(t, 1, IdempotencyKeyMinimumBytes)
 }
 
@@ -187,19 +178,17 @@ func TestResourceMechanicsAreTargeted(t *testing.T) {
 	t.Parallel()
 
 	mechanics := ResourceMechanics()
-	require.GreaterOrEqual(t, len(mechanics), 12)
+	require.GreaterOrEqual(t, len(mechanics), 8)
 
 	var cursored, idempotent int
-	for _, mechanic := range mechanics[:12] {
+	for _, mechanic := range mechanics[:8] {
 		if mechanic.Cursor {
 			cursored++
 			require.Equal(t, "GET", mechanic.Method)
-			require.Contains(t, []string{"/api/v2/admin-credentials", "/api/v2/backups"}, mechanic.Pattern)
+			require.Equal(t, "/api/v2/admin-credentials", mechanic.Pattern)
 		}
 		if mechanic.Idempotency {
 			idempotent++
-			require.Equal(t, "POST", mechanic.Method)
-			require.Equal(t, "/api/v2/backups", mechanic.Pattern)
 		}
 		if mechanic.Pattern == "/api/v2/admin-credentials" && mechanic.Method == "POST" {
 			require.True(t, mechanic.OptionalPrecondition)
@@ -209,8 +198,8 @@ func TestResourceMechanicsAreTargeted(t *testing.T) {
 		}
 		require.False(t, mechanic.EventReplay)
 	}
-	require.Equal(t, 2, cursored)
-	require.Equal(t, 1, idempotent)
+	require.Equal(t, 1, cursored)
+	require.Zero(t, idempotent)
 }
 
 func TestMediaTypesAndApprovedSecretSinksAreClosed(t *testing.T) {
@@ -235,29 +224,23 @@ func TestSafeResourceJSONShapesAreExact(t *testing.T) {
 		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Fingerprint: "0123456789abcdef", CreatedAt: "2026-08-22T00:00:00Z",
 		ExpiresAt: nil, NonExpiring: true, Status: "active", Revision: "1",
 	}
-	backup := Backup{
-		ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", CreatedAt: "2026-08-22T00:00:00Z", InstallationID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		SchemaVersion: "1", SourceRevision: "1", SizeBytes: 1, SHA256: "digest",
-	}
 	status := SystemStatus{
 		Process:   ProcessStatus{State: "ready", Ready: true, StartedAt: "2026-08-22T00:00:00Z"},
 		SQLite:    SQLiteStatus{State: "ready", SchemaVersion: "1", Revision: "1", Latched: false},
 		Keyring:   KeyringStatus{Capability: "ready"},
 		Limits:    LimitsStatus{},
-		Backup:    BackupStatus{State: "idle", LastCompletedAt: nil},
 		Protocols: ProtocolStatus{Modern: ModernProtocolVersion, Legacy: LegacyProtocolVersion, AgentAuth: "deny_all"},
 	}
 
 	requireJSONKeys(t, credential, "id", "fingerprint", "created_at", "expires_at", "non_expiring", "status", "revision")
 	requireJSONKeys(t, CreatedAdminCredential{AdminCredential: credential, Bearer: "one-time"}, "id", "fingerprint", "created_at", "expires_at", "non_expiring", "status", "revision", "bearer")
-	requireJSONKeys(t, backup, "id", "created_at", "installation_id", "schema_version", "source_revision", "size_bytes", "sha256")
-	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "backup", "protocols")
+	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "protocols")
 	status.Endpoints = &ControlEndpointsStatus{Authority: "127.0.0.1:8210", API: EndpointReadOnly, MCP: EndpointUnavailable}
-	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "backup", "protocols", "endpoints")
+	requireJSONKeys(t, status, "process", "sqlite", "keyring", "limits", "protocols", "endpoints")
 	requireJSONKeys(t, status.Endpoints, "authority", "api", "mcp")
 	requireJSONKeys(t, status.Limits,
 		"http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions",
-		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
+		"event_streams", "admin_credentials", "keyring_candidates", "keyring_work", "database_bytes",
 		"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work",
 		"server_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants",
 		"grant_requests", "grant_request_evidence_bytes",

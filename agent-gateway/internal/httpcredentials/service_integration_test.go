@@ -232,19 +232,3 @@ func TestIntegrationCredentialReferencesAreCheckedOnMutationTransaction(t *testi
 	err = store.Mutate(ctx, func(tx *sql.Tx) error { return s.repository.CheckReferenceTx(ctx, tx, created.ID, compiled) })
 	require.ErrorIs(t, err, ErrNotFound)
 }
-
-func TestIntegrationRestoredHTTPAuthorityCannotUseSurvivingKeyringMaterial(t *testing.T) {
-	s, store, _ := fixture(t)
-	ctx := audit.WithOffline(t.Context())
-	created, err := s.Create(ctx, testDefinition(), []byte("restored-private-canary"))
-	require.NoError(t, err)
-	require.NoError(t, InvalidateStagedCredentials(ctx, store, clock{}))
-	restored, err := s.Get(ctx, created.ID)
-	require.NoError(t, err)
-	require.False(t, restored.Available)
-	_, err = s.Acquire(ctx, resourceRef(t, restored))
-	require.Error(t, err)
-	rotated, err := s.Rotate(ctx, restored.ID, restored.Revision, []byte("new-authorized-canary"))
-	require.NoError(t, err)
-	require.True(t, rotated.Available)
-}

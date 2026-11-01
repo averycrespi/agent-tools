@@ -28,7 +28,7 @@ import {
 } from "./browser/privacy-presentation-scenarios.ts";
 import {
   runAdminCredentials,
-  runBackups,
+  runHistoryExport,
   runCapabilityAudit,
   runInvocations,
   runOverview,
@@ -87,7 +87,7 @@ interface BridgeInput {
     | "http-grants"
     | "http-traffic"
     | "admin-credentials"
-    | "backups"
+    | "history-export"
     | "capability-audit"
     | "principals"
     | "principal-credentials"
@@ -171,7 +171,7 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.scenario !== "http-grants" &&
       value.scenario !== "http-traffic" &&
       value.scenario !== "admin-credentials" &&
-      value.scenario !== "backups" &&
+      value.scenario !== "history-export" &&
       value.scenario !== "capability-audit" &&
       value.scenario !== "principals" &&
       value.scenario !== "principal-credentials" &&
@@ -558,8 +558,8 @@ try {
         initialBearer,
         () => requests,
       );
-    } else if (input.scenario === "backups") {
-      await runBackups(
+    } else if (input.scenario === "history-export") {
+      await runHistoryExport(
         browser.version(),
         context,
         page,
@@ -897,14 +897,11 @@ try {
         consoleFailures.every((value) =>
           value.includes("server responded with a status of 409"),
         )) ||
-      (input.scenario === "backups" &&
-        consoleFailures.length === 3 &&
-        consoleFailures.filter((value) =>
+      (input.scenario === "history-export" &&
+        consoleFailures.length === 1 &&
+        consoleFailures.every((value) =>
           value.includes("server responded with a status of 503"),
-        ).length === 1 &&
-        consoleFailures.filter(
-          (value) => value === "Failed to load resource: net::ERR_FAILED",
-        ).length === 2) ||
+        )) ||
       (input.scenario === "admin-credentials" &&
         consoleFailures.length === 1 &&
         consoleFailures.some((value) =>

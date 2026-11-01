@@ -74,7 +74,7 @@ func TestServerSchemaAndBackupContainNoSecretOrTransientRepresentation(t *testin
 	}))
 
 	backup := filepath.Join(t.TempDir(), "gateway-backup.db")
-	require.NoError(t, store.BackupTo(context.Background(), backup))
+	require.NoError(t, store.CopyTo(context.Background(), backup))
 	artifact, err := os.ReadFile(backup)
 	require.NoError(t, err)
 	for _, canary := range []string{

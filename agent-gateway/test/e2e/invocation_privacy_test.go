@@ -165,13 +165,6 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	assert.Equal(t, localSummary.ID, retainedPage.Items[0].ID)
 	assert.Equal(t, callsBeforeReads, catalog.CallCount(), "list/item/stale/evicted reads must not dispatch or replay")
 
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "s6-invocation-read-privacy"})
-	var artifact contract.Backup
-	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
-	backupEvent := eventReader.frame(t)
-	statusEvent := eventReader.frame(t)
-	assert.Equal(t, "event: invalidate\ndata: {\"kind\":\"backups\",\"resource_id\":\""+artifact.ID+"\"}\n\n", string(backupEvent))
-	assert.Equal(t, "event: invalidate\ndata: {\"kind\":\"system_status\",\"resource_id\":null}\n\n", string(statusEvent))
 	require.NoError(t, events.Body.Close())
 
 	fixtureEvidence, err := json.Marshal(catalog.Fixture.Events())
@@ -179,7 +172,7 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 	evidence := [][]byte{
 		missingResponse.Body, toolError.Body, failureItemResponse.Body, completed.Body, local.Body, keepalive, allResponse.Body, itemResponse.Body,
 		unknownAfterCompletion.Body, newestResponse.Body, staleResponse.Body, evictedResponse.Body, retainedResponse.Body,
-		backupResponse.Body, backupEvent, statusEvent, fixtureEvidence,
+		fixtureEvidence,
 	}
 	result := harness.Stop(syscall.SIGTERM)
 	require.Contains(t, string(result.Stderr), `"event":"invocation_admission"`)
@@ -192,7 +185,6 @@ func TestE2EInvocationReadPrivacy(t *testing.T) {
 		require.NoError(t, json.Unmarshal(line, &record))
 		require.EqualValues(t, 2, record["schema_version"])
 	}
-	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixturePrivateSuccessText, fixtureToolErrorText}, evidence, result)
 }
 
@@ -288,9 +280,9 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 		require.Equal(collect, contract.InvocationBasisTerminal, page.Items[0].Outcome.Basis)
 	}, 3*time.Second, 10*time.Millisecond)
 
-	// A visible terminal can precede writer unlock. Reap the writer before the
-	// one-shot backup; the restarted fixture issues no new traffic.
-	beforeBackup := harness.Stop(syscall.SIGTERM)
+	// A visible terminal can precede writer unlock. Reap before validating
+	// persistence across restart; the restarted fixture issues no new traffic.
+	beforeRestart := harness.Stop(syscall.SIGTERM)
 	harness.Start()
 	waitHistory()
 	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
@@ -299,11 +291,7 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	events := harness.OpenEvents()
 	require.Equal(t, http.StatusOK, events.StatusCode)
 	eventReader := newBoundedEventReader(events.Body)
-	evidence := [][]byte{beforeBackup.Stdout, beforeBackup.Stderr, eventReader.frame(t)}
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-retention"})
-	var artifact contract.Backup
-	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
-	evidence = append(evidence, append([]byte(nil), backupResponse.Body...), eventReader.frame(t), eventReader.frame(t))
+	evidence := [][]byte{beforeRestart.Stdout, beforeRestart.Stderr, eventReader.frame(t)}
 	require.NoError(t, events.Body.Close())
 	fixtureEvidence, err := json.Marshal(catalog.Fixture.Events())
 	require.NoError(t, err)
@@ -321,7 +309,6 @@ func TestGatewayBinaryEvictsOldestPreseededInvocationAndKeepsPrivateCallDataOutO
 	assert.Equal(t, contract.DecisionAllow, last.Decision)
 	assert.Equal(t, contract.TerminalSucceeded, last.TerminalClass)
 	assert.Equal(t, 1, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"))
-	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixturePrivateSuccessText}, evidence, result)
 }
 
@@ -339,18 +326,14 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 	evidence := [][]byte{append([]byte(nil), response.Body...)}
 	clear(response.Body)
 	harness.WaitForAuditObservations(1, 0)
-	// Persisted evidence is not writer settlement. Process exit establishes it
-	// without retrying the backup or coupling the live call to persistence.
-	beforeBackup := harness.Stop(syscall.SIGTERM)
-	evidence = append(evidence, beforeBackup.Stdout, beforeBackup.Stderr)
+	// Persisted evidence is not writer settlement. Join the fixture's process
+	// before examining its retained database without coupling calls to persistence.
+	beforeRestart := harness.Stop(syscall.SIGTERM)
+	evidence = append(evidence, beforeRestart.Stdout, beforeRestart.Stderr)
 	harness.Start()
 	waitForStdioServer(t, harness, catalog.ServerID, func(server stdioServerView) bool {
 		return activeCatalog(server) && server.Runtime.Reconciliation.InUse == 0
 	})
-	backupResponse := harness.adminSnapshotWithHeaders(http.MethodPost, "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "invocation-privacy"})
-	var artifact contract.Backup
-	decodeSnapshot(t, backupResponse, http.StatusCreated, &artifact)
-	evidence = append(evidence, append([]byte(nil), backupResponse.Body...))
 	fixtureEvidence, err := json.Marshal(catalog.Fixture.Events())
 	require.NoError(t, err)
 	evidence = append(evidence, fixtureEvidence)
@@ -359,7 +342,6 @@ func TestGatewayBinaryPersistsNoRawToolErrorOrSensitiveArgument(t *testing.T) {
 	observations := harness.AuditObservations()
 	require.Len(t, observations, 1)
 	assert.Equal(t, contract.TerminalDownstreamFailure, observations[0].TerminalClass)
-	assertBackupArtifactModes(t, harness.root, artifact.ID)
 	scanInvocationPrivacySinks(t, harness, issued.Bearer, []string{argumentCanary, fixtureToolErrorText}, evidence, result)
 }
 

@@ -221,7 +221,6 @@ export const test = base.extend<{
             "/api/v2/git/credentials",
             "/api/v2/git/repositories",
             "/api/v2/git/grants",
-            "/api/v2/backups",
             "/api/v2/admin-credentials",
           ].includes(path)
         )

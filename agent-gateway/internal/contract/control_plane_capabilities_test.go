@@ -35,7 +35,7 @@ func TestGitControlPlaneCapabilitiesKeepDedicatedOwners(t *testing.T) {
 
 func TestControlPlaneCapabilityManifest(t *testing.T) {
 	capabilities := ControlPlaneCapabilityManifest()
-	require.Len(t, capabilities, 46)
+	require.Len(t, capabilities, 43)
 	productIDs := make([]string, 0, len(capabilities))
 	for _, row := range capabilities {
 		assert.NotEmpty(t, row.ID)
@@ -56,7 +56,7 @@ func TestControlPlaneCapabilityManifest(t *testing.T) {
 	assert.NotEqual(t, "changed", ControlPlaneCapabilityManifest()[0].CLIUses[0])
 
 	lifecycle := ControlPlaneLifecycleManifest()
-	require.Len(t, lifecycle, 9)
+	require.Len(t, lifecycle, 8)
 	var lifecycleIDs []string
 	for _, row := range lifecycle {
 		lifecycleIDs = append(lifecycleIDs, "product.lifecycle."+strings.ReplaceAll(row.ID, "-", "."))

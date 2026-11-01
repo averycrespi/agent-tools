@@ -52,8 +52,6 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/system-status`                              | `GET`                | admin bearer or session                           |
 | `/api/v2/protocol-activity`                          | `GET`                | admin bearer or session                           |
 | `/api/v2/recorded-activity`                          | `GET`                | admin bearer or session                           |
-| `/api/v2/backups`                                    | `GET, POST`          | admin bearer or session                           |
-| `/api/v2/backups/{id}`                               | `DELETE, GET`        | admin bearer or session                           |
 | `/api/v2/events`                                     | `GET, POST`          | GET: admin bearer or session; POST: admin session |
 | `/api/v2/mcp/servers`                                | `GET, POST`          | admin bearer or session                           |
 | `/api/v2/mcp/servers/{id}`                           | `DELETE, GET, PATCH` | admin bearer or session                           |
@@ -212,9 +210,7 @@ nonexecution; missing completion remains unknown. `history_unavailable` (503) me
 optional history cannot be read; `history_busy` (503) means reader capacity or deadline
 refusal. Neither is a control-security failure. See [storage and recovery](storage-and-recovery.md#independent-history-export).
 
-New backup representations additionally carry `history:"omitted"` for distinct format-3/4
-security artifacts. Legacy representations omit it; full artifact reads retain their
-original verification requirements. Inventory remains metadata-only.
+Installation-snapshot backup/restore routes and representations are removed without compatibility endpoints. Existing historical artifacts remain untouched; [retirement](storage-and-recovery.md#backup-and-restore-retirement) owns preservation and shared safety boundaries.
 
 ## Overview protocol activity
 
@@ -625,57 +621,56 @@ The read/store backend does not itself establish producer coverage or restore co
 
 Problems normally have exactly `status`, `code`, and `title`. The `invalid_server_configuration` problem additionally has one required `context` object with exact `field` and `rule` members so every administrative client can identify the rejected configuration boundary. Both values come from closed vocabularies: fields are `configuration`, `namespace`, `display_name`, `enabled`, `transport`, `transport.kind`, `transport.executable`, `transport.arguments`, `transport.working_directory`, `transport.environment`, `transport.secret_environment`, `transport.url`, `transport.protocol_mode`, `transport.headers`, `transport.authentication`, `transport.authentication.mode`, `transport.authentication.trusted_origins`, `transport.authentication.callback_uri`, `transport.authentication.auth_server_metadata_url`, `transport.authentication.scopes`, `transport.authentication.request_offline_access`, `transport.authentication.registration`, `transport.authentication.registration.mode`, `transport.authentication.registration.issuer`, `transport.authentication.registration.client_id`, and `transport.authentication.registration.token_endpoint_auth_method`; rules are `invalid`, `required`, `maximum`, `unique`, `disjoint`, `canonical_absolute_path`, `canonical_url`, and `transport_policy`. Only one deterministic first violation is returned. Dependency messages, submitted values, paths, payloads, dynamic map keys, array positions, and other details are never added.
 
-| Status | Code                                    | Fixed title                                                                                                                                                             |
-| -----: | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-|    400 | `malformed_request`                     | The request is invalid.                                                                                                                                                 |
-|    400 | `invalid_json`                          | The JSON body is invalid.                                                                                                                                               |
-|    400 | `invalid_cursor`                        | The cursor is invalid.                                                                                                                                                  |
-|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                                                                                                                         |
-|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                                                                                                                                |
-|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                                                                                                                                  |
-|    401 | `authentication_required`               | Authentication is required.                                                                                                                                             |
-|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                                                                                                                            |
-|    403 | `forbidden_origin`                      | The Origin is not accepted.                                                                                                                                             |
-|    403 | `csrf_failed`                           | CSRF validation failed.                                                                                                                                                 |
-|    404 | `not_found`                             | The resource was not found.                                                                                                                                             |
-|    405 | `method_not_allowed`                    | The method is not allowed.                                                                                                                                              |
-|    409 | `conflict`                              | The request conflicts with current state.                                                                                                                               |
-|    409 | `encrypted_backup_unsupported`          | This backup format or unresolved legacy dependency cannot recover encrypted custody. Preserve existing artifacts; use complete encrypted custody and a format-4 backup. |
-|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                                                                                                                          |
-|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state.                                                                                                     |
-|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                                                                                                                          |
-|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                                                                                                                       |
-|    413 | `body_too_large`                        | The request body is too large.                                                                                                                                          |
-|    415 | `unsupported_media_type`                | The media type is not supported.                                                                                                                                        |
-|    421 | `misdirected_request`                   | The Host is not accepted.                                                                                                                                               |
-|    429 | `resource_limit`                        | The resource limit is reached.                                                                                                                                          |
-|    503 | `storage_unavailable`                   | Storage is unavailable.                                                                                                                                                 |
-|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                                                                                                                                 |
-|    503 | `shutting_down`                         | The service is shutting down.                                                                                                                                           |
-|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                                                                                                                    |
-|    400 | `invalid_operation`                     | The server operation is invalid.                                                                                                                                        |
-|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                                                                                                                    |
-|    409 | `operation_conflict`                    | The server has conflicting work.                                                                                                                                        |
-|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                                                                                                                                   |
-|    409 | `oauth_callback_unavailable`            | The OAuth callback port is unavailable. Stop the conflicting listener and start a new flow.                                                                             |
-|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                                                                                                                             |
-|    409 | `audit_history_replaced`                | The audit history generation has changed.                                                                                                                               |
-|    412 | `stale_revision`                        | The server revision is stale.                                                                                                                                           |
-|    428 | `precondition_required`                 | The current server revision is required.                                                                                                                                |
-|    503 | `downstream_unavailable`                | The downstream server is unavailable.                                                                                                                                   |
-|    400 | `invalid_principal`                     | The principal is invalid.                                                                                                                                               |
-|    400 | `invalid_grant`                         | The grant is invalid.                                                                                                                                                   |
-|    412 | `stale_grant_revision`                  | The grant revision is stale.                                                                                                                                            |
-|    428 | `grant_precondition_required`           | The current grant revision is required.                                                                                                                                 |
-|    412 | `stale_principal_revision`              | The principal revision is stale.                                                                                                                                        |
-|    428 | `principal_precondition_required`       | The current principal revision is required.                                                                                                                             |
-|    503 | `authorization_unavailable`             | Authorization is unavailable.                                                                                                                                           |
-|    400 | `invalid_grant_request`                 | The grant request is invalid.                                                                                                                                           |
-|    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                                                                                                         |
-|    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                                                                                                    |
-|    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                                                                                                         |
-|    503 | `history_unavailable`                   | Optional history is unavailable; security operations remain independent.                                                                                                |
-|    503 | `history_busy`                          | Optional history export capacity or deadline was exceeded.                                                                                                              |
+| Status | Code                                    | Fixed title                                                                                 |
+| -----: | --------------------------------------- | ------------------------------------------------------------------------------------------- |
+|    400 | `malformed_request`                     | The request is invalid.                                                                     |
+|    400 | `invalid_json`                          | The JSON body is invalid.                                                                   |
+|    400 | `invalid_cursor`                        | The cursor is invalid.                                                                      |
+|    400 | `invalid_idempotency_key`               | The idempotency key is invalid.                                                             |
+|    400 | `ambiguous_credentials`                 | Multiple credential types were supplied.                                                    |
+|    400 | `invalid_oauth_state`                   | The OAuth state is invalid or expired.                                                      |
+|    401 | `authentication_required`               | Authentication is required.                                                                 |
+|    403 | `credential_domain_mismatch`            | The credential is for a different authority.                                                |
+|    403 | `forbidden_origin`                      | The Origin is not accepted.                                                                 |
+|    403 | `csrf_failed`                           | CSRF validation failed.                                                                     |
+|    404 | `not_found`                             | The resource was not found.                                                                 |
+|    405 | `method_not_allowed`                    | The method is not allowed.                                                                  |
+|    409 | `conflict`                              | The request conflicts with current state.                                                   |
+|    409 | `idempotency_conflict`                  | The idempotency key conflicts with prior work.                                              |
+|    409 | `admin_rotation_conflict`               | The administrator credential rotation conflicts with current state.                         |
+|    412 | `stale_admin_authority`                 | The administrator authority revision is stale.                                              |
+|    428 | `admin_authority_precondition_required` | The administrator authority revision is required.                                           |
+|    413 | `body_too_large`                        | The request body is too large.                                                              |
+|    415 | `unsupported_media_type`                | The media type is not supported.                                                            |
+|    421 | `misdirected_request`                   | The Host is not accepted.                                                                   |
+|    429 | `resource_limit`                        | The resource limit is reached.                                                              |
+|    503 | `storage_unavailable`                   | Storage is unavailable.                                                                     |
+|    503 | `keyring_unavailable`                   | The credential provider is unavailable.                                                     |
+|    503 | `shutting_down`                         | The service is shutting down.                                                               |
+|    400 | `invalid_server_configuration`          | The server configuration is invalid.                                                        |
+|    400 | `invalid_operation`                     | The server operation is invalid.                                                            |
+|    409 | `namespace_unavailable`                 | The server namespace is unavailable.                                                        |
+|    409 | `operation_conflict`                    | The server has conflicting work.                                                            |
+|    409 | `oauth_flow_active`                     | The OAuth flow is already exchanging.                                                       |
+|    409 | `oauth_callback_unavailable`            | The OAuth callback port is unavailable. Stop the conflicting listener and start a new flow. |
+|    409 | `stale_cursor`                          | The cursor snapshot is no longer available.                                                 |
+|    409 | `audit_history_replaced`                | The audit history generation has changed.                                                   |
+|    412 | `stale_revision`                        | The server revision is stale.                                                               |
+|    428 | `precondition_required`                 | The current server revision is required.                                                    |
+|    503 | `downstream_unavailable`                | The downstream server is unavailable.                                                       |
+|    400 | `invalid_principal`                     | The principal is invalid.                                                                   |
+|    400 | `invalid_grant`                         | The grant is invalid.                                                                       |
+|    412 | `stale_grant_revision`                  | The grant revision is stale.                                                                |
+|    428 | `grant_precondition_required`           | The current grant revision is required.                                                     |
+|    412 | `stale_principal_revision`              | The principal revision is stale.                                                            |
+|    428 | `principal_precondition_required`       | The current principal revision is required.                                                 |
+|    503 | `authorization_unavailable`             | Authorization is unavailable.                                                               |
+|    400 | `invalid_grant_request`                 | The grant request is invalid.                                                               |
+|    409 | `grant_request_conflict`                | The grant request conflicts with current state.                                             |
+|    412 | `stale_grant_request_revision`          | The grant request revision is stale.                                                        |
+|    428 | `grant_request_precondition_required`   | The current grant request revision is required.                                             |
+|    503 | `history_unavailable`                   | Optional history is unavailable; security operations remain independent.                    |
+|    503 | `history_busy`                          | Optional history export capacity or deadline was exceeded.                                  |
 
 ## Fixed numeric limits
 
@@ -705,14 +700,10 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `legacy_sessions`                             |        128 |
 | `event_streams`                               |         16 |
 | `event_buffered_invalidations`                |         16 |
-| `backup_work`                                 |          1 |
-| `backup_records`                              |         64 |
 | `admin_credentials`                           |        128 |
 | `admin_list_page`                             |        100 |
-| `backup_list_page`                            |        100 |
 | `database_bytes`                              | 1073741824 |
 | `idempotency_key_bytes`                       |        128 |
-| `idempotency_records`                         |       1024 |
 | `opaque_id_bytes`                             |         26 |
 | `cursor_bytes`                                |        512 |
 | `sse_frame_bytes`                             |        512 |
@@ -804,7 +795,7 @@ Every maximum accepts N and rejects N+1. Values below zero are invalid. These ar
 | `control_audit_event_bytes`                   |       2048 |
 | `control_audit_cursor_bytes`                  |       2048 |
 
-Credential, backup, server/catalog, and principal/grant collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. Downstream HTTP reuses the public-boundary `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
+Credential, server/catalog, and principal/grant collection pages default to 50. Idempotency keys are 1–128 visible ASCII bytes. Credential expiry is five minutes through 365 days after creation. Downstream HTTP reuses the public-boundary `request_header_bytes`, `request_header_count`, and `request_header_value_bytes` bounds rather than declaring alternatives.
 
 ### Deadlines and defaults
 
@@ -814,13 +805,13 @@ Control storage has one actual nonqueueing mutation owner; the legacy invocation
 
 ## Resource representations and mechanics
 
-`AdminCredential` is exactly `{id,fingerprint,created_at,expires_at,non_expiring,status,revision}`; its creation form adds one-time `bearer`. Credential status is the closed set `active`, `revoked`, or `expired`. `Backup` requires `{id,created_at,installation_id,schema_version,source_revision,size_bytes,sha256}` and permits optional `history:"omitted"` for format-3/4 artifacts; legacy representations omit `history`. Collection envelopes and defaults are declared in the normalized collection contract below; filter presence never changes them.
+`AdminCredential` is exactly `{id,fingerprint,created_at,expires_at,non_expiring,status,revision}`; its creation form adds one-time `bearer`. Credential status is the closed set `active`, `revoked`, or `expired`. Collection envelopes and defaults are declared in the normalized collection contract below; filter presence never changes them.
 
-`SystemStatus` has required members `{process,sqlite,keyring,limits,backup,protocols}` and optional `traffic`, `http_proxy`, `endpoints`, `diagnostics` and `observations` members. [Independent observation additions](#independent-observation-additions) define diagnostic delivery and execution observations. Traffic and proxy use the closed shapes defined above. `endpoints` is exactly `{authority,api,mcp}`: the shared numeric-loopback control authority and backend-owned admission states. API is `starting`, `ready`, `read_only` (control storage latched), or `draining`; MCP is `starting`, `ready`, `disabled` (deny-all agent authentication), `unavailable` (control authority blocks dispatch), or `draining`. API readiness follows the serving lifecycle independently of traffic storage; MCP additionally requires completed runtime start, principal authentication capability and healthy control authority. Isolated traffic-history unavailability does not make either endpoint unavailable. Capacity pressure alone is not endpoint outage. These states do not qualify client reachability, any particular credential or downstream server/tool. Older responses may omit endpoints; clients show Not reported rather than infer readiness. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`; and backup state is `idle` or `creating`.
+`SystemStatus` has required members `{process,sqlite,keyring,limits,protocols}` and optional `traffic`, `http_proxy`, `endpoints`, `diagnostics` and `observations` members. [Independent observation additions](#independent-observation-additions) define diagnostic delivery and execution observations. Traffic and proxy use the closed shapes defined above. `endpoints` is exactly `{authority,api,mcp}`: the shared numeric-loopback control authority and backend-owned admission states. API is `starting`, `ready`, `read_only` (control storage latched), or `draining`; MCP is `starting`, `ready`, `disabled` (deny-all agent authentication), `unavailable` (control authority blocks dispatch), or `draining`. API readiness follows the serving lifecycle independently of traffic storage; MCP additionally requires completed runtime start, principal authentication capability and healthy control authority. Isolated traffic-history unavailability does not make either endpoint unavailable. Capacity pressure alone is not endpoint outage. These states do not qualify client reachability, any particular credential or downstream server/tool. Older responses may omit endpoints; clients show Not reported rather than infer readiness. Process state is `uninitialized`, `starting`, `ready`, `storage_failed`, or `draining`; SQLite state is `uninitialized`, `ready`, or `latched`; keyring capability is `ready`, `absent`, `locked`, `interaction_required`, `unavailable`, or `unsupported`.
 
-The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `backup_work`, `backup_records`, `admin_credentials`, `idempotency_records`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `server_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, `grants`, `grant_requests`, and `grant_request_evidence_bytes`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports `principal_credentials` from the same composed dependency bundle that supplies its authenticator and discovery service.
+The closed `limits` object contains `http_regular`, `http_control_auth`, `http_admin`, `http_health`, `mcp_work`, `mcp_streams`, `admin_sessions`, `legacy_sessions`, `event_streams`, `admin_credentials`, `keyring_candidates`, `keyring_work`, `database_bytes`, `server_identities`, `servers`, `downstream_runtimes`, `server_reconciliations`, `catalog_traversals`, `oauth_flows`, `oauth_callback_work`, `server_idempotency_records`, `active_tools`, `durable_tool_identities`, `downstream_dispatch`, `principals`, `grants`, `grant_requests`, and `grant_request_evidence_bytes`; every entry is exactly `{in_use,limit,saturated}`. Protocol status is modern `2026-07-28`, legacy `2025-11-25`, and agent auth is closed to `deny_all` and `principal_credentials`; production reports `principal_credentials` from the same composed dependency bundle that supplies its authenticator and discovery service.
 
-Administrative credential and backup cursor mechanics remain limited to `GET /api/v2/admin-credentials` and `GET /api/v2/backups`; backup durable idempotency remains limited to `POST /api/v2/backups`. Their request schemas are `AdminCredentialListQuery` and `BackupListQuery`, returning `Page<AdminCredential>` and `Page<Backup>`. Credential creation accepts `AdminCredentialCreate` and returns `CreatedAdminCredential`.
+Administrative credential cursor mechanics use `GET /api/v2/admin-credentials`, accepting `AdminCredentialListQuery` and returning `Page<AdminCredential>`. Credential creation accepts `AdminCredentialCreate` and returns `CreatedAdminCredential`.
 
 Ordinary administrator credential records use no item ETag. Rotation adds bearer-only `GET /api/v2/admin-authority` with strong `"admin-authority-<revision>"` ETag, optional authority `If-Match` on credential creation, and required exact authority `If-Match` on targeted rotation completion.
 
@@ -828,7 +819,7 @@ No command polls, refetches a precondition, or replays a mutation. Server and po
 
 The event stream still has no replay mechanism. Browser streaming uses session-only `POST /api/v2/events` with exact `EmptyObject` `{}`, Origin, and CSRF, returning the same `EventStream`; inherited bearer-or-session GET and POST share one hub, frame, keepalive, limit, overflow, deadline, and closure owner.
 
-Invalidation kinds are the closed set `admin_credentials`, `system_status`, `backups`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, `grant_requests`, and `http_credentials`.
+Invalidation kinds are the closed set `admin_credentials`, `system_status`, `servers`, `server_operations`, `server_auth_flows`, `catalog`, `authorization`, `invocations`, `grant_requests`, and `http_credentials`.
 
 Admin bearer values use prefix `mgw_admin_`, reserved agent bearer values use `mgw_agent_`, and the session cookie is `agent_gateway_session`. The legacy `mcp_gateway_session` name is expiry-only, never authority; see the [session cutover and exact cookie scope](administrative-control-plane.md#administrative-authority-and-sessions). Approved one-time output sinks begin with `controlling_terminal` and `owner_only_file`; the latter is a newly created, non-symlink-following `0600` file containing exactly the secret and one newline. Additional server-credential write-only secret ingress declarations are `admin_credential_replacement`, `dcr_client_secret`, `authorization_code_token_response`, `refresh_response`, and `authoritative_generation_refresh_copy`. Principal credential issuance adds only `agent_credential_creation` for the one-time credential creation body. Browser control adds `browser_one_time_display` and explicit `user_initiated_clipboard`; neither ordinary browser state nor automatic clipboard publication is a sink. `http_proxy_client_environment` permits only explicit client proxy-URL exports resolved at shell startup from the existing owner-private agent token file; never administrator tokens, persisted configuration or service environment. Standard output and standard error are not secret sinks.
 
@@ -863,7 +854,6 @@ Administrator rotation uses `AdminAuthority` exactly `{revision}`; its revision 
 | Collection under `/api/v2`     | Default order                           | Maximum | Ordinary success schema            |
 | ------------------------------ | --------------------------------------- | ------: | ---------------------------------- |
 | `admin-credentials`            | ID ascending                            |     100 | `Page<AdminCredential>`            |
-| `backups`                      | ID ascending                            |     100 | `Page<Backup>`                     |
 | `mcp/servers`                  | name ascending                          |      50 | `Page<Server>`                     |
 | `mcp/catalog`                  | tool ascending                          |      50 | `CatalogPage`                      |
 | `mcp/servers/{id}/descriptors` | last-seen descending                    |      50 | `Page<ToolDescriptor>`             |
@@ -892,7 +882,7 @@ Server queries accept `name`, `namespace`, `status`, `sort`, `direction`, `curso
 
 Catalog queries accept `tool`, `server`, `status`, `sort`, `direction`, `cursor`, and `limit`: text searches external tool name and server display name, status is available/issue, sort is tool/server. Server/catalog/descriptor name recognition uses NFKC-normalized lowercase conjunctive token substrings and one-edit word matching for nondigit tokens of at least four characters, including adjacent transposition. Server Name and catalog Server also match literal case-sensitive partial server IDs; tool filters match literal partial descriptor IDs. Identifiers are never normalized or typo-corrected. Namespace remains normalized substring matching; both supplied and normalized text are bounded to 256 UTF-8 bytes without control/format characters. Filters are conjunctive before slicing. None of these collections returns totals or asserts callability.
 
-Server query cursors bind the effective query, insertion upper watermark, handler epoch, and all observed identity/name/namespace/status/active-count/desired-revision tuples. Changed facts stale the traversal; later inserts remain excluded. Catalog cursors bind query, active generation, and upper watermark under the registry lock. Descriptor cursors bind query/projection, server identity, catalog revision, upper watermark, and handler epoch. Principal/grant/request snapshots retain authenticated metadata binding and expiry. Operation and history cursor rules remain below. Credential and backup ID continuations are not frozen snapshots. Discard stale traversals and start a fresh first page; never infer permission to replay a mutation.
+Server query cursors bind the effective query, insertion upper watermark, handler epoch, and all observed identity/name/namespace/status/active-count/desired-revision tuples. Changed facts stale the traversal; later inserts remain excluded. Catalog cursors bind query, active generation, and upper watermark under the registry lock. Descriptor cursors bind query/projection, server identity, catalog revision, upper watermark, and handler epoch. Principal/grant/request snapshots retain authenticated metadata binding and expiry. Operation and history cursor rules remain below. Credential ID continuations are not frozen snapshots. Discard stale traversals and start a fresh first page; never infer permission to replay a mutation.
 
 `ServerCreate` is exactly `{namespace,display_name,enabled,transport}`; a nonempty `ServerPatch` permits only `display_name`, `enabled`, and complete `transport`. `ServerMutation` is exactly `{server,operation}`. `ServerOperationCreate` accepts only `reload`, `retry`, `refresh_catalog`, or `disconnect_credentials`; other operation kinds are internally generated.
 

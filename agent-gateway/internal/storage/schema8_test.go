@@ -29,7 +29,7 @@ func TestOpenMigratesPopulatedSchemaSevenWithoutChangingServerFacts(t *testing.T
 	ownership := newOwnership(t)
 	copyFixture(t, "testdata/schema-v7.db", ownership.Layout().Database)
 
-	backupIdentity, err := VerifyBackup(ctx, ownership.Layout().Database)
+	backupIdentity, err := InspectClosedDatabase(ctx, ownership.Layout().Database)
 	require.NoError(t, err)
 	assert.Equal(t, 7, backupIdentity.SchemaVersion)
 
@@ -42,13 +42,13 @@ func TestOpenMigratesPopulatedSchemaSevenWithoutChangingServerFacts(t *testing.T
 	assertSchemaNineInvocationFoundation(t, ctx, store.database)
 }
 
-func TestOpenReplacementMigratesAcceptedSchemaSevenBackup(t *testing.T) {
+func TestOpenReplacementMigratesAcceptedSchemaSevenCopy(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
-	staged := filepath.Join(ownership.Layout().Root, "schema-v7-restore.db")
+	staged := filepath.Join(ownership.Layout().Root, "schema-v7-copy.db")
 	copyFixture(t, "testdata/schema-v7.db", staged)
 
-	identity, err := VerifyBackup(ctx, staged)
+	identity, err := InspectClosedDatabase(ctx, staged)
 	require.NoError(t, err)
 	assert.Equal(t, 7, identity.SchemaVersion)
 
@@ -60,7 +60,7 @@ func TestOpenReplacementMigratesAcceptedSchemaSevenBackup(t *testing.T) {
 	assertSchemaNineInvocationFoundation(t, ctx, replacement.database)
 }
 
-func TestVerifyBackupRejectsSchemaNewerThanCurrent(t *testing.T) {
+func TestInspectClosedDatabaseRejectsSchemaNewerThanCurrent(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -72,7 +72,7 @@ func TestVerifyBackupRejectsSchemaNewerThanCurrent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, raw.Close())
 
-	_, err = VerifyBackup(ctx, ownership.Layout().Database)
+	_, err = InspectClosedDatabase(ctx, ownership.Layout().Database)
 	require.ErrorIs(t, err, ErrInvalidDatabase)
 }
 

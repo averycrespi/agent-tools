@@ -13,11 +13,7 @@ export type MutationState =
   | "rejected"
   | "uncertain";
 export type MutationAvailability = "enabled" | "storage_latched";
-export type IdempotencyRoute =
-  | "none"
-  | "backup_create"
-  | "server_create"
-  | "operation_start";
+export type IdempotencyRoute = "none" | "server_create" | "operation_start";
 export type MutationMethod = "POST" | "PATCH" | "DELETE";
 
 export interface MutationSpec<T> {
@@ -70,7 +66,6 @@ const gatewayID = "[0-7][0-9A-HJKMNP-TV-Z]{25}";
 const idempotencyRoutes: Readonly<
   Record<Exclude<IdempotencyRoute, "none">, RegExp>
 > = {
-  backup_create: /^\/api\/v2\/backups$/,
   server_create: /^\/api\/v2\/mcp\/servers$/,
   operation_start: new RegExp(`^/api/v2/mcp/servers/${gatewayID}/operations$`),
 };
@@ -165,9 +160,7 @@ function validateSpec<T>(spec: MutationSpec<T>): void {
     (spec.idempotency !== "none" &&
       (spec.method !== "POST" || spec.body === null)) ||
     (spec.idempotency === "operation_start" && spec.precondition === null) ||
-    ((spec.idempotency === "backup_create" ||
-      spec.idempotency === "server_create") &&
-      spec.precondition !== null) ||
+    (spec.idempotency === "server_create" && spec.precondition !== null) ||
     ((spec.uncertainProblemCodes?.length ?? 0) !== 0 &&
       (!credentialReplacementRoute.test(spec.route) ||
         spec.uncertainProblemCodes?.length !== 1 ||

@@ -22,19 +22,20 @@ func TestCLIOutputMatrix(t *testing.T) {
 	harness := newGatewayHarness(t)
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
-	backupID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	installationID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	backup := contract.Backup{ID: backupID, InstallationID: installationID, SchemaVersion: "1", SourceRevision: "1", SizeBytes: 128, SHA256: strings.Repeat("a", 64)}
+	grantID := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	principalID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	grant := contract.Grant{ID: grantID, PrincipalID: principalID, ServerID: contract.SyntheticServerID, Effect: contract.GrantDeny, State: contract.GrantActive, Revision: "1", CreatedAt: "2026-10-01T00:00:00Z"}
+	createArgs := []string{"mcp", "grant", "create", "--principal-id", principalID, "--effect", "deny", "--server-id", contract.SyntheticServerID}
 	var requests atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests.Add(1)
 		switch {
-		case request.Method == http.MethodDelete && request.URL.Path == "/api/v2/backups/"+backupID:
+		case request.Method == http.MethodDelete && request.URL.Path == "/api/v2/mcp/grants/"+grantID:
 			writer.WriteHeader(http.StatusNoContent)
-		case request.Method == http.MethodPost && request.URL.Path == "/api/v2/backups":
+		case request.Method == http.MethodPost && request.URL.Path == "/api/v2/mcp/grants":
 			writer.Header().Set("Content-Type", contract.MediaTypeJSON)
 			writer.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(writer).Encode(backup)
+			_ = json.NewEncoder(writer).Encode(grant)
 		case request.Method == http.MethodGet && request.URL.Path == "/api/v2/principals":
 			writer.Header().Set("Content-Type", contract.MediaTypeProblemJSON)
 			writer.WriteHeader(http.StatusNotFound)
@@ -47,7 +48,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 
 	results := make([]testutil.ProcessResult, 0, 16)
 	for _, mode := range []string{"human", "json"} {
-		args := []string{"backup", "create", "--idempotency-key", "matrix-create-" + mode}
+		args := append([]string(nil), createArgs...)
 		if mode == "json" {
 			args = append(args, "--json")
 		}
@@ -55,20 +56,20 @@ func TestCLIOutputMatrix(t *testing.T) {
 		results = append(results, result)
 		require.Equal(t, 0, result.ExitCode, string(result.Stderr))
 		assert.Empty(t, result.Stderr)
-		assert.Contains(t, string(result.Stdout), backupID)
+		assert.Contains(t, string(result.Stdout), grantID)
 		if mode == "json" {
 			assert.True(t, json.Valid(result.Stdout))
 		}
 	}
 
-	humanNoContent := runCLIAt(t, harness, bearerPath, server.URL, "backup", "delete", backupID, "--yes")
+	humanNoContent := runCLIAt(t, harness, bearerPath, server.URL, "mcp", "grant", "delete", grantID, "--yes")
 	results = append(results, humanNoContent)
 	require.Equal(t, 0, humanNoContent.ExitCode, string(humanNoContent.Stderr))
-	assert.Contains(t, string(humanNoContent.Stdout), backupID)
+	assert.Contains(t, string(humanNoContent.Stdout), grantID)
 	assert.Contains(t, string(humanNoContent.Stdout), "deleted")
 	assert.Empty(t, humanNoContent.Stderr)
 
-	jsonNoContent := runCLIAt(t, harness, bearerPath, server.URL, "backup", "delete", backupID, "--yes", "--json")
+	jsonNoContent := runCLIAt(t, harness, bearerPath, server.URL, "mcp", "grant", "delete", grantID, "--yes", "--json")
 	results = append(results, jsonNoContent)
 	require.Equal(t, 0, jsonNoContent.ExitCode, string(jsonNoContent.Stderr))
 	assert.Equal(t, "{}\n", string(jsonNoContent.Stdout))
@@ -145,7 +146,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 	}))
 	defer uncertainServer.Close()
 	for _, mode := range []string{"human", "json"} {
-		args := []string{"backup", "create", "--idempotency-key", "matrix-uncertain-" + mode}
+		args := append([]string(nil), createArgs...)
 		if mode == "json" {
 			args = append(args, "--json")
 		}

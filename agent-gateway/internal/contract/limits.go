@@ -4,7 +4,6 @@ import "time"
 
 const (
 	AdminListPageDefault       = 50
-	BackupListPageDefault      = 50
 	CollectionPageDefault      = 50
 	CatalogPageMaximum         = 50
 	OperationPageMaximum       = 50
@@ -72,14 +71,10 @@ var fixedLimits = []FixedLimit{
 	{Name: "legacy_sessions", Maximum: 128},
 	{Name: "event_streams", Maximum: 16},
 	{Name: "event_buffered_invalidations", Maximum: 16},
-	{Name: "backup_work", Maximum: 1},
-	{Name: "backup_records", Maximum: 64},
 	{Name: "admin_credentials", Maximum: 128},
 	{Name: "admin_list_page", Maximum: 100},
-	{Name: "backup_list_page", Maximum: 100},
 	{Name: "database_bytes", Maximum: 1 * 1024 * 1024 * 1024},
 	{Name: "idempotency_key_bytes", Maximum: 128},
-	{Name: "idempotency_records", Maximum: 1024},
 	{Name: "opaque_id_bytes", Maximum: 26},
 	{Name: "cursor_bytes", Maximum: 512},
 	{Name: "sse_frame_bytes", Maximum: 512},

@@ -108,27 +108,6 @@ func AttemptedTx(ctx context.Context, tx *sql.Tx, category, action string) (bool
 	return attempted, err
 }
 
-// ReplaceHistoryTx changes continuity and records the restore attempt in the
-// staged generation together. Installation success must be appended only after
-// the replacement has actually been installed.
-func ReplaceHistoryTx(ctx context.Context, tx *sql.Tx, attempt contract.AuditEvent) error {
-	if tx == nil || attempt.Category != "backup" || attempt.Action != "restore" || attempt.Phase != "attempt" || attempt.Actor.Type != contract.AuditOffline {
-		return ErrInvalidInput
-	}
-	if _, err := historyTx(ctx, tx); err != nil {
-		return err
-	}
-	var generation [32]byte
-	if _, err := rand.Read(generation[:]); err != nil {
-		return fmt.Errorf("generate audit history generation: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, `UPDATE control_audit_history SET generation = ? WHERE singleton = 1`, hex.EncodeToString(generation[:])); err != nil {
-		return fmt.Errorf("replace audit history generation: %w", err)
-	}
-	_, err := AppendTx(ctx, tx, attempt)
-	return err
-}
-
 func (repository *Repository) Append(ctx context.Context, event contract.AuditEvent) (contract.AuditEvent, error) {
 	var result contract.AuditEvent
 	err := repository.store.Mutate(ctx, func(tx *sql.Tx) error {

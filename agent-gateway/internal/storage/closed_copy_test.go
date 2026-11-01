@@ -8,17 +8,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestVerifyClosedBackupDoesNotCreateSidecars(t *testing.T) {
+func TestInspectClosedDatabaseDoesNotCreateSidecars(t *testing.T) {
 	owner := newOwnership(t)
 	store, err := Initialize(t.Context(), owner, testInstallationID)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	directory := t.TempDir()
 	path := filepath.Join(directory, "gateway.db")
-	require.NoError(t, store.BackupTo(t.Context(), path))
+	require.NoError(t, store.CopyTo(t.Context(), path))
 	before, err := os.ReadFile(path)
 	require.NoError(t, err)
-	identity, err := VerifyBackup(t.Context(), path)
+	identity, err := InspectClosedDatabase(t.Context(), path)
 	require.NoError(t, err)
 	require.Equal(t, testInstallationID, identity.InstallationID)
 	after, err := os.ReadFile(path)

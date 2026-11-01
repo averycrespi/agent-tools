@@ -13,7 +13,6 @@ const routes: Array<
   ]
 > = [
   ["/api/v2/admin-credentials", "POST", false, "none"],
-  ["/api/v2/backups", "POST", false, "backup_create"],
   ["/api/v2/mcp/servers", "POST", false, "server_create"],
   [`/api/v2/mcp/servers/${id}`, "PATCH", true, "none"],
   [`/api/v2/mcp/servers/${id}/operations`, "POST", true, "operation_start"],

@@ -53,10 +53,7 @@ export const limitNames = [
   "admin_sessions",
   "legacy_sessions",
   "event_streams",
-  "backup_work",
-  "backup_records",
   "admin_credentials",
-  "idempotency_records",
   "keyring_candidates",
   "keyring_work",
   "database_bytes",
@@ -123,8 +120,6 @@ export interface StatusView {
   latched: boolean;
   keyring: string;
   limits: LimitView[];
-  backupState: string;
-  lastBackupAt: string | null;
   modernProtocol: string;
   legacyProtocol: string;
   agentAuth: string;
@@ -247,7 +242,6 @@ export function decodeStatus(value: unknown): StatusView {
     "sqlite",
     "keyring",
     "limits",
-    "backup",
     "protocols",
   ]);
   let endpoints: StatusView["endpoints"];
@@ -356,7 +350,6 @@ export function decodeStatus(value: unknown): StatusView {
   ]);
   const keyring = record(root.keyring, ["capability"]);
   const limits = record(root.limits, limitNames);
-  const backup = record(root.backup, ["state", "last_completed_at"]);
   const protocols = record(root.protocols, ["modern", "legacy", "agent_auth"]);
   return {
     diagnostics: decodeDiagnosticHealth(root.diagnostics),
@@ -386,8 +379,6 @@ export function decodeStatus(value: unknown): StatusView {
       "unsupported",
     ]),
     limits: limitNames.map((name) => limit(limits[name], name)),
-    backupState: closed(backup.state, ["idle", "creating", "unavailable"]),
-    lastBackupAt: nullableString(backup.last_completed_at),
     modernProtocol: stringValue(protocols.modern),
     legacyProtocol: stringValue(protocols.legacy),
     agentAuth: closed(protocols.agent_auth, [
@@ -1267,25 +1258,6 @@ export function Overview({
                         ? "Yes"
                         : "No"}
                   </StatusLabel>
-                </dd>
-              </div>
-              <div>
-                <dt>Backup activity</dt>
-                <dd>
-                  <FactStatus
-                    value={status.backupState}
-                    current={current("overview-status")}
-                  />
-                </dd>
-              </div>
-              <div>
-                <dt>Last backup</dt>
-                <dd class="overview-backup-time">
-                  <UserTime
-                    value={status.lastBackupAt}
-                    fallback="No completion reported"
-                    compact
-                  />
                 </dd>
               </div>
             </dl>

@@ -18,6 +18,23 @@ func validAuditFixture() AuditEvent {
 	}}
 }
 
+func TestAuditRetainsHistoricalBackupEvidenceWithoutLiveContracts(t *testing.T) {
+	code := "encrypted_backup_unsupported"
+	_, live := ProblemForCode(ProblemCode(code))
+	require.False(t, live)
+	for _, action := range []string{"create", "delete", "restore"} {
+		value := validAuditFixture()
+		value.Category, value.Action, value.Outcome = "backup", action, "failed"
+		value.Target.Type = "backup"
+		value.Detail.Problem = &code
+		require.NoError(t, ValidateAuditEvent(value))
+	}
+	unknown := "encrypted_backup_unsupported_unknown"
+	value := validAuditFixture()
+	value.Detail.Problem = &unknown
+	require.ErrorIs(t, ValidateAuditEvent(value), ErrInvalidAudit)
+}
+
 func TestAuditClosedEvidenceAndAttribution(t *testing.T) {
 	require.NoError(t, ValidateAuditEvent(validAuditFixture()))
 	for name, mutate := range map[string]func(*AuditEvent){

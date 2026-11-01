@@ -1,0 +1,102 @@
+package storage
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"net/url"
+	"os"
+
+	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	sqliteDriver "github.com/ncruces/go-sqlite3/driver"
+)
+
+// CopyTo copies one consistent committed database snapshot through SQLite's online backup API.
+func (store *Store) CopyTo(ctx context.Context, destination string) error {
+	file, err := gatewaypaths.CreateOwnerOnlyFile(destination)
+	if err != nil {
+		return fmt.Errorf("create copied database: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(destination)
+		return fmt.Errorf("close copied database: %w", err)
+	}
+	connection, err := store.database.Conn(ctx)
+	if err != nil {
+		_ = os.Remove(destination)
+		return fmt.Errorf("acquire SQLite copy source: %w", err)
+	}
+	defer func() { _ = connection.Close() }()
+	uri := &url.URL{Scheme: "file", Path: destination, RawQuery: "mode=rw"}
+	if err := connection.Raw(func(raw any) error {
+		return raw.(sqliteDriver.Conn).Raw().Backup("main", uri.String())
+	}); err != nil {
+		_ = os.Remove(destination)
+		return fmt.Errorf("copy SQLite generation: %w", err)
+	}
+	if err := gatewaypaths.ValidateOwnerOnlyFile(destination); err != nil {
+		_ = os.Remove(destination)
+		return fmt.Errorf("validate copied database: %w", err)
+	}
+	return nil
+}
+
+// InspectClosedDatabase validates a closed current or accepted schema-3-and-later
+// control database without changing it. Maintenance and traffic migration own the
+// target path and must separately refuse live WAL/journal state.
+func InspectClosedDatabase(ctx context.Context, path string) (Identity, error) {
+	if err := gatewaypaths.ValidateOwnerOnlyFile(path); err != nil {
+		return Identity{}, fmt.Errorf("%w: closed database path: %w", ErrInvalidDatabase, err)
+	}
+	// Immutable reads neither create sidecars nor consult unrelated WAL. The
+	// caller must establish that the selected generation is closed.
+	uri := &url.URL{Scheme: "file", Path: path, RawQuery: "mode=ro&immutable=1"}
+	database, err := sql.Open("sqlite3", uri.String())
+	if err != nil {
+		return Identity{}, fmt.Errorf("%w: open closed database: %w", ErrInvalidDatabase, err)
+	}
+	defer func() { _ = database.Close() }()
+	var applicationID, schema int
+	var installationID string
+	var revision int64
+	var integrity string
+	if err := database.QueryRowContext(ctx, `PRAGMA application_id`).Scan(&applicationID); err != nil {
+		return Identity{}, fmt.Errorf("%w: read closed database application ID: %w", ErrInvalidDatabase, err)
+	}
+	if err := database.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&schema); err != nil {
+		return Identity{}, fmt.Errorf("%w: read closed database schema: %w", ErrInvalidDatabase, err)
+	}
+	if err := database.QueryRowContext(ctx, `SELECT installation_id, revision FROM gateway_meta WHERE singleton = 1`).Scan(&installationID, &revision); err != nil {
+		return Identity{}, fmt.Errorf("%w: read closed database identity: %w", ErrInvalidDatabase, err)
+	}
+	if err := database.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
+		return Identity{}, fmt.Errorf("%w: check closed database integrity: %w", ErrInvalidDatabase, err)
+	}
+	if applicationID != ApplicationID || schema < 3 || schema > CurrentSchema || !installationIDPattern.MatchString(installationID) || revision < 0 || integrity != "ok" {
+		return Identity{}, fmt.Errorf("%w: closed database identity or integrity mismatch", ErrInvalidDatabase)
+	}
+	if schema >= 22 {
+		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "022_git_authority.sql"); err != nil {
+			return Identity{}, fmt.Errorf("%w: Git schema mismatch: %w", ErrInvalidDatabase, err)
+		}
+	}
+	if schema >= 24 {
+		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "024_native_cleanup.sql"); err != nil {
+			return Identity{}, err
+		}
+	}
+	if schema >= 23 {
+		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "023_encrypted_custody.sql"); err != nil {
+			return Identity{}, fmt.Errorf("%w: secret custody schema mismatch: %w", ErrInvalidDatabase, err)
+		}
+	}
+	identity := Identity{InstallationID: installationID, SchemaVersion: schema, Revision: uint64(revision)}
+	if schema >= 18 {
+		generation, err := selectedTraffic(ctx, database)
+		if err != nil {
+			return Identity{}, err
+		}
+		identity.TrafficGeneration = generation
+	}
+	return identity, nil
+}

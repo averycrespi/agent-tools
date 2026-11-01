@@ -97,7 +97,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:21df4471ecdfbfd57b9de89a0b0061b8d584b0ab64934d6acad4d653f673ee7a", digest)
+	assert.Equal(t, "sha256:0b75e3e0934a7c7b1ad57b9bd7ee8529507d08a05a5faf64c00fb9e5bcca623f", digest)
 }
 
 func TestCLICredentialSetupHelp(t *testing.T) {
@@ -150,7 +150,6 @@ func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {
 		{path: []string{"agent", "credential", "rotate"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
 		{path: []string{"initialize"}, expected: []string{"0600", "cannot be recovered"}},
 		{path: []string{"maintenance", "reset-admin-credentials"}, expected: []string{"0600", "cannot be recovered"}},
-		{path: []string{"maintenance", "restore-backup"}, expected: []string{"0600", "cannot be recovered", "--recovery-key", "nonrefundable", "do not refund", "decryption only"}},
 		{path: []string{"maintenance", "rotate-master-key"}, expected: []string{"stopped ownership", "--retain-recovery-keys", "--recover", "without replaying encryption", "cannot protect stolen copies"}},
 		{path: []string{"maintenance", "verify-and-recover-storage"}, expected: []string{"recognized recovery", "without replacing"}},
 	} {
@@ -262,9 +261,6 @@ func testCLICommandErrors(t *testing.T) {
 		{name: "admin reset arguments", args: []string{"maintenance", "reset-admin-credentials", "EXTRA", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
 		{name: "admin reset required flag", args: []string{"maintenance", "reset-admin-credentials", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
 		{name: "admin reset flag", args: []string{"maintenance", "reset-admin-credentials", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
-		{name: "restore arguments", args: []string{"maintenance", "restore-backup", "--json"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID"},
-		{name: "restore required flag", args: []string{"maintenance", "restore-backup", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--json"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID --secret-output NEW_PATH"},
-		{name: "restore flag", args: []string{"maintenance", "restore-backup", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID"},
 		{name: "verify arguments", args: []string{"maintenance", "verify-and-recover-storage", "unexpected", "--json"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
 		{name: "verify secret flag", args: []string{"maintenance", "verify-and-recover-storage", "--json", "--secret-output", "unused"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
 		{name: "serve arguments", args: []string{"serve", "EXTRA", "--json"}, usage: "agent-gateway serve"},

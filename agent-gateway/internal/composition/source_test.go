@@ -498,18 +498,18 @@ func productionSliceViolations(source productionSource) []string {
 		if strings.HasPrefix(imported, "github.com/modelcontextprotocol/go-sdk/") && !allowedSDK {
 			violations = append(violations, fmt.Sprintf("%s: prohibited SDK import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/backup/manager.go" && source.path != "internal/backup/restore.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/api/history_export.go" && source.path != "internal/httpproxy/engine.go" && source.path != "internal/httpproxy/git.go" {
+		if strings.HasSuffix(imported, "/internal/invocation") && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" && source.path != "internal/selfservice/handlers.go" && source.path != "internal/api/invocations.go" && source.path != "internal/api/history_export.go" && source.path != "internal/httpproxy/engine.go" && source.path != "internal/httpproxy/git.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited invocation import %s", source.path, imported))
 		}
 		if strings.HasSuffix(imported, "/internal/selfservice") && source.path != "internal/composition/composition.go" {
 			violations = append(violations, fmt.Sprintf("%s: prohibited selfservice import %s", source.path, imported))
 		}
-		if strings.HasSuffix(imported, "/internal/grantrequests") && source.path != "internal/composition/composition.go" && source.path != "internal/api/grant_requests.go" && source.path != "internal/backup/restore.go" && !strings.HasPrefix(source.path, "internal/selfservice/") {
+		if strings.HasSuffix(imported, "/internal/grantrequests") && source.path != "internal/composition/composition.go" && source.path != "internal/api/grant_requests.go" && !strings.HasPrefix(source.path, "internal/selfservice/") {
 			violations = append(violations, fmt.Sprintf("%s: prohibited grantrequests import %s", source.path, imported))
 		}
 	}
 	if strings.Contains(source.contents, "authorization.New(") {
-		allowed := source.path == "internal/composition/composition.go" || source.path == "internal/backup/restore.go"
+		allowed := source.path == "internal/composition/composition.go"
 		if !allowed || strings.Count(source.contents, "authorization.New(") != 1 {
 			violations = append(violations, fmt.Sprintf("%s: prohibited duplicate authority constructor authorization.New(", source.path))
 		}

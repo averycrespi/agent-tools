@@ -34,7 +34,7 @@ func TestRecoveryCommandRefusalsPreserveGenerationRealBinary(t *testing.T) {
 	marker := []byte(`{"installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","state":"armed","recovery":{"action":"unknown"}}`)
 	require.NoError(t, os.WriteFile(layout.MutationMarker, marker, 0o600))
 	corruptID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	corruptRoot := filepath.Join(layout.Backups, corruptID)
+	corruptRoot := filepath.Join(root, "backups", corruptID)
 	require.NoError(t, os.MkdirAll(corruptRoot, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(corruptRoot, "metadata.json"), []byte("not-json"), 0o600))
 	secret := filepath.Join(t.TempDir(), "unused-secret")
@@ -46,12 +46,11 @@ func TestRecoveryCommandRefusalsPreserveGenerationRealBinary(t *testing.T) {
 	}{
 		{"retired restore", []string{"restore", corruptID, "--secret-output", secret}, 2, ""},
 		{"retired verification", []string{"restore", "--verify-current"}, 2, ""},
-		{"missing ID", []string{"maintenance", "restore-backup", "--confirm", "--json", "--secret-output", secret}, 2, "client_invalid_input"},
-		{"invalid ID", []string{"maintenance", "restore-backup", "--confirm", "../unsafe", "--json", "--secret-output", secret}, 2, "client_invalid_input"},
-		{"missing sink", []string{"maintenance", "restore-backup", "--confirm", corruptID, "--json"}, 2, "client_invalid_input"},
-		{"missing backup", []string{"maintenance", "restore-backup", "--confirm", "01ARZ3NDEKTSV4RRFFQ69G5FAX", "--json", "--secret-output", secret}, 4, "invalid_backup"},
-		{"corrupt backup", []string{"maintenance", "restore-backup", "--confirm", corruptID, "--json", "--secret-output", secret}, 4, "invalid_backup"},
-		{"retired flag", []string{"maintenance", "restore-backup", "--confirm", "--json", "--verify-current"}, 2, "client_invalid_input"},
+		{"retired backup create", []string{"backup", "create", "--json"}, 2, ""},
+		{"retired backup list", []string{"backup", "list", "--json"}, 2, ""},
+		{"retired backup get", []string{"backup", "get", corruptID, "--json"}, 2, ""},
+		{"retired backup delete", []string{"backup", "delete", corruptID, "--yes", "--json"}, 2, ""},
+		{"retired stopped restore", []string{"maintenance", "restore-backup", "--confirm", corruptID, "--json", "--secret-output", secret}, 2, ""},
 		{"verification cannot restore", []string{"maintenance", "verify-and-recover-storage", "--confirm", corruptID, "--json"}, 2, "client_invalid_input"},
 		{"unknown recovery remains latched", []string{"maintenance", "verify-and-recover-storage", "--confirm", "--json"}, 7, "storage_latched"},
 	} {

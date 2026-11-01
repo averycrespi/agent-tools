@@ -57,13 +57,12 @@ function formatStorageBytes(bytes: number): string {
 
 type Listener = (status: StatusView | undefined) => void;
 type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
-type BackupListener = (backups: Backup[] | undefined) => void;
 type SystemTab =
   | "status"
   | "resource-limits"
   | "needs-attention"
   | "admin-credentials"
-  | "backups";
+  | "history";
 type CredentialStatus = "active" | "revoked" | "expired";
 type AdminCredential = {
   id: string;
@@ -75,16 +74,6 @@ type AdminCredential = {
   revision: string;
 };
 type CreatedAdminCredential = AdminCredential & { bearer: string };
-type Backup = {
-  history: "omitted" | "legacy";
-  id: string;
-  createdAt: string;
-  installationID: string;
-  schemaVersion: string;
-  sourceRevision: string;
-  sizeBytes: number;
-  sha256: string;
-};
 type JSONRecord = Record<string, unknown>;
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 function record(value: unknown, keys: readonly string[]): JSONRecord {
@@ -157,44 +146,6 @@ function decodeCreatedCredential(value: unknown): CreatedAdminCredential {
   return { ...credential, bearer };
 }
 
-function decodeBackup(value: unknown): Backup {
-  const historyKeys =
-    value !== null && typeof value === "object" && "history" in value
-      ? ["history"]
-      : [];
-  const item = record(value, [
-    ...historyKeys,
-    "id",
-    "created_at",
-    "installation_id",
-    "schema_version",
-    "source_revision",
-    "size_bytes",
-    "sha256",
-  ]);
-  const id = text(item.id);
-  const sha256 = text(item.sha256);
-  if (
-    !gatewayID.test(id) ||
-    !/^[0-9a-f]{64}$/.test(sha256) ||
-    (historyKeys.length > 0 && item.history !== "omitted") ||
-    typeof item.size_bytes !== "number" ||
-    !Number.isSafeInteger(item.size_bytes) ||
-    item.size_bytes < 0
-  )
-    throw new Error("invalid response");
-  return {
-    id,
-    createdAt: text(item.created_at),
-    installationID: text(item.installation_id),
-    schemaVersion: text(item.schema_version),
-    sourceRevision: text(item.source_revision),
-    sizeBytes: item.size_bytes,
-    history: item.history === "omitted" ? "omitted" : "legacy",
-    sha256,
-  };
-}
-
 async function readCredentials(
   csrfToken: string,
   signal: AbortSignal,
@@ -234,45 +185,6 @@ async function readCredentials(
   }
 }
 
-async function readBackups(
-  csrfToken: string,
-  signal: AbortSignal,
-): Promise<Backup[]> {
-  const backups: Backup[] = [];
-  let cursor: string | null = null;
-  let restarted = false;
-  for (;;) {
-    const params = new URLSearchParams({ limit: "100" });
-    if (cursor !== null) params.set("cursor", cursor);
-    const response = await fetch(`/api/v2/backups?${params}`, {
-      method: "GET",
-      headers: { "X-CSRF-Token": csrfToken },
-      credentials: "same-origin",
-      redirect: "error",
-      signal,
-    });
-    if (response.status === 409 && cursor !== null && !restarted) {
-      backups.length = 0;
-      cursor = null;
-      restarted = true;
-      continue;
-    }
-    if (
-      response.status !== 200 ||
-      response.headers.get("Content-Type") !== "application/json"
-    )
-      throw new Error("backup read failed");
-    const page = record((await response.json()) as unknown, [
-      "items",
-      "next_cursor",
-    ]);
-    if (!Array.isArray(page.items)) throw new Error("invalid response");
-    backups.push(...page.items.map(decodeBackup));
-    if (page.next_cursor === null) return backups;
-    cursor = text(page.next_cursor);
-  }
-}
-
 async function getStatus(
   csrfToken: string,
   signal: AbortSignal,
@@ -299,7 +211,6 @@ async function responseJSON(response: Response): Promise<unknown> {
 }
 
 function tab(viewKey: string): SystemTab {
-  if (viewKey === "#/system/backups/new") return "backups";
   if (viewKey === "#/system/admin-credentials/new") return "admin-credentials";
   const queryStart = viewKey.indexOf("?");
   if (queryStart === -1) return "status";
@@ -310,7 +221,7 @@ function tab(viewKey: string): SystemTab {
     selected === "resource-limits" ||
     selected === "needs-attention" ||
     selected === "admin-credentials" ||
-    selected === "backups"
+    selected === "history"
   )
     return selected;
   return "status";
@@ -319,10 +230,8 @@ function tab(viewKey: string): SystemTab {
 export class SystemController {
   private readonly listeners = new Set<Listener>();
   private readonly credentialListeners = new Set<CredentialListener>();
-  private readonly backupListeners = new Set<BackupListener>();
   private value: StatusView | undefined;
   private credentials: AdminCredential[] | undefined;
-  private backups: Backup[] | undefined;
   private history: HistoryState | undefined;
   private readonly historyListeners = new Set<
     (value: HistoryState | undefined) => void
@@ -337,7 +246,7 @@ export class SystemController {
     this.views = views;
     views.registerPanel({
       id: "history-export",
-      matches: (viewKey) => viewKey === "#/system?tab=backups",
+      matches: (viewKey) => viewKey === "#/system?tab=history",
       invalidations: [],
       shouldRefresh: (reason) => reason === "panel",
       read: async (context) => {
@@ -392,16 +301,6 @@ export class SystemController {
       publish: (status) => setStorageLatched(status.latched),
     });
     views.registerPanel({
-      id: "backups",
-      matches: (viewKey) => tab(viewKey) === "backups",
-      invalidations: ["backups"],
-      read: async (context) => readBackups(context.csrfToken, context.signal),
-      publish: (backups) => {
-        this.backups = backups;
-        this.emitBackups();
-      },
-    });
-    views.registerPanel({
       id: "admin-credentials",
       matches: (viewKey) => tab(viewKey) === "admin-credentials",
       invalidations: ["admin_credentials"],
@@ -435,13 +334,11 @@ export class SystemController {
     session.registerProtectedState(() => {
       this.value = undefined;
       this.credentials = undefined;
-      this.backups = undefined;
       this.history = undefined;
       for (const listener of this.historyListeners) listener(undefined);
       setStorageLatched(false);
       this.emit();
       this.emitCredentials();
-      this.emitBackups();
     });
   }
 
@@ -489,20 +386,6 @@ export class SystemController {
     return () => this.historyListeners.delete(listener);
   }
 
-  backupSnapshot(): Backup[] | undefined {
-    return this.backups;
-  }
-
-  subscribeBackups(listener: BackupListener): () => void {
-    this.backupListeners.add(listener);
-    listener(this.backups);
-    return () => this.backupListeners.delete(listener);
-  }
-
-  private emitBackups(): void {
-    for (const listener of this.backupListeners) listener(this.backups);
-  }
-
   private emitCredentials(): void {
     for (const listener of this.credentialListeners) listener(this.credentials);
   }
@@ -530,7 +413,7 @@ function SystemTabs({ current }: { current: SystemTab }) {
       "Admin credentials",
       "#/system?tab=admin-credentials",
     ],
-    ["backups", "Backups", "#/system?tab=backups"],
+    ["history", "History export", "#/system?tab=history"],
   ];
   return (
     <nav class="subnav" aria-label="System sections">
@@ -1082,25 +965,6 @@ function StatusPanel({
                   <span>Client trust is configured separately.</span>
                 </dd>
               </div>
-              <div>
-                <dt>Backup activity</dt>
-                <dd>
-                  <FactStatus
-                    value={status.backupState}
-                    current={panelStatus === "current"}
-                  />
-                </dd>
-              </div>
-              <div>
-                <dt>Last backup</dt>
-                <dd>
-                  <UserTime
-                    value={status.lastBackupAt}
-                    fallback="No completion reported"
-                    compact
-                  />
-                </dd>
-              </div>
             </dl>
           </section>
 
@@ -1308,347 +1172,20 @@ function ResourceLimits({
   );
 }
 
-function Backups({
-  backups,
+function HistoryExport({
   controller: systemController,
-  view,
-  mutations,
-  onRefresh,
-  createMode,
 }: {
-  backups: Backup[] | undefined;
   controller: SystemController;
-  view: ViewSnapshot;
-  mutations: MutationCoordinator;
-  onRefresh: () => void;
-  createMode: boolean;
 }) {
-  const [controller] = useState<MutationController<Backup | undefined>>(() =>
-    mutations.create<Backup | undefined>(),
-  );
-  const [mutation, setMutation] = useState<MutationSnapshot>(() =>
-    controller.snapshot(),
-  );
   const [history, setHistory] = useState<HistoryState>();
   const [exportCancelled, setExportCancelled] = useState(false);
   useEffect(
     () => systemController.subscribeHistory(setHistory),
     [systemController],
   );
-  useEffect(
-    () => () => systemController.cancelHistory(),
-    [systemController, createMode],
-  );
-  const [deleting, setDeleting] = useState<Backup>();
-  const [notice, setNotice] = useState<string>();
-  const createButton = useRef<HTMLButtonElement>(null);
-  const deleteButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => controller.subscribe(setMutation), [controller]);
-  useEffect(() => () => controller.close(), [controller]);
-  const panel = view.panels.backups;
-  const panelStatus = panel?.status ?? "loading";
-  const disabled =
-    mutation.state === "submitting" ||
-    mutation.availability === "storage_latched";
-  const decodeCreate = async (response: Response) => {
-    if (response.headers.get("Content-Type") !== "application/json")
-      throw new Error("invalid response");
-    return decodeBackup((await response.json()) as unknown);
-  };
-  const decodeDelete = async (response: Response) => {
-    if (response.status !== 204) throw new Error("invalid response");
-    return undefined;
-  };
-  const settle = async (
-    outcome: Awaited<ReturnType<typeof controller.submit>>,
-  ) => {
-    if (outcome.kind === "acknowledged") {
-      setNotice(
-        outcome.value === undefined
-          ? "Backup deleted. Restore remains a stopped-process CLI operation."
-          : `Backup ${outcome.value.id} is durably published.`,
-      );
-      controller.abandon();
-      if (outcome.value !== undefined)
-        window.location.hash = "#/system?tab=backups";
-      onRefresh();
-    }
-  };
-  const create = () => {
-    setNotice(undefined);
-    const spec: MutationSpec<Backup | undefined> = {
-      route: "/api/v2/backups",
-      method: "POST",
-      body: "{}",
-      precondition: null,
-      requiresPrecondition: false,
-      idempotency: "backup_create",
-      successStatuses: [200, 201],
-      decode: decodeCreate,
-    };
-    controller.begin(spec);
-    controller.confirm();
-  };
-  const confirmCreate = () => void controller.submit().then(settle);
-  const beginDelete = (backup: Backup) => {
-    setNotice(undefined);
-    setDeleting(backup);
-    const spec: MutationSpec<Backup | undefined> = {
-      route: `/api/v2/backups/${backup.id}`,
-      method: "DELETE",
-      body: "{}",
-      precondition: null,
-      requiresPrecondition: false,
-      idempotency: "none",
-      successStatuses: [204],
-      decode: decodeDelete,
-    };
-    controller.begin(spec);
-    controller.confirm();
-  };
-  const cancelDelete = () => {
-    setDeleting(undefined);
-    controller.abandon();
-  };
-  const confirmDelete = async () => {
-    setDeleting(undefined);
-    await settle(await controller.submit());
-  };
-  if (createMode)
-    return (
-      <section
-        class="panel domain-panel"
-        aria-labelledby="backup-create-title"
-        data-testid="backup-create-view"
-      >
-        <div class="panel-heading">
-          <div>
-            <h2 id="backup-create-title">Create backup</h2>
-          </div>
-        </div>
-        <p>
-          Security backups are immutable owner-only artifacts containing
-          configuration, authority and administrative audit. Traffic history is
-          omitted. Restore invalidates credentials and disables history capture;
-          it remains a stopped-process operation.
-        </p>
-        {mutation.availability === "storage_latched" && (
-          <StateNotice state="error" title="Storage mutation is closed" />
-        )}
-        {mutation.problem !== undefined && (
-          <StateNotice state="error" title={mutation.problem.title} />
-        )}
-        {mutation.state === "uncertain" && (
-          <StateNotice state="warning" title="Backup outcome is unknown">
-            <p>
-              Nothing is replayed automatically. Return to backup inventory and
-              inspect current records before acting again.
-            </p>
-            {mutation.canReplay && (
-              <button
-                data-testid="backup-replay"
-                type="button"
-                onClick={() => void controller.replay().then(settle)}
-              >
-                Replay this same backup create
-              </button>
-            )}
-          </StateNotice>
-        )}
-        <div class="form-actions">
-          <a class="button-link" href="#/system?tab=backups">
-            Cancel
-          </a>
-          <button
-            ref={createButton}
-            class="create-action"
-            data-testid="backup-review-create"
-            type="button"
-            disabled={disabled}
-            onClick={create}
-          >
-            Review and create
-          </button>
-        </div>
-        <ConfirmationDialog
-          id="backup-create-confirm"
-          open={mutation.state === "confirming"}
-          title="Review backup"
-          consequence="Create one security-only recovery artifact. Optional traffic history is omitted. Restore remains a separate stopped-process operation."
-          confirmLabel="Create backup"
-          returnFocus={createButton}
-          onCancel={() => controller.abandon()}
-          onConfirm={confirmCreate}
-        />
-      </section>
-    );
+  useEffect(() => () => systemController.cancelHistory(), [systemController]);
   return (
     <>
-      <section
-        class="panel domain-panel"
-        aria-labelledby="backups-title"
-        data-testid="backups-view"
-      >
-        <div class="panel-heading">
-          <div>
-            <h2 id="backups-title">Control-plane backups</h2>
-            <p>
-              Recovery artifacts for configuration, grants, credentials and
-              administrative audit. New backups omit traffic history.
-            </p>
-          </div>
-          {panelStatus !== "current" && (
-            <StatusLabel state={panelStatus}>
-              {sentenceCase(panelStatus)}
-            </StatusLabel>
-          )}
-        </div>
-        <div class="collection-toolbar collection-toolbar-after-copy">
-          <a
-            class="button-link create-action"
-            data-testid="backup-create"
-            href="#/system/backups/new"
-          >
-            Create backup
-          </a>
-        </div>
-        {mutation.availability === "storage_latched" && (
-          <StateNotice state="error" title="Storage mutation is closed">
-            <p>
-              Reads remain available. Use stopped verification and recovery
-              guidance; navigation cannot clear the latch.
-            </p>
-          </StateNotice>
-        )}
-        {mutation.problem !== undefined && (
-          <StateNotice state="error" title={mutation.problem.title} />
-        )}
-        {mutation.state === "uncertain" && (
-          <StateNotice state="warning" title="Backup outcome is unknown">
-            <p>Refresh backups before taking another action.</p>
-            {mutation.canReplay && (
-              <button
-                data-testid="backup-replay"
-                type="button"
-                onClick={() => void controller.replay().then(settle)}
-              >
-                Replay this same backup create
-              </button>
-            )}
-          </StateNotice>
-        )}
-        {notice !== undefined && <StateNotice state="empty" title={notice} />}
-        {panelStatus === "error" && backups !== undefined && (
-          <StateNotice state="stale" title="Last-known backups">
-            The inventory and count are stale. Use Refresh to try again.
-          </StateNotice>
-        )}
-        {panelStatus === "error" && backups === undefined ? (
-          <StateNotice state="error" title="Backups unavailable" />
-        ) : (panelStatus === "loading" && panel?.hasValue !== true) ||
-          backups === undefined ? (
-          <StateNotice state="loading" title="Loading backups" />
-        ) : (
-          <CollectionTable
-            caption="Published backup artifacts"
-            emptyTitle="No backups"
-            localStale={panelStatus === "error"}
-            summaryExtra={
-              <output class="table-filter-summary">
-                {backups.length} {backups.length === 1 ? "backup" : "backups"}
-                {panelStatus === "error" ? " (last-known)" : ""}
-              </output>
-            }
-            rowHeaderKey="backup"
-            items={backups}
-            rowKey={(backup) => backup.id}
-            rowTestID="backup-row"
-            initialSort={{ key: "created", direction: "descending" }}
-            columns={[
-              {
-                key: "backup",
-                label: "Backup",
-                role: "identity",
-                render: (backup) => (
-                  <TableIdentity
-                    primary={
-                      backup.history === "omitted"
-                        ? "Security backup · history omitted"
-                        : "Legacy backup"
-                    }
-                    secondary={backup.id}
-                  />
-                ),
-              },
-              {
-                key: "source",
-                label: "Source",
-                role: "text",
-                render: (backup) => (
-                  <>
-                    Schema {backup.schemaVersion}
-                    <span class="table-secondary">
-                      Revision {backup.sourceRevision}
-                    </span>
-                  </>
-                ),
-              },
-              {
-                key: "size",
-                label: "Size",
-                role: "measure",
-                sortValue: (backup) => backup.sizeBytes,
-                render: (backup) =>
-                  `${backup.sizeBytes.toLocaleString()} bytes`,
-              },
-              {
-                key: "created",
-                label: "Created",
-                role: "time",
-                sortValue: (backup) => backup.createdAt,
-                render: (backup) => <UserTime value={backup.createdAt} />,
-              },
-              {
-                key: "actions",
-                label: "Actions",
-                role: "actions",
-                render: (backup) => (
-                  <div class="inline-actions">
-                    <button
-                      class="danger-action"
-                      data-testid="backup-delete"
-                      type="button"
-                      disabled={disabled}
-                      onClick={(event) => {
-                        deleteButton.current = event.currentTarget;
-                        beginDelete(backup);
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                ),
-              },
-            ]}
-          />
-        )}
-        <ConfirmationDialog
-          id="backup-delete-confirm"
-          open={deleting !== undefined && mutation.state === "confirming"}
-          title="Delete backup artifact?"
-          consequence={
-            <p>
-              Backup {deleting?.id} is permanently removed. This does not
-              restore, reset, or change the running database.
-            </p>
-          }
-          confirmLabel="Delete backup"
-          destructive
-          returnFocus={deleteButton}
-          onCancel={cancelDelete}
-          onConfirm={() => void confirmDelete()}
-        />
-      </section>
       <section
         class="panel domain-panel"
         aria-labelledby="history-export-title"
@@ -1656,9 +1193,8 @@ function Backups({
       >
         <h2 id="history-export-title">Traffic history export</h2>
         <p>
-          Download retained MCP, HTTP and Git records, separate from recovery
-          backups. Not an atomic snapshot or a complete traffic audit; missing
-          records never prove nonexecution.
+          Download retained MCP, HTTP and Git records. Not an atomic snapshot or
+          a complete traffic audit; missing records never prove nonexecution.
         </p>
         <div class="form-actions history-export-actions">
           <button
@@ -1702,9 +1238,9 @@ function Backups({
         )}
         <p class="muted">
           Browser limit: 64 MiB, 2 minutes, 4,096 pages. Larger exports require
-          the bounded CLI procedure in the backup and recovery guide. No partial
-          file is saved. Downloaded history can contain identifying data; store
-          it privately.
+          the bounded CLI procedure in the recovery guide. No partial file is
+          saved. Downloaded history can contain identifying data; store it
+          privately.
         </p>
       </section>
     </>
@@ -2198,13 +1734,11 @@ export function System({
   const [credentials, setCredentials] = useState(
     controller.credentialSnapshot(),
   );
-  const [backups, setBackups] = useState(controller.backupSnapshot());
   useEffect(() => controller.subscribe(setStatus), [controller]);
   useEffect(
     () => controller.subscribeCredentials(setCredentials),
     [controller],
   );
-  useEffect(() => controller.subscribeBackups(setBackups), [controller]);
   const current = tab(view.viewKey);
   return (
     <div class="system-view" data-testid="system-view">
@@ -2224,15 +1758,8 @@ export function System({
           onRefresh={onRefresh}
           createMode={view.viewKey === "#/system/admin-credentials/new"}
         />
-      ) : current === "backups" ? (
-        <Backups
-          backups={backups}
-          controller={controller}
-          view={view}
-          mutations={mutations}
-          onRefresh={onRefresh}
-          createMode={view.viewKey === "#/system/backups/new"}
-        />
+      ) : current === "history" ? (
+        <HistoryExport controller={controller} />
       ) : (
         <section class="panel" aria-labelledby="system-later-title">
           <div class="panel-heading">

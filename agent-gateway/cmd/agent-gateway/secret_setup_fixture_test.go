@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Historic restore behavior remains qualified with an explicitly legacy fixture,
-// not by disabling the encrypted-custody refusal in new-installation production.
-func initializeLegacyBackupFixture(t *testing.T, root, bearerPath string) {
+// Stopped custody setup needs a real pre-custody installation, not a production
+// override that permits unencrypted new installations.
+func initializeUnconfiguredCustodyFixture(t *testing.T, root, bearerPath string) {
 	t.Helper()
 	owner, err := gatewaypaths.AcquireForMaintenance(root)
 	require.NoError(t, err)

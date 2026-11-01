@@ -333,7 +333,7 @@ func TestCatalogBackupRetainsDurableEvidenceWithoutActiveFacts(t *testing.T) {
 	_, err := repository.Commit(context.Background(), catalogFence(server.ID, "0"), candidateFor(t, server.ID, "sample", "one"))
 	require.NoError(t, err)
 	backup := filepath.Join(t.TempDir(), "catalog.db")
-	require.NoError(t, store.BackupTo(context.Background(), backup))
+	require.NoError(t, store.CopyTo(context.Background(), backup))
 	database, err := sql.Open("sqlite3", "file:"+backup+"?mode=ro")
 	require.NoError(t, err)
 	defer func() { require.NoError(t, database.Close()) }()

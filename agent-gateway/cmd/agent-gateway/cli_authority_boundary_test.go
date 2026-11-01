@@ -89,10 +89,10 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"maintenance", "restore-backup"})
+	command.SetArgs([]string{"maintenance", "reset-admin-credentials"})
 	err := command.ExecuteContext(context.Background())
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
 	assert.Empty(t, stdout.String())
-	assert.Equal(t, "Provide one valid BACKUP_ID. Usage: agent-gateway maintenance restore-backup BACKUP_ID --secret-output NEW_PATH\n", stderr.String())
+	assert.Equal(t, "The --secret-output flag must name a new owner-only file. Usage: agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH\n", stderr.String())
 }

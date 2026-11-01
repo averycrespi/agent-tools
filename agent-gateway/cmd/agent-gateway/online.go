@@ -219,8 +219,6 @@ func onlineLongDescription(spec onlineCommandSpec) string {
 		return spec.Short + ". Emits one coherent versioned JSON document to stdout, without secret material or runtime state. No confirmation or upstream connection is required. Use an owner-private shell umask when redirecting: (umask 077; agent-gateway export config > gateway-config.json). See docs/operators/administration.md."
 	case "history export":
 		return spec.Short + ". One bounded MCP/HTTP/Git snapshot; --json includes records and explicit coverage. --after-sequence starts a new snapshot, not a continuation of the previous transaction. Missing records never establish nonexecution."
-	case "backup create":
-		return spec.Short + ". Creates a security-only artifact; optional traffic history is omitted. Export history separately."
 	case "http test-access":
 		return spec.Short + ". Preview policy only, without DNS, dispatch or secret resolution."
 	case "http credential get", "http credential list":
@@ -236,7 +234,7 @@ func onlineLongDescription(spec onlineCommandSpec) string {
 	case "mcp grant create", "mcp grant-request approve":
 		return spec.Short + ". --read-only restricts server ALLOW access to current and future tools explicitly declaring readOnlyHint=true. Hints are trusted server declarations, not side-effect isolation. Other ALLOW grants may authorize writes; matching DENY still wins. Read-only requests must retain --read-only and server scope; --acknowledge-future-tools remains required for server approval. Approval reads the submitted restriction before mutation, even with an explicit ETag, and never refreshes that ETag or replays a mutation. Direct flags and --file are mutually exclusive."
 	case "audit list", "audit get":
-		return spec.Short + ". Filters are authoritative and conjunctive. --from and --until must occur together as UTC timestamps with nine fractional digits, at most 366 days apart. --credential-id matches the operator or known system initiator, not a named human. Continue pages with the same filters and --generation. On stale_cursor discard the traversal and restart; on audit_history_replaced discard prior-history state and restart without the old generation. Restore can discard newer local events. See docs/operators/administration.md."
+		return spec.Short + ". Filters are authoritative and conjunctive. --from and --until must occur together as UTC timestamps with nine fractional digits, at most 366 days apart. --credential-id matches the operator or known system initiator, not a named human. Continue pages with the same filters and --generation. On stale_cursor discard the traversal and restart; on audit_history_replaced discard prior-history state and restart without the old generation. See docs/operators/administration.md."
 	case "mcp server create", "mcp server update":
 		return spec.Short + ". Strict --file transport.authentication OAuth configuration accepts optional callback_uri (for example http://localhost:3118/callback), auth_server_metadata_url (exact HTTPS metadata location, not issuer identity), and scopes (initial tokens replacing metadata defaults). Omit or use null to restore defaults in a complete transport replacement; [] requests no initial scopes. request_offline_access separately adds advertised offline_access. Exact callback ports must be free; temporary callback-only listeners close when the flow ends. Credentials use only server credential replace. See docs/operators/upstream-servers.md for a complete example."
 	case "mcp server auth-flow start":
@@ -457,10 +455,6 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"admin", "credential", "create"}, "create", "admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]", "expires-at", "secret-output"),
 		onlineSpec([]string{"admin", "credential", "rotate"}, "rotate OLD_CREDENTIAL_ID", "admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH", "secret-output", "yes"),
 		onlineSpec([]string{"admin", "credential", "revoke"}, "revoke ID", "admin credential revoke ID", "yes"),
-		onlineSpec([]string{"backup", "list"}, "list", "backup list", "limit", "cursor"),
-		onlineSpec([]string{"backup", "get"}, "get BACKUP_ID", "backup get BACKUP_ID"),
-		onlineSpec([]string{"backup", "create"}, "create", "backup create", "idempotency-key"),
-		onlineSpec([]string{"backup", "delete"}, "delete BACKUP_ID", "backup delete BACKUP_ID", "yes"),
 		onlineSpec([]string{"mcp", "server", "list"}, "list", "mcp server list", "limit", "cursor"),
 		onlineSpec([]string{"mcp", "server", "get"}, "get ID", "mcp server get ID"),
 		onlineSpec([]string{"mcp", "server", "create"}, "create", "mcp server create --file PATH", "file", "idempotency-key"),
@@ -520,7 +514,6 @@ var onlineGroupDescriptions = map[string]string{
 	"http credential":       "Manage HTTP credentials",
 	"admin":                 "Manage administrator credentials",
 	"admin credential":      "Manage administrator credentials",
-	"backup":                "Manage backups",
 	"history":               "View optional traffic history",
 	"export":                "Export portable configuration",
 	"mcp":                   "Manage MCP servers, tools, and access",
@@ -565,10 +558,6 @@ var onlineLeafDescriptions = map[string]string{
 	"admin credential create [--expires-at RFC3339] [--secret-output NEW_PATH]": "Create an administrator credential",
 	"admin credential rotate OLD_CREDENTIAL_ID --secret-output NEW_PATH":        "Rotate an administrator credential",
 	"admin credential revoke ID":    "Revoke an administrator credential",
-	"backup list":                   "List backups",
-	"backup get BACKUP_ID":          "Get a backup",
-	"backup create":                 "Create a security backup",
-	"backup delete BACKUP_ID":       "Delete a backup",
 	"mcp server list":               "List MCP servers",
 	"mcp server get ID":             "Get an MCP server",
 	"mcp server create --file PATH": "Create an MCP server",

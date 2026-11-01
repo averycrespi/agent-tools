@@ -24,20 +24,20 @@ func TestDocumentationContractDrift(t *testing.T) {
 		"../../README.md": {
 			"## Common workflows", "docs/operators/administration.md", "docs/operators/backup-and-recovery.md", "docs/operators/git.md",
 			"MCP calls require current `ALLOW`", "does not automatically replay", "encrypted in control SQLite", "master-key",
-			"Linux or macOS", "Connect your first agent", "<data-dir>/admin-bearer", "http://127.0.0.1:8210/mcp", "Format-4", "omit traffic", "not an OS sandbox",
+			"Linux or macOS", "Connect your first agent", "<data-dir>/admin-bearer", "http://127.0.0.1:8210/mcp", "backup/restore is removed", "export config", "init --from", "not an OS sandbox",
 		},
 		"../../docs/operators/administration.md": {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
 		"../../docs/operators/backup-and-recovery.md": {
-			"Gateway must be stopped", "agent-gateway maintenance verify-and-recover-storage", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
-			"Format-4 restore recovers the exact backed-up CA certificate and signing identity", "Restore refuses unresolved legacy CA and HTTP/Git credential authority", "master_key_id", "nonrefundable encryption high-water",
+			"Gateway must be stopped", "agent-gateway maintenance verify-and-recover-storage", "does not rewrite the default `admin-bearer`",
+			"Existing artifacts are untouched", "no aliases or compatibility endpoints", "export config", "init --from", "Unknown recovery actions refuse", "nonrefundable encryption usage",
 		},
 		"../../DESIGN.md": {
 			"## Documentation authority", "docs/design/public-contract.md", "docs/design/identity-and-authorization.md", "docs/design/storage-and-recovery.md",
 			"docs/design/downstream-servers.md", "docs/design/invocation-and-ingress.md", "docs/design/administrative-control-plane.md",
 		},
-		"../../docs/design/downstream-servers.md":     {"## Installation interception CA", "4,096 bytes", "Format-4 restore recovers the exact authenticated encrypted signing identity"},
+		"../../docs/design/downstream-servers.md":     {"## Installation interception CA", "4,096 bytes", "Installation-snapshot backup/restore is removed"},
 		"../../docs/design/invocation-and-ingress.md": {"## HTTP proxy engine", "serve --http-proxy-listen", "username `agent`", "one hour from admission", "no blanket hard lifetime"},
 		"../../docs/design/identity-and-authorization.md": {
 			"grant_requests", "sole online schema-10 DML owner",
@@ -166,7 +166,7 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 		"## Self-service grant requests",
 		"# Storage and Recovery",
 		"## Security mutation and stopped recovery",
-		"## Backup and generation replacement",
+		"## Backup and restore retirement",
 		"# Downstream Servers",
 		"## Server and catalog authority",
 		"## Direct stdio supervision",
@@ -192,7 +192,7 @@ func TestDesignArchitectureDataAndProtocolAreCurrent(t *testing.T) {
 		"product.invocation.local_target_unknown":          "Local post-commit uncertainty returns `tool_unavailable`",
 		"product.invocation.bounded_retention":             "rolling bounded history",
 		"security.invocation.audit_capture":                "Argument capture uses one fixed recursive key redactor",
-		"security.storage.sqlite_backups":                  "SQLite uses application ID `MGW1`",
+		"security.storage.sqlite":                          "SQLite uses application ID `MGW1`",
 		"security.process.output":                          "no raw process output",
 	}
 	manifestIDs := make(map[string]struct{})

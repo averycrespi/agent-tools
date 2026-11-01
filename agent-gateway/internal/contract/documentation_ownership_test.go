@@ -14,12 +14,12 @@ func TestDocumentationOwnership(t *testing.T) {
 }
 
 func testDocumentationOwnershipManifestSchema(t *testing.T) {
-	assert.Equal(t, 6, DocumentationOwnershipManifestVersion)
+	assert.Equal(t, 7, DocumentationOwnershipManifestVersion)
 	guides := DocumentationGuideManifest()
 	commands := DocumentationCommandManifest()
 	security := DocumentationSecurityManifest()
 	require.Len(t, guides, 18)
-	require.Len(t, commands, 19)
+	require.Len(t, commands, 18)
 	require.Len(t, security, 8)
 
 	guidePaths := make(map[string]struct{}, len(guides))

@@ -215,7 +215,9 @@ func ValidateAuditEvent(event AuditEvent) error {
 		}
 	}
 	if event.Detail.Problem != nil {
-		if _, ok := ProblemForCode(ProblemCode(*event.Detail.Problem)); !ok {
+		// Historical backup evidence stays readable after its live problem and
+		// endpoints are retired. This does not add a public response contract.
+		if _, ok := ProblemForCode(ProblemCode(*event.Detail.Problem)); !ok && *event.Detail.Problem != "encrypted_backup_unsupported" {
 			return ErrInvalidAudit
 		}
 	}

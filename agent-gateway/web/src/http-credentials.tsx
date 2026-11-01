@@ -926,7 +926,7 @@ function CredentialEditor({
               </p>
             </div>
           ) : mode === "delete" ? (
-            "Permanently retire this unreferenced credential. Stored material cannot be restored from a backup."
+            "Permanently retire this unreferenced credential and its stored material."
           ) : (
             "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret."
           )

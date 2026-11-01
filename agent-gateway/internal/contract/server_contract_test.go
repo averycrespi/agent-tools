@@ -24,7 +24,7 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/api/v2/mcp/servers/{id}/descriptors/{tool_id}", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	}
 	routes := Routes()
-	require.Equal(t, expectedRoutes, routes[14:14+len(expectedRoutes)], "S2 routes must remain after the S1 prefix")
+	require.Equal(t, expectedRoutes, routes[12:12+len(expectedRoutes)], "S2 routes must remain after the S1 prefix")
 
 	paths := map[string]string{
 		"/api/v2/mcp/servers":                                                                   "/api/v2/mcp/servers",
@@ -71,7 +71,7 @@ func TestServerRoutesAndMechanicsAreExact(t *testing.T) {
 		{Pattern: "/oauth/callback", Method: "GET", RequestSchema: "OAuthCallbackQuery", SuccessSchema: "OAuthCallbackHTML", SuccessStatuses: []int{200, 400, 503}},
 	}
 	mechanics := ResourceMechanics()
-	require.Equal(t, expectedMechanics, mechanics[12:12+len(expectedMechanics)], "S2 mechanics must remain after the S1 prefix")
+	require.Equal(t, expectedMechanics, mechanics[8:8+len(expectedMechanics)], "S2 mechanics must remain after the S1 prefix")
 }
 
 func TestServerProblemsAreExact(t *testing.T) {
@@ -211,7 +211,7 @@ func TestServerEventsSecretSinksETagsAndStatusOccupancies(t *testing.T) {
 	t.Parallel()
 
 	expectedInvalidations := []InvalidationKind{
-		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups, InvalidationServers,
+		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationServers,
 		InvalidationServerOperations, InvalidationServerAuthFlows, InvalidationCatalog,
 	}
 	require.Equal(t, expectedInvalidations, InvalidationKinds()[:len(expectedInvalidations)], "S2 invalidations must remain the table prefix")

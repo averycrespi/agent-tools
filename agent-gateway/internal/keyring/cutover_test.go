@@ -776,7 +776,7 @@ func TestSuccessfulCutoverAdvancesRevisionAndLeavesOnlyNewGeneration(t *testing.
 		assert.Equal(t, &credential, item.Initiator)
 		assert.Equal(t, testInstallationID, item.CorrelationID)
 	}
-	require.NoError(t, store.BackupTo(ctx, filepath.Join(root, "authority-backup.db")))
+	require.NoError(t, store.CopyTo(ctx, filepath.Join(root, "authority-backup.db")))
 	for _, canary := range [][]byte{firstSecret, secondSecret} {
 		assertCanaryAbsentFromDataRoot(t, root, canary)
 	}

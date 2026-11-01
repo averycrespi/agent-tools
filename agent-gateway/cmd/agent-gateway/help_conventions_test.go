@@ -13,7 +13,7 @@ func TestCommandDescriptionsFollowConventions(t *testing.T) {
 	root := newRootCmd()
 	rootDescriptions := map[string]string{
 		"admin": "Manage administrator credentials", "agent": "Manage agents", "audit": "View audit history",
-		"backup": "Manage backups", "completion": "Generate shell completion scripts", "doctor": "Check setup and diagnose problems",
+		"completion": "Generate shell completion scripts", "doctor": "Check setup and diagnose problems",
 		"git": "Manage Git configuration and access", "help": "Show command help", "http": "Manage HTTP access", "init": "Create a local installation",
 		"maintenance": "Inspect and recover stopped installations", "mcp": "Manage MCP servers, tools, and access",
 		"history": "View optional traffic history",

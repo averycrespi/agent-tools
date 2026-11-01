@@ -76,10 +76,10 @@ func TestMasterKeyRotationPreservesAllKindsAndAuthority(t *testing.T) {
 		require.Equal(t, handles[kind], handle.Handle)
 	}
 	require.NoError(t, reopened.View(ctx, func(tx *sql.Tx) error {
-		verified, err := VerifyBackupCustodyTx(ctx, tx, owner, nil)
+		verified, err := VerifyCustodyTx(ctx, tx, owner)
 		require.NoError(t, err)
 		require.EqualValues(t, len(kinds), verified.Encryptions)
-		_, err = VerifyRecoveryCustodyTx(ctx, tx, oldKey, nil)
+		_, err = VerifyKeyCustodyTx(ctx, tx, oldKey)
 		require.ErrorIs(t, err, ErrCustodyUnavailable)
 		for h, old := range before {
 			var current []byte

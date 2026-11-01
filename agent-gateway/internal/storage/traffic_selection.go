@@ -25,7 +25,7 @@ func (store *Store) SelectedTraffic(ctx context.Context) (string, error) {
 	return generation, err
 }
 
-// Both online snapshots and immutable backup reads enforce the same pair invariant.
+// Live reads and immutable maintenance inspection enforce the same pair invariant.
 func selectedTraffic(ctx context.Context, reader interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }) (string, error) {

@@ -9,7 +9,7 @@ import {
   runRequestAdjudication,
 } from "../browser/access-scenarios.ts";
 import {
-  runBackups,
+  runHistoryExport,
   runAdminCredentials,
   runOverview,
   runInvocations,
@@ -31,7 +31,7 @@ const scenarios = {
   "grant-correction": runGrantCorrection,
   "request-reads": runRequestReads,
   "request-adjudication": runRequestAdjudication,
-  backups: runBackups,
+  "history-export": runHistoryExport,
   "admin-credentials": runAdminCredentials,
   overview: runOverview,
   invocations: runInvocations,

@@ -15,7 +15,6 @@ export type PanelStatus = "loading" | "current" | "stale" | "error";
 export type InvalidationKind =
   | "admin_credentials"
   | "system_status"
-  | "backups"
   | "servers"
   | "server_operations"
   | "server_auth_flows"
@@ -89,7 +88,6 @@ type RegisteredPanel = ViewPanel<unknown>;
 const invalidationKinds = new Set<InvalidationKind>([
   "admin_credentials",
   "system_status",
-  "backups",
   "servers",
   "server_operations",
   "server_auth_flows",

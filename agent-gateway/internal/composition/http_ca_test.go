@@ -9,7 +9,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -95,14 +94,6 @@ func TestStoppedCAOwnershipAndPublicOnlyExport(t *testing.T) {
 	exported, err = run("export")
 	require.NoError(t, err)
 	require.Equal(t, replacement, exported)
-	// Recovery increments the revision even if no usable signing material exists.
-	owner, err = gatewaypaths.AcquireStoppedExisting(root)
-	require.NoError(t, err)
-	store, err = storage.Open(ctx, owner)
-	require.NoError(t, err)
-	require.NoError(t, httpca.InvalidateStaged(ctx, store, clock))
-	require.NoError(t, store.Close())
-	require.NoError(t, owner.Close())
 	_, err = run("create")
 	require.Error(t, err)
 	recovered, err := run("replace")

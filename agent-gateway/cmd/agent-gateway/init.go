@@ -141,7 +141,7 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 							if err := confirmInit("Confirm completed import and remove its temporary retained input?"); err != nil {
 								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
 							}
-							owner, err := gatewaypaths.AcquireStoppedExisting(layout.Root)
+							owner, err := gatewaypaths.AcquireStoppedControl(layout.Root)
 							if err != nil {
 								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
 							}
@@ -230,7 +230,7 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 			bearerInRoot = true
 		}
 		if fresh && bearerInRoot && filepath.Base(bearerPath) != gatewaypaths.AdminBearerName {
-			reserved := map[string]bool{gatewaypaths.DatabaseName: true, gatewaypaths.LockName: true, gatewaypaths.MasterKeyName: true, gatewaypaths.PublicCertificateName: true, gatewaypaths.InitializationName: true, gatewaypaths.RunMarkerName: true, gatewaypaths.MutationMarkerName: true, gatewaypaths.BackupsName: true}
+			reserved := map[string]bool{gatewaypaths.DatabaseName: true, gatewaypaths.LockName: true, gatewaypaths.MasterKeyName: true, gatewaypaths.PublicCertificateName: true, gatewaypaths.InitializationName: true, gatewaypaths.RunMarkerName: true, gatewaypaths.MutationMarkerName: true, "backups": true}
 			if reserved[filepath.Base(bearerPath)] || strings.HasPrefix(filepath.Base(bearerPath), "traffic-") {
 				return fail("The bearer destination conflicts with a reserved installation path. Choose a new credential file.")
 			}
@@ -271,7 +271,7 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 		if fresh {
 			owner, err = gatewaypaths.AcquireInitialization(layout.Root)
 		} else {
-			owner, err = gatewaypaths.AcquireStoppedExisting(layout.Root)
+			owner, err = gatewaypaths.AcquireStoppedControl(layout.Root)
 		}
 		if err != nil {
 			return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))

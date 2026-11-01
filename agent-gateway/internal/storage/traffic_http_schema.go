@@ -48,8 +48,8 @@ END;
 `
 }
 
-// TrafficSchemaVersion retains exact released definitions for immutable backup
-// verification. Unknown versions have no schema and must fail closed.
+// TrafficSchemaVersion retains exact released definitions for immutable traffic
+// inspection and supported upgrades. Unknown versions must fail closed.
 func TrafficSchemaVersion(version int) string {
 	switch version {
 	case 1:

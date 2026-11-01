@@ -53,18 +53,6 @@ func KeyringCapabilities() []KeyringCapability {
 	return []KeyringCapability{KeyringReady, KeyringAbsent, KeyringLocked, KeyringInteractionRequired, KeyringUnavailable, KeyringUnsupported}
 }
 
-type BackupState string
-
-const (
-	BackupUnavailable BackupState = "unavailable"
-	BackupIdle        BackupState = "idle"
-	BackupCreating    BackupState = "creating"
-)
-
-func BackupStates() []BackupState {
-	return []BackupState{BackupIdle, BackupCreating, BackupUnavailable}
-}
-
 type AgentAuthMode string
 
 const (
@@ -81,7 +69,6 @@ type InvalidationKind string
 const (
 	InvalidationAdminCredentials InvalidationKind = "admin_credentials" //nolint:gosec // Public event kind, not a credential.
 	InvalidationSystemStatus     InvalidationKind = "system_status"
-	InvalidationBackups          InvalidationKind = "backups"
 	InvalidationServers          InvalidationKind = "servers"
 	InvalidationServerOperations InvalidationKind = "server_operations"
 	InvalidationServerAuthFlows  InvalidationKind = "server_auth_flows"
@@ -96,7 +83,6 @@ func InvalidationKinds() []InvalidationKind {
 	return []InvalidationKind{
 		InvalidationAdminCredentials,
 		InvalidationSystemStatus,
-		InvalidationBackups,
 		InvalidationServers,
 		InvalidationServerOperations,
 		InvalidationServerAuthFlows,

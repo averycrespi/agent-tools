@@ -79,7 +79,7 @@ export async function exerciseMatcherPlaceholders(page: Page, prefix: string) {
 export async function assertCreationPlaceholders(page: Page) {
   const path = new URL(page.url()).hash.split("?")[0]!;
   const creation =
-    /^#\/(?:agents|http\/(?:credentials|grants)|git\/(?:repositories|credentials|grants)|mcp\/(?:servers|grants)|system\/(?:admin-credentials|backups))\/new$/.test(
+    /^#\/(?:agents|http\/(?:credentials|grants)|git\/(?:repositories|credentials|grants)|mcp\/(?:servers|grants)|system\/admin-credentials)\/new$/.test(
       path,
     );
   const scope = creation

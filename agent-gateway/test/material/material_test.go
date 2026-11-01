@@ -182,7 +182,7 @@ func TestCompleteCredentialGenerationsAcquireFenceAndCleanMaterial(t *testing.T)
 	})
 
 	backupPath := filepath.Join(t.TempDir(), "gateway.db")
-	require.NoError(t, store.BackupTo(ctx, backupPath))
+	require.NoError(t, store.CopyTo(ctx, backupPath))
 	backup, err := os.ReadFile(backupPath)
 	require.NoError(t, err)
 	assert.False(t, bytes.Contains(backup, []byte(staticCanary)))

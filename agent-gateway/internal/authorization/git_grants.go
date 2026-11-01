@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
@@ -63,15 +62,7 @@ func gitGrantTx(ctx context.Context, tx *sql.Tx, id string, now time.Time) (cont
 }
 
 func readGitGrantsTx(ctx context.Context, tx *sql.Tx, now time.Time) ([]contract.GitGrant, error) {
-	return readGitGrantsForSchemaTx(ctx, tx, now, true)
-}
-
-func readGitGrantsForSchemaTx(ctx context.Context, tx *sql.Tx, now time.Time, importExpiries bool) ([]contract.GitGrant, error) {
-	selectGrants := gitGrantSelect
-	if !importExpiries {
-		selectGrants = gitGrantColumns + `,0 FROM git_grants`
-	}
-	rows, err := tx.QueryContext(ctx, selectGrants+` ORDER BY id LIMIT ?`, contract.GitGrants+1)
+	rows, err := tx.QueryContext(ctx, gitGrantSelect+` ORDER BY id LIMIT ?`, contract.GitGrants+1)
 	if err != nil {
 		return nil, err
 	}
@@ -247,44 +238,7 @@ func (r *Repository) EvaluateGit(ctx context.Context, principalID, repositoryID 
 	return decision, err
 }
 
-// ValidateGitBackupTx validates Git's complete retained graph on a read-only
-// artifact transaction. It neither migrates nor constructs a live authority owner.
-func ValidateGitBackupTx(ctx context.Context, tx *sql.Tx, schema int) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM principals ORDER BY id LIMIT ?`, mustLimit("principals")+1)
-	if err != nil {
-		return err
-	}
-	principals := map[string]struct{}{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if !validOpaqueID(id) {
-			_ = rows.Close()
-			return ErrInvalidState
-		}
-		principals[id] = struct{}{}
-	}
-	err = errors.Join(rows.Err(), rows.Close())
-	if err != nil {
-		return err
-	}
-	if int64(len(principals)) > mustLimit("principals") {
-		return ErrInvalidState
-	}
-	// Schema22-24 artifacts predate import expiry facts. Their caller supplies
-	// the independently verified artifact version; current stores never fall back
-	// on a missing table or a failed query.
-	return validateGitAuthorityForSchemaTx(ctx, tx, principals, schema >= 25)
-}
-
 func validateGitAuthorityTx(ctx context.Context, tx *sql.Tx, principals map[string]struct{}) error {
-	return validateGitAuthorityForSchemaTx(ctx, tx, principals, true)
-}
-
-func validateGitAuthorityForSchemaTx(ctx context.Context, tx *sql.Tx, principals map[string]struct{}, importExpiries bool) error {
 	repositories, err := readGitRepositoriesTx(ctx, tx)
 	if err != nil {
 		return err
@@ -299,7 +253,7 @@ func validateGitAuthorityForSchemaTx(ctx context.Context, tx *sql.Tx, principals
 			return ErrInvalidState
 		}
 	}
-	grants, err := readGitGrantsForSchemaTx(ctx, tx, time.Now(), importExpiries)
+	grants, err := readGitGrantsTx(ctx, tx, time.Now())
 	if err != nil {
 		return err
 	}

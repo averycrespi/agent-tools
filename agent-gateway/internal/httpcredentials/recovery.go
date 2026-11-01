@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -91,51 +90,4 @@ func validateTx(ctx context.Context, tx *sql.Tx) error {
 		return ErrInvalid
 	}
 	return nil
-}
-
-// InvalidateStagedCredentials changes only a stopped replacement store. An old
-// backup can retain a keyring handle whose secret was retired or deleted after
-// that snapshot; restored metadata therefore never reactivates HTTP authority.
-// No keyring operation is performed and current installation state is untouched.
-func InvalidateStagedCredentials(ctx context.Context, store *storage.Store, clock Clock) error {
-	return store.Mutate(ctx, func(tx *sql.Tx) error {
-		if err := validateTx(ctx, tx); err != nil {
-			return err
-		}
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM http_credentials WHERE handle IS NOT NULL`)
-		if err != nil {
-			return err
-		}
-		ids := []string{}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			ids = append(ids, id)
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		for _, id := range ids {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM keyring_authorities WHERE owner=? AND kind='http_credential'`, id); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO keyring_authority_fences(owner,kind) VALUES(?,'http_credential')`, id); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE http_credentials SET handle=NULL,revision=revision+1,material_revision=material_revision+1 WHERE id=?`, id); err != nil {
-				return err
-			}
-			if err := audit.MutationTx(ctx, tx, clock.Now(), "http_credential", "invalidate", contract.AuditTarget{Type: "http_credential", ID: id}); err != nil {
-				return err
-			}
-		}
-		return validateTx(ctx, tx)
-	})
 }

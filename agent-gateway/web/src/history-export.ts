@@ -124,7 +124,7 @@ async function readPage(
     response.body === null
   )
     throw new HistoryExportError(
-      "Traffic history is unavailable. No file was downloaded. Backup controls remain independent.",
+      "Traffic history is unavailable. No file was downloaded.",
     );
   const reader = response.body.getReader();
   const decoder = new TextDecoder("utf-8", { fatal: true });

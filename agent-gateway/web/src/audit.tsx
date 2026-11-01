@@ -36,7 +36,7 @@ import { RelatedHistory, RelatedHistoryChanged } from "./related-history";
 import type { ViewCoordinator, ViewReadContext, ViewSnapshot } from "./view";
 
 const replacementNotice =
-  "Audit history may have been replaced by restore. Newer local events may have been discarded. Previous-history state was discarded; these histories must not be combined.";
+  "Audit history generation changed. Newer local events may have been discarded. Previous-history state was discarded; these histories must not be combined.";
 const targetRoutes: Readonly<Record<string, readonly [string, Destination]>> = {
   server: ["mcp/servers", "servers"],
   principal: ["principals", "principals"],
@@ -597,9 +597,9 @@ function History({ value }: { value: AuditHistory }) {
         </StatusLabel>
       </div>
       <p>
-        Only the newest 65,536 events are retained. Restore may replace local
-        history and discard newer events; this is not a permanent or complete
-        record.
+        Only the newest 65,536 events are retained. This is not a permanent or
+        complete record; histories with different generations must not be
+        combined.
       </p>
       <details>
         <summary>Retention details</summary>

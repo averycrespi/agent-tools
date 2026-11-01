@@ -12,25 +12,13 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 4. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
 5. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
-## Security backup and history separation
+## Backup and restore removal
 
-Upgrade CLI/API consumers and reload browser tabs together. New backups use distinct
-format 4 for encrypted custody (format 3 for legacy-only custody) and add `history:"omitted"` to their representation; format 0 and paired
-format 2 retain their original verification semantics. Older binaries must reject
-unknown formats rather than reinterpret them. Format 4 requires the separately safeguarded matching master key; old formats cannot restore over encrypted custody. Preserve old artifacts for rollback; never edit
-metadata or rewrite an original to manufacture compatibility.
+Installation-snapshot backup create/list/get/delete and stopped restore support is deliberately removed, including restore-only flags, APIs, UI and status occupancy. No aliases, compatibility endpoints, legacy format verification or transition procedure remain. Upgrade CLI/API consumers and reload browser tabs together; old requests and bookmarks do not redirect.
 
-New security-only restore disables capture, preserves retained traffic files and
-reports `history:"omitted-not-verified"`. Explicit `--security-only` restores eligible old inputs, never over encrypted custody,
-without claiming their omitted history was verified. History-inclusive legacy restore
-still requires every claimed payload and reports `history:"restored"`. Every restore
-invalidates all administrator/agent access and publishes fresh administration. Legacy-only restore also invalidates HTTP/Git/CA authority; format 4 recovers the encrypted upstream material and exact CA identity. This differs
-from an ordinary upgrade, which preserves live configuration, grants and credentials.
-Use separate `history export --json` or the browser Traffic history export card for bounded
-rolling history; no export proves complete traffic coverage or safe replay. See the
-[recovery guide](backup-and-recovery.md) for staging, consent and preservation rules.
-No installed-resource mutation or live qualification is authorized by this source
-cutover.
+Existing backup inventory and restore-specific residue remain untouched, even malformed or unsafe artifacts. Startup, init/resume and status do not inspect their contents or let them gate readiness. Shared security recovery, initialization, rotation and cleanup provenance remain fail-closed; do not clear unknown markers. No schema or historical file is rewritten by removal.
+
+Use `export config` plus fresh `init --from` for portable definitions, with new authority and CA identity, unset secrets and explicit upstream activation. It is not installation restoration or rollback. Existing `history export` and System / History export retain bounded rolling-history behavior, without a complete-audit claim. See [artifact preservation and fresh initialization](backup-and-recovery.md#backup-and-restore-removal). No installed-resource mutation or live qualification is authorized by this source cutover.
 
 ## HTTP URL compatibility expansion
 
@@ -92,7 +80,7 @@ MCP-only recovery or deliberately replace the CA while stopped and refresh clien
 trust. Listener enablement changes no agent HTTP defaults (new agents remain
 blocked), grants, credentials, private-network/tunnel authority or client trust.
 Follow [proxy setup](http-proxy.md), [operator supervision](launchd.md) and
-[restore guidance](backup-and-recovery.md). Fixtures do not qualify native
+[recovery guidance](backup-and-recovery.md). Fixtures do not qualify native
 launchd behavior or authorize installed-resource mutation.
 
 ## Browser persistence cutover
@@ -168,7 +156,7 @@ Upgrade standalone CLI binaries, API clients, JSON scripts, and the service toge
 | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `/api/v1/servers` and every child                                                                         | `/api/v2/mcp/servers` and the corresponding child                                                                                                                                                    |
 | `/api/v1/catalog`                                                                                         | `/api/v2/mcp/catalog`                                                                                                                                                                                |
-| Shared `/api/v1/` sessions, events, admin credentials, principals, status, audit-events and backups       | Corresponding shared `/api/v2/` resources; this is not a generic prefix-replacement rule                                                                                                             |
+| Shared `/api/v1/` sessions, events, admin credentials, principals, status and audit-events                | Corresponding shared `/api/v2/` resources; this is not a generic prefix-replacement rule                                                                                                             |
 | `/api/v1/grants`, `/api/v1/grant-requests`, `/api/v1/grant-constraints/validate`                          | Final `/api/v2/mcp/` paths in [MCP permission cutover](#mcp-permission-namespace-cutover)                                                                                                            |
 | `/api/v1/invocations` and `/{id}`                                                                         | `/api/v2/mcp/invocations` and `/{id}`                                                                                                                                                                |
 | `server ...`, `catalog ...`                                                                               | `mcp server ...`, `mcp catalog ...` in the current executable, including an explicitly renamed current binary                                                                                        |
@@ -187,7 +175,7 @@ HTTP Credentials in the browser now requests `sort=name&direction=ascending`; HT
 
 After a service upgrade, reload an already-open browser tab to load the bundled client, and sign in again if its session expired or still uses the legacy cookie. Browser fragments follow the [location cutover](#browser-location-cutover) above; layout is unchanged. Discard old page cursors; reload starts a fresh traversal. A failed or uncertain mutation during version skew is **not** permission to retry: retain its input/key/precondition, inspect current resources with the upgraded client, and resolve the outcome before any deliberate same-intent action. Never retry merely because the old tab or CLI cannot decode a response.
 
-Existing same-key server work retains its durable identity across the route rename, including conflicts and interrupted outcomes. Database/backup lineage, stored enums, bearer verifiers/prefixes, keyring identifiers/generations, roots/locks, ports, `/mcp`, OAuth callback identities, `mcp_gateway.*` tools/schemas, and explicit installed selections are not rewritten by the operator v2 cutover. Installation migration is complete and its command is retired; retain the [post-migration safety artifacts](installation-safety.md). Current [manual client configuration](access-control.md#configure-an-agent-client-manually) retains both `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and the retained `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` aliases from one authority. No reinitialization, credential rotation, automatic relocation, live installation mutation, or external agent-config change is part of this cutover. Offline recovery now uses `maintenance verify-and-recover-storage` and `maintenance restore-backup BACKUP_ID`; see the [recovery command cutover](backup-and-recovery.md#recovery-command-cutover) for removed spellings and changed CLI JSON. Historical acceptance evidence remains historical, not current release qualification.
+Existing same-key server work retains its durable identity across the route rename, including conflicts and interrupted outcomes. Database/backup lineage, stored enums, bearer verifiers/prefixes, keyring identifiers/generations, roots/locks, ports, `/mcp`, OAuth callback identities, `mcp_gateway.*` tools/schemas, and explicit installed selections are not rewritten by the operator v2 cutover. Installation migration is complete and its command is retired; retain the [post-migration safety artifacts](installation-safety.md). Current [manual client configuration](access-control.md#configure-an-agent-client-manually) retains both `AGENT_GATEWAY_ENDPOINT` / `AGENT_GATEWAY_AGENT_TOKEN` and the retained `MCP_GATEWAY_ENDPOINT` / `MCP_GATEWAY_AGENT_TOKEN` aliases from one authority. No reinitialization, credential rotation, automatic relocation, live installation mutation, or external agent-config change is part of this cutover. Offline recovery uses `maintenance verify-and-recover-storage`; installation-snapshot restore is removed. See the [recovery guide](backup-and-recovery.md) for current command boundaries and JSON. Historical acceptance evidence remains historical, not current release qualification.
 
 ## Setup and maintenance CLI cutover
 

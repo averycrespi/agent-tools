@@ -10,7 +10,7 @@ import (
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 )
 
-// WriteAcceptedSchemaFixtureForIntegration writes a stopped historical generation for cross-package restore tests.
+// WriteAcceptedSchemaFixtureForIntegration writes a stopped historical generation for cross-package historical migration tests.
 func WriteAcceptedSchemaFixtureForIntegration(ctx context.Context, root, installationID string, version int) (string, error) {
 	if version < 3 || version > CurrentSchema || !installationIDPattern.MatchString(installationID) {
 		return "", ErrInvalidDatabase

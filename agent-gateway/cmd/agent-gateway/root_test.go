@@ -9,11 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -85,7 +83,7 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 
 	require.Equal(t, "agent-gateway", cmd.Use)
 	require.Equal(t, "Run and manage Agent Gateway", cmd.Short)
-	for _, path := range [][]string{{"maintenance", "reset-admin-credentials"}, {"init"}, {"maintenance", "restore-backup"}, {"maintenance", "verify-and-recover-storage"}, {"doctor"}, {"serve"}} {
+	for _, path := range [][]string{{"maintenance", "reset-admin-credentials"}, {"init"}, {"maintenance", "verify-and-recover-storage"}, {"doctor"}, {"serve"}} {
 		command, _, err := cmd.Find(path)
 		require.NoError(t, err)
 		assert.Equal(t, path[len(path)-1], command.Name())
@@ -400,75 +398,8 @@ func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
 	}, result)
 }
 
-func TestRestoreBackupEmitsSafeResultAndReplacementSecret(t *testing.T) {
-	ctx := context.Background()
-	root := filepath.Join(t.TempDir(), "gateway")
-	initialSecret := filepath.Join(t.TempDir(), "initial")
-	initializeLegacyBackupFixture(t, root, initialSecret)
-
-	ownership, err := gatewaypaths.Acquire(root)
-	require.NoError(t, err)
-	store, err := storage.Open(ctx, ownership)
-	require.NoError(t, err)
-	generation, err := store.SelectedTraffic(ctx)
-	require.NoError(t, err)
-	identity, err := store.Identity(ctx)
-	require.NoError(t, err)
-	traffic, err := invocation.OpenTraffic(ctx, ownership, identity.InstallationID, generation, invocation.DefaultTrafficConfig())
-	require.NoError(t, err)
-	manager, err := backup.New(backup.Options{Store: store, Layout: ownership.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
-	require.NoError(t, err)
-	artifact, _, err := manager.Create(ctx, "authority", "restore-command")
-	require.NoError(t, err)
-	require.NoError(t, traffic.Close())
-	require.NoError(t, store.Close())
-	require.NoError(t, ownership.Close())
-
-	stderr := new(bytes.Buffer)
-	command := newTestRootCmd(t)
-	command.SetOut(new(bytes.Buffer))
-	command.SetErr(stderr)
-	command.SetArgs([]string{"maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--json"})
-	err = command.ExecuteContext(ctx)
-	require.Error(t, err)
-	assert.Equal(t, 2, commandExitCode(err))
-	assert.Contains(t, stderr.String(), "--secret-output")
-
-	secret := filepath.Join(t.TempDir(), "replacement")
-	stdout := new(bytes.Buffer)
-	command = newTestRootCmd(t)
-	command.SetOut(stdout)
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--secret-output", secret, "--json"})
-	require.NoError(t, command.ExecuteContext(ctx))
-	var result map[string]any
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
-	assert.Equal(t, "restore-backup", result["operation"])
-	assert.NotContains(t, result, "mode")
-	assert.Equal(t, artifact.ID, result["backup_id"])
-	published, err := os.ReadFile(secret)
-	require.NoError(t, err)
-	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(published)))
-
-	humanSecret := filepath.Join(t.TempDir(), "human-replacement")
-	stdout.Reset()
-	command = newTestRootCmd(t)
-	command.SetOut(stdout)
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"maintenance", "restore-backup", "--confirm", artifact.ID, "--data-dir", root, "--secret-output", humanSecret})
-	require.NoError(t, command.ExecuteContext(ctx))
-	assert.Contains(t, stdout.String(), "cannot be shown again")
-	humanBearer, err := os.ReadFile(humanSecret)
-	require.NoError(t, err)
-	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(humanBearer)))
-}
-
-func TestRestoreRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {
+func TestStorageRecoveryRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {
 	for _, args := range [][]string{
-		{"maintenance", "restore-backup", "--confirm", "--json"},
-		{"maintenance", "restore-backup", "--confirm", "unexpected", "--json"},
-		{"maintenance", "restore-backup", "--confirm", "--json", "--unknown-flag"},
-		{"maintenance", "restore-backup", "--confirm", "--json", "--verify-current"},
 		{"maintenance", "verify-and-recover-storage", "--confirm", "unexpected", "--json"},
 		{"maintenance", "verify-and-recover-storage", "--confirm", "--json", "--secret-output", "unused"},
 	} {

@@ -20,6 +20,16 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
+// These are exact retired names, not a prefix rule for unknown safety markers.
+func retiredBackupArtifact(name string) bool {
+	switch name {
+	case "backups", "gateway.db.restore", "gateway.db.restore-wal", "gateway.db.restore-shm", "gateway.db.restore-journal", "gateway.db.restore.mutation", "gateway.db.restore.mutation.tmp", "gateway.db.restore.mutation.cleared":
+		return true
+	default:
+		return false
+	}
+}
+
 type InitializationResult struct {
 	storage.Identity
 	Certificate []byte
@@ -68,18 +78,26 @@ func initializeOwned(ctx context.Context, owner *gatewaypaths.Ownership, plan ga
 		}
 		return nil
 	}
-	// Unknown artifacts never become permission to continue setup.
+	// Classify root names only; never open or traverse retired backup inventory
+	// or restore residue. Unknown names still refuse initialization.
 	directory, err := os.Open(layout.Root)
 	if err != nil {
 		return identity, err
 	}
-	entries, readErr := directory.ReadDir(16)
+	entries, readErr := directory.ReadDir(24)
 	if errors.Is(readErr, io.EOF) {
 		readErr = nil
 	}
 	if err := errors.Join(readErr, directory.Close()); err != nil {
 		return identity, err
 	}
+	activeEntries := entries[:0]
+	for _, entry := range entries {
+		if !retiredBackupArtifact(entry.Name()) {
+			activeEntries = append(activeEntries, entry)
+		}
+	}
+	entries = activeEntries
 	if len(entries) >= 16 {
 		return identity, storage.ErrPlanChanged
 	}

@@ -32,13 +32,25 @@ const creates = [
   "mcp/servers/new",
   "agents/new",
   "mcp/grants/new",
-  "system/backups/new",
   "system/admin-credentials/new",
 ];
 const owned = ["operations", "auth-flows", "descriptors"].map(
   (kind) => `mcp/servers/${id}/${kind}/${other}`,
 );
 const routes = [...collections, ...details, ...creates, ...owned];
+
+test("retired backup locations have no compatibility routes", () => {
+  for (const fragment of [
+    "#/system?tab=backups",
+    "#/system/backups/new",
+    "#/system/backups/" + id,
+  ]) {
+    assert.equal(parseFragment(fragment), undefined, fragment);
+  }
+  const history = parseFragment("#/system?tab=history");
+  assert.ok(history);
+  assert.equal(serializeLocation(history), "#/system?tab=history");
+});
 
 test("System attention is a closed canonical tab location", () => {
   const fragment = "#/system?tab=needs-attention";

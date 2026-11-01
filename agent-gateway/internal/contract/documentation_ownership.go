@@ -1,6 +1,6 @@
 package contract
 
-const DocumentationOwnershipManifestVersion = 6
+const DocumentationOwnershipManifestVersion = 7
 
 type DocumentationGuide struct {
 	ID       string
@@ -37,7 +37,7 @@ var documentationGuides = []DocumentationGuide{
 	{ID: "docs.guide.server.configuration", Path: "docs/operators/upstream-servers.md", Audience: "Gateway operators configuring upstream MCP servers", Purpose: "Configure servers, credentials, and OAuth without broadening trust."},
 	{ID: "docs.guide.access.policy", Path: "docs/operators/access-control.md", Audience: "Gateway administrators managing agent access", Purpose: "Manage principals, credentials, grants, and grant requests."},
 	{ID: "docs.guide.invocation.evidence", Path: "docs/operators/invocation-evidence.md", Audience: "Operators investigating governed tool calls", Purpose: "Interpret invocation evidence, redaction, and unknown outcomes."},
-	{ID: "docs.guide.recovery", Path: "docs/operators/backup-and-recovery.md", Audience: "Operators responsible for Gateway recovery", Purpose: "Create backups and perform restore or stopped-process recovery safely."},
+	{ID: "docs.guide.recovery", Path: "docs/operators/backup-and-recovery.md", Audience: "Operators responsible for Gateway recovery", Purpose: "Preserve installation evidence, recover recognized stopped state, and create fresh installations from portable configuration."},
 	{ID: "docs.guide.frontend.development", Path: "docs/maintainers/frontend-development.md", Audience: "Maintainers developing the Gateway web application", Purpose: "Run trusted live reload without changing the production asset boundary."},
 	{ID: "docs.guide.frontend.browser.tests", Path: "docs/maintainers/frontend-browser-tests.md", Audience: "Maintainers and agents testing frontend behavior", Purpose: "Maintain mocked surface coverage and inspect browser artifacts without replacing real API evidence."},
 	{ID: "docs.guide.release.verification", Path: "docs/maintainers/release-verification.md", Audience: "Release owners and maintainers preparing release evidence", Purpose: "Prepare, run, and adopt exact-revision acceptance evidence without turning release acceptance into a development loop."},
@@ -52,7 +52,6 @@ var documentationCommandFamilies = []DocumentationCommandFamily{
 	{ID: "docs.command.admin.credential", CommandPath: "admin credential", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway admin credential --help"},
 	{ID: "docs.command.admin.reset", CommandPath: "maintenance reset-admin-credentials", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway maintenance reset-admin-credentials --help"},
 	{ID: "docs.command.history", CommandPath: "history", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway history --help"},
-	{ID: "docs.command.backup", CommandPath: "backup", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway backup --help"},
 	{ID: "docs.command.catalog", CommandPath: "mcp catalog", CanonicalOwner: "docs/operators/upstream-servers.md", HelpInvocation: "agent-gateway mcp catalog --help"},
 	{ID: "docs.command.grant", CommandPath: "mcp grant", CanonicalOwner: "docs/operators/access-control.md", HelpInvocation: "agent-gateway mcp grant --help"},
 	{ID: "docs.command.grant.request", CommandPath: "mcp grant-request", CanonicalOwner: "docs/operators/access-control.md", HelpInvocation: "agent-gateway mcp grant-request --help"},
@@ -72,7 +71,7 @@ var documentationSecurityContracts = []DocumentationSecurityContract{
 	{ID: "docs.security.server.credentials.oauth", CanonicalOwner: "docs/operators/upstream-servers.md", HelpFamilies: []string{"mcp server"}},
 	{ID: "docs.security.principal.policy", CanonicalOwner: "docs/operators/access-control.md", HelpFamilies: []string{"agent", "mcp grant", "mcp grant-request"}},
 	{ID: "docs.security.invocation.uncertainty", CanonicalOwner: "docs/operators/invocation-evidence.md", HelpFamilies: []string{"mcp invocation"}},
-	{ID: "docs.security.backup.recovery", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpFamilies: []string{"maintenance", "backup"}},
+	{ID: "docs.security.recovery", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpFamilies: []string{"maintenance"}},
 	{ID: "docs.security.frontend.trust", CanonicalOwner: "docs/maintainers/frontend-development.md", HelpFamilies: []string{"serve"}},
 }
 

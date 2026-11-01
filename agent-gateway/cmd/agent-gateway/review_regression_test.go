@@ -2,17 +2,14 @@ package main
 
 import (
 	"bytes"
-	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
@@ -29,7 +26,7 @@ func TestInitCompleteIgnoresOptionalTrafficWithoutWriting(t *testing.T) {
 			require.NoError(t, command.ExecuteContext(t.Context()))
 			layout, err := gatewaypaths.Resolve(root)
 			require.NoError(t, err)
-			identity, err := storage.VerifyBackup(t.Context(), layout.Database)
+			identity, err := storage.InspectClosedDatabase(t.Context(), layout.Database)
 			require.NoError(t, err)
 			traffic := filepath.Join(root, "traffic-"+identity.TrafficGeneration+".db")
 			switch state {
@@ -40,8 +37,7 @@ func TestInitCompleteIgnoresOptionalTrafficWithoutWriting(t *testing.T) {
 			default:
 				require.NoError(t, os.WriteFile(traffic+"-"+state, []byte("uncheckpointed"), 0o600))
 			}
-			// Neither missing public output nor bad optional history authorizes
-			// repair or makes ordinary init depend on history validation.
+			// Missing public output or bad optional history never authorizes repair.
 			require.NoError(t, os.Remove(filepath.Join(root, gatewaypaths.PublicCertificateName)))
 			before := treeBytes(t, root)
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
@@ -53,102 +49,6 @@ func TestInitCompleteIgnoresOptionalTrafficWithoutWriting(t *testing.T) {
 			require.Contains(t, stdout.String(), `"state":"already_initialized"`)
 			require.Empty(t, stderr.String())
 			require.Equal(t, before, treeBytes(t, root))
-		})
-	}
-}
-
-type planChangeWriter struct {
-	bytes.Buffer
-	change func()
-}
-
-func (writer *planChangeWriter) Write(value []byte) (int, error) {
-	n, err := writer.Buffer.Write(value)
-	if writer.change != nil {
-		change := writer.change
-		writer.change = nil
-		change()
-	}
-	return n, err
-}
-
-func TestSecurityRestoreIgnoresUntouchedTrafficAfterDisplayingPlan(t *testing.T) {
-	for _, state := range []string{"valid", "corrupt", "missing", "selector"} {
-		t.Run(state, func(t *testing.T) {
-			root := filepath.Join(t.TempDir(), "gateway")
-			initializeLegacyBackupFixture(t, root, filepath.Join(root, "admin-bearer"))
-			owner, err := gatewaypaths.Acquire(root)
-			require.NoError(t, err)
-			store, err := storage.Open(t.Context(), owner)
-			require.NoError(t, err)
-			identity, err := store.Identity(t.Context())
-			require.NoError(t, err)
-			identity.TrafficGeneration, err = store.SelectedTraffic(t.Context())
-			require.NoError(t, err)
-			traffic, err := invocation.OpenTraffic(t.Context(), owner, identity.InstallationID, identity.TrafficGeneration, invocation.DefaultTrafficConfig())
-			require.NoError(t, err)
-			manager, err := backup.New(backup.Options{Store: store, Layout: owner.Layout(), Clock: systemClock{}, Entropy: bytes.NewReader(bytes.Repeat([]byte{0x55}, 128))})
-			require.NoError(t, err)
-			artifact, _, err := manager.Create(t.Context(), "authority", "restore-plan")
-			require.NoError(t, err)
-			require.NoError(t, traffic.Close())
-			require.NoError(t, store.Close())
-			require.NoError(t, owner.Close())
-			path := filepath.Join(root, "traffic-"+identity.TrafficGeneration+".db")
-			switch state {
-			case "missing":
-				require.NoError(t, os.Remove(path))
-			case "corrupt":
-				require.NoError(t, os.WriteFile(path, []byte("damaged before plan"), 0o600))
-			}
-			before := treeBytes(t, root)
-			secret := filepath.Join(t.TempDir(), "replacement")
-			args := []string{"maintenance", "restore-backup", artifact.ID, "--data-dir", root, "--secret-output", secret, "--json"}
-			stdout := new(bytes.Buffer)
-			command := newTestRootCmd(t)
-			command.SetOut(stdout)
-			command.SetErr(new(bytes.Buffer))
-			command.SetArgs(append(append([]string{}, args...), "--dry-run"))
-			require.NoError(t, command.ExecuteContext(t.Context()))
-			require.Contains(t, stdout.String(), "omitted-not-verified")
-			require.NotContains(t, stdout.String(), "Current traffic integrity is not verified")
-			require.Equal(t, before, treeBytes(t, root))
-			stderr := &planChangeWriter{change: func() {
-				if state == "selector" {
-					db, err := sql.Open("sqlite3", "file:"+filepath.Join(root, gatewaypaths.DatabaseName)+"?mode=rw")
-					require.NoError(t, err)
-					_, err = db.ExecContext(t.Context(), `UPDATE traffic_selection SET generation=NULL WHERE singleton=1`)
-					require.NoError(t, err)
-					_, err = db.ExecContext(t.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
-					require.NoError(t, err)
-					require.NoError(t, db.Close())
-					return
-				}
-				require.NoError(t, os.WriteFile(path, []byte("material change after plan"), 0o600))
-			}}
-			stdout.Reset()
-			command = newTestRootCmd(t)
-			command.SetOut(stdout)
-			command.SetErr(stderr)
-			command.SetArgs(append(args, "--confirm"))
-			if state == "selector" {
-				require.Error(t, command.ExecuteContext(t.Context()))
-				require.Contains(t, stderr.String(), "plan_changed")
-				require.Empty(t, stdout.String())
-				_, err = os.Stat(secret)
-				require.ErrorIs(t, err, os.ErrNotExist)
-				return
-			}
-			require.NoError(t, command.ExecuteContext(t.Context()))
-			require.Contains(t, stdout.String(), `"history":"omitted-not-verified"`)
-			retained, err := os.ReadFile(path)
-			require.NoError(t, err)
-			require.Equal(t, "material change after plan", string(retained))
-			_, err = os.Stat(secret)
-			require.NoError(t, err)
-			installed, err := storage.VerifyBackup(t.Context(), filepath.Join(root, gatewaypaths.DatabaseName))
-			require.NoError(t, err)
-			require.Empty(t, installed.TrafficGeneration)
 		})
 	}
 }

@@ -169,7 +169,7 @@ func testCLIAndRecoveryGuidesOwnDetailedContracts(t *testing.T) {
 	}
 	recovery := read("docs/operators/backup-and-recovery.md")
 	for _, phrase := range []string{
-		"Gateway must be stopped", "invalidates every restored agent credential", "does not rewrite the default `admin-bearer`",
+		"Gateway must be stopped", "Existing artifacts are untouched", "does not rewrite the default `admin-bearer`", "init --from", "no aliases or compatibility endpoints",
 	} {
 		assert.Contains(t, recovery, phrase)
 	}

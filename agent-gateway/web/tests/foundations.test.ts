@@ -298,7 +298,7 @@ export async function assertViewGenerationFoundation(): Promise<void> {
   coordinator.registerPanel<string>({
     id: "b",
     matches: () => true,
-    invalidations: ["backups"],
+    invalidations: ["servers"],
     pollMilliseconds: 40,
     read: async () => {
       bCalls += 1;
@@ -711,9 +711,9 @@ export async function assertMutationFoundation(): Promise<void> {
   const routeValidation = coordinator.create<string>();
   routeValidation.begin(
     mutationSpec({
-      route: "/api/v2/backups",
+      route: "/api/v2/mcp/servers",
       body: "{}",
-      idempotency: "backup_create",
+      idempotency: "server_create",
     }),
   );
   routeValidation.abandon();

@@ -387,7 +387,6 @@ func partitionLifecycleCommands(moduleRoot string, inventory SuiteInventory, com
 	return result, nil
 }
 
-// Keep audit and invocation away from backup's parallel restore fixtures.
 // The third shard carries composition and credential authority to bound the
 // measured second-shard critical path without increasing per-runner concurrency.
 // All other and newly discovered packages go to shard two: this is a partition,

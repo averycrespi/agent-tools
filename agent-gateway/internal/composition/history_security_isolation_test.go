@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -13,7 +11,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
@@ -77,43 +74,4 @@ func TestSecurityFaultsRemainClosedWhileHistoryOpeningStalls(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSecurityBackupCompletesBeforeHistoryOpenerSettles(t *testing.T) {
-	options, cleanup := newCompositionOptions(t)
-	defer cleanup()
-	entered, release := make(chan struct{}), make(chan struct{})
-	unblock := sync.OnceFunc(func() { close(release) })
-	built, err := newWithHooks(options, constructorHooks{openTraffic: func(ctx context.Context, owner *gatewaypaths.Ownership, installation, generation string, config invocation.TrafficConfig) (*invocation.TrafficStore, error) {
-		close(entered)
-		<-release
-		return invocation.OpenTraffic(ctx, owner, installation, generation, config)
-	}})
-	require.NoError(t, err)
-	defer func() { unblock(); built.shutdownConstructed() }()
-	select {
-	case <-entered:
-	case <-time.After(time.Second):
-		t.Fatal("opener did not enter")
-	}
-	manager, err := backup.New(backup.Options{Ownership: options.Ownership, Store: options.Store, Layout: options.Ownership.Layout(), Clock: options.Clock, Entropy: options.Entropy})
-	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(audit.WithSystem(t.Context()), 5*time.Second)
-	defer cancel()
-	artifact, _, err := manager.Create(ctx, "isolation-owner", "opening-history")
-	require.NoError(t, err)
-	require.Equal(t, "omitted", artifact.History)
-	require.Equal(t, "opening", built.traffic.Status(ctx).State)
-	identity, err := storage.VerifyBackup(ctx, filepath.Join(options.Ownership.Layout().Backups, artifact.ID, "gateway.db"))
-	require.NoError(t, err)
-	selected, err := options.Store.SelectedTraffic(ctx)
-	require.NoError(t, err)
-	require.Equal(t, selected, identity.TrafficGeneration, "backup copies control selection; restore disables omitted history")
-	_, err = os.Stat(filepath.Join(options.Ownership.Layout().Backups, artifact.ID, "traffic.db"))
-	require.ErrorIs(t, err, os.ErrNotExist)
-	require.False(t, options.Store.Latched())
-	// Finishing the backup did not transfer installation ownership from the opener.
-	_, err = gatewaypaths.AcquireStoppedExisting(options.Ownership.Layout().Root)
-	require.ErrorIs(t, err, gatewaypaths.ErrInUse)
-	unblock()
 }

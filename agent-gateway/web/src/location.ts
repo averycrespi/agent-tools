@@ -72,7 +72,7 @@ const systemTabs = new Set([
   "resource-limits",
   "needs-attention",
   "admin-credentials",
-  "backups",
+  "history",
 ]);
 function isGatewayID(value: string): boolean {
   return gatewayID.test(value);
@@ -569,7 +569,7 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
       return location("system", segments, query);
     if (
       segments.length === 3 &&
-      (second === "backups" || second === "admin-credentials") &&
+      second === "admin-credentials" &&
       segments[2] === "new" &&
       noQuery
     )

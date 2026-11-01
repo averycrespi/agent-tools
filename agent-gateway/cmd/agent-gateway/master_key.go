@@ -20,7 +20,7 @@ func newRotateMasterKeyCmd(dependencies offlineDependencies) *cobra.Command {
 	const usage = "agent-gateway maintenance rotate-master-key --retain-recovery-keys"
 	command := &cobra.Command{
 		Use: "rotate-master-key", Short: "Rotate the installation master key",
-		Long:    "Re-encrypt all current protected material under a fresh master key while preserving credential authority and CA identity. Requires exclusive stopped ownership and --retain-recovery-keys: both keys remain in an owner-only recovery directory outside backups. Older backups still need their original key. Safeguard retained keys separately; no key is silently destroyed. --recover reconciles an interrupted cutover without replaying encryption. Rotation cannot protect stolen copies; compromise may require upstream credential and CA replacement.",
+		Long:    "Re-encrypt all current protected material under a fresh master key while preserving credential authority and CA identity. Requires exclusive stopped ownership and --retain-recovery-keys: both keys remain in an owner-only recovery directory. Retained historical artifacts are untouched; this binary provides no backup restoration. Safeguard retained keys separately; no key is silently destroyed. --recover reconciles an interrupted cutover without replaying encryption. Rotation cannot protect stolen copies; compromise may require upstream credential and CA replacement.",
 		Example: "  " + usage + " --dry-run\n  " + usage + " --confirm\n  " + usage + " --recover --dry-run",
 	}
 	fail := func(message string) error {
@@ -34,7 +34,7 @@ func newRotateMasterKeyCmd(dependencies offlineDependencies) *cobra.Command {
 	}
 	command.RunE = func(command *cobra.Command, _ []string) error {
 		if !retain {
-			return fail("Use --retain-recovery-keys to acknowledge separate custody of superseded keys needed by older backups.")
+			return fail("Use --retain-recovery-keys to acknowledge separate custody of superseded recovery keys.")
 		}
 		if (installation != "" || command.Flags().Changed("installation-id")) && !contract.ValidAuditID(installation) {
 			return fail("The --installation-id must be a valid installation ID.")
@@ -54,7 +54,7 @@ func newRotateMasterKeyCmd(dependencies offlineDependencies) *cobra.Command {
 			if installation != "" && installation != snapshot.Identity.InstallationID {
 				return composition.ErrCAIdentity
 			}
-			action := "Re-encrypt current secrets with a fresh key; preserve authority and CA identity; retain both recovery keys separately from unchanged backups."
+			action := "Re-encrypt current secrets with a fresh key; preserve authority and CA identity; retain both recovery keys without changing historical artifacts."
 			if recoverPending {
 				action = "Reconcile the observed committed key identity only; retain both keys and never replay encryption. An uncommitted candidate is abandoned permanently."
 			}
@@ -84,7 +84,7 @@ func newRotateMasterKeyCmd(dependencies offlineDependencies) *cobra.Command {
 			Disposition    string `json:"disposition"`
 			RetainedKeys   string `json:"retained_keys"`
 		}{true, result.Identity.InstallationID, result.Disposition, result.Retained}
-		return offlineResult(command, jsonOutput, output, "Master-key operation completed: "+result.Disposition+"\nRetained recovery keys: "+result.Retained+"\nSafeguard these keys separately from backups; older backups require their original key.")
+		return offlineResult(command, jsonOutput, output, "Master-key operation completed: "+result.Disposition+"\nRetained recovery keys: "+result.Retained+"\nSafeguard these retained keys; no historical artifacts were changed.")
 	}
 	command.Flags().BoolVar(&retain, "retain-recovery-keys", false, "acknowledge separate custody of retained recovery keys")
 	command.Flags().BoolVar(&recoverPending, "recover", false, "reconcile a pending cutover without replaying encryption")

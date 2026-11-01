@@ -104,7 +104,7 @@ func InspectClosedInstallation(ctx context.Context, layout gatewaypaths.Layout, 
 	if err := RequireClosedGeneration(layout.Database); err != nil {
 		return Inspection{}, err
 	}
-	identity, err := VerifyBackup(ctx, layout.Database)
+	identity, err := InspectClosedDatabase(ctx, layout.Database)
 	if err != nil {
 		return Inspection{}, err
 	}

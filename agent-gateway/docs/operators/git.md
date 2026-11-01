@@ -92,7 +92,7 @@ agent-gateway git credential rotate CREDENTIAL_ID --file /private/rotation.json 
 
 Metadata updates contain complete metadata without `secret`; rotation files contain only `secret`. Supply real material through owner-only private files or protected stdin, never argv/environment, host helper execution or credential-store scanning. Do not save plaintext secrets in source, ordinary backups or browser storage. Gateway does not remove your source files.
 
-Selected unavailable material never falls back to public access or an old generation. Every retained repository reference, including deleted configuration, blocks credential deletion or incompatible origin/recipe changes. Format-4 restore recovers encrypted upstream material **as of backup time**, including subsequently rotated/deleted secrets, without proving upstream validity. Legacy recovery does not recover native secrets. Every restore invalidates administrator and agent access tokens; follow [recovery](backup-and-recovery.md#restore-a-backup).
+Selected unavailable material never falls back to public access or an old generation. Every retained repository reference, including deleted configuration, blocks credential deletion or incompatible origin/recipe changes. Installation-snapshot backup/restore is removed. Historical artifacts and keys can retain retired secrets and must remain protected; follow [artifact preservation](backup-and-recovery.md#backup-and-restore-removal).
 
 ## Client handoff and first read-only check
 
@@ -141,7 +141,7 @@ agent-gateway git traffic get TRAFFIC_ID
 
 **Admission**, **Transport**, and **Upstream report** answer different questions. Allowed does not mean dispatched; HTTP 200 and clean transfer do not mean push success. HTTP 401/403 are failures even with completed transport. A supported receive-pack report can claim success, failure or partial success, but Gateway does not independently verify repository effects. Missing, malformed, interrupted, oversized or unsupported reports remain unknown, including a partial report missing a requested command. An unexpectedly encoded push response is relayed but not interpreted; ordinary HTTP encoding is unchanged.
 
-Evidence pins configured destination, revisions, bounded grant references and operation counts at admission. Push details retain at most eight targeted refs and 1,536 encoded bytes; omitted refs/outcomes are unavailable, and known per-ref results remain upstream claims. Later edits never rewrite history. OIDs, packs, headers, command fingerprints, arbitrary upstream messages and secrets are not persisted. Current control backups omit Git history; use [separate export](backup-and-recovery.md#export-optional-history).
+Evidence pins configured destination, revisions, bounded grant references and operation counts at admission. Push details retain at most eight targeted refs and 1,536 encoded bytes; omitted refs/outcomes are unavailable, and known per-ref results remain upstream claims. Later edits never rewrite history. OIDs, packs, headers, command fingerprints, arbitrary upstream messages and secrets are not persisted. Use [history export](backup-and-recovery.md#export-optional-history).
 
 For an uncertain push, inspect the native result and independently read the relevant authoritative remote refs before deciding on a new operation. Missing completion or a persistence failure never proves rollback or safe retry.
 

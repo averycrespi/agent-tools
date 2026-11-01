@@ -18,7 +18,7 @@ import (
 
 func TestBrowserCapabilityAudit(t *testing.T) {
 	rows := contract.ControlPlaneCapabilityManifest()
-	require.Len(t, rows, 46)
+	require.Len(t, rows, 43)
 	ids, scenarios := map[string]struct{}{}, map[string]struct{}{}
 	mechanics := strings.Builder{}
 	for _, row := range rows {
@@ -37,7 +37,7 @@ func TestBrowserCapabilityAudit(t *testing.T) {
 		assert.Contains(t, mechanics.String(), marker)
 	}
 	lifecycle := contract.ControlPlaneLifecycleManifest()
-	require.Len(t, lifecycle, 9)
+	require.Len(t, lifecycle, 8)
 	for _, row := range lifecycle[4:] {
 		assert.Empty(t, row.WebScenario, "CLI/offline capability must have no web owner")
 	}

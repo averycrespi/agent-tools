@@ -2,12 +2,10 @@ package invocation
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,40 +103,27 @@ func TestGitTrafficLateRowValidation(t *testing.T) {
 		})
 	}
 }
-func TestGitTrafficPairedRestorePreservesAllDomains(t *testing.T) {
+func TestGitTrafficRestartPreservesAllDomains(t *testing.T) {
 	s, owner := trafficFixture(t, nil, nil)
-	control, err := storage.Initialize(t.Context(), owner, invocationTestInstallationID)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, control.Close()) }()
-	require.NoError(t, control.SelectTraffic(t.Context(), "", invocationID(90)))
 	recordMCP(t, s, trafficPrepared(1))
 	recordHTTP(t, s, httpTrafficAdmission(2))
 	g := recordGit(t, s, gitTrafficAdmission(3))
 	recordGitCompletion(t, s, g, gitTrafficCompletion())
 	recordGit(t, s, gitTrafficAdmission(4))
-	root := t.TempDir()
-	source := filepath.Join(root, "traffic.db")
-	s.writerGate.Lock()
-	busy := s.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), source)
-	s.writerGate.Unlock()
-	require.ErrorIs(t, busy, ErrTrafficCapacity)
-	require.NoError(t, s.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), source))
 	require.NoError(t, s.Close())
-	require.NoError(t, VerifyTrafficFile(t.Context(), source, invocationTestInstallationID, invocationID(90), s.config))
-	require.NoError(t, RestoreTraffic(t.Context(), owner, source, invocationTestInstallationID, invocationID(90), invocationID(91), s.config))
-	restored, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(91), s.config)
+	reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), s.config)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, restored.Close()) }()
-	history, err := restored.GitHistory(t.Context(), 0, 10)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	history, err := reopened.GitHistory(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history.Records, 2)
 	require.Equal(t, gitTrafficCompletion(), *history.Records[0].Completion)
 	require.Nil(t, history.Records[1].Completion)
 	require.Equal(t, int64(4), history.HighWater)
-	mh, err := restored.History(t.Context(), 0, 10)
+	mh, err := reopened.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, mh.Records, 1)
-	hh, err := restored.HTTPHistory(t.Context(), 0, 10)
+	hh, err := reopened.HTTPHistory(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, hh.Records, 1)
 }

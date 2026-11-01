@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHTTPProxyEncryptedCustodyRestartBackupAndKeyLoss(t *testing.T) {
+func TestHTTPProxyEncryptedCustodyRestartAndKeyLoss(t *testing.T) {
 	h := newGatewayHarness(t)
 	binary := gatewayBinary(t)
 	h.binary = binary
@@ -31,13 +31,6 @@ func TestHTTPProxyEncryptedCustodyRestartBackupAndKeyLoss(t *testing.T) {
 	credential := h.IssueCredential(principal)
 	putProxyTestGrant(t, h, principal.Resource.ID, contract.HTTPPolicy{Version: 1, Type: contract.HTTPBlockDestination, Destination: &contract.HTTPDestinationSelector{Host: "example.invalid", Port: 443}})
 	h.Restart()
-	created := h.adminSnapshotWithHeaders("POST", "/api/v2/backups", []byte(`{}`), map[string]string{"Idempotency-Key": "encrypted-custody"})
-	require.Equal(t, http.StatusCreated, created.StatusCode)
-	var artifact contract.Backup
-	require.NoError(t, json.Unmarshal(created.Body, &artifact))
-	require.NotEmpty(t, artifact.ID)
-	require.Equal(t, "omitted", artifact.History)
-	require.Equal(t, "no-store", created.Header.Get("Cache-Control"))
 	require.Equal(t, http.StatusOK, h.ModernList(credential.Bearer, json.RawMessage(`"still-current"`), "").StatusCode)
 	h.Stop(syscall.SIGTERM)
 	h.Start()

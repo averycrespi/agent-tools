@@ -27,12 +27,9 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 
 	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
 	admins := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "list", "--limit", "10", "--output", "json")
-	backupResult := runOnlineCLI(t, harness, bearerPath, true, "backup", "create", "--idempotency-key", "m10-backup", "--output", "json")
 	principalResult := runOnlineCLI(t, harness, bearerPath, true, "agent", "create", "--display-name", "M10 principal", "--visibility", "all", "--output", "json")
-	results = append(results, status, admins, backupResult, principalResult)
-	var backup contract.Backup
+	results = append(results, status, admins, principalResult)
 	var principalCreation contract.PrincipalCreation
-	require.NoError(t, json.Unmarshal(backupResult.Stdout, &backup))
 	require.NoError(t, json.Unmarshal(principalResult.Stdout, &principalCreation))
 	principalID := principalCreation.Principal.ID
 	principalETag := contract.PrincipalETag(principalID, principalCreation.Principal.Revision)
@@ -62,8 +59,7 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 
 	grantDeleted := runOnlineCLI(t, harness, bearerPath, true, "mcp", "grant", "delete", grant.ID, "--yes", "--output", "json")
 	credentialRevoked := runOnlineCLI(t, harness, bearerPath, true, "agent", "credential", "revoke", principalID, "--etag", principalETag, "--yes", "--output", "json")
-	backupDeleted := runOnlineCLI(t, harness, bearerPath, true, "backup", "delete", backup.ID, "--yes", "--output", "json")
-	results = append(results, grantDeleted, credentialRevoked, backupDeleted)
+	results = append(results, grantDeleted, credentialRevoked)
 
 	harness.Stop(syscall.SIGTERM)
 	secret := strings.TrimSpace(string(agentBearer))

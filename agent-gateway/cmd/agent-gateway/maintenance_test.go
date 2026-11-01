@@ -212,7 +212,7 @@ func TestMigrationDryRunRequiresIdentityAndPreservesGeneration(t *testing.T) {
 }
 
 func TestRetiredOfflineGrammarIsAbsent(t *testing.T) {
-	for _, args := range [][]string{{"status"}, {"principal", "list"}, {"storage", "verify"}, {"admin", "reset"}, {"backup", "restore"}, {"http", "ca", "create"}} {
+	for _, args := range [][]string{{"status"}, {"principal", "list"}, {"storage", "verify"}, {"admin", "reset"}, {"backup", "restore"}, {"backup", "create"}, {"backup", "list"}, {"backup", "get"}, {"backup", "delete"}, {"maintenance", "restore-backup"}, {"http", "ca", "create"}} {
 		command := newRootCmd()
 		command.SetOut(new(bytes.Buffer))
 		command.SetErr(new(bytes.Buffer))

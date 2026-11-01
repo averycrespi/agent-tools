@@ -40,7 +40,7 @@ Never delete, rename, rewrite or copy a tombstone as naming cleanup. The record 
 
 Retain historical backups/reports, archived plists outside automatic-load paths, logs, staging/rollback material, native-keyring generations and recovery/intent markers. Binary/configuration rollback keeps the same authoritative destination root and tombstone; never restore an archived plist's old source argument or make a runnable clone. Run only one service owner.
 
-Installation IDs, database/backup lineage, lock filenames, credential prefixes/verifiers, native-keyring identifiers and MCP identities remain compatibility contracts. Use [backup and recovery](backup-and-recovery.md) only for actual recovery: `maintenance verify-and-recover-storage` can clear recognized markers, while `maintenance restore-backup` replaces administrator authority and invalidates agent credentials. Neither is a naming repair.
+Installation IDs, database/backup lineage, lock filenames, credential prefixes/verifiers, native-keyring identifiers and MCP identities remain compatibility contracts. Use [stopped recovery](backup-and-recovery.md) only for actual recovery: `maintenance verify-and-recover-storage` can clear recognized markers, never as a naming repair. Installation-snapshot backup/restore is removed without touching historical artifacts.
 
 ## Retired executable and operator cleanup
 

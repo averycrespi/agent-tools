@@ -91,25 +91,6 @@ func TestAuditSettlementSurvivesEffectCancellation(t *testing.T) {
 	assert.Equal(t, page.Items[0].CorrelationID, page.Items[1].CorrelationID)
 }
 
-func TestAuditReplacementGenerationRollsBackWithoutEvidence(t *testing.T) {
-	store, repository := fixture(t)
-	ctx := t.Context()
-	before, err := repository.List(ctx, audit.Query{Limit: 1})
-	require.NoError(t, err)
-	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
-		_, err := tx.ExecContext(ctx, `CREATE TRIGGER reject_restore_audit BEFORE INSERT ON control_audit_events BEGIN SELECT RAISE(ABORT, 'injected'); END`)
-		return err
-	}))
-	attempt, err := audit.NewAttempt(audit.WithOffline(ctx), time.Now(), "backup", "restore", contract.AuditTarget{Type: "backup", ID: credentialID})
-	require.NoError(t, err)
-	err = store.Mutate(ctx, func(tx *sql.Tx) error { return audit.ReplaceHistoryTx(ctx, tx, attempt) })
-	require.Error(t, err)
-	after, err := repository.List(ctx, audit.Query{Limit: 1})
-	require.NoError(t, err)
-	assert.Equal(t, before.History, after.History)
-	assert.Equal(t, before.Items, after.Items)
-}
-
 func TestAuditAppendOrderingCorrelationAndAtomicFailure(t *testing.T) {
 	store, repository := fixture(t)
 	ctx := t.Context()

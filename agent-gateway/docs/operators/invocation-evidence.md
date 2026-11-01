@@ -140,7 +140,7 @@ terminal evidence. Control-storage uncertainty still blocks traffic authority.
 
 The browser labels this evidence **Captured arguments**; an empty object appears as **Captured arguments · Empty**, distinct from an absent capture. A JSON value is the compact historical capture after fixed recursive sensitive-key redaction. `[REDACTED]` replaces a value whose field name matched the recognized key set; other secrets may remain visible, so inspect the capture only when operationally necessary. `[TRUNCATED]` means the redacted capture exceeded the 8 KiB compact bound and argument content was not retained. An absent capture means redaction or encoding did not produce evidence; Gateway retained no raw fallback. This is defense in depth, not guaranteed secret detection, and the capture is not necessarily the exact original request. Callers must not submit secrets where the tool contract does not require them.
 
-Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Only the closed, validated failure diagnostic subset (at most 512 bytes) is additionally retained with a failed terminal annotation; it contains no free-text errors or payloads. Current format-4 control backups omit all traffic history. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
+Successful content, `structuredContent`, unsuccessful content, raw errors, downstream request IDs, bearers, and unredacted arguments are never persisted. Only the closed, validated failure diagnostic subset (at most 512 bytes) is additionally retained with a failed terminal annotation; it contains no free-text errors or payloads. Collections omit captures to reduce disclosure; inspect one item only when the operational need justifies it.
 
 To retain a bounded history page separately:
 
@@ -148,7 +148,7 @@ To retain a bounded history page separately:
 agent-gateway history export --limit 256 --json
 ```
 
-Save output privately. Each `--after-sequence` request reads a new snapshot, not a complete forensic audit. Follow [history export](backup-and-recovery.md#export-optional-history) for generation/high-water checks, pagination and browser download; the recovery guide also preserves historical backup-format distinctions.
+Save output privately. Each `--after-sequence` request reads a new snapshot, not a complete forensic audit. Follow [history export](backup-and-recovery.md#export-optional-history) for generation/high-water checks, pagination and browser download; the recovery guide also documents backup/restore removal and historical artifact preservation.
 
 ## Follow live updates safely
 

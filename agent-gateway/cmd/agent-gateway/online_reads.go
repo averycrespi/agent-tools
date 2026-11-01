@@ -55,21 +55,6 @@ func runOnlineCommand(command *cobra.Command, spec onlineCommandSpec, options *o
 		return runAdminCredentialRotate(command, options, args)
 	case "admin credential revoke":
 		return runAdminCredentialRevoke(command, options, args)
-	case "backup list":
-		path, err := controlclient.BuildListPath("/api/v2/backups", controlclient.ListOptions{Limit: options.limit, Cursor: options.cursor})
-		if err != nil {
-			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
-		}
-		return runOnlineRead(command, options, path, backupListTable)
-	case "backup get":
-		if len(args) != 1 || !gatewayIDPattern.MatchString(args[0]) {
-			return writeOnlineFailure(command, options.output, controlclient.NewInputError("The backup ID is invalid."))
-		}
-		return runOnlineRead(command, options, "/api/v2/backups/"+args[0], backupItemTable)
-	case "backup create":
-		return runBackupCreate(command, options)
-	case "backup delete":
-		return runBackupDelete(command, options, args)
 	case "mcp invocation list":
 		path, err := invocationListPath(options)
 		if err != nil {
@@ -412,15 +397,10 @@ func statusTable(body []byte) (controlclient.Table, error) {
 	if err := controlclient.DecodeResponse(body, &status); err != nil {
 		return controlclient.Table{}, err
 	}
-	lastBackup := "never"
-	if status.Backup.LastCompletedAt != nil {
-		lastBackup = *status.Backup.LastCompletedAt
-	}
 	rows := [][]string{
 		{"process", string(status.Process.State), fmt.Sprintf("ready=%t started_at=%s", status.Process.Ready, status.Process.StartedAt)},
 		{"sqlite", string(status.SQLite.State), fmt.Sprintf("schema=%s revision=%s latched=%t", status.SQLite.SchemaVersion, status.SQLite.Revision, status.SQLite.Latched)},
 		{"keyring", string(status.Keyring.Capability), "OS-managed capability; later operations may still interact or fail"},
-		{"backup", string(status.Backup.State), "last_completed_at=" + lastBackup},
 		{"protocols", string(status.Protocols.AgentAuth), fmt.Sprintf("modern=%s legacy=%s", status.Protocols.Modern, status.Protocols.Legacy)},
 	}
 	if proxy := status.HTTPProxy; proxy != nil {
@@ -524,8 +504,8 @@ func statusLimits(limits contract.LimitsStatus) []namedLimit {
 	return []namedLimit{
 		{"http_regular", limits.HTTPRegular}, {"http_control_auth", limits.HTTPControlAuth}, {"http_admin", limits.HTTPAdmin}, {"http_health", limits.HTTPHealth},
 		{"mcp_work", limits.MCPWork}, {"mcp_streams", limits.MCPStreams}, {"admin_sessions", limits.AdminSessions}, {"legacy_sessions", limits.LegacySessions},
-		{"event_streams", limits.EventStreams}, {"backup_work", limits.BackupWork}, {"backup_records", limits.BackupRecords}, {"admin_credentials", limits.AdminCredentials},
-		{"idempotency_records", limits.IdempotencyRecords}, {"keyring_candidates", limits.KeyringCandidates}, {"keyring_work", limits.KeyringWork}, {"database_bytes", limits.DatabaseBytes},
+		{"event_streams", limits.EventStreams}, {"admin_credentials", limits.AdminCredentials},
+		{"keyring_candidates", limits.KeyringCandidates}, {"keyring_work", limits.KeyringWork}, {"database_bytes", limits.DatabaseBytes},
 		{"server_identities", limits.ServerIdentities}, {"servers", limits.Servers}, {"downstream_runtimes", limits.DownstreamRuntimes}, {"server_reconciliations", limits.ServerReconciliations},
 		{"catalog_traversals", limits.CatalogTraversals}, {"oauth_flows", limits.OAuthFlows}, {"oauth_callback_work", limits.OAuthCallbackWork}, {"server_idempotency_records", limits.ServerIdempotencyRecords},
 		{"active_tools", limits.ActiveTools}, {"durable_tool_identities", limits.DurableToolIdentities}, {"downstream_dispatch", limits.DownstreamDispatch}, {"principals", limits.Principals},

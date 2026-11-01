@@ -27,7 +27,7 @@ func TestOpenMigratesPopulatedSchemaEightWithoutChangingAuthorityFacts(t *testin
 	ownership := newOwnership(t)
 	writePopulatedSchemaEightFixture(t, ctx, ownership)
 
-	identity, err := VerifyBackup(ctx, ownership.Layout().Database)
+	identity, err := InspectClosedDatabase(ctx, ownership.Layout().Database)
 	require.NoError(t, err)
 	assert.Equal(t, 8, identity.SchemaVersion)
 
