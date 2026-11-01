@@ -18,6 +18,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type declinedImportConfirmation struct{ calls int }
+
+func (prompt *declinedImportConfirmation) Confirm(string) (bool, error) {
+	prompt.calls++
+	return false, nil
+}
+
 const cliImportDocument = `{"format":"agent-gateway-config","version":1,"agents":[],"mcp":{"servers":[],"grants":[]},"http":{"credentials":[],"grants":[]},"git":{"credentials":[],"repositories":[],"grants":[],"routing_origins":[]}}`
 
 func TestInitFromValidatesBeforeFilesAndRequiresDefaultNoConsent(t *testing.T) {
@@ -94,6 +101,76 @@ func TestInitFromCreatesFreshInstallationAndKeepsSourceUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, complete)
 	require.NotEmpty(t, plan.ImportDigest)
+}
+
+func TestInitCompletedImportCleanupRequiresConsentAndReportsChanges(t *testing.T) {
+	for _, inputState := range []string{"present", "absent"} {
+		t.Run(inputState, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "gateway")
+			source := filepath.Join(t.TempDir(), "config.json")
+			require.NoError(t, os.WriteFile(source, []byte(cliImportDocument), 0600))
+			initial := newTestRootCmd(t)
+			initial.SetOut(new(bytes.Buffer))
+			initial.SetErr(new(bytes.Buffer))
+			initial.SetArgs([]string{"init", "--from", source, "--confirm", "--data-dir", root})
+			require.NoError(t, initial.ExecuteContext(t.Context()))
+			evidence := filepath.Join(root, gatewaypaths.InitializationName)
+			require.NoError(t, os.Remove(filepath.Join(evidence, "input-removed")))
+			if inputState == "present" {
+				require.NoError(t, os.WriteFile(filepath.Join(evidence, "input"), []byte(cliImportDocument), 0600))
+			}
+			before := treeBytes(t, root)
+			for _, consent := range []string{"noninteractive", "declined"} {
+				t.Run(consent, func(t *testing.T) {
+					command := newTestRootCmd(t)
+					var prompt *declinedImportConfirmation
+					if consent == "declined" {
+						prompt = &declinedImportConfirmation{}
+						command = newRootCmdWithDependencies(offlineDependencies{clock: systemClock{}, entropy: rand.Reader, newComposition: composition.New, initializationConfirmation: prompt})
+					}
+					stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
+					command.SetOut(stdout)
+					command.SetErr(stderr)
+					command.SetIn(strings.NewReader(""))
+					command.SetArgs([]string{"init", "--resume", "--json", "--data-dir", root})
+					require.Error(t, command.ExecuteContext(t.Context()))
+					require.Empty(t, stdout.String())
+					require.Contains(t, stderr.String(), `"cleanup_import_input":true`)
+					require.Equal(t, before, treeBytes(t, root), "no consent must preserve actual input and cleanup evidence")
+					if prompt != nil {
+						require.Equal(t, 1, prompt.calls)
+					}
+				})
+			}
+			command := newTestRootCmd(t)
+			stdout := new(bytes.Buffer)
+			command.SetOut(stdout)
+			command.SetErr(new(bytes.Buffer))
+			command.SetArgs([]string{"init", "--resume", "--confirm", "--json", "--data-dir", root})
+			require.NoError(t, command.ExecuteContext(t.Context()))
+			require.Contains(t, stdout.String(), `"changed":true`)
+			require.Contains(t, stdout.String(), `"state":"import_cleanup_complete"`)
+			require.Contains(t, stdout.String(), `"admin_bearer_file"`)
+			require.Contains(t, stdout.String(), `"certificate_path"`)
+			require.Contains(t, stdout.String(), "agent credential issue ID")
+			require.Contains(t, stdout.String(), "source CA trust does not transfer")
+			_, err := os.Lstat(filepath.Join(evidence, "input"))
+			require.ErrorIs(t, err, os.ErrNotExist)
+			proof, err := os.ReadFile(filepath.Join(evidence, "input-removed"))
+			require.NoError(t, err)
+			require.Len(t, proof, 64)
+			after := treeBytes(t, root)
+			command = newTestRootCmd(t)
+			stdout = new(bytes.Buffer)
+			command.SetOut(stdout)
+			command.SetErr(new(bytes.Buffer))
+			command.SetIn(strings.NewReader(""))
+			command.SetArgs([]string{"init", "--resume", "--json", "--data-dir", root})
+			require.NoError(t, command.ExecuteContext(t.Context()))
+			require.Contains(t, stdout.String(), `"changed":false`)
+			require.Equal(t, after, treeBytes(t, root))
+		})
+	}
 }
 
 func TestInitCompletedImportResumeConfirmsMissingInputDeletionBeforeNoop(t *testing.T) {

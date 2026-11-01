@@ -211,7 +211,11 @@ verifies committed imports instead of duplicating definitions/grants or replacin
 keys/CA/bearers. Missing/changed input, inconsistent committed configuration,
 partial publication and generic storage markers can refuse with diagnosis guidance.
 Only confirmed completion removes temporary retained input; keep the remaining
-initialization evidence. Repeated completed resume changes no authority.
+initialization evidence. If only temporary-input cleanup remains, resume previews
+that work and still requires default-no confirmation or `--confirm`; it reports a
+cleanup change, not “Nothing changed.” Once cleanup is confirmed, completed resume
+is an unchanged no-op without another confirmation, including while running.
+Repeated completed resume changes no authority.
 
 ## Confirmations and one-time values
 

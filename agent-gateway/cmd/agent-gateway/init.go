@@ -60,6 +60,12 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 	fail := func(message string) error {
 		return writeOfflineProblem(command, offlineMode(jsonOutput), offlineUsageProblem(message, "agent-gateway init [--from PATH | --resume] --confirm"))
 	}
+	confirmInit := func(consequence string) error {
+		if dependencies.initializationConfirmation != nil {
+			return controlclient.RequireConfirmation(controlclient.ConfirmationOptions{Yes: confirm, Consequence: consequence, Prompt: dependencies.initializationConfirmation})
+		}
+		return confirmOffline(command, confirm, consequence)
+	}
 	command.Args = func(_ *cobra.Command, args []string) error {
 		if len(args) != 0 {
 			return fail("Init accepts no positional arguments.")
@@ -129,17 +135,41 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 							return refused("Completed import cleanup evidence cannot be inspected.")
 						}
 						if removed == "" {
+							if err := offlinePlan(command, jsonOutput, map[string]any{"operation": "init", "data_dir": layout.Root, "resume": true, "cleanup_import_input": true}, "Target: "+controlclient.TerminalSafePath(layout.Root)+"\nProposed changes: confirm completion and remove temporary retained import input; configuration, keys and credentials remain unchanged"); err != nil {
+								return err
+							}
+							if err := confirmInit("Confirm completed import and remove its temporary retained input?"); err != nil {
+								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
+							}
 							owner, err := gatewaypaths.AcquireStoppedExisting(layout.Root)
 							if err != nil {
 								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
 							}
-							cleanup := dependencies.initializationCleanup
-							if cleanup == nil {
-								cleanup = gatewaypaths.RemoveInitializationInput
+							ownedPlan, ownedComplete, readErr := gatewaypaths.ReadInitialization(owner.Layout())
+							if readErr != nil || !ownedComplete || ownedPlan != plan {
+								_ = owner.Close()
+								return refused("Completed import evidence changed before cleanup; nothing was removed.")
 							}
-							cleanupErr := cleanup(owner)
-							if err := errors.Join(cleanupErr, owner.Close()); err != nil {
-								return refused("Import is complete but temporary input cleanup could not be confirmed.")
+							ownedProof, readErr := gatewaypaths.InitializationReceipt(owner.Layout(), "input-removed")
+							if readErr != nil {
+								_ = owner.Close()
+								return refused("Completed import cleanup evidence changed before cleanup.")
+							}
+							if ownedProof == "" {
+								cleanup := dependencies.initializationCleanup
+								if cleanup == nil {
+									cleanup = gatewaypaths.RemoveInitializationInput
+								}
+								cleanupErr := cleanup(owner)
+								if err := errors.Join(cleanupErr, owner.Close()); err != nil {
+									return refused("Import is complete but temporary input cleanup could not be confirmed.")
+								}
+								certificatePath := filepath.Join(layout.Root, gatewaypaths.PublicCertificateName)
+								tasks := importSetupTasks(doctor)
+								return offlineResult(command, jsonOutput, map[string]any{"ok": true, "operation": "init", "data_dir": layout.Root, "changed": true, "state": "import_cleanup_complete", "admin_bearer_file": plan.Bearer, "certificate_path": certificatePath, "next_command": serve, "setup_tasks": tasks}, "Gateway setup is complete. Temporary import input cleanup is confirmed.\nAdministrator bearer file: "+controlclient.TerminalSafePath(plan.Bearer)+"\nPublic certificate: "+controlclient.TerminalSafePath(certificatePath)+"\nStart: "+serve+"\nBrowser: http://127.0.0.1:8210 — sign in with the administrator bearer file"+tasks)
+							}
+							if err := owner.Close(); err != nil {
+								return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
 							}
 						}
 					}
@@ -223,7 +253,7 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 		if err := offlinePlan(command, jsonOutput, map[string]any{"operation": "init", "data_dir": layout.Root, "admin_bearer_file": bearerPath, "certificate_path": certificatePath, "resume": resume, "import_summary": strings.TrimSpace(importSummary)}, fmt.Sprintf("Target: %s\nProposed changes: %s\nAdministrator bearer file: %s\nPublic certificate: %s", controlclient.TerminalSafePath(layout.Root), description, controlclient.TerminalSafePath(bearerPath), controlclient.TerminalSafePath(certificatePath))+importSummary); err != nil {
 			return err
 		}
-		if err := confirmOffline(command, confirm, "Prepare this installation without starting services or installing client trust?"); err != nil {
+		if err := confirmInit("Prepare this installation without starting services or installing client trust?"); err != nil {
 			return writeOfflineProblem(command, offlineMode(jsonOutput), maintenanceProblem(err, layout.Root))
 		}
 		if fresh {
@@ -271,7 +301,7 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 		result := map[string]any{"ok": true, "operation": "init", "data_dir": layout.Root, "admin_bearer_file": bearerPath, "certificate_path": certificatePath, "fingerprint": fingerprint, "installation_id": identity.InstallationID, "revision": fmt.Sprint(identity.Revision), "next_command": serve, "changed": true}
 		setupTasks := ""
 		if plan.ImportDigest != "" {
-			setupTasks = "\nImported setup tasks: run " + doctor + " --verbose to identify unset credentials; after serve, supply HTTP/Git credential values and MCP static/client secrets, and authorize OAuth afresh. Use agent list and agent credential issue ID --secret-output NEW_PATH for each new agent bearer; old source tokens cannot authenticate. Use mcp server list, then mcp server operation start ID --kind reload to explicitly activate each intended-enabled imported server. Disabled servers require an explicit enable followed by reload. Configure clients with the new endpoint/bearers and explicitly adopt the new CA; source CA trust does not transfer."
+			setupTasks = importSetupTasks(doctor)
 			result["setup_tasks"] = setupTasks
 		}
 		return offlineResult(command, jsonOutput, result, "Gateway setup is complete.\nData directory: "+controlclient.TerminalSafePath(layout.Root)+"\nAdministrator bearer file: "+controlclient.TerminalSafePath(bearerPath)+"\nThe bearer cannot be shown again; retain its file securely.\nPublic certificate: "+controlclient.TerminalSafePath(certificatePath)+"\nFingerprint: "+fingerprint+"\nStart: "+serve+"\nBrowser: http://127.0.0.1:8210 — sign in with the administrator bearer file\nClients must explicitly trust the public CA certificate for HTTPS interception. No client trust or shell settings were installed."+setupTasks)
@@ -283,4 +313,8 @@ func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 	command.Flags().StringVar(&secretOutput, "secret-output", "", "initial bearer destination (default <data-dir>/admin-bearer; resume retains the recorded path)")
 	command.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return fail(offlineFlagMessage(err)) })
 	return command
+}
+
+func importSetupTasks(doctor string) string {
+	return "\nImported setup tasks: run " + doctor + " --verbose to identify unset credentials; after serve, supply HTTP/Git credential values and MCP static/client secrets, and authorize OAuth afresh. Use agent list and agent credential issue ID --secret-output NEW_PATH for each new agent bearer; old source tokens cannot authenticate. Use mcp server list, then mcp server operation start ID --kind reload to explicitly activate each intended-enabled imported server. Disabled servers require an explicit enable followed by reload. Configure clients with the new endpoint/bearers and explicitly adopt the new CA; source CA trust does not transfer."
 }
