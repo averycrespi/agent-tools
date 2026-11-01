@@ -36,7 +36,7 @@ func initializeConfiguration(ctx context.Context, owner *gatewaypaths.Ownership,
 		if digest != input.Digest {
 			return storage.ErrPlanChanged
 		}
-		if err := store.View(ctx, func(tx *sql.Tx) error { return configimport.VerifyReceiptTx(ctx, tx, input.Digest) }); err != nil {
+		if err := store.View(ctx, func(tx *sql.Tx) error { return verifyImportedConfigurationTx(ctx, tx, input.Digest) }); err != nil {
 			return err
 		}
 		return store.Checkpoint(ctx)
@@ -47,6 +47,9 @@ func initializeConfiguration(ctx context.Context, owner *gatewaypaths.Ownership,
 	}
 	if err := store.Mutate(ctx, func(tx *sql.Tx) error {
 		if err := configimport.StageTx(ctx, tx, input, func() (string, error) { return admin.NewID(clock.Now(), entropy) }, clock.Now(), targets); err != nil {
+			return err
+		}
+		if err := validateImportedRequestsTx(ctx, tx); err != nil {
 			return err
 		}
 		if fault != nil {
@@ -62,4 +65,11 @@ func initializeConfiguration(ctx context.Context, owner *gatewaypaths.Ownership,
 		}
 	}
 	return store.Checkpoint(ctx)
+}
+
+func verifyImportedConfigurationTx(ctx context.Context, tx *sql.Tx, digest string) error {
+	if err := validateImportedRequestsTx(ctx, tx); err != nil {
+		return err
+	}
+	return configimport.VerifyReceiptTx(ctx, tx, digest)
 }

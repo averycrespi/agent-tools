@@ -874,13 +874,13 @@ class Qualification(Smoke):
         require(not state['Running'] and state['ExitCode'] == 137, 'forced stop not observed')
         def snapshot():
             _, text = self.dc('run', '--rm', '--no-deps', '--entrypoint', 'python3', 'gateway',
-                              '-c', STOPPED_SNAPSHOT, '/var/lib/agent-gateway', timeout=60)
+                              '-c', STOPPED_SNAPSHOT, '/var/lib/agent-gateway', timeout=60, machine_json=True)
             return json.loads(text)
         before = snapshot()
         require(before['marker'], 'forced-stop marker absent')
         # A crash marker alone is not corruption: normal startup verifies integrity.
         # Stopped diagnostic inspection must neither remove it nor repair/reinitialize.
-        _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--verify-storage', '--json', check=False)
+        _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--verify-storage', '--json', check=False, machine_json=True)
         diagnostics = json.loads(text)
         require(any(check['name'] == 'process ownership' and check['state'] == 'stopped' for check in diagnostics['checks']), 'forced-stop ownership diagnostic absent')
         expected = 'failed' if before['control_pending'] else 'ok'
@@ -888,7 +888,7 @@ class Qualification(Smoke):
                     for check in diagnostics['checks']), 'forced-stop storage diagnostic did not match control sidecar state')
         require(snapshot() == before, 'stopped doctor changed installation evidence')
         code, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance',
-                             'verify-and-recover-storage', '--dry-run', '--json', timeout=60, check=False)
+                             'verify-and-recover-storage', '--dry-run', '--json', timeout=60, check=False, machine_json=True)
         require(snapshot() == before, 'stopped dry-run changed installation evidence')
         self.report['forced_stop_inspection'] = validate_stopped_plan(
             code, text, before['control_pending'], self.report['installation_identity'])

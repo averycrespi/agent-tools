@@ -3,6 +3,7 @@ package composition
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1147,6 +1148,12 @@ func (built *Composition) observeDrainFailure(owner string, err error) {
 	detail := diagnostics.Snapshot("lifecycle", "drain", owner, err)
 	detail.Effect = "settlement unconfirmed; no replay"
 	built.httpDiagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
+}
+
+// validateImportedRequestsTx keeps S5 access at the composition root inside the
+// supplied stopped transaction, without constructing live request services.
+func validateImportedRequestsTx(ctx context.Context, tx *sql.Tx) error {
+	return grantrequests.ValidateImportedEmptyTx(ctx, tx)
 }
 
 func (built *Composition) shutdownConstructed() {

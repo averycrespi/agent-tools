@@ -307,7 +307,7 @@ func inspectInitialization(ctx context.Context, owner *gatewaypaths.Ownership, p
 			if digest != plan.ImportDigest {
 				return storage.ErrPlanChanged
 			}
-			if err := configimport.VerifyReceiptTx(ctx, tx, plan.ImportDigest); err != nil {
+			if err := verifyImportedConfigurationTx(ctx, tx, plan.ImportDigest); err != nil {
 				return err
 			}
 		}

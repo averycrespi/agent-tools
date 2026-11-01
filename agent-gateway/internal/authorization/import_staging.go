@@ -134,10 +134,10 @@ func ValidateImportedConfiguration(value contract.ConfigExport) error {
 }
 
 // ImportedStageFactsTx binds the exact expired-policy exceptions and verifies
-// that no imported agent credential or pending request authority was installed.
+// that no imported agent credential authority was installed.
 func ImportedStageFactsTx(ctx context.Context, tx *sql.Tx) (string, error) {
 	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM principals WHERE credential_revision<>0 OR credential_id IS NOT NULL OR credential_verifier IS NOT NULL)+(SELECT count(*) FROM grant_requests)`).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM principals WHERE credential_revision<>0 OR credential_id IS NOT NULL OR credential_verifier IS NOT NULL`).Scan(&count); err != nil {
 		return "", err
 	}
 	if count != 0 {

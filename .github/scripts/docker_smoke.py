@@ -13,21 +13,49 @@ ROOT = Path(__file__).resolve().parents[2]
 COMPOSE = ROOT / "agent-gateway/examples/docker/compose.yaml"
 
 
-def command(args, *, env, timeout=30, check=True):
+def machine_json_text(code, stdout, stderr):
+    # Successful finite results own stdout. Failed CLI problems own the terminal
+    # stderr JSON line; earlier plans/Compose diagnostics are not that payload.
+    if stdout.strip():
+        text = stdout
+    elif code:
+        text = next((line for line in reversed(stderr.splitlines()) if line.strip()), '')
+    else:
+        raise RuntimeError('structured command returned no stdout; output withheld')
+    try:
+        json.loads(text)
+    except (ValueError, TypeError):
+        raise RuntimeError('structured command returned invalid JSON; output withheld') from None
+    return text
+
+
+def command(args, *, env, timeout=30, check=True, machine_json=False):
     # Keep child output off CI stdout: init/CLI must never become secret handoff sinks.
-    with tempfile.TemporaryFile() as output:
-        result = subprocess.run(args, env=env, stdout=output, stderr=subprocess.STDOUT,
+    with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as diagnostics:
+        result = subprocess.run(args, env=env, stdout=output,
+                                stderr=diagnostics if machine_json else subprocess.STDOUT,
                                 timeout=timeout, check=False)
         output.seek(0, os.SEEK_END)
         size = output.tell()
         output.seek(max(0, size - 16384))
-        text = output.read().decode("utf-8", errors="replace")
+        text = output.read().decode('utf-8', errors='replace')
+        diagnostics.seek(0, os.SEEK_END)
+        diagnostic_size = diagnostics.tell()
+        diagnostics.seek(max(0, diagnostic_size - 16384))
+        errors = diagnostics.read().decode('utf-8', errors='replace')
+        if diagnostic_size > 16384:
+            # Never accept a terminal problem reconstructed from a truncated line.
+            errors = errors.partition('\n')[2]
     if check and result.returncode:
         # Build has only allowlisted public source, never installation/credential state.
         # Keep runtime/CLI output private even on failure.
-        if args[:2] == ["docker", "build"]:
+        if args[:2] == ['docker', 'build']:
             print(text, flush=True)
-        raise RuntimeError(f"{args[0]} {args[1]} failed with exit {result.returncode}; output withheld")
+        raise RuntimeError(f'{args[0]} {args[1]} failed with exit {result.returncode}; output withheld')
+    if machine_json:
+        if size > 16384:
+            raise RuntimeError('structured stdout exceeds byte bound; output withheld')
+        text = machine_json_text(result.returncode, text, errors)
     return result.returncode, text
 
 
@@ -49,7 +77,10 @@ class Smoke:
     def docker(self, *args, timeout=30, check=True):
         return self.run(["docker", *args], env=self.env, timeout=timeout, check=check)
 
-    def dc(self, *args, timeout=30, check=True):
+    def dc(self, *args, timeout=30, check=True, machine_json=False):
+        if machine_json:
+            return self.run([*self.compose, '--progress', 'quiet', *args], env=self.env,
+                            timeout=timeout, check=check, machine_json=True)
         return self.run([*self.compose, *args], env=self.env, timeout=timeout, check=check)
 
     def shell(self, script):
