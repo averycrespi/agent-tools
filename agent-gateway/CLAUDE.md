@@ -6,15 +6,45 @@ Purpose: Commands, ownership, editing and verification. The [documentation map](
 
 ## Development
 
-Start with the smallest applicable owner; release acceptance is not the default agent loop.
+Start narrow; broaden for shared dependencies, failures, and security-sensitive changes. Reuse applicable passing evidence for unchanged relevant state. Full required CI gates PRs; full local acceptance is not the ordinary edit loop. These recipes do not bypass `make verify` before Go commits or mandatory hooks (`lint-staged` then root `make lint`).
 
-- **Component behavior:** read its domain design; run focused `go test -race -count=1 -timeout=5m` in its package with the owning build tag.
-- **Suite/executor/fixtures:** `make test-harness`; inspect `make suite-inventory` before changing ownership.
-- **Frontend:** `npm ci`, then `make test-frontend-browser` for the [mocked state/gallery suite](docs/maintainers/frontend-browser-tests.md); use [disposable demo/live reload](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for real-service development.
-- **CI/cache:** root `make test-ci`, then affected disjoint leaves; see [CI mapping](docs/maintainers/release-verification.md#ci-mapping).
+### Focused local recipes
+
+Examples start at the repository root; replace the example owner/selectors with those affected by the change. Install locked frontend/formatting dependencies with `npm ci` when absent.
+
+- **Go change:** read the domain design, then test the affected package or named behavior, for example:
+  ```bash
+  (cd agent-gateway && go test -race -count=1 -timeout=5m ./internal/httppolicy -run '^TestHTTPRejectAmbiguousTargets$')
+  # If proxy admission is affected, include its real integration boundary:
+  (cd agent-gateway && go test -race -count=1 -timeout=5m -tags=integration ./internal/httpproxy -run '^TestIntegrationProxyAdmissionFailureAndPrincipalIsolation$')
+  ```
+  Use the owning build tag; inspect `make -C agent-gateway suite-inventory` or the [suite planner](docs/maintainers/release-verification.md#purpose-based-verification-dag) when ownership is unclear. Keep large fixtures count one.
+- **UI change:** select affected [mocked browser owners](docs/maintainers/frontend-browser-tests.md) with `--grep` rather than starting with the complete gallery:
+  ```bash
+  npm run ui:typecheck
+  npm run ui:build
+  npm run ui:verify-generated
+  npm run ui:test-browser -- --grep 'http-credentials'
+  ```
+  Build authored source **before** testing the committed bundle. Use the guide's pinned Chromium setup if needed; the existing Playwright configuration retains finite test/global deadlines and two bounded workers. Inspect actual affected desktop/narrow light/dark images in that run's `.frontend-browser/runs/` gallery and exercise affected transitions per [visual verification](docs/maintainers/frontend-development.md#visual-verification). Generated images and assertions are not visual approval. Focused results qualify only selected behavior, not the full gallery, backend security boundaries, or the independent real-Gateway accessibility owner. Broaden to applicable real-Gateway leaves when those boundaries are affected; use [disposable demo/live reload](docs/maintainers/frontend-development.md#use-a-disposable-feature-branch-gateway) for real-service development.
+- **Docs/help change:** format and run affected documentation/example/help guards, for example:
+  ```bash
+  npm run format:check
+  (cd agent-gateway && go test -race -count=1 -timeout=5m ./test/acceptance -run '^TestMaintainerGuidanceAndReleaseDocumentation$')
+  (cd agent-gateway && go test -race -count=1 -timeout=5m ./cmd/agent-gateway -run '^(TestCLIHelpTree|TestDocumentedUpstreamExamples)$')
+  ```
+  Check changed links and examples; select only relevant guards (these examples need no build tag).
+- **Shared infrastructure change:** test the affected owner plus a representative consumer, then broaden to other affected consumers. For a shared strict-JSON change:
+  ```bash
+  (cd agent-gateway && go test -race -count=1 -timeout=5m ./internal/strictjson ./internal/httppolicy)
+  ```
+  These packages need no build tag. For suite/executor/fixture changes, use `make -C agent-gateway test-harness` and inspect `suite-inventory` before changing ownership. For CI/cache changes, run root `make test-ci`, then affected disjoint leaves; see [CI mapping](docs/maintainers/release-verification.md#ci-mapping).
+
+Report checks run/results and meaningful gaps or work left to CI; no separate verification-plan artifact is required. Use supported background execution for genuinely long checks when useful, retaining evidence for the relevant tested state. Do not overlap fixture owners.
+
+### Specialized qualification
+
 - **Docker packaging/runtime:** root `make test-ci` validates deterministic packaging/fixture/adapter contracts without Docker. The blocking CI `Gateway Docker qualification` runs root `make test-docker`, extending the existing smoke owner with serial cross-protocol, browser, OAuth, security and lifecycle cases plus finite disposable-resource cleanup; never claim local execution where Docker is unavailable. See the [Docker guide](docs/operators/docker.md); no registry publication or installed-host qualification is implied.
-- **Docs:** check links, `npm run format:check`, and affected harness documentation tests.
-- **Go commits:** `make verify` plus focused behavioral evidence.
 - **Release:** only when authorized, [release verification](docs/maintainers/release-verification.md); native/external work requires its own authority.
 
 Use `make help` for the current target inventory. Never run the Gateway aggregate alongside one of its leaves or launch CI integration partitions concurrently on the same host.
