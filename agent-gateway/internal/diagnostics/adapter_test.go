@@ -62,7 +62,7 @@ func TestDiagnosticLevelsAndClosedSchema(t *testing.T) {
 		_, ok := ParseLevel(value)
 		require.False(t, ok)
 	}
-	for _, facts := range []Facts{{Event: 255}, {Event: Startup, Call: 1}, {Event: ExecutionResult, Stage: IntentArm}, {Event: StorageAcquire, InvocationID: strings.Repeat("0", 26)}, {Event: ExecutionResult, InvocationID: "token\n{\"event\":\"forged\"}"}, {Event: ExecutionResult, InvocationID: strings.Repeat("SECRET", 1<<18)}, {Event: AuthorityAcquire, Waiting: 33}, {Event: StorageLatch, Cause: 255}, {Event: DurabilityFailure, Stage: 255}, {Event: StorageWait, Writer: 255}, {Event: ExecutionStart, Duration: -1}} {
+	for _, facts := range []Facts{{Event: 255}, {Event: Startup, Call: 1}, {Event: ExecutionResult, Stage: TransactionBegin}, {Event: StorageAcquire, InvocationID: strings.Repeat("0", 26)}, {Event: ExecutionResult, InvocationID: "token\n{\"event\":\"forged\"}"}, {Event: ExecutionResult, InvocationID: strings.Repeat("SECRET", 1<<18)}, {Event: AuthorityAcquire, Waiting: 33}, {Event: StorageLatch, Cause: 255}, {Event: DurabilityFailure, Stage: 255}, {Event: StorageWait, Writer: 255}, {Event: ExecutionStart, Duration: -1}} {
 		require.False(t, validFacts(facts))
 	}
 }
@@ -252,7 +252,7 @@ func validEventExample(event Event) Facts {
 	default:
 		f.Mutation = 1
 		f.Cause = Latched
-		f.Stage = IntentArm
+		f.Stage = TransactionBegin
 	}
 	return f
 }

@@ -31,7 +31,7 @@ func TestHTTPProxyDiagnosticClosedBoundary(t *testing.T) {
 		func(f *Facts) { f.Upstream = 1 },
 		func(f *Facts) { f.Call = 1 },
 		func(f *Facts) { f.Mutation = 1 },
-		func(f *Facts) { f.Stage = IntentCleanup },
+		func(f *Facts) { f.Stage = TransactionRollback },
 		func(f *Facts) { f.Stage = ProxyConfirmation + 1 },
 		func(f *Facts) { f.Cause = Rejected },
 		func(f *Facts) { f.Duration = contract.DiagnosticElapsedMaximum + time.Nanosecond },

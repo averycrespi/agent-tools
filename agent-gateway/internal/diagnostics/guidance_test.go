@@ -35,7 +35,7 @@ func TestWarningGuidanceUsesClosedFacts(t *testing.T) {
 		action string
 	}{
 		{Facts{Event: LifecycleFailure, Cause: Unavailable}, "inspect_status"},
-		{Facts{Event: StorageLatch, Mutation: 1, Cause: Latched, Stage: IntentCleanup}, "storage_recovery"},
+		{Facts{Event: StorageLatch, Mutation: 1, Cause: Latched, Stage: TransactionRollback}, "storage_recovery"},
 		{Facts{Event: ReconciliationSettlementFailure, Cause: Stopped}, "inspect_settlement_no_replay"},
 		{Facts{Event: UpstreamUnhealthy, Reason: ReasonUnknown}, "inspect_status"},
 		{Facts{Event: UpstreamUnhealthy, Reason: ReasonConnectivity}, "inspect_connection"},

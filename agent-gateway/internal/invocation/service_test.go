@@ -202,7 +202,7 @@ func TestServiceRejectionReasonsUseAuthorityWithoutDispatch(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			armed := false
 			fault := func(point storage.FaultPoint) error {
-				if armed && (scenario == "known audit failure" && point == storage.FaultArmCreate || scenario == "uncertain audit failure" && point == storage.FaultAfterCommit) {
+				if armed && (scenario == "known audit failure" && point == storage.FaultBeforeBegin || scenario == "uncertain audit failure" && point == storage.FaultAfterCommit) {
 					return errors.New("private-audit-canary")
 				}
 				return nil

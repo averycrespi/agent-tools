@@ -211,6 +211,34 @@ func TestSinkFailureNeverActivatesUndisclosedAuthority(t *testing.T) {
 	}
 }
 
+func TestDirectorySyncFailureRetainsOutputWithoutActivatingAuthority(t *testing.T) {
+	store, _ := newStore(t)
+	service := NewService(store, testutil.NewFakeClock(testNow), testutil.NewFakeEntropy(append(bytes.Repeat([]byte{0x24}, 42), bytes.Repeat([]byte{0x25}, 42)...)))
+	known := new(memorySink)
+	initial, err := service.Initialize(t.Context(), known)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "candidate")
+	sink := NewFileSecretSink(path).(*fileSecretSink)
+	synced := false
+	sink.syncParent = func(actual string) error {
+		require.Equal(t, path, actual)
+		contents, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.NotEmpty(t, contents, "file was written and closed before directory publication")
+		synced = true
+		return errors.New("directory sync failed")
+	}
+	_, err = service.Reset(t.Context(), sink)
+	require.ErrorIs(t, err, ErrSecretPublication)
+	require.True(t, synced)
+	candidate, err := os.ReadFile(path)
+	require.NoError(t, err, "uncertain durable output must be retained, not overwritten")
+	require.NotEmpty(t, candidate)
+	authenticated, err := service.Authenticate(t.Context(), known.value)
+	require.NoError(t, err)
+	require.Equal(t, initial.ID, authenticated.ID)
+}
+
 func TestOwnerOnlyFileSinkIsExclusiveAndExact(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "authority")
 	sink := NewFileSecretSink(path)

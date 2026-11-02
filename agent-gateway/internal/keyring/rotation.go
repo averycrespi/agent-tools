@@ -159,7 +159,7 @@ func recoverMasterKey(ctx context.Context, owner *gatewaypaths.Ownership, approv
 	}
 	defer material.Clear()
 	var selected CustodyIdentity
-	snapshot, err := storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
+	snapshot, err := storage.InspectRotation(ctx, owner, func(tx *sql.Tx) error {
 		var err error
 		selected, err = InspectCustodyTx(ctx, tx)
 		if err != nil {

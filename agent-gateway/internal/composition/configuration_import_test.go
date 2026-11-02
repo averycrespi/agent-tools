@@ -104,8 +104,8 @@ func TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries(t
 	}
 }
 
-func TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testing.T) {
-	for _, point := range []storage.FaultPoint{storage.FaultArmCreate, storage.FaultArmWrite, storage.FaultArmFileSync, storage.FaultArmRename, storage.FaultArmDirectorySync, storage.FaultAfterCommit, storage.FaultDisarmRename, storage.FaultDisarmDirectorySync, storage.FaultDisarmDelete, storage.FaultDisarmFinalDirectorySync} {
+func TestConfigurationImportTransactionFaultsNeverReplay(t *testing.T) {
+	for _, point := range []storage.FaultPoint{storage.FaultBeforeBegin, storage.FaultAfterCommit} {
 		t.Run(string(point), func(t *testing.T) {
 			owner, plan := importFixture(t)
 			injected := errors.New("marker publication failed")
@@ -121,11 +121,11 @@ func TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testin
 			reopened, err := gatewaypaths.AcquireStoppedExisting(plan.Root)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, reopened.Close()) }()
-			provenUnstarted := point == storage.FaultArmCreate || point == storage.FaultArmWrite || point == storage.FaultArmFileSync || point == storage.FaultArmRename
+			provenUnstarted := point == storage.FaultBeforeBegin
 			snapshot, inspectErr := storage.InspectMaintenance(t.Context(), reopened, func(tx *sql.Tx) error {
 				var principals, grants, receipts int
 				require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT (SELECT count(*) FROM principals),(SELECT count(*) FROM grants),(SELECT count(*) FROM configuration_import)`).Scan(&principals, &grants, &receipts))
-				if provenUnstarted || point == storage.FaultArmDirectorySync {
+				if provenUnstarted {
 					require.Zero(t, receipts)
 				} else {
 					require.Equal(t, 1, receipts)
@@ -135,22 +135,13 @@ func TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testin
 				return nil
 			})
 			require.NoError(t, inspectErr)
-			resumable := provenUnstarted || point == storage.FaultDisarmFinalDirectorySync
-			require.Equal(t, !resumable, snapshot.Marked)
-			before := initializationTree(t, plan.Root)
+			require.False(t, snapshot.Marked)
 			_, err = InitializeOwned(t.Context(), reopened, plan, clock, rand.Reader)
-			if resumable {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-				require.Equal(t, before, initializationTree(t, plan.Root))
-			}
+			require.NoError(t, err, "init's existing receipt protocol reconciles the committed import without replay")
 			_, err = storage.InspectMaintenance(t.Context(), reopened, func(tx *sql.Tx) error {
 				var count int
 				require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM configuration_import`).Scan(&count))
-				if resumable {
-					require.Equal(t, 1, count)
-				}
+				require.Equal(t, 1, count)
 				return nil
 			})
 			require.NoError(t, err)

@@ -78,6 +78,15 @@ func (repository *Repository) OAuthRefreshAuthorityCallback(fence OAuthRefreshFe
 			return "", ErrInvalidInput
 		}
 		if !update.ExactInvalidation {
+			// Foreground exchange owns its durable denial independently. A
+			// refresh must not clear that fence or publish over its handoff.
+			var exchanging bool
+			if err := transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM server_auth_flows WHERE server_id=? AND flow_state='exchanging')`, fence.ServerID).Scan(&exchanging); err != nil {
+				return "", err
+			}
+			if exchanging {
+				return "", ErrStaleRevision
+			}
 			var clientRevision int64
 			if err := transaction.QueryRowContext(ctx, `SELECT revision FROM server_credentials WHERE server_id = ? AND kind = 'oauth_client'`, fence.ServerID).Scan(&clientRevision); err != nil {
 				return "", err

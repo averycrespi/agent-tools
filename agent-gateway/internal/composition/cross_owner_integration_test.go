@@ -72,7 +72,7 @@ func TestCreateVsTargetAndPolicyIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var armed atomic.Bool
 	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
-		if point == storage.FaultArmCreate && armed.CompareAndSwap(true, false) {
+		if point == storage.FaultBeforeBegin && armed.CompareAndSwap(true, false) {
 			close(entered)
 			<-release
 		}
@@ -127,7 +127,7 @@ func TestApprovalVsPolicyAndCapacityIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var armed atomic.Bool
 	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
-		if point == storage.FaultArmCreate && armed.CompareAndSwap(true, false) {
+		if point == storage.FaultBeforeBegin && armed.CompareAndSwap(true, false) {
 			close(entered)
 			<-release
 		}
@@ -272,7 +272,7 @@ func TestCatalogEvidenceReplacementIntegration(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	var armed atomic.Bool
 	options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
-		if point == storage.FaultArmCreate && armed.CompareAndSwap(true, false) {
+		if point == storage.FaultBeforeBegin && armed.CompareAndSwap(true, false) {
 			close(entered)
 			<-release
 		}

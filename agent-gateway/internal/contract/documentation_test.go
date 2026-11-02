@@ -30,7 +30,7 @@ func TestDocumentationContractDrift(t *testing.T) {
 			"$XDG_DATA_HOME/agent-gateway", "Online administrator authentication never prompts", "Human output is the default", "The CLI never retries automatically",
 		},
 		"../../docs/operators/backup-and-recovery.md": {
-			"Gateway must be stopped", "agent-gateway maintenance verify-and-recover-storage", "does not rewrite the default `admin-bearer`",
+			"Gateway must be stopped", "Committed storage and lost responses", "does not rewrite the default `admin-bearer`",
 			"Existing artifacts are untouched", "no aliases or compatibility endpoints", "export config", "init --from", "Unknown recovery actions refuse", "nonrefundable encryption usage",
 		},
 		"../../DESIGN.md": {
@@ -96,7 +96,7 @@ func TestCLIUsabilityDocumentationDrift(t *testing.T) {
 	recoveryBytes, err := os.ReadFile("../../docs/operators/backup-and-recovery.md")
 	require.NoError(t, err)
 	recovery := string(recoveryBytes)
-	for _, phrase := range []string{"agent-gateway maintenance verify-and-recover-storage", "does not rewrite the default `admin-bearer`", "--admin-bearer-file"} {
+	for _, phrase := range []string{"Committed storage and lost responses", "does not rewrite the default `admin-bearer`", "--admin-bearer-file"} {
 		require.Contains(t, recovery, phrase)
 	}
 	for _, phrase := range []string{

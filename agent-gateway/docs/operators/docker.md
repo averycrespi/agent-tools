@@ -132,8 +132,9 @@ Stopped maintenance uses the same service definition without starting a second s
 docker compose stop --timeout 30 gateway
 # Verify the old container is stopped with exit 0; a timeout/forced kill is not a clean stop.
 docker compose ps -a
-# Inspect only; execute the corresponding --confirm after diagnosing and approving the plan.
-docker compose run --rm --no-deps gateway maintenance verify-and-recover-storage --dry-run
+# For an interrupted master-key rotation only: inspect the dedicated retained bundle.
+# Execute the corresponding --confirm only after diagnosing and approving the plan.
+docker compose run --rm --no-deps gateway maintenance rotate-master-key --retain-recovery-keys --recover --dry-run
 ```
 
 Disable any separately configured launcher before offline work. If shutdown was unconfirmed, preserve `run.unclean`, WAL/journal and all other evidence and diagnose before maintenance. Reset, key/CA rotation and restore are explicit separate workflows, not entrypoint behavior. Recovery operates on the existing installation with its matching custody; it is **not fresh-install import**, migration or host relocation. Never copy an old database over the current one or remove markers to force startup.

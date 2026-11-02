@@ -210,19 +210,6 @@ func MigrateStorage(ctx context.Context, root, expectedInstallation, generation 
 	return identity, nil
 }
 
-func VerifyStorage(ctx context.Context, root string) (storage.Identity, error) {
-	return VerifyStorageBudget(ctx, root, DefaultTrafficBudget)
-}
-
-func VerifyStorageBudget(ctx context.Context, root string, budget int64, approvals ...storage.StoppedApproval) (storage.Identity, error) {
-	if !ValidTrafficBudget(budget) {
-		return storage.Identity{}, invocation.ErrInvalidInput
-	}
-	// Recovery acts on control and security markers only. The control snapshot
-	// binds the selector, not bytes of optional files this operation never touches.
-	return storage.VerifyCurrentWithTraffic(ctx, root, nil, approvals...)
-}
-
 // openOptionalTraffic retains installation ownership while OpenTraffic validates
 // safe paths and the complete WAL-aware identity/schema/evidence before attaching
 // readers or admitting writes. Immutable inspection belongs only to closed artifacts.

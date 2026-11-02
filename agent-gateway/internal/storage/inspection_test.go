@@ -41,7 +41,7 @@ func TestMaintenanceInspectionIsImmutableAndRevalidatesMarkers(t *testing.T) {
 	require.ErrorIs(t, inspection.Revalidate(t.Context(), owner), ErrPlanChanged)
 	current, err := InspectMaintenance(t.Context(), owner, nil)
 	require.NoError(t, err)
-	require.True(t, current.Marked)
+	require.False(t, current.Marked, "recognized historical SQL evidence is retained, not pending authority")
 	require.NoError(t, os.WriteFile(owner.Layout().MutationMarker, []byte(`{"installation_id":"foreign","state":"armed"}`), 0600))
 	_, err = InspectMaintenance(t.Context(), owner, nil)
 	require.ErrorIs(t, err, ErrStorageLatched)

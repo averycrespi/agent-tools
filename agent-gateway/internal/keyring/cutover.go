@@ -44,7 +44,7 @@ type AuthorityUpdate struct {
 	ExactInvalidation      bool
 }
 
-// AuthorityCallback runs inside the coordinator's marker-armed transaction and must not open a nested Store.Mutate.
+// AuthorityCallback runs inside the coordinator's atomic transaction and must not open a nested Store.Mutate.
 type AuthorityCallback func(context.Context, *sql.Tx, AuthorityUpdate) (string, error)
 
 type cutoverHooks struct {
@@ -173,6 +173,45 @@ func (operation *Operation) ReplaceFencedAfterAuthorizationSuccess(ctx context.C
 		coordinator.noteCleanup(namespace, "authority invalidated", coordinator.cleanupCandidates(ctx, namespace, epoch), secret)
 	}
 	return CutoverResult{}, errors.Join(candidateErr, invalidationErr)
+}
+
+// FenceOAuthHandoff durably denies the captured token generation before one
+// external refresh attempt. It retains selection for exact revision validation,
+// but reads cannot reuse it after a crash. Only proven non-handoff may clear it;
+// successful replacement uses the ordinary fenced activation protocol.
+func (operation *Operation) FenceOAuthHandoff(ctx context.Context, namespace Namespace, callback AuthorityCallback, pending bool) error {
+	if namespace.kind != RecordOAuthTokens || callback == nil {
+		return ErrNoAuthority
+	}
+	coordinator := operation.coordinator
+	if err := coordinator.validateNamespace(ctx, namespace); err != nil {
+		return err
+	}
+	coordinator.stateMu.Lock()
+	defer coordinator.stateMu.Unlock()
+	if coordinator.draining || coordinator.epoch != operation.epoch {
+		return ErrDraining
+	}
+	return coordinator.store.Mutate(ctx, func(tx *sql.Tx) error {
+		if _, err := callback(ctx, tx, AuthorityUpdate{Owner: namespace.owner, Kind: namespace.kind, ValidateOnly: true}); err != nil {
+			return err
+		}
+		action := "fence"
+		if pending {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO keyring_authority_fences (owner, kind) VALUES (?, ?)`, namespace.owner, namespace.kind); err != nil {
+				return err
+			}
+		} else {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM keyring_authority_fences WHERE owner=? AND kind=?`, namespace.owner, namespace.kind); err != nil {
+				return err
+			}
+			action = "activate"
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE gateway_meta SET revision=revision+1 WHERE singleton=1`); err != nil {
+			return err
+		}
+		return coordinator.auditMutationTx(ctx, tx, namespace, action)
+	})
 }
 
 func (operation *Operation) InvalidateFenced(ctx context.Context, namespace Namespace, callback AuthorityCallback) (CutoverResult, error) {

@@ -106,12 +106,10 @@ const (
 	NoStage Stage = iota
 	SizeCheck
 	IdentityCheck
-	IntentArm
 	TransactionBegin
 	TransactionBody
 	TransactionCommit
 	TransactionRollback
-	IntentCleanup
 	ProxyRouting
 	ProxyResolution
 	ProxyEvaluation
@@ -131,7 +129,7 @@ const (
 	ProxyConnect
 )
 
-var stageNames = [...]string{"", "size_check", "identity_check", "intent_arm", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "intent_cleanup", "routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation", "connection_capacity", "intercept_handshake", "exchange", "upstream_read", "downstream_write", "downstream_flush", "deadline", "internal_panic", "downstream_read", "upstream_write", "connect"}
+var stageNames = [...]string{"", "size_check", "identity_check", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "routing", "resolution", "evaluation", "material", "traffic_admission", "confirmation", "connection_capacity", "intercept_handshake", "exchange", "upstream_read", "downstream_write", "downstream_flush", "deadline", "internal_panic", "downstream_read", "upstream_write", "connect"}
 
 type WriterKind uint8
 

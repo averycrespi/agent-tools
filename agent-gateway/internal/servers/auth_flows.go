@@ -250,6 +250,12 @@ func (repository *Repository) BeginAuthFlowExchange(ctx context.Context, fence O
 		if err := validateOAuthTokenFenceTx(ctx, transaction, fence, parsed, contract.AuthFlowAwaitingCallback, repository.clock.Now()); err != nil {
 			return err
 		}
+		// The code exchange can have an external effect before any response.
+		// Persist denial of prior token authority with the exchanging state;
+		// startup never replays the code or falls back to that generation.
+		if _, err := transaction.ExecContext(ctx, `INSERT OR IGNORE INTO keyring_authority_fences (owner, kind) VALUES (?, 'oauth_tokens')`, flow.ServerID); err != nil {
+			return fmt.Errorf("fence OAuth token exchange: %w", err)
+		}
 		if _, err := transaction.ExecContext(ctx, `UPDATE server_auth_flows SET flow_state = 'exchanging' WHERE id = ?`, flow.ID); err != nil {
 			return fmt.Errorf("begin OAuth token exchange: %w", err)
 		}

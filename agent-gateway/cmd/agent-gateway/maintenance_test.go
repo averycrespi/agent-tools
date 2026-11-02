@@ -41,7 +41,7 @@ func TestMaintenanceDryRunAndUnconfirmedExecutionDoNotWrite(t *testing.T) {
 	init.SetArgs([]string{"init", "--data-dir", root, "--confirm"})
 	require.NoError(t, init.ExecuteContext(t.Context()))
 	before := treeBytes(t, root)
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials"} {
+	for _, operation := range []string{"setup-secret-storage", "reset-admin-credentials"} {
 		for _, dry := range []bool{true, false} {
 			command := newTestRootCmd(t)
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
@@ -103,14 +103,14 @@ func TestMaintenanceCrashMarkerPlanningPreservesClosedAndWALState(t *testing.T) 
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 			command.SetOut(stdout)
 			command.SetErr(stderr)
-			command.SetArgs([]string{"maintenance", "verify-and-recover-storage", "--data-dir", root, "--dry-run", "--json"})
+			command.SetArgs([]string{"maintenance", "reset-admin-credentials", "--secret-output", filepath.Join(t.TempDir(), "replacement"), "--data-dir", root, "--dry-run", "--json"})
 			err = command.ExecuteContext(t.Context())
 			if sidecar == "" {
 				require.NoError(t, err, stderr.String())
 				var plan maintenancePlan
 				require.NoError(t, json.Unmarshal(stdout.Bytes(), &plan))
 				require.True(t, plan.DryRun)
-				require.Equal(t, "verify-and-recover-storage", plan.Operation)
+				require.Equal(t, "reset-admin-credentials", plan.Operation)
 				require.NotEmpty(t, plan.InstallationID)
 			} else {
 				require.Error(t, err)
@@ -135,7 +135,7 @@ func TestMaintenanceCrashMarkerPlanningPreservesClosedAndWALState(t *testing.T) 
 }
 
 func TestSecurityMaintenanceLeavesOptionalHistoryUntouched(t *testing.T) {
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials"} {
+	for _, operation := range []string{"setup-secret-storage", "reset-admin-credentials"} {
 		t.Run(operation, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "gateway")
 			initialize := newTestRootCmd(t)

@@ -33,7 +33,7 @@ func DiagnosticEvents() []DiagnosticEvent {
 	storageFields := []string{"mutation_id", "owned", "waiting", "limit", "writer_kind"}
 	authorityConditions := []string{"limit=32"}
 	storageConditions := []string{"limit=31", "waiting<=31", "non-foreign writer requires call_id"}
-	stages := []string{"size_check", "identity_check", "intent_arm", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback", "intent_cleanup"}
+	stages := []string{"size_check", "identity_check", "transaction_begin", "transaction_body", "transaction_commit", "transaction_rollback"}
 	events := []DiagnosticEvent{
 		{Name: "startup", Level: "info", Causes: []string{""}},
 		{Name: "readiness", Level: "info", Causes: []string{""}},

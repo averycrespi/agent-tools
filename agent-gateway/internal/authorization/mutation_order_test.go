@@ -18,7 +18,7 @@ func TestEveryAuthorityMutationOrdersBothWaysWithAuthentication(t *testing.T) {
 	armed := false
 	var mutationEntered, releaseMutation chan struct{}
 	repository, _ := newRepository(t, func(point storage.FaultPoint) error {
-		if armed && point == storage.FaultArmDirectorySync {
+		if armed && point == storage.FaultBeforeBegin {
 			close(mutationEntered)
 			<-releaseMutation
 		}
@@ -288,7 +288,7 @@ func TestAuthorityGatePreservesNonblockingStorageMutationAdmission(t *testing.T)
 		mutationEntered := make(chan struct{})
 		releaseMutation := make(chan struct{})
 		repository, store := newRepository(t, func(point storage.FaultPoint) error {
-			if armed && point == storage.FaultArmDirectorySync {
+			if armed && point == storage.FaultBeforeBegin {
 				close(mutationEntered)
 				<-releaseMutation
 			}

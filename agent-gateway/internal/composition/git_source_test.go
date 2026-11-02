@@ -6,12 +6,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGitStoppedRecoverySQLGuard(t *testing.T) {
+func TestRetiredRecoveryHasNoAuthoritySQLExemption(t *testing.T) {
 	for _, test := range []struct {
 		name, source string
 		allowed      bool
 	}{
-		{"exact stopped fence", "package storage\nfunc restoreKeyringAuthorityFence() { _ = `UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1` }", true},
+		{"retired stopped fence", "package storage\nfunc restoreKeyringAuthorityFence() { _ = `UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1` }", false},
 		{"wrong recovery function", "package storage\nfunc other() { _ = `UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1` }", false},
 		{"principal read in fence", "package storage\nfunc restoreKeyringAuthorityFence() { _ = `SELECT id FROM principals` }", false},
 		{"grant mutation in fence", "package storage\nfunc restoreKeyringAuthorityFence() { _ = `DELETE FROM grants` }", false},

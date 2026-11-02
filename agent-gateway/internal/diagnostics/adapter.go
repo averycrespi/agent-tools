@@ -293,7 +293,7 @@ func validFacts(f Facts) bool {
 	if f.Event != ReconciliationDisplaced && f.Event != ReconciliationSettlementFailure && (f.Upstream != 0 || f.Attempt != 0) {
 		return false
 	}
-	if f.Event < Startup || f.Event >= Loss || f.Cause > UnknownOutcome || f.Stage > IntentCleanup || f.Writer > TerminalWriter || f.Duration < 0 || f.Owned < 0 || f.Owned > 1 || f.Waiting < 0 || f.Waiting > 32 || f.Limit < 0 || f.Limit > 32 {
+	if f.Event < Startup || f.Event >= Loss || f.Cause > UnknownOutcome || f.Stage > TransactionRollback || f.Writer > TerminalWriter || f.Duration < 0 || f.Owned < 0 || f.Owned > 1 || f.Waiting < 0 || f.Waiting > 32 || f.Limit < 0 || f.Limit > 32 {
 		return false
 	}
 	if f.InvocationID != "" {

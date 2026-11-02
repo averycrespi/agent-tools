@@ -83,7 +83,7 @@ func TestRootCommandExposesOwnedOfflineCommands(t *testing.T) {
 
 	require.Equal(t, "agent-gateway", cmd.Use)
 	require.Equal(t, "Run and manage Agent Gateway", cmd.Short)
-	for _, path := range [][]string{{"maintenance", "reset-admin-credentials"}, {"init"}, {"maintenance", "verify-and-recover-storage"}, {"doctor"}, {"serve"}} {
+	for _, path := range [][]string{{"maintenance", "reset-admin-credentials"}, {"init"}, {"doctor"}, {"serve"}} {
 		command, _, err := cmd.Find(path)
 		require.NoError(t, err)
 		assert.Equal(t, path[len(path)-1], command.Name())
@@ -137,7 +137,7 @@ func TestInitializeResumesInterruptedControlCreation(t *testing.T) {
 	retry.SetErr(new(bytes.Buffer))
 	retry.SetArgs([]string{"init", "--resume", "--confirm", "--data-dir", root, "--secret-output", secret})
 	require.NoError(t, retry.ExecuteContext(t.Context()))
-	_, err = composition.VerifyStorage(t.Context(), root)
+	_, err = storage.InspectClosedDatabase(t.Context(), filepath.Join(root, gatewaypaths.DatabaseName))
 	require.NoError(t, err, "retry publishes authority only with a fully verified selected pair")
 	_, err = os.Stat(secret)
 	require.NoError(t, err)
@@ -370,7 +370,7 @@ func TestInitializeAndResetEmitSafeResultsAndPublishSecretsOnce(t *testing.T) {
 	assert.NotContains(t, stdout.String(), string(bytes.TrimSpace(guidanceBearer)))
 }
 
-func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
+func TestRetiredStorageRecoveryCannotMutateInstallation(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "gateway")
 	ownership, err := gatewaypaths.Acquire(root)
@@ -386,19 +386,15 @@ func TestRestoreVerifyCurrentEmitsOneSafeMachineResult(t *testing.T) {
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
 	command.SetArgs([]string{"maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", root, "--json"})
-	require.NoError(t, command.ExecuteContext(ctx))
-
-	var result map[string]any
-	require.NoError(t, json.Unmarshal(stdout.Bytes(), &result))
-	assert.Equal(t, map[string]any{
-		"ok":              true,
-		"operation":       "verify-and-recover-storage",
-		"installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-		"revision":        "0",
-	}, result)
+	before := treeBytes(t, root)
+	err = command.ExecuteContext(ctx)
+	require.Error(t, err)
+	assert.Equal(t, 2, commandExitCode(err))
+	assert.Empty(t, stdout.String())
+	assert.Equal(t, before, treeBytes(t, root))
 }
 
-func TestStorageRecoveryRejectsInvalidInvocationWithSafeMachineResult(t *testing.T) {
+func TestRetiredStorageRecoveryRejectsArgumentsAndFlags(t *testing.T) {
 	for _, args := range [][]string{
 		{"maintenance", "verify-and-recover-storage", "--confirm", "unexpected", "--json"},
 		{"maintenance", "verify-and-recover-storage", "--confirm", "--json", "--secret-output", "unused"},
@@ -413,13 +409,11 @@ func TestStorageRecoveryRejectsInvalidInvocationWithSafeMachineResult(t *testing
 		require.Error(t, err)
 		assert.Equal(t, 2, commandExitCode(err))
 		assert.Empty(t, stdout.String())
-		var problem controlclient.Problem
-		require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
-		assert.Equal(t, "client_invalid_input", problem.Code)
+		assert.Contains(t, stderr.String(), "Usage:")
 	}
 }
 
-func TestRestoreVerifyCurrentFailureIsSafeAndNonzero(t *testing.T) {
+func TestRetiredStorageRecoveryIsUnavailableWhileRunning(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
@@ -433,9 +427,7 @@ func TestRestoreVerifyCurrentFailureIsSafeAndNonzero(t *testing.T) {
 	command.SetArgs([]string{"maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", root, "--json"})
 	err = command.ExecuteContext(context.Background())
 	require.Error(t, err)
-	assert.Equal(t, 5, commandExitCode(err))
+	assert.Equal(t, 2, commandExitCode(err))
 	assert.Empty(t, stdout.String())
-	var problem controlclient.Problem
-	require.NoError(t, json.Unmarshal(stderr.Bytes(), &problem))
-	assert.Equal(t, "gateway_running", problem.Code)
+	assert.Contains(t, stderr.String(), "Usage:")
 }

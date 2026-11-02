@@ -11,14 +11,13 @@ Purpose: Preserve installation evidence, recover recognized stopped state, and c
 - `agent-gateway history --help`
 - `agent-gateway http ca --help`
 - `agent-gateway maintenance --help`
-- `agent-gateway maintenance verify-and-recover-storage --help`
 - `agent-gateway maintenance reset-admin-credentials --help`
 
 ## Backup and restore removal
 
 Installation-snapshot backup and restore support is deliberately removed. The backup create/list/get/delete commands, stopped restore command, restore-only flags, APIs and browser controls have no aliases or compatibility endpoints. This binary does not verify or restore historical backup formats. There is no migration layer or transition procedure.
 
-**Existing artifacts are untouched.** Startup, initialization/resume, upgrades and ordinary status do not traverse, validate, rewrite, move, chmod or delete historical backup inventory or restore-specific residue. Retain `backups/`, `gateway.db.restore` and its sidecars/markers, and any other historical artifacts. Malformed inventory does not gate normal readiness or status. This is not permission to remove unknown markers: active control mutation intents, initialization evidence, `run.unclean`, rotation bundles and native cleanup provenance retain their actual safety owners and fail-closed rules.
+**Existing artifacts are untouched.** Startup, initialization/resume, upgrades and ordinary status do not traverse, validate, rewrite, move, chmod or delete historical backup inventory or restore-specific residue. Retain `backups/`, `gateway.db.restore` and its sidecars/markers, and any other historical artifacts. Malformed inventory does not gate normal readiness or status. This is not permission to remove unknown markers: historical control mutation intents, initialization evidence, `run.unclean`, rotation bundles and native cleanup provenance retain their actual safety owners and fail-closed rules.
 
 The replacement for portable configuration is export plus fresh initialization:
 
@@ -40,14 +39,13 @@ Historical encrypted artifacts can retain secrets retired from current use. Prot
 | Export retained traffic                                      | Running        | [Export optional history](#export-optional-history)                         |
 | Set up encrypted custody                                     | Stopped        | [Encrypted secret storage](#encrypted-secret-storage)                       |
 | Rotate the master key while retaining recovery keys          | Stopped        | [Rotate the master key](#rotate-the-master-key)                             |
-| Verify current storage or recover a recognized latch         | Stopped        | [Verify the current installation](#verify-the-current-installation)         |
 | Replace all administrator authority, retaining product state | Stopped        | [Reset administrator authority](#reset-administrator-authority)             |
 | Extract legacy single-store history                          | Stopped        | [Migrate existing invocation storage](#migrate-existing-invocation-storage) |
 | Replace interception signing authority or export public CA   | Stopped        | [CA commands](#stopped-interception-ca-commands)                            |
 
 Gateway must be stopped for maintenance. Stop service supervisors as well as Gateway; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
 
-All maintenance operations support `--dry-run`, `--confirm`, and `--json`. Dry runs inspect existing stopped ownership without writing installation files, audit or recovery markers. Nonempty WAL/journal state in inspected targets prevents a proven immutable read: preserve it and obtain qualified WAL-aware recovery, never delete or checkpoint it just to make a preview pass. Execution shows consequences, requires default-no consent or explicit `--confirm`, then revalidates under the same lock. Dry-run output is not later authority; confirmation never bypasses safety checks. Unknown recovery actions refuse.
+All maintenance operations support `--dry-run`, `--confirm`, and `--json`. Dry runs inspect existing stopped ownership without writing installation files, audit or recovery markers. Nonempty WAL/journal state prevents ordinary immutable planning: preserve it, never delete or checkpoint it just to make a preview pass. Dedicated rotation reconciliation instead validates committed WAL under its retained-key protocol and exclusive ownership. Execution shows consequences, requires default-no consent or explicit `--confirm`, then revalidates under the same lock. Dry-run output is not later authority; confirmation never bypasses safety checks. Unknown recovery actions refuse.
 
 ## Encrypted secret storage
 
@@ -74,7 +72,7 @@ A separately authorized plan must establish predecessor/schema compatibility, ve
 
 ## Rotate the master key
 
-Stop Gateway and its launchers. Rotation requires complete encrypted custody; unresolved legacy material, credential cutovers and storage recovery evidence refuse without migration or deletion. It preserves credential authority and the exact CA, so rotation alone does not require updating client trust.
+Stop Gateway and its launchers. Rotation requires complete encrypted custody; unresolved legacy material, credential cutovers and unrecognized historical security evidence refuse without migration or deletion. It preserves credential authority and the exact CA, so rotation alone does not require updating client trust.
 
 ```bash
 agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --retain-recovery-keys --dry-run
@@ -94,21 +92,21 @@ agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --r
 agent-gateway maintenance rotate-master-key --data-dir /path/to/gateway-data --retain-recovery-keys --recover --confirm
 ```
 
-| Observed durable boundary                                                                       | Reconciliation                                                                                                      |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Only `.master-key-preparation-*`; no armed bundle                                               | Preserve incomplete preparations; they are never adopted. Inspect before a fresh deliberate operation.              |
-| Armed bundle; database selects old key                                                          | Verify old key/data, abandon candidate permanently and retain both keys. No encryption is replayed.                 |
-| Database selects new key; active file is old or new                                             | Verify all data with retained new key, finish/seal key-file publication and archive bundle.                         |
-| Bundle already retained                                                                         | Inspect current key/data and retained directory; absence of a pending bundle does not authorize rerunning rotation. |
-| Missing/wrong key, partial/foreign bundle, unknown DB identity or unresolved storage marker/WAL | Fail closed; preserve evidence and obtain a qualified stopped plan.                                                 |
+| Observed durable boundary                                                                              | Reconciliation                                                                                                      |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Only `.master-key-preparation-*`; no armed bundle                                                      | Preserve incomplete preparations; they are never adopted. Inspect before a fresh deliberate operation.              |
+| Armed bundle; database selects old key                                                                 | Verify old key/data, abandon candidate permanently and retain both keys. No encryption is replayed.                 |
+| Database selects new key; active file is old or new                                                    | Verify all data with retained new key, finish/seal key-file publication and archive bundle.                         |
+| Bundle already retained                                                                                | Inspect current key/data and retained directory; absence of a pending bundle does not authorize rerunning rotation. |
+| Missing/wrong key, partial/foreign bundle, unknown DB identity or unsafe/unrecognized storage evidence | Fail closed; preserve evidence and obtain a qualified stopped plan.                                                 |
 
-A recognized mutation marker must first pass separately confirmed storage recovery; that never removes the rotation bundle. Nonempty WAL preventing immutable inspection needs qualified WAL-aware recovery, not deletion. Atomic rename and successful file/directory sync define durability; source fault injection does not qualify physical power loss or installed resources.
+Rotation reconciliation validates committed WAL under exclusive ownership and authenticates the database-selected key with the retained bundle; it never repeats encryption. Recognized historical SQL intents remain untouched and do not require manual clearance. Unknown, malformed, conflicting or foreign evidence still refuses. A missing shared-memory index beside nonempty WAL, an unresolved journal or unsafe sidecar requires a qualified stopped plan, not deletion. Atomic rename and successful file/directory sync define durability; source fault injection does not qualify physical power loss or installed resources.
 
 ## Optional history and serving
 
 One owned history opener validates selected storage independently of security readiness. History status is `opening`, `ready`, `unavailable`, `faulted`, or `disabled`. NULL selection disables capture and retains legacy rows until explicit stopped migration. Control integrity, mandatory audit, malformed selectors and security markers still fail closed.
 
-Valid committed traffic WAL opens normally under exclusive installation ownership. SQLite's default autocheckpointing and bounded operation-scoped connections own ordinary cleanup; readers may delay it. Nonempty WAL or a stopped process alone proves neither corruption nor checkpoint completion. Startup validates WAL-aware identity, schema and every retained row before recording resumes. Unsafe paths, foreign bindings, corruption and unresolved journals require action. No database, selector or sidecar is deleted, recreated or chmodded to make history open. Security-only recovery does not inspect optional files.
+Valid committed traffic WAL opens normally under exclusive installation ownership. SQLite's default autocheckpointing and bounded operation-scoped connections own ordinary cleanup; readers may delay it. Nonempty WAL or a stopped process alone proves neither corruption nor checkpoint completion. Startup validates WAL-aware identity, schema and every retained row before recording resumes. Unsafe paths, foreign bindings, corruption and unresolved journals require action. No database, selector or sidecar is deleted, recreated or chmodded to make history open. Administrator reset and key rotation do not inspect optional history files.
 
 Doctor online and System Status show process-local recording health and incidents. `recovering` pauses capture while the actual owner settles and validates storage; `degraded` means validation passed but no fresh observation was acknowledged; `recovered` requires a new acknowledgment, not reconstruction of lost history. First cause/stage/settlement/time survives repeated refusals. Counts are submissions, not executions. Transient eligible lock/deadline/I/O/full failures use one-to-30-second backoff without batch or request replay. Budget reservation pressure discards a batch before mutation; only new independent traffic can establish recovery.
 
@@ -129,17 +127,13 @@ Browser traversal is limited to 64 MiB, two minutes and 4,096 pages; each reques
 
 For larger exports, retain separate CLI page files with shell no-clobber and owner-only permissions. Record initial high-water/generation, advance only to the prior `next_sequence`, verify pruning/generation/progress and stop at the initial boundary or any error/change/stall. Each CLI response is a new bounded transaction, not a frozen continuation; the last page can contain later arrivals. Never concatenate pages and claim an atomic or complete audit. Each response contains at most 256 aggregate MCP/HTTP/Git records and 900 KiB. Missing records do not prove nonexecution; missing completion is unknown. `history_unavailable` and `history_busy` are failures, not empty success, and do not block forwarding. Neither interface repairs or removes history.
 
-## Verify the current installation
+## Committed storage and lost responses
 
-After stopping every owner, verify storage and clear only a recognized recoverable latch without replacing the database:
+Ordinary SQL mutations no longer create filesystem intent/tombstone files or require a generic recovery command. Startup validates committed SQLite state, including WAL, schema, identity, integrity, current policy and encrypted custody under exclusive ownership. Domain changes and required audit commit atomically. Missing acknowledgment does not mean rollback and never permits replay.
 
-```bash
-agent-gateway maintenance verify-and-recover-storage --data-dir /path/to/gateway-data --json --confirm
-```
+A committed agent issuance or credential activation remains current when its transactional prerequisites and current policy/custody validations hold. Lost bearer output is not recoverable: inspect current credential metadata, then deliberately revoke and reissue as needed. Never restore prior credentials or fall back to superseded secrets. A genuinely pending credential cutover or external OAuth handoff remains denied and requires reauthentication; SQL rollback cannot undo a remote token effect.
 
-This accepts neither a backup ID nor `--secret-output`. The retained `--traffic-budget-bytes` option does not cause optional-history inspection. Verification and administrator reset bind control state, its selector and security markers, not untouched optional history. Verification checks identity/schema/migrations, durability, size and integrity; recognized recovery precedes durable marker clearing. Unknown, conflicting, oversized, foreign or failed recovery remains latched.
-
-An uncertain agent candidate is cleared only when agent, credential and captured revisions still match; affected revisions advance once and no previous credential returns. The command does not start Gateway. Return ownership with ordinary `serve --data-dir /path/to/gateway-data` only after successful stopped verification.
+Recognized historical SQL intent and recovery-bearing marker files are validated against the installation and retained unchanged. They are not instructions to invalidate a committed candidate or refence a committed activation. Unknown, malformed, mixed, conflicting, unsafe or foreign evidence blocks startup; preserve it and obtain a qualified stopped plan. No catch-all repair, unlock or marker-clear command exists. Corruption, wrong keys and invalid authority also remain blockers. An unresolved live transaction remains process-locally fenced until actual driver settlement or quarantine; readable rows, elapsed time and cancellation do not prove settlement.
 
 ## Reset administrator authority
 
@@ -178,32 +172,20 @@ This explicit stopped storage cutover remains supported. Single-store installati
 
 ```bash
 agent-gateway maintenance migrate-traffic-storage --data-dir /path/to/gateway-data --installation-id INSTALLATION_ID --confirm --traffic-budget-bytes 4294967296
-agent-gateway maintenance verify-and-recover-storage --data-dir /path/to/gateway-data --traffic-budget-bytes 4294967296
 ```
 
-Migration checks binding/headroom, stages control, validates retained invocations and sequence/high-water, publishes generation-addressed traffic, then selects its control pair with one atomic rename. Credentials and installation identities remain. The prior control inode is retained as `gateway.db.previous-*`; old traffic and interrupted stages remain. No calls replay and no missing terminal is synthesized. Released schema 17 is supported; schema 18 introduced traffic selection. Verify after migration, not as a pre-migration schema upgrade.
+Migration checks binding/headroom, stages control, validates retained invocations and sequence/high-water, publishes generation-addressed traffic, then selects its control pair with one atomic rename. Credentials and installation identities remain. The prior control inode is retained as `gateway.db.previous-*`; old traffic and interrupted stages remain. No calls replay and no missing terminal is synthesized. Released schema 17 is supported; schema 18 introduced traffic selection. Normal startup validates the selected pair after migration; do not use initialization as a pre-migration schema upgrade.
 
-Failure before selection leaves original control authoritative; later failure may mean the new pair is selected. Preserve all evidence and inspect bindings; never delete stages, edit selectors, infer rollback, or fall back to empty history. Missing/foreign/corrupt traffic disables optional history, not security readiness. Restart with the same budget and restore supervision only after stopped verification. Fresh initialization creates its matching pair directly; interrupted setup continues only through explicit, evidence-bound `init --resume`.
+Failure before selection leaves original control authoritative; later failure may mean the new pair is selected. Preserve all evidence and inspect bindings; never delete stages, edit selectors, infer rollback, or fall back to empty history. Missing/foreign/corrupt traffic disables optional history, not security readiness. Restart with the same budget and restore supervision only after normal startup validates readiness. Fresh initialization creates its matching pair directly; interrupted setup continues only through explicit, evidence-bound `init --resume`.
 
 ## Failure handling
 
 Failures keep stdout empty and emit a bounded human or JSON problem on stderr. Plans can precede problems: in JSON mode parse stderr as JSON lines. `gateway_running` requires stopping the actual owner, not bypassing locks. `secret_output_unavailable` does not prove new authority activated. Local diagnostics preserve masked filesystem/SQLite causes; public JSON retains its separate disclosure contract.
 
-After interruption, retain original generations, keys, markers and any output. An error, timeout or missing response does not establish rollback or authorize replay. Use current-storage verification only for recognized recovery, then let normal startup revalidate readiness. Never automatically reset authority, overwrite replacement files, discard unknown markers or manipulate encryption counts. Live service changes and installed-resource repair need separate authorization.
+After interruption, retain original generations, keys, markers and any output. An error, timeout or missing response does not establish rollback or authorize replay. Use only the operation-specific procedure for pending rotation or initialization; normal startup validates committed SQL state. Never automatically reset authority, overwrite replacement files, discard unknown markers or manipulate encryption counts. Live service changes and installed-resource repair need separate authorization.
 
 ## Structured results and exits
 
-Maintenance defaults to human output; JSON success is one safe stdout result. Execution plans/errors go to stderr; dry-run plans go to stdout. Verification returns exactly:
-
-```json
-{
-  "ok": true,
-  "operation": "verify-and-recover-storage",
-  "installation_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-  "revision": "0"
-}
-```
-
-IDs/revisions are illustrative. There is no backup result or restore projection. Success exits 0; invalid input/flags/sinks 2; running owner 5; storage/recovery failure 7; output delivery failure 1, possibly after work completed. JSON problems have `status` (null), `code`, `title`, `exit_code`, and `uncertain`. Titles distinguish unchanged authority, retained staging, completed selection with later failure, and uncertainty. Nothing is replayed or compensated automatically.
+Maintenance defaults to human output; JSON success is one safe stdout result. Execution plans/errors go to stderr; dry-run plans go to stdout. Administrator reset and storage setup/migration results identify `ok`, `operation`, `installation_id` and decimal-string `revision`. Rotation reports its dedicated disposition and retained-key path. There is no backup result or restore projection. Success exits 0; invalid input/flags/sinks 2; running owner 5; storage/recovery failure 7; output delivery failure 1, possibly after work completed. JSON problems have `status` (null), `code`, `title`, `exit_code`, and `uncertain`. Titles distinguish unchanged authority, retained staging, completed selection with later failure, and uncertainty. Nothing is replayed or compensated automatically.
 
 See [administration](administration.md), the [documentation map](../README.md), and [Gateway README](../../README.md) for normal operation.

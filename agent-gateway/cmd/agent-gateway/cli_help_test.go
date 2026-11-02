@@ -97,7 +97,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:0b75e3e0934a7c7b1ad57b9bd7ee8529507d08a05a5faf64c00fb9e5bcca623f", digest)
+	assert.Equal(t, "sha256:287e42440d02ca27680e9d01b6e9ddf6de70af273a495961ce95d088d8455b8e", digest)
 }
 
 func TestCLICredentialSetupHelp(t *testing.T) {
@@ -151,7 +151,6 @@ func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {
 		{path: []string{"initialize"}, expected: []string{"0600", "cannot be recovered"}},
 		{path: []string{"maintenance", "reset-admin-credentials"}, expected: []string{"0600", "cannot be recovered"}},
 		{path: []string{"maintenance", "rotate-master-key"}, expected: []string{"stopped ownership", "--retain-recovery-keys", "--recover", "without replaying encryption", "cannot protect stolen copies"}},
-		{path: []string{"maintenance", "verify-and-recover-storage"}, expected: []string{"recognized recovery", "without replacing"}},
 	} {
 		root := newRootCmd()
 		command, remaining, err := root.Find(test.path)
@@ -261,8 +260,6 @@ func testCLICommandErrors(t *testing.T) {
 		{name: "admin reset arguments", args: []string{"maintenance", "reset-admin-credentials", "EXTRA", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
 		{name: "admin reset required flag", args: []string{"maintenance", "reset-admin-credentials", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
 		{name: "admin reset flag", args: []string{"maintenance", "reset-admin-credentials", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
-		{name: "verify arguments", args: []string{"maintenance", "verify-and-recover-storage", "unexpected", "--json"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
-		{name: "verify secret flag", args: []string{"maintenance", "verify-and-recover-storage", "--json", "--secret-output", "unused"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
 		{name: "serve arguments", args: []string{"serve", "EXTRA", "--json"}, usage: "agent-gateway serve"},
 		{name: "serve flag", args: []string{"serve", "--json", "--definitely-invalid"}, usage: "agent-gateway serve"},
 	}

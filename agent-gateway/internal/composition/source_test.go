@@ -235,13 +235,6 @@ func testSourceOwnershipGuards(t *testing.T, root string, sources []productionSo
 	} {
 		assert.Contains(t, compositionSource, symbol, "internal/composition/composition.go: missing atomic production ingress symbol %s", symbol)
 	}
-	recoverySource := readProductionSource(t, root, "internal/storage/recovery.go")
-	assert.Contains(t, recoverySource, "func invalidateAgentCredentialCandidate(")
-	assert.Equal(t, 1, strings.Count(recoverySource, "UPDATE principals"), "internal/storage/recovery.go: only stopped candidate recovery may own S3 SQL")
-	assert.Equal(t, 1, strings.Count(recoverySource, "principals"), "internal/storage/recovery.go: stopped recovery gets one exact S3 table reference")
-	assert.Equal(t, 1, strings.Count(recoverySource, "authorization_meta"), "internal/storage/recovery.go: only stopped Git fence recovery may advance shared revision")
-	assert.Equal(t, 1, strings.Count(recoverySource, "UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1"))
-	assert.NotContains(t, recoverySource, "grants")
 }
 
 func TestSourceNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
@@ -672,15 +665,6 @@ func s3SQLViolations(source productionSource) []string {
 		if err != nil || !s3SQLStatement.MatchString(value) {
 			return true
 		}
-		function := functions[literal]
-		if source.path == "internal/storage/recovery.go" && function == "invalidateAgentCredentialCandidate" {
-			return true
-		}
-		// Stopped marker recovery may fence Git material before a live authority
-		// owner exists, but cannot read or mutate principals or grants.
-		if source.path == "internal/storage/recovery.go" && function == "restoreKeyringAuthorityFence" && value == "UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1" {
-			return true
-		}
 		seen := make(map[string]struct{})
 		for _, match := range s3SQLTable.FindAllStringSubmatch(value, -1) {
 			table := strings.ToLower(match[1])
@@ -689,6 +673,7 @@ func s3SQLViolations(source productionSource) []string {
 			}
 			seen[table] = struct{}{}
 			location := "package scope"
+			function := functions[literal]
 			if function != "" {
 				location = "function " + function
 			}

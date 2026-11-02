@@ -26,7 +26,7 @@ func newMaintenanceCmd(dependencies offlineDependencies) *cobra.Command {
 	command := &cobra.Command{Use: "maintenance", Short: "Inspect and recover stopped installations", Long: "Choose an operation, inspect its --dry-run plan, then use --confirm for noninteractive consent. Running maintenance alone only shows help."}
 	configureNamespaceCommand(command)
 	command.AddCommand(newRotateMasterKeyCmd(dependencies))
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials", "migrate-traffic-storage", "setup-secret-storage"} {
+	for _, operation := range []string{"reset-admin-credentials", "migrate-traffic-storage", "setup-secret-storage"} {
 		command.AddCommand(newMaintenanceOperation(operation, dependencies))
 	}
 	return command
@@ -47,16 +47,14 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	var confirm, dryRun, jsonOutput bool
 	var budget int64
 	descriptions := map[string]string{ //nolint:gosec // Public command descriptions, not credentials.
-		"setup-secret-storage":       "Initialize encrypted secret storage",
-		"verify-and-recover-storage": "Verify and recover storage",
-		"reset-admin-credentials":    "Reset all administrator credentials",
-		"migrate-traffic-storage":    "Migrate traffic to separate storage",
+		"setup-secret-storage":    "Initialize encrypted secret storage",
+		"reset-admin-credentials": "Reset all administrator credentials",
+		"migrate-traffic-storage": "Migrate traffic to separate storage",
 	}
 	details := map[string]string{
-		"setup-secret-storage":       "Create or verify the installation master key without reinitializing or migrating legacy credentials",
-		"verify-and-recover-storage": "Validate storage, write audit evidence and apply recognized marker recovery",
-		"reset-admin-credentials":    "Replace all administrator authority, retaining product state",
-		"migrate-traffic-storage":    "Stage isolated traffic storage, retaining prior generations without replay",
+		"setup-secret-storage":    "Create or verify the installation master key without reinitializing or migrating legacy credentials",
+		"reset-admin-credentials": "Replace all administrator authority, retaining product state",
+		"migrate-traffic-storage": "Stage isolated traffic storage, retaining prior generations without replay",
 	}
 	use := operation
 	usage := "agent-gateway maintenance " + use
@@ -66,9 +64,6 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 	command := &cobra.Command{Use: use, Short: descriptions[operation], Example: "  " + usage + " --dry-run", Long: details[operation] + ". Requires stopped ownership. Inspect the plan with --dry-run; execution requires default-no confirmation or --confirm. No automatic retry or fallback."}
 	if operation == "reset-admin-credentials" {
 		command.Long += " The replacement bearer is written once to a new 0600 file; it cannot be recovered or displayed again."
-	}
-	if operation == "verify-and-recover-storage" {
-		command.Long += " Applies only recognized recovery actions without replacing the database or resetting authority."
 	}
 	fail := func(message string) error {
 		return writeOfflineProblem(command, offlineMode(jsonOutput), offlineUsageProblem(message, usage))
@@ -121,7 +116,7 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 			if operation != "migrate-traffic-storage" && operation != "setup-secret-storage" && snapshot.Identity.SchemaVersion != storage.CurrentSchema {
 				return storage.ErrInvalidDatabase
 			}
-			if operation != "verify-and-recover-storage" && snapshot.Marked {
+			if snapshot.Marked {
 				return storage.ErrStorageLatched
 			}
 			if operation == "migrate-traffic-storage" && snapshot.Identity.TrafficGeneration != "" {
@@ -137,12 +132,6 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 				}
 			}
 			plan := maintenancePlan{Operation: operation, DataDir: layout.Root, InstallationID: snapshot.Identity.InstallationID, Revision: fmt.Sprint(snapshot.Identity.Revision), Actions: []string{descriptions[operation]}, DryRun: dryRun}
-			if operation == "verify-and-recover-storage" {
-				plan.Actions = append(plan.Actions, "Write audit attempt/outcome; fully verify control storage; clear only verified security markers and mark maintenance clean. Optional history is not inspected or repaired.")
-				if snapshot.Recovery != "" {
-					plan.Actions = append(plan.Actions, "Detected action: "+snapshot.Recovery+" (conditional on current recorded authority)")
-				}
-			}
 			human := "Target: " + controlclient.TerminalSafePath(layout.Root) + "\nInstallation: " + plan.InstallationID + "\n" + strings.Join(plan.Actions, "\n")
 			if needsSink {
 				plan.SecretOutput = secretOutput
@@ -181,8 +170,6 @@ func newMaintenanceOperation(operation string, dependencies offlineDependencies)
 		switch operation {
 		case "setup-secret-storage":
 			identity, err = composition.SetupStoppedSecrets(ctx, layout.Root, dependencies.clock, approval)
-		case "verify-and-recover-storage":
-			identity, err = composition.VerifyStorageBudget(ctx, layout.Root, budget, approval)
 		case "reset-admin-credentials":
 			identity, err = executeAdminAuthority(ctx, "reset", layout.Root, admin.NewFileSecretSink(secretOutput), dependencies, approval)
 		case "migrate-traffic-storage":

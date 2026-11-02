@@ -25,7 +25,7 @@ func TestStoppedMigrationAcceptsSchema17(t *testing.T) {
 	identity, err := MigrateStorage(ctx, root, installation, generation, 8<<20)
 	require.NoError(t, err)
 	require.Equal(t, installation, identity.InstallationID)
-	verified, err := VerifyStorageBudget(ctx, root, 8<<20)
+	verified, err := storage.InspectClosedDatabase(ctx, filepath.Join(root, "gateway.db"))
 	require.NoError(t, err)
 	require.Equal(t, storage.CurrentSchema, verified.SchemaVersion)
 	previous, err := filepath.Glob(filepath.Join(root, "gateway.db.previous-*"))
@@ -38,6 +38,6 @@ func TestStoppedMigrationAcceptsSchema17(t *testing.T) {
 
 	_, err = MigrateStorage(ctx, root, installation, "01J60000000000000000000003", 8<<20)
 	require.ErrorIs(t, err, invocation.ErrInvalidState, "an already-selected pair must not be migrated again")
-	_, err = VerifyStorageBudget(ctx, root, 8<<20)
+	_, err = storage.InspectClosedDatabase(ctx, filepath.Join(root, "gateway.db"))
 	require.NoError(t, err)
 }

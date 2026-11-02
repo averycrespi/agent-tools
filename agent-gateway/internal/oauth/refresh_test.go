@@ -167,6 +167,21 @@ func TestRefreshServicePostHandoffFailureInvalidatesAndRequiresReauthorization(t
 	assert.Equal(t, 1, requester.calls)
 }
 
+func TestMalformedSuccessfulRefreshRequiresReauthorization(t *testing.T) {
+	for _, body := range []string{`{`, `{"access_token":"issued-but-unusable","token_type":"unsupported","refresh_token":"rotated"}`} {
+		operation := &refreshOperationFake{token: mustTokenBytes(t, refreshGeneration(contract.TokenEndpointAuthNone))}
+		requester := &refreshRequesterFake{status: 200, header: http.Header{"Content-Type": []string{contract.MediaTypeJSON}}, body: []byte(body)}
+		var final contract.ServerCredentialState
+		service := newRefreshService(refreshStoreFake{prepared: refreshPrepared(contract.TokenEndpointAuthNone)}, &refreshCoordinatorFake{operation: operation}, refreshResolverFake{graph: refreshGraph()}, requester, refreshServerID, func() time.Time { return refreshNow }, func(_ string, state contract.ServerCredentialState, _ bool) { final = state }, nil)
+		_, err := service.Refresh(t.Context(), RefreshRequest{ServerID: refreshServerID})
+		require.Error(t, err)
+		require.Equal(t, contract.ServerCredentialReauthenticationRequired, final)
+		require.Equal(t, 1, requester.calls)
+		require.Equal(t, 1, operation.invalidations)
+		require.Empty(t, operation.installed)
+	}
+}
+
 func TestRefreshRequestBasicIncludesClientIDForInteroperableAuthentication(t *testing.T) {
 	header, body, err := refreshTokenRequest("refresh", servers.OAuthRegistrationAuthority{ClientID: "client:id", TokenEndpointAuthMethod: contract.TokenEndpointAuthClientSecretBasic}, "https://resource.example/mcp", []byte("s/ecret"))
 	require.NoError(t, err)
@@ -257,6 +272,10 @@ type refreshOperationFake struct {
 	client        []byte
 	installed     []byte
 	invalidations int
+}
+
+func (operation *refreshOperationFake) FenceOAuthHandoff(context.Context, keyring.Namespace, keyring.AuthorityCallback, bool) error {
+	return nil
 }
 
 func (operation *refreshOperationFake) ReadActive(_ context.Context, namespace keyring.Namespace) ([]byte, keyring.CutoverResult, error) {

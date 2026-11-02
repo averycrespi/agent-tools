@@ -74,10 +74,6 @@ func TestAtomicApprovalAndPostCommitRecoveryIntegration(t *testing.T) {
 	assert.Zero(t, invalidations)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
-	require.NoError(t, func() error {
-		_, verifyErr := storage.VerifyCurrent(context.Background(), root)
-		return verifyErr
-	}())
 
 	ownership, err = gatewaypaths.Acquire(root)
 	require.NoError(t, err)
