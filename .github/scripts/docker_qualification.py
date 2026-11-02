@@ -60,6 +60,9 @@ print(json.dumps({'digest':hashlib.sha256(json.dumps(entries).encode()).hexdiges
 '''
 
 
+STOPPED_SECRET_OUTPUT = '/var/lib/agent-gateway/.qualification-admin-replacement'
+
+
 def validate_stopped_plan(code, text, pending, installation):
     try:
         result = json.loads(text)
@@ -72,7 +75,8 @@ def validate_stopped_plan(code, text, pending, installation):
                 'nonempty control sidecar did not yield exact immutable-inspection refusal')
         return 'refused-control-sidecar'
     require(code == 0 and result.get('dry_run') is True
-            and result.get('operation') == 'verify-and-recover-storage'
+            and result.get('operation') == 'reset-admin-credentials'
+            and result.get('secret_output') == STOPPED_SECRET_OUTPUT
             and result.get('installation_id') == installation,
             'closed control storage did not yield the expected dry-run plan')
     return 'closed-plan'
@@ -855,10 +859,13 @@ class Qualification(Smoke):
         # STDIO stop and OAuth reactivation were already qualified above. Only
         # HTTPS must reconstruct during the stopped-maintenance/crash cases.
         self.quiesce_fixture_servers({self.servers[2]})
-        code, _ = self.dc('exec', '-T', 'gateway', 'agent-gateway', 'maintenance', 'verify-and-recover-storage', '--dry-run', check=False)
-        require(code != 0, 'maintenance admitted while serving')
+        code, _ = self.dc('exec', '-T', 'gateway', 'agent-gateway', 'maintenance', 'reset-admin-credentials',
+                          '--secret-output', STOPPED_SECRET_OUTPUT, '--dry-run', check=False)
+        require(code == 5, 'stopped administrator-reset planning did not refuse the serving owner')
         self.stop()
-        self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance', 'verify-and-recover-storage', '--dry-run', timeout=60)
+        self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance', 'reset-admin-credentials',
+                '--secret-output', STOPPED_SECRET_OUTPUT, '--dry-run', timeout=60)
+        self.shell('test ! -e ' + STOPPED_SECRET_OUTPUT)
         self.shell('mv master-key master-key.held')
         self.refuses_uninitialized_or_unsafe()
         self.shell('test ! -e master-key; mv master-key.held master-key')
@@ -896,7 +903,8 @@ class Qualification(Smoke):
                     for check in diagnostics['checks']), 'forced-stop storage diagnostic did not match control sidecar state')
         require(snapshot() == before, 'stopped doctor changed installation evidence')
         code, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance',
-                             'verify-and-recover-storage', '--dry-run', '--json', timeout=60, check=False, machine_json=True)
+                             'reset-admin-credentials', '--secret-output', STOPPED_SECRET_OUTPUT,
+                             '--dry-run', '--json', timeout=60, check=False, machine_json=True)
         require(snapshot() == before, 'stopped dry-run changed installation evidence')
         self.report['forced_stop_inspection'] = validate_stopped_plan(
             code, text, before['control_pending'], self.report['installation_identity'])

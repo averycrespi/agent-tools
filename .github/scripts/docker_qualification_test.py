@@ -184,13 +184,36 @@ class AdapterTests(unittest.TestCase):
                 self.assertFalse(result['truncated'])
                 self.assertEqual(len(result[field]), 1)
 
+    def test_maintenance_uses_supported_read_only_reset_plan(self):
+        owner = Qualification(FakeDocker())
+        self.addCleanup(owner.temp.cleanup)
+        owner.servers = ['stdio', 'private', 'https']
+        calls, shell = [], []
+        def dc(*args, **kwargs):
+            calls.append((args, kwargs))
+            return (5 if args[0] == 'exec' else 0), ''
+        with patch.object(owner, 'dc', side_effect=dc), patch.object(owner, 'shell', side_effect=shell.append), \
+                patch.object(owner, 'fault_owner'), patch.object(owner, 'refuses_uninitialized_or_unsafe'), \
+                patch.object(owner, 'quiesce_fixture_servers'), patch.object(owner, 'stop'), patch.object(owner, 'start'):
+            owner.maintenance()
+        self.assertEqual(len(calls), 2)
+        for args, _ in calls:
+            index = args.index('maintenance')
+            self.assertEqual(args[index:], ('maintenance', 'reset-admin-credentials', '--secret-output',
+                                           '/var/lib/agent-gateway/.qualification-admin-replacement', '--dry-run'))
+            self.assertNotIn('--confirm', args)
+        self.assertIn('test ! -e /var/lib/agent-gateway/.qualification-admin-replacement', shell)
+
     def test_stopped_plan_requires_exact_sidecar_contract(self):
-        plan = {'dry_run': True, 'operation': 'verify-and-recover-storage', 'installation_id': 'fixture'}
+        plan = {'dry_run': True, 'operation': 'reset-admin-credentials', 'installation_id': 'fixture',
+                'secret_output': '/var/lib/agent-gateway/.qualification-admin-replacement'}
         refusal = {'code': 'inspection_unavailable', 'exit_code': 7, 'uncertain': False}
         self.assertEqual(validate_stopped_plan(0, json.dumps(plan), False, 'fixture'), 'closed-plan')
         self.assertEqual(validate_stopped_plan(7, json.dumps(refusal), True, 'fixture'), 'refused-control-sidecar')
         for code, result, pending in [(7, refusal, False), (0, plan, True), (7, {'code': 'maintenance_unavailable'}, True),
                                       (7, {**refusal, 'uncertain': True}, True), (0, {**plan, 'installation_id': 'foreign'}, False),
+                                      (0, {**plan, 'operation': 'verify-and-recover-storage'}, False),
+                                      (0, {**plan, 'secret_output': '/unqualified/output'}, False),
                                       (7, {**refusal, 'code': 'PRIVATE-CANARY'}, True)]:
             with self.assertRaises(RuntimeError) as caught:
                 validate_stopped_plan(code, json.dumps(result), pending, 'fixture')
