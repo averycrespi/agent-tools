@@ -168,7 +168,7 @@ func TestDoctorAutomaticIdentityAndPassiveBoundary(t *testing.T) {
 	}
 }
 
-func TestDoctorImportedUnsetCredentialsArePassiveSetupTasks(t *testing.T) {
+func TestDoctorImportedUnsetCredentialsNeedValues(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	source := filepath.Join(t.TempDir(), "config.json")
 	document := strings.Replace(cliImportDocument, `"http":{"credentials":[]`, `"http":{"credentials":[{"ref":"http-credential/1","name":"Imported","boundary":{"host":"example.com","port":443,"allow_wildcard":false},"recipe":{"header":"Authorization","prefix":"Bearer "},"secret_ref":"http-credential/1/secret"}]`, 1)
