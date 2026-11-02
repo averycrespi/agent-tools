@@ -61,7 +61,7 @@ The root filesystem is read-only, capabilities are dropped, and a bounded writab
 Use the same image, volume and UID. `docker compose exec` is the service-name form of `docker exec`:
 
 ```bash
-docker compose exec -T gateway agent-gateway doctor --online \
+docker compose exec -T gateway agent-gateway doctor \
   --address http://127.0.0.1:8210
 docker compose exec -T gateway agent-gateway mcp server list \
   --address http://127.0.0.1:8210

@@ -39,8 +39,16 @@ func (state CredentialMaterialState) Label() string {
 // CredentialSetupFact is a focused, nonsecret input for stopped doctor/setup
 // consumers. It neither resolves material nor changes doctor presentation.
 type CredentialSetupFact struct {
-	ID     string
-	Kind   string
-	Action string
-	Slots  []string
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
+	Action   string   `json:"action"`
+	Slots    []string `json:"slots,omitempty"`
+	Inactive bool     `json:"inactive,omitempty"`
+}
+
+// CredentialSetupStatus reports metadata only, never resolved credentials.
+// Unavailable metadata is independent of serving or storage health.
+type CredentialSetupStatus struct {
+	State string                `json:"state"`
+	Facts []CredentialSetupFact `json:"facts"`
 }

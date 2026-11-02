@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:792739dd198f60f516d3c5afa204d591f3f7252ca317855cecef2b5588b21acb", digest)
+	assert.Equal(t, "sha256:b4439e0e0f587ce1843006005b5af50710f9336de94ce1a2822c539cb8e63493", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -90,11 +90,12 @@ func TestCLIContract(t *testing.T) {
 			expected = append(expected, row.CLIUses...)
 		}
 		sort.Strings(expected)
-		actual := append(onlineCapabilityUses(), "doctor --online")
+		actual := append(onlineCapabilityUses(), "doctor")
 		doctor, rest, err := root.Find([]string{"doctor"})
 		require.NoError(t, err)
 		require.Empty(t, rest)
-		require.NotNil(t, doctor.Flags().Lookup("online"))
+		require.Nil(t, doctor.Flags().Lookup("online"))
+		require.Nil(t, doctor.Flags().Lookup("verify-storage"))
 		sort.Strings(actual)
 		assert.Equal(t, expected, actual)
 

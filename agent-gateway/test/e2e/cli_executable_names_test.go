@@ -177,7 +177,7 @@ func TestCLIExecutableNames(t *testing.T) {
 				// Service readiness deliberately precedes optional history attachment.
 				require.Eventually(t, func() bool {
 					var statusErr error
-					status, statusErr = runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--online", "--address", "http://"+authority, "--json")
+					status, statusErr = runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--address", "http://"+authority, "--json")
 					require.NoError(t, statusErr, "status: %s", status.Stderr)
 					var checklist struct {
 						System contract.SystemStatus `json:"system"`

@@ -47,7 +47,7 @@ agent-gateway serve
 In another terminal:
 
 ```bash
-agent-gateway doctor --online
+agent-gateway doctor
 ```
 
 Open **http://127.0.0.1:8210/** and sign in with the administrator bearer from the protected file reported by `init`. Read it only for that handoff; do not put it in argv, environment variables, logs or saved browser settings. Never give this bearer to an agent. The CLI reads the protected file directly; [administrator authentication](docs/operators/administration.md#administrator-authentication) covers explicit/custom locations.

@@ -68,9 +68,11 @@ server credential replacement and OAuth actions complete the same definition and
 preserve references; secret values never enter reads, diagnostics or exports.
 
 Each credential owner exposes bounded `SetupFactsTx` read-only facts for stopped
-doctor/setup consumers: resource ID, kind, `supply_value` or `sign_in`, and declared
-static slots when relevant. These are missing-setup facts only, not material probes
-or authority. This seam does not add an endpoint or change doctor defaults/output.
+doctor/setup consumers and authenticated system status: resource ID, kind,
+`supply_value` or `sign_in`, and declared static slots when relevant. Disabled
+servers mark these facts inactive, so retained unused definitions are not warnings.
+These are missing-setup metadata only, not material probes or authority. Doctor
+uses the same bounded owners in a stopped immutable read or live system status.
 
 ## Scoped HTTP credentials
 

@@ -355,6 +355,18 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 				startedAt, current, store.Latched(), draining.Load(), agentIngress.AuthMode, capabilitySnapshot, provider.WorkStatus(), sessions.Status(),
 				mcpWork, mcpStreams, legacySessions,
 			)
+			status.InstallationRoot, _ = gatewaypaths.DiagnosticRootIdentity(ownership.Layout().Root)
+			setup := &contract.CredentialSetupStatus{State: "unavailable", Facts: []contract.CredentialSetupFact{}}
+			if setupErr := store.View(ctx, func(tx *sql.Tx) error {
+				facts, err := credentialSetupFacts(ctx, tx)
+				if err == nil {
+					setup.Facts = facts
+				}
+				return err
+			}); setupErr == nil {
+				setup.State = "ok"
+			}
+			status.Setup = setup
 			trafficStatus := runtime.Traffic().Status(context.Background())
 			status.Traffic = &trafficStatus
 			diagnosticStatus := dependencies.diagnostics.Status()
@@ -611,9 +623,10 @@ func baseSystemStatus(
 		GrantRequests: fixedStatus("grant_requests", 0), GrantRequestEvidenceBytes: fixedStatus("grant_request_evidence_bytes", 0),
 	}
 	return contract.SystemStatus{
-		Process: contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},
-		SQLite:  contract.SQLiteStatus{State: state, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), Revision: fmt.Sprintf("%d", identity.Revision), Latched: latched},
-		Keyring: contract.KeyringStatus{Capability: capability}, Limits: limits,
+		InstallationID: identity.InstallationID,
+		Process:        contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},
+		SQLite:         contract.SQLiteStatus{State: state, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), Revision: fmt.Sprintf("%d", identity.Revision), Latched: latched},
+		Keyring:        contract.KeyringStatus{Capability: capability}, Limits: limits,
 		Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: agentAuth},
 	}
 }

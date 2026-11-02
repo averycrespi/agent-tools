@@ -59,7 +59,7 @@ class SmokeTests(unittest.TestCase):
         self.assertNotEqual(Smoke(fake).name, smoke.name)
 
     def test_failures_never_pass_and_cleanup_still_runs(self):
-        for failure in ("docker build", "init --confirm", "up --detach", "doctor --online", "stop --timeout"):
+        for failure in ("docker build", "init --confirm", "up --detach", "agent-gateway doctor", "stop --timeout"):
             with self.subTest(failure=failure):
                 fake = FakeDocker(failure=failure)
                 smoke = Smoke(fake)

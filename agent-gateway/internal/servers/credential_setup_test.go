@@ -37,10 +37,10 @@ func TestCredentialSetupFactsSurviveRestartWithoutMaterial(t *testing.T) {
 		facts, err := SetupFactsTx(ctx, tx)
 		require.NoError(t, err)
 		require.ElementsMatch(t, []contract.CredentialSetupFact{
-			{ID: ids[0], Kind: "static_credential", Action: "supply_value", Slots: []string{"api"}},
-			{ID: ids[1], Kind: "static_credential", Action: "supply_value", Slots: []string{"bearer"}},
-			{ID: ids[2], Kind: "oauth_client", Action: "supply_value"},
-			{ID: ids[2], Kind: "oauth_tokens", Action: "sign_in"},
+			{ID: ids[0], Kind: "static_credential", Action: "supply_value", Slots: []string{"api"}, Inactive: true},
+			{ID: ids[1], Kind: "static_credential", Action: "supply_value", Slots: []string{"bearer"}, Inactive: true},
+			{ID: ids[2], Kind: "oauth_client", Action: "supply_value", Inactive: true},
+			{ID: ids[2], Kind: "oauth_tokens", Action: "sign_in", Inactive: true},
 		}, facts)
 		return nil
 	}))

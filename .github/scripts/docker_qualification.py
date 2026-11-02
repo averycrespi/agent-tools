@@ -895,12 +895,12 @@ class Qualification(Smoke):
         require(before['marker'], 'forced-stop marker absent')
         # A crash marker alone is not corruption: normal startup verifies integrity.
         # Stopped diagnostic inspection must neither remove it nor repair/reinitialize.
-        _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--verify-storage', '--json', check=False, machine_json=True)
+        _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--json', check=False, machine_json=True)
         diagnostics = json.loads(text)
         require(any(check['name'] == 'process ownership' and check['state'] == 'stopped' for check in diagnostics['checks']), 'forced-stop ownership diagnostic absent')
-        expected = 'failed' if before['control_pending'] else 'ok'
-        require(any(check['name'] == 'storage inspection' and check['state'] == expected
-                    for check in diagnostics['checks']), 'forced-stop storage diagnostic did not match control sidecar state')
+        expected = 'not-checked' if before['control_pending'] else 'ok'
+        require(any(check['name'] == 'storage metadata' and check['state'] == expected
+                    for check in diagnostics['checks']), 'forced-stop metadata diagnostic did not match control sidecar state')
         require(snapshot() == before, 'stopped doctor changed installation evidence')
         code, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance',
                              'reset-admin-credentials', '--secret-output', STOPPED_SECRET_OUTPUT,

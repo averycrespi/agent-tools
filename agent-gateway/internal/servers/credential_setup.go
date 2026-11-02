@@ -50,18 +50,19 @@ func CredentialSetupState(transport contract.Transport, authority AuthorityMetad
 // SetupFactsTx supplies bounded nonsecret setup facts for stopped doctor/setup
 // consumers. It performs no keyring or OAuth discovery and creates no authority.
 func SetupFactsTx(ctx context.Context, tx *sql.Tx) ([]contract.CredentialSetupFact, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id,transport_json FROM servers WHERE desired_state<>'deleted' ORDER BY id LIMIT 65`)
+	rows, err := tx.QueryContext(ctx, `SELECT id,transport_json,desired_state FROM servers WHERE desired_state<>'deleted' ORDER BY id LIMIT 65`)
 	if err != nil {
 		return nil, err
 	}
 	type definition struct {
 		id        string
 		transport []byte
+		desired   string
 	}
 	definitions := []definition{}
 	for rows.Next() {
 		var d definition
-		if err := rows.Scan(&d.id, &d.transport); err != nil {
+		if err := rows.Scan(&d.id, &d.transport, &d.desired); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -79,6 +80,7 @@ func SetupFactsTx(ctx context.Context, tx *sql.Tx) ([]contract.CredentialSetupFa
 	}
 	out := []contract.CredentialSetupFact{}
 	for _, d := range definitions {
+		start := len(out)
 		t, err := DecodeTransport(d.transport)
 		if err != nil {
 			return nil, err
@@ -115,6 +117,9 @@ func SetupFactsTx(ctx context.Context, tx *sql.Tx) ([]contract.CredentialSetupFa
 				}
 			}
 			out = append(out, contract.CredentialSetupFact{ID: d.id, Kind: "static_credential", Action: "supply_value", Slots: unique})
+		}
+		for i := start; i < len(out); i++ {
+			out[i].Inactive = d.desired == "disabled"
 		}
 	}
 	return out, nil

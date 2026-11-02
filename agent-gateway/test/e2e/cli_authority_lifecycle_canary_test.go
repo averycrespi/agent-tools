@@ -25,7 +25,7 @@ func TestCLIAuthorityLifecycleCanary(t *testing.T) {
 	credentialPath := filepath.Join(dir, "agent-bearer")
 	results := make([]testutil.ProcessResult, 0, 12)
 
-	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
+	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--json", "--data-dir", harness.root)
 	admins := runOnlineCLI(t, harness, bearerPath, true, "admin", "credential", "list", "--limit", "10", "--output", "json")
 	principalResult := runOnlineCLI(t, harness, bearerPath, true, "agent", "create", "--display-name", "M10 principal", "--visibility", "all", "--output", "json")
 	results = append(results, status, admins, principalResult)

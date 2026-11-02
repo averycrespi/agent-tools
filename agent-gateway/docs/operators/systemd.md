@@ -27,7 +27,7 @@ systemctl --user status agent-gateway.service
 /home/alice/.local/bin/agent-gateway --data-dir /home/alice/.local/share/agent-gateway doctor --address http://127.0.0.1:8210
 ```
 
-Run each mutation once and inspect errors before deciding another action. `Type=exec` verifies execution of the binary, not application readiness. Match the loaded unit, arguments and process identity before interpreting a readiness probe; an unrelated loopback listener can answer. `doctor --online` deliberately uses the protected administrator bearer for authenticated status, not upstream credential qualification. Never put that bearer in curl arguments.
+Run each mutation once and inspect errors before deciding another action. `Type=exec` verifies execution of the binary, not application readiness. Match the loaded unit, arguments and process identity before interpreting a readiness probe; an unrelated loopback listener can answer. `doctor` automatically uses the protected administrator bearer for authenticated status and correlates installation evidence; readiness alone is not that correlation or upstream credential qualification. Never put that bearer in curl arguments.
 
 `Restart=on-failure` restarts failed processes after five seconds, subject to systemd's start-rate limits; an explicit stop is not automatically restarted. Repeated failure requires diagnosis, not a reset/restart loop. The example defines no socket or timer activation. Do not enable another unit against the same installation.
 

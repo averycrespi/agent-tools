@@ -126,7 +126,7 @@ func newResetAdminCredentialsCmd(dependencies offlineDependencies) *cobra.Comman
 		}
 		result := recoveryResult{OK: true, Operation: operation, InstallationID: identity.InstallationID, Revision: fmt.Sprint(identity.Revision)}
 		human := "Maintenance completed: " + operation + "\nInstallation: " + identity.InstallationID
-		next, err := renderBearerCommand("agent-gateway doctor --online", secretOutput)
+		next, err := renderBearerCommand("agent-gateway doctor", secretOutput)
 		if err == nil {
 			next, err = renderPathFlagCommand(next, "--data-dir", "data_dir", layout.Root)
 		}

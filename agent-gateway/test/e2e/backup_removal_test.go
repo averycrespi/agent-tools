@@ -38,7 +38,7 @@ func TestRetiredBackupArtifactsDoNotGateStartupOrStatus(t *testing.T) {
 				assertSettledResult(t, result)
 				require.Equal(t, before, testutil.FingerprintArtifacts(t, retained))
 			}
-			diagnostic, _ := h.runner.Run(h.ctx, h.binary, "doctor", "--verify-storage", "--json", "--data-dir", h.root)
+			diagnostic, _ := h.runner.Run(h.ctx, h.binary, "doctor", "--json", "--data-dir", h.root)
 			assertSettledResult(t, diagnostic)
 			var checklist struct {
 				Checks []struct {
@@ -49,7 +49,7 @@ func TestRetiredBackupArtifactsDoNotGateStartupOrStatus(t *testing.T) {
 			require.NoError(t, json.Unmarshal(diagnostic.Stdout, &checklist))
 			inspected := false
 			for _, check := range checklist.Checks {
-				if check.Name == "storage inspection" {
+				if check.Name == "storage metadata" {
 					require.Equal(t, "ok", check.State)
 					inspected = true
 				}

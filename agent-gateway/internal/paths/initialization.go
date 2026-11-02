@@ -48,6 +48,10 @@ func AcquireInitialization(root string) (*Ownership, error) {
 	return &Ownership{layout: layout, lock: lock}, nil
 }
 
+// DiagnosticRootIdentity identifies the selected filesystem directory using the
+// same nonsecret binding as initialization. It does not read installation files.
+func DiagnosticRootIdentity(root string) (string, error) { return initializationRootIdentity(root) }
+
 func ReadInitialization(layout Layout) (InitializationPlan, bool, error) {
 	var plan InitializationPlan
 	if err := InspectRoot(layout.Root); err != nil {

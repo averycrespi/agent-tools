@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -16,42 +14,9 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/spf13/cobra"
 )
-
-type initInspection struct {
-	Snapshot storage.Inspection
-	Admin    bool
-	CA       httpca.Inspection
-	Traffic  [32]byte
-}
-
-// Doctor's opt-in closed-storage inspection remains separate from ordinary init.
-func inspectInit(ctx context.Context, owner *gatewaypaths.Ownership) (initInspection, error) {
-	var result initInspection
-	snapshot, err := storage.InspectClosedInstallation(ctx, owner.Layout(), func(tx *sql.Tx) error {
-		var err error
-		result.Admin, err = admin.InitializedTx(ctx, tx)
-		if err != nil {
-			return err
-		}
-		result.CA, err = httpca.InspectTx(ctx, tx)
-		return err
-	})
-	result.Snapshot = snapshot
-	if err == nil && snapshot.Marked {
-		err = storage.ErrStorageLatched
-	}
-	if err == nil && snapshot.Identity.TrafficGeneration != "" {
-		result.Traffic, err = composition.InspectTraffic(ctx, owner, snapshot.Identity, composition.DefaultTrafficBudget)
-	} else if err == nil && result.Admin {
-		err = storage.ErrTrafficUnselected
-	}
-	return result, err
-}
 
 func newInitCmd(dependencies offlineDependencies) *cobra.Command {
 	var confirm, jsonOutput, resume bool

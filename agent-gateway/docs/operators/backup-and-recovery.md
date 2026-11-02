@@ -141,7 +141,7 @@ Reset revokes every previous administrator bearer and activates the published re
 ```bash
 agent-gateway serve --data-dir /path/to/gateway-data
 # In another terminal:
-agent-gateway doctor --online --admin-bearer-file /safe/new/replacement-admin-bearer
+agent-gateway doctor --admin-bearer-file /safe/new/replacement-admin-bearer
 ```
 
 Use online `admin credential rotate` for routine replacement-first rollover of one named credential. Maintenance uses `--confirm`, not `--yes`. Inspect with `--dry-run`; noninteractive execution without consent refuses. Never put a bearer in arguments, environment, logs or the old default file as a shortcut.

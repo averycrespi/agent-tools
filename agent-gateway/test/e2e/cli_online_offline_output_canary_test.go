@@ -22,7 +22,7 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 
-	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
+	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--json", "--data-dir", harness.root)
 	var snapshot struct {
 		System contract.SystemStatus `json:"system"`
 	}

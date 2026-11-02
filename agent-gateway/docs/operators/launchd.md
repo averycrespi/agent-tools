@@ -38,7 +38,7 @@ Only run these commands after separately authorizing the installed-resource chan
 /Users/alice/.local/bin/agent-gateway --data-dir /Users/alice/.local/share/agent-gateway doctor --address http://127.0.0.1:8210
 ```
 
-Run bootstrap once. On error or uncertainty, inspect before deciding another action; do not loop or automatically retry. A valid XML plist is not proof of native acceptance. Loaded/running is not readiness. `doctor` uses a bounded unauthenticated readiness check; an unrelated listener can answer, so match the loaded program, literal arguments and process identity separately. `doctor --online` deliberately uses the selected administrator bearer to inspect authenticated status. Neither proves upstream credential health. Never copy a bearer into curl arguments.
+Run bootstrap once. On error or uncertainty, inspect before deciding another action; do not loop or automatically retry. A valid XML plist is not proof of native acceptance. Loaded/running is not readiness. `doctor` automatically reads bounded readiness and authenticated status using the selected administrator bearer. It attributes status only after matching installation evidence; readiness alone can come from an unrelated listener. Match the loaded program and literal arguments separately. Neither proves upstream credential health. Never copy a bearer into curl arguments.
 
 Inspect only the necessary bounded interval of the configured stdout/stderr logs locally. [Serve diagnostics](administration.md#safe-serve-diagnostics) are lossy and not audit evidence or permission to replay an uncertain call. launchd does not rotate these files; the operator owns retention and safe stopped log rotation.
 

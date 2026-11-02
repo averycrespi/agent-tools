@@ -55,7 +55,7 @@ success does not authorize a service reload, restart or deployment.
 
 The Gateway `service` command group is removed, without aliases or completion entries. Replace automation with operator-owned [launchd procedures](launchd.md) or [systemd procedures](systemd.md). Existing jobs invoking supported foreground `serve` remain valid; no installed plist, logs or data are rewritten or deleted. Preserve the exact account, executable and data-root selections. Changes require separately authorized stopped reconciliation, not reinitialization.
 
-`doctor` no longer performs native service inspection: the optional `service` JSON member and `installed service` check are removed. The remaining checklist, human/verbose behavior, public status and schema-2 diagnostics are unchanged. Use the supervisor for configuration, process and log-path inspection; listener readiness is not process identity.
+`doctor` no longer performs native service inspection: the optional `service` JSON member and `installed service` check are removed. Doctor now automatically reads bounded authenticated status and correlates the selected installation; `--online` and `--verify-storage` are removed. Default output is attention-first, while `--verbose` and JSON preserve supporting facts. Public status adds optional installation correlation and bounded setup metadata; older listeners without correlation remain unverified. Schema-2 diagnostics are unchanged. Use the supervisor for configuration, process and log-path inspection; listener readiness is not process identity.
 
 ## HTTP listener default cutover
 
