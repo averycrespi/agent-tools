@@ -179,7 +179,7 @@ Existing same-key server work retains its durable identity across the route rena
 
 ## Setup and maintenance CLI cutover
 
-Use `init` (`initialize` remains a quiet alias), `doctor` instead of top-level `status`, and `agent` instead of `principal`. Initial CA setup belongs to init; `http ca create` is removed. Export writes `<data-dir>/http-ca.pem` unless `--output PATH` or `--stdout` is selected. `--json` chooses structured output. Exceptional stopped work uses `maintenance`, including `setup-secret-storage` and `rotate-master-key`; inspect `--dry-run` and supply `--confirm` for unattended execution. Old command locations have no aliases. These grammar changes do not rename database tables, API endpoints, credential identities or installed resources.
+Use `init` (`initialize` remains a quiet alias), `doctor` instead of top-level `status`, and `agent` instead of `principal`. Initial CA setup belongs to init; `http ca create` is removed. Export writes `<data-dir>/http-ca.pem` unless `--output PATH` or `--stdout` is selected. `--json` chooses structured output. Exceptional stopped work uses `maintenance reset-admin-credentials` or `maintenance rotate-master-key` (including `--recover`); inspect `--dry-run` and supply `--confirm` for unattended execution. Separate custody setup and legacy traffic cutover are retired without aliases or automatic startup invocation. Ordinary init/import provision both stores and custody; recognized interrupted setup uses only `init --resume`. Preserve all historical generations, keys, tombstones and backups. Old command locations have no aliases. These grammar changes do not rename database tables, API endpoints, credential identities or installed resources.
 
 <a id="principal-http-default-client-cutover"></a>
 

@@ -335,14 +335,3 @@ func isStorageFailure(err error) bool {
 	}
 	return false
 }
-func syncDirectory(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	if err := directory.Sync(); err != nil {
-		_ = directory.Close()
-		return err
-	}
-	return directory.Close()
-}

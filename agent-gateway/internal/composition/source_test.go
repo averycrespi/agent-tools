@@ -334,6 +334,11 @@ var _ invocation.Service
 			want:     "internal/api/bad.go: prohibited unselected traffic constructor OpenTraffic",
 		},
 		{
+			name: "traffic initialization cannot mutate historical evidence", path: "internal/invocation/traffic_initialization.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/traffic_initialization.go: prohibited S4 SQL table invocations",
+		},
+		{
 			name: "traffic generation cannot mutate evidence", path: "internal/invocation/traffic_generation.go",
 			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
 			want:     "internal/invocation/traffic_generation.go: prohibited S4 SQL table invocations",
@@ -687,7 +692,7 @@ func s3SQLViolations(source productionSource) []string {
 func s4SQLViolations(source productionSource) []string {
 	violations := make([]string, 0)
 	ast.Inspect(source.file, func(node ast.Node) bool {
-		if identifier, ok := node.(*ast.Ident); ok && source.path != "internal/invocation/traffic_generation.go" && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" {
+		if identifier, ok := node.(*ast.Ident); ok && source.path != "internal/invocation/traffic_generation.go" && source.path != "internal/invocation/traffic_initialization.go" && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" {
 			switch identifier.Name {
 			case "CreateTraffic", "OpenTraffic", "openTraffic":
 				violations = append(violations, fmt.Sprintf("%s: prohibited unselected traffic constructor %s", source.path, identifier.Name))
@@ -702,13 +707,13 @@ func s4SQLViolations(source productionSource) []string {
 			return true
 		}
 		switch source.path {
-		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go", "internal/invocation/traffic_migration.go":
+		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go":
 			return true
 		case "internal/invocation/protocol_activity.go", "internal/invocation/reads.go", "internal/invocation/history_export.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}
-		case "internal/invocation/validation.go", "internal/storage/storage.go",
+		case "internal/invocation/validation.go", "internal/storage/storage.go", "internal/invocation/traffic_initialization.go",
 			"internal/invocation/traffic_generation.go", "internal/invocation/traffic_verify.go", "internal/invocation/traffic_http_migration.go", "internal/invocation/git_traffic.go", "internal/storage/traffic_git_schema.go", "internal/storage/traffic_schema.go", "internal/storage/traffic_http_schema.go", "internal/storage/traffic_selection.go":
 			if !s4SQLDML.MatchString(value) {
 				return true

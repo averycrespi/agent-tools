@@ -37,11 +37,7 @@ func OpenTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, install
 	return openTraffic(ctx, ownership, installation, generation, config, false, nil)
 }
 
-func openTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error) (*TrafficStore, error) {
-	return openTrafficStage(ctx, ownership, installation, generation, config, create, fault, nil)
-}
-
-func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error, populate func(context.Context, *sql.DB) error) (result *TrafficStore, resultErr error) {
+func openTraffic(ctx context.Context, ownership *gatewaypaths.Ownership, installation, generation string, config TrafficConfig, create bool, fault func(string) error) (result *TrafficStore, resultErr error) {
 	if ownership == nil || !validOpaqueInvocationID(installation) || !validOpaqueInvocationID(generation) || !config.valid() {
 		return nil, ErrInvalidInput
 	}
@@ -97,9 +93,6 @@ func openTrafficStage(ctx context.Context, ownership *gatewaypaths.Ownership, in
 		}
 		if err == nil {
 			_, err = db.ExecContext(ctx, fmt.Sprintf(`PRAGMA application_id=%d; PRAGMA user_version=3`, trafficApplicationID))
-		}
-		if err == nil && populate != nil {
-			err = populate(ctx, db)
 		}
 		if err == nil {
 			err = trafficCheckpoint(ctx, db)

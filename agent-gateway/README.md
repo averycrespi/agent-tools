@@ -97,7 +97,7 @@ Follow the [generic proxy contract](docs/operators/remote-serving.md) for Host/O
 
 Preserve existing roots, credentials, tombstones and recovery artifacts. Do not reinitialize, rotate credentials or delete markers for a name change. Follow [installation safety](docs/operators/installation-safety.md) and [upgrade compatibility](docs/operators/upgrade-compatibility.md), including the [legacy custody escalation boundary](docs/operators/backup-and-recovery.md#legacy-custody-upgrade-boundary), before changing an existing installation.
 
-Only legacy single-store installations need [stopped traffic migration](docs/operators/backup-and-recovery.md#migrate-existing-invocation-storage) to enable separated history; already-selected traffic stores must not be migrated again. Ordinary startup does not require that migration to serve security-ready with history disabled.
+Init/import provision custody and both stores; interrupted setup uses `init --resume`. Separate maintenance setup and traffic cutover are retired. Preserve legacy artifacts; see [recovery guidance](docs/operators/backup-and-recovery.md#retained-installation-era-artifacts).
 
 ## Security and uncertain outcomes
 

@@ -195,7 +195,7 @@ func TestCLIExecutableNames(t *testing.T) {
 					assert.Equal(t, idleStatusSnapshot(t, statusJSON), idleStatusSnapshot(t, status.Stdout))
 				}
 			}
-			blocked, blockedErr := runner.Run(t.Context(), names[1], "maintenance", "setup-secret-storage", "--confirm", "--json")
+			blocked, blockedErr := runner.Run(t.Context(), names[1], "maintenance", "rotate-master-key", "--retain-recovery-keys", "--dry-run", "--json")
 			require.Error(t, blockedErr)
 			assertSettledResult(t, blocked)
 			assert.Empty(t, blocked.Stdout)
@@ -217,7 +217,7 @@ func TestCLIExecutableNames(t *testing.T) {
 			require.NoError(t, waitErr, "serve: %s", served.Stderr)
 			assertSettledResult(t, served)
 			assert.True(t, json.Valid(served.Stdout))
-			verified, verifyErr := runner.Run(t.Context(), names[1], "maintenance", "setup-secret-storage", "--confirm", "--json")
+			verified, verifyErr := runner.Run(t.Context(), names[1], "maintenance", "rotate-master-key", "--retain-recovery-keys", "--dry-run", "--json")
 			require.NoError(t, verifyErr, "verify after owner exit: %s", verified.Stderr)
 			assertSettledResult(t, verified)
 			assert.True(t, json.Valid(verified.Stdout))

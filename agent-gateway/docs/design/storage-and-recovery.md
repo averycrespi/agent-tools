@@ -39,7 +39,7 @@ Schema 23 adds `secret_custody` (the installation key identity/version and nonre
 
 Schema 25 adds configuration-import input/result digests, independent server first-activation fences and exact expired-grant receipts. Existing installations migrate with empty import facts and unchanged authority. The stopped importer owns one atomic definitions/receipt transaction; authorization owns expired-policy validation and servers own explicit activation. The result digest binds the resulting portable graph, activation and expiry facts, while domain checks prove unset imported authority. Storage verifies the exact embedded DDL. Current-schema validation never falls back on missing or damaged import evidence. These are new-installation facts, never restored source history or secret material; see [initialization and import](administrative-control-plane.md#installation-and-stopped-commands).
 
-The fixed `master-key` file is a 32-byte random key, not a password. Creation uses exclusive no-follow creation relative to a verified 0700 owner directory, a regular single-link 0600 owner file, file sync and directory sync before recording key identity. Setup retains partial/uncertain files rather than overwriting or replaying creation. A complete unbound key from interrupted initial setup can be adopted explicitly; an established database key identity or encrypted material never permits generating a replacement for a missing/wrong key. Reads check ownership, mode, file type, link count and exact size. Initialization provisions custody before administrator/CA authority. Existing installations use explicit stopped `maintenance setup-secret-storage`, without reinitialization or native migration. Established missing/wrong keys fail startup closed. Explicit initialization resume additionally retains a custody-publication intent before key creation; an interrupted attempt with no remaining key refuses instead of generating a new identity. The bounded initialization protocol in [administrative control](administrative-control-plane.md#installation-and-stopped-commands) is the sole initialization resume protocol and never clears historical SQL markers.
+The fixed `master-key` file is a 32-byte random key, not a password. Creation uses exclusive no-follow creation relative to a verified 0700 owner directory, a regular single-link 0600 owner file, file sync and directory sync before recording key identity. Setup retains partial/uncertain files rather than overwriting or replaying creation. A complete unbound key from interrupted initial setup can be adopted explicitly; an established database key identity or encrypted material never permits generating a replacement for a missing/wrong key. Reads check ownership, mode, file type, link count and exact size. Initialization provisions custody before administrator/CA authority. Existing installations must already have encrypted custody; separate stopped setup is retired without aliases or automatic invocation. Established missing/wrong keys fail startup closed. Explicit initialization resume additionally retains a custody-publication intent before key creation; an interrupted attempt with no remaining key refuses instead of generating a new identity. The bounded initialization protocol in [administrative control](administrative-control-plane.md#installation-and-stopped-commands) is the sole initialization resume protocol and never clears historical SQL markers.
 
 ### Legacy custody refusal
 
@@ -83,8 +83,8 @@ installation lock and authenticator, with no dual writes, protocol registry, exe
 queue or replay. Composition retains installation ownership through traffic close.
 Missing, foreign, corrupt, unsafe or unreadable history is unavailable, not a
 security-readiness failure. A NULL selector explicitly disables capture, retaining
-legacy rows without live backfill; stopped migration can subsequently select a new
-generation. Malformed control-owned selectors, control integrity, mandatory audit
+legacy rows without live backfill. The stopped extraction command is retired;
+no automatic or manual replacement selection is exposed. Malformed control-owned selectors, control integrity, mandatory audit
 and security markers remain fail-closed. Selector commits include durable
 administrative audit in the same transaction. Existing configuration, grants and
 credentials are unchanged by this lifecycle cutover.
@@ -133,8 +133,7 @@ unchanged evidence. Current schema-3 startup performs one complete validation of
 all three domains. A failed or uncertain migration never produces a ready store;
 a fresh startup validates the atomic version that actually settled. No online
 backfill, new operator command, file replacement or implicit empty initialization
-is involved. Existing selected pairs still reject `migrate-traffic`; schema-17
-single-store extraction remains the explicit stopped operation. Older readers
+is involved. Legacy single-store extraction is retired. Existing selected pairs retain their bindings; startup never extracts embedded history or selects a replacement generation. Older readers
 reject traffic schema 3. Traffic creation checkpoints and closes an
 owner-only stage, syncs its file, publishes without replacing an existing name,
 and syncs the directory before and after removing the staging name. Failed
@@ -146,7 +145,7 @@ failure-diagnostics column so shared invocation reads and semantic validation ke
 the current evidence shape. Historical control-store write builders are test-only; production completion
 persists validated, immutable encoded diagnostics in the same terminal update. The fixed retention
 charge reserves the maximum diagnostic size before admission. Control schema 18
-adds traffic selection after schema 17 diagnostics; stopped migration preserves diagnostics, while older schema-9-through-16 history has none. Unsupported experimental traffic schemas are rejected, not silently recreated.
+adds traffic selection after schema 17 diagnostics. Historical embedded evidence and schema migration history remain unchanged; older schema-9-through-16 history has no diagnostics. Unsupported experimental traffic schemas are rejected, not silently recreated.
 
 The writer has one connection, WAL, `synchronous=FULL`, a 50 ms busy bound,
 foreign keys, disabled cache spilling, SQLite's supported-build default WAL
@@ -207,9 +206,9 @@ pruning metadata invalidates prior history snapshots; absent rows and incomplete
 records never establish nonexecution.
 
 The database/WAL budget excludes control storage's existing 1 GiB limit, the
-bounded SHM coordination file (16 MiB maximum), memory, and creation/migration
-staging. Traffic-stage creation and migration must preflight and reserve their
-complete stage, retained-original and rollback costs before selection. A process-owned cooperative filesystem allowance is retained through settlement;
+bounded SHM coordination file (16 MiB maximum), memory, and creation
+staging. Traffic-stage creation must preflight and reserve its complete bounded
+stage costs before selection. A process-owned cooperative filesystem allowance is retained through settlement;
 headroom checks account for full bounded stages, retained originals and concurrent
 Gateway staging on the same filesystem. This is not physical preallocation or protection
 against concurrent noncooperating filesystem consumers. Any later I/O uncertainty
@@ -343,9 +342,9 @@ Historical generic and recovery-bearing SQL marker slots are recognized only und
 
 ### Operator command boundary
 
-The canonical executable exposes `maintenance reset-admin-credentials`, `maintenance migrate-traffic-storage`, `maintenance setup-secret-storage`, and `maintenance rotate-master-key`. Generic storage verification/recovery and retired recovery spellings have no execution aliases or replacement catch-all repair/unlock command. Initialization retains its existing explicit phase-bound resume protocol. Migration requires an exact installation ID; other operations accept an optional assertion. Administrator reset requires a fresh exclusive owner-only replacement bearer sink.
+The canonical executable exposes only `maintenance reset-admin-credentials` and `maintenance rotate-master-key` (including its `--recover` mode). Installation-era custody setup and traffic extraction are retired, without aliases, transition commands or automatic startup invocation. Generic storage verification/recovery has no replacement catch-all repair/unlock command. Ordinary init and configuration import provision encrypted custody and both stores before authority; recognized interruption uses only the existing explicit phase-bound `init --resume` protocol. Retained maintenance operations accept an optional installation assertion. Administrator reset requires a fresh exclusive owner-only replacement bearer sink.
 
-Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Ordinary immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery; dedicated rotation reconciliation uses its exclusive WAL-aware inspection instead. Administrator reset hashes closed control and historical marker slots, binding the selector without reading untouched optional history. Explicit migration additionally inspects and binds its history target. A changed selector invalidates consent. Execution revalidates the plan under uninterrupted stopped ownership before writing. Unknown or inconsistent marker actions refuse. Dry runs never write audits, markers, sidecars, stages or bearer files. Domain owners report known staging, changed-selection and uncertain effects without replay.
+Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Ordinary immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery; dedicated rotation reconciliation uses its exclusive WAL-aware inspection instead. Administrator reset hashes closed control and historical marker slots, binding the selector without reading untouched optional history. A changed selector invalidates consent. Execution revalidates the plan under uninterrupted stopped ownership before writing. Unknown or inconsistent marker actions refuse. Dry runs never write audits, markers, sidecars, stages or bearer files. Domain owners report known staging, changed-selection and uncertain effects without replay.
 
 Exact JSON, typed exits, stopped-service prerequisites and uncertainty procedures are published in the [operator recovery guide](../operators/backup-and-recovery.md#structured-results-and-exits). Removal does not alter root precedence, schema identity, installed service argv or credentials. Administrator replacement requires file and parent-directory sync before activation/revocation, followed by secure reopen, authentication and verification for online rollover. An uncertain output remains retained. No automatic replay or compensation is added.
 
@@ -357,9 +356,9 @@ Existing artifacts are untouched. Startup, upgrade, init/resume and normal opera
 
 Historical audit category/action and reason vocabulary remains readable for persisted evidence; it does not advertise live capabilities. No schema or historical file is rewritten as feature-removal cleanup. See [operator recovery](../operators/backup-and-recovery.md#backup-and-restore-removal).
 
-## Migration generation replacement
+## Initialization and retained generations
 
-Stopped traffic migration retains its shared consistent SQLite copy, immutable inspection, filesystem headroom, checkpoint and atomic replacement safeguards. It stages control without upgrading the original, validates and publishes generation-addressed traffic first, then installs the matching selector by one atomic rename. The original control inode is checkpointed and retained under a unique `.previous-*` name; old traffic and interrupted stages remain. Two fixed-file renames are never described as atomic. Initial setup creates its matching pair before publishing authority. No execution pins are persisted or replayed and no invalid generation falls back to empty history.
+Initial setup creates its matching empty traffic generation before publishing authority, using exclusive ownership, filesystem headroom, closed validation and durable no-replace publication. It neither extracts nor deletes embedded historical rows. Supported selected-pair startup, traffic schema upgrades and migration history retain their existing validation. Shared consistent SQLite copy, immutable inspection and checkpoint primitives remain with retained test/runtime owners; stopped historical control-generation replacement is retired. Old control generations, traffic databases, keys, tombstones, backups and interrupted stages are never deleted or mutated as feature cleanup. No execution pins are persisted or replayed and no invalid generation falls back to empty history.
 
 ### Independent history export
 

@@ -392,8 +392,7 @@ restarts at newest with a notice. MCP Invocations remains separate and unchanged
 On ordinary startup, existing selected traffic-schema-1 stores are fully validated
 and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
-pair is needed. Preserve retained traffic through [history export](backup-and-recovery.md#export-optional-history). Installation-snapshot backup/restore is removed. The stopped
-`maintenance migrate-traffic-storage` command still rejects an already selected pair.
+pair is needed. Preserve retained traffic through [history export](backup-and-recovery.md#export-optional-history). Installation-snapshot backup/restore and legacy single-store traffic cutover are removed. Existing selected pairs retain their normal startup validation; no migration command or automatic extraction remains.
 [Proxy listener selection and manual client setup](http-proxy.md) remain separate from control administration.
 
 ## Control-plane audit history

@@ -32,16 +32,14 @@ Historical encrypted artifacts can retain secrets retired from current use. Prot
 
 ## Choose a recovery task
 
-| Task                                                         | Service state  | Procedure                                                                   |
-| ------------------------------------------------------------ | -------------- | --------------------------------------------------------------------------- |
-| Export portable configuration                                | Running        | [Administration](administration.md)                                         |
-| Create a fresh installation from configuration               | New empty root | `init --from PATH`                                                          |
-| Export retained traffic                                      | Running        | [Export optional history](#export-optional-history)                         |
-| Set up encrypted custody                                     | Stopped        | [Encrypted secret storage](#encrypted-secret-storage)                       |
-| Rotate the master key while retaining recovery keys          | Stopped        | [Rotate the master key](#rotate-the-master-key)                             |
-| Replace all administrator authority, retaining product state | Stopped        | [Reset administrator authority](#reset-administrator-authority)             |
-| Extract legacy single-store history                          | Stopped        | [Migrate existing invocation storage](#migrate-existing-invocation-storage) |
-| Replace interception signing authority or export public CA   | Stopped        | [CA commands](#stopped-interception-ca-commands)                            |
+| Task                                                         | Service state  | Procedure                                                       |
+| ------------------------------------------------------------ | -------------- | --------------------------------------------------------------- |
+| Export portable configuration                                | Running        | [Administration](administration.md)                             |
+| Create a fresh installation from configuration               | New empty root | `init --from PATH`                                              |
+| Export retained traffic                                      | Running        | [Export optional history](#export-optional-history)             |
+| Rotate the master key while retaining recovery keys          | Stopped        | [Rotate the master key](#rotate-the-master-key)                 |
+| Replace all administrator authority, retaining product state | Stopped        | [Reset administrator authority](#reset-administrator-authority) |
+| Replace interception signing authority or export public CA   | Stopped        | [CA commands](#stopped-interception-ca-commands)                |
 
 Gateway must be stopped for maintenance. Stop service supervisors as well as Gateway; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
 
@@ -51,16 +49,11 @@ All maintenance operations support `--dry-run`, `--confirm`, and `--json`. Dry r
 
 New init installations provision `<data-dir>/master-key` as a random, exclusive 0600 file under the 0700 root. MCP static/OAuth, HTTP/Git and CA material is authenticated-encrypted in control SQLite, never traffic history. Administrator and agent tokens remain hash-only; the protected `admin-bearer` file is separate.
 
-For an existing installation, stop Gateway and all launchers, then inspect and approve setup without reinitialization:
+Ordinary `init` and `init --from` provision custody and both databases before publishing authority. Recognized interrupted initialization continues only through `init --resume`. There is no separate maintenance setup or legacy traffic cutover command, alias or automatic startup migration. Existing installations must already have completed those retired workflows; unresolved older state requires a qualified stopped plan, not reinitialization.
 
-```bash
-agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data --dry-run
-agent-gateway maintenance setup-secret-storage --data-dir /path/to/gateway-data --confirm
-```
+Explicit legacy generations and unresolved native cleanup refuse without changing references or accessing native storage. All protected reads and writes require encrypted custody; missing/corrupt selected records never fall back to native values.
 
-Setup creates or verifies the master key and binds its identity. It does not migrate native entries, rotate credentials, start services or change trust. Explicit legacy generations and unresolved native cleanup refuse without changing references or accessing native storage. All reads and writes require encrypted custody; missing/corrupt selected records never fall back to native values.
-
-Preserve the key and database together. Do not delete, replace, chmod, symlink or regenerate a refused key. A missing/wrong established key, partial key file or uncertain setup requires diagnosis and a separately qualified recovery plan; setup never overwrites it. Encryption protects against database-only theft, not theft of both key and database, or account/root compromise.
+Preserve the key and database together. Do not delete, replace, chmod, symlink or regenerate a refused key. A missing/wrong established key, partial key file or uncertain setup requires diagnosis and a separately qualified recovery plan; initialization never overwrites it. Encryption protects against database-only theft, not theft of both key and database, or account/root compromise.
 
 ## Legacy custody upgrade boundary
 
@@ -104,7 +97,7 @@ Rotation reconciliation validates committed WAL under exclusive ownership and au
 
 ## Optional history and serving
 
-One owned history opener validates selected storage independently of security readiness. History status is `opening`, `ready`, `unavailable`, `faulted`, or `disabled`. NULL selection disables capture and retains legacy rows until explicit stopped migration. Control integrity, mandatory audit, malformed selectors and security markers still fail closed.
+One owned history opener validates selected storage independently of security readiness. History status is `opening`, `ready`, `unavailable`, `faulted`, or `disabled`. NULL selection disables capture and retains legacy rows unchanged; no command in this version extracts or selects them. Control integrity, mandatory audit, malformed selectors and security markers still fail closed.
 
 Valid committed traffic WAL opens normally under exclusive installation ownership. SQLite's default autocheckpointing and bounded operation-scoped connections own ordinary cleanup; readers may delay it. Nonempty WAL or a stopped process alone proves neither corruption nor checkpoint completion. Startup validates WAL-aware identity, schema and every retained row before recording resumes. Unsafe paths, foreign bindings, corruption and unresolved journals require action. No database, selector or sidecar is deleted, recreated or chmodded to make history open. Administrator reset and key rotation do not inspect optional history files.
 
@@ -166,17 +159,9 @@ Init owns first CA creation; `http ca create` is removed. Replace accepts verifi
 
 Export defaults to managed public PEM, accepts `--output PATH`, or streams public PEM with `--stdout`. Identical re-export is safe; different existing files and links refuse. JSON selects result presentation and cannot combine with stdout PEM. Export never reads protected signing material and proves neither signing availability nor client trust. Errors are bounded masked stderr with typed exits: usage 2, in-use 5, unavailable 7. Inspect changed/uncertain effects before another attempt; no automatic retry or rollback occurs.
 
-## Migrate existing invocation storage
+## Retained installation-era artifacts
 
-This explicit stopped storage cutover remains supported. Single-store installations can serve security-ready with capture disabled until migrated. Obtain consent to stop all owners and confirm the exact installation ID/root. Preserve the complete existing installation; do not use a live installation as a test.
-
-```bash
-agent-gateway maintenance migrate-traffic-storage --data-dir /path/to/gateway-data --installation-id INSTALLATION_ID --confirm --traffic-budget-bytes 4294967296
-```
-
-Migration checks binding/headroom, stages control, validates retained invocations and sequence/high-water, publishes generation-addressed traffic, then selects its control pair with one atomic rename. Credentials and installation identities remain. The prior control inode is retained as `gateway.db.previous-*`; old traffic and interrupted stages remain. No calls replay and no missing terminal is synthesized. Released schema 17 is supported; schema 18 introduced traffic selection. Normal startup validates the selected pair after migration; do not use initialization as a pre-migration schema upgrade.
-
-Failure before selection leaves original control authoritative; later failure may mean the new pair is selected. Preserve all evidence and inspect bindings; never delete stages, edit selectors, infer rollback, or fall back to empty history. Missing/foreign/corrupt traffic disables optional history, not security readiness. Restart with the same budget and restore supervision only after normal startup validates readiness. Fresh initialization creates its matching pair directly; interrupted setup continues only through explicit, evidence-bound `init --resume`.
+The retired maintenance setup and traffic cutover workflows have no aliases or replacement repair command. Removal never deletes or mutates old control generations (`gateway.db.previous-*`), traffic databases, interrupted stages, master keys, tombstones or backups. Preserve them and their identities. Normal startup still validates the supported selected control/traffic pair, including supported traffic schema upgrades; it never extracts old embedded history, replaces a selector or falls back to empty history. A qualified stopped plan is required for unresolved historical state.
 
 ## Failure handling
 
@@ -186,6 +171,6 @@ After interruption, retain original generations, keys, markers and any output. A
 
 ## Structured results and exits
 
-Maintenance defaults to human output; JSON success is one safe stdout result. Execution plans/errors go to stderr; dry-run plans go to stdout. Administrator reset and storage setup/migration results identify `ok`, `operation`, `installation_id` and decimal-string `revision`. Rotation reports its dedicated disposition and retained-key path. There is no backup result or restore projection. Success exits 0; invalid input/flags/sinks 2; running owner 5; storage/recovery failure 7; output delivery failure 1, possibly after work completed. JSON problems have `status` (null), `code`, `title`, `exit_code`, and `uncertain`. Titles distinguish unchanged authority, retained staging, completed selection with later failure, and uncertainty. Nothing is replayed or compensated automatically.
+Maintenance defaults to human output; JSON success is one safe stdout result. Execution plans/errors go to stderr; dry-run plans go to stdout. Administrator reset results identify `ok`, `operation`, `installation_id` and decimal-string `revision`. Rotation reports its dedicated disposition and retained-key path. There is no backup result or restore projection. Success exits 0; invalid input/flags/sinks 2; running owner 5; storage/recovery failure 7; output delivery failure 1, possibly after work completed. JSON problems have `status` (null), `code`, `title`, `exit_code`, and `uncertain`. Titles distinguish unchanged authority, retained staging, completed selection with later failure, and uncertainty. Nothing is replayed or compensated automatically.
 
 See [administration](administration.md), the [documentation map](../README.md), and [Gateway README](../../README.md) for normal operation.

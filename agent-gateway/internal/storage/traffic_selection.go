@@ -10,11 +10,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 )
 
-var ErrTrafficUnselected = errors.New("traffic generation is not selected; stopped traffic migration is required")
+var ErrTrafficUnselected = errors.New("traffic generation is not selected; preserve historical evidence and obtain a qualified stopped plan")
 
 // SelectedTraffic reads only control-owned selection metadata. An empty selection
 // explicitly disables capture without weakening security readiness. Legacy rows
-// remain untouched until an explicitly authorized stopped migration.
+// remain untouched; no installation-era extraction command is supported.
 func (store *Store) SelectedTraffic(ctx context.Context) (string, error) {
 	var generation string
 	err := store.View(ctx, func(tx *sql.Tx) error {
@@ -49,23 +49,13 @@ func selectedTraffic(ctx context.Context, reader interface {
 	return generation.String, nil
 }
 
-// SelectTraffic is called only by stopped migration/replacement orchestration,
-// after publishing and validating the generation. The control commit is the
-// single pair-selection point; it never renames two active fixed paths.
+// SelectTraffic is called by initialization after publishing and validating its
+// new empty generation. The control commit is the single pair-selection point.
 func (store *Store) SelectTraffic(ctx context.Context, expected, generation string) error {
 	if !installationIDPattern.MatchString(generation) || expected != "" && !installationIDPattern.MatchString(expected) {
 		return ErrInvalidDatabase
 	}
 	return store.selectTraffic(ctx, expected, generation, "migrate")
-}
-
-// DisableTraffic is only for a verified stopped replacement: restoring security
-// never selects unrelated retained history. The selector and audit commit together.
-func (store *Store) DisableTraffic(ctx context.Context, expected string) error {
-	if expected != "" && !installationIDPattern.MatchString(expected) {
-		return ErrInvalidDatabase
-	}
-	return store.selectTraffic(ctx, expected, nil, "migrate")
 }
 
 func (store *Store) selectTraffic(ctx context.Context, expected string, generation any, action string) error {

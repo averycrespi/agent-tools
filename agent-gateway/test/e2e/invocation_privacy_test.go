@@ -390,14 +390,18 @@ func seedInvocationHistory(t *testing.T, root string, count int) {
 	store, err := storage.Open(ctx, ownership)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
-	identity, err := store.Identity(ctx)
+	generation, err := store.SelectedTraffic(ctx)
 	require.NoError(t, err)
-	err = store.Mutate(ctx, func(transaction *sql.Tx) error {
-		// Model an unselected legacy installation; the real stopped CLI must
-		// preserve these rows and select traffic before the next serve.
-		if _, err := transaction.ExecContext(ctx, `UPDATE traffic_selection SET generation=NULL`); err != nil {
-			return err
-		}
+	require.NoError(t, store.Close())
+	// Seed the already selected disposable traffic database directly. This
+	// retention fixture must not depend on a retired installation cutover.
+	require.NotEmpty(t, generation)
+	database, err := sql.Open("sqlite3", filepath.Join(root, "traffic-"+generation+".db"))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, database.Close()) }()
+	transaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	err = func() error {
 		result, err := transaction.ExecContext(ctx, `WITH RECURSIVE fixtures(sequence) AS (
 			SELECT 0 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence + 1 < ?
 		) INSERT INTO invocations (
@@ -417,19 +421,23 @@ func seedInvocationHistory(t *testing.T, root string, count int) {
 		if inserted != int64(count) {
 			return fmt.Errorf("seeded %d invocations, want %d", inserted, count)
 		}
-		return nil
-	})
-	require.NoError(t, err)
-	require.NoError(t, store.Checkpoint(ctx))
-	require.NoError(t, store.Close())
+		_, err = transaction.ExecContext(ctx, `INSERT INTO traffic_sizes(id,bytes)
+		SELECT id, ? + length(id) + length(principal_id) + length(credential_id) +
+		length(credential_fingerprint) + length(admitted_at) + length(admission_class) + length(redacted_arguments)
+		FROM invocations`, 1024+contract.FailureDiagnosticMaxBytes)
+		if err != nil {
+			return err
+		}
+		_, err = transaction.ExecContext(ctx, `UPDATE traffic_meta SET high_water=?, records=?, bytes=(SELECT sum(bytes) FROM traffic_sizes) WHERE singleton=1`, count, count)
+		return err
+	}()
+	if err != nil {
+		require.NoError(t, transaction.Rollback())
+		t.Fatal(err)
+	}
+	require.NoError(t, transaction.Commit())
+	require.NoError(t, database.Close())
 	require.NoError(t, ownership.MarkClean())
-	require.NoError(t, ownership.Close())
-	runner, err := testutil.NewBinaryRunner(60*time.Second, 64*1024)
-	require.NoError(t, err)
-	result, err := runner.Run(t.Context(), gatewayBinary(t), "maintenance", "migrate-traffic-storage", "--data-dir", root, "--installation-id", identity.InstallationID, "--confirm")
-	require.NoError(t, err, "stopped migration: %s", result.Stderr)
-	require.True(t, result.Cleanup.Reaped)
-	require.False(t, result.Cleanup.Survived)
 }
 
 func seededInvocationID(index int) string {
