@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,7 +26,14 @@ func TestCatalogAuditAdmissionDoesNotRepeatUnknownCommit(t *testing.T) {
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, ownership.Close()) })
-	store, err := storage.Initialize(ctx, ownership, catalogInstallationID)
+	armed := false
+	lostAcknowledgment := errors.New("audit commit acknowledgment lost")
+	store, err := storage.InitializeWithFaultInjection(ctx, ownership, catalogInstallationID, func(point storage.FaultPoint) error {
+		if armed && point == storage.FaultAfterCommit {
+			return lostAcknowledgment
+		}
+		return nil
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	scheduler := newCatalogScheduler()
@@ -40,19 +48,16 @@ func TestCatalogAuditAdmissionDoesNotRepeatUnknownCommit(t *testing.T) {
 		return tx.QueryRowContext(ctx, `SELECT count(*) FROM control_audit_events`).Scan(&baseline)
 	}))
 	calls := 0
+	armed = true
 	err = coordinator.persistAudit(ctx, ctx, work, false, func(writeCtx context.Context) error {
 		calls++
 		return store.Mutate(writeCtx, func(tx *sql.Tx) error {
-			if _, err := audit.AppendTx(writeCtx, tx, event); err != nil {
-				return err
-			}
-			// Remove only this disposable fixture's armed marker. SQL commits,
-			// but marker cleanup then fails and acknowledgment must remain unknown.
-			return os.Remove(ownership.Layout().MutationMarker)
+			_, err := audit.AppendTx(writeCtx, tx, event)
+			return err
 		})
 	})
 	require.ErrorIs(t, err, storage.ErrStorageLatched)
-	require.ErrorIs(t, err, os.ErrNotExist)
+	require.ErrorIs(t, err, lostAcknowledgment)
 	require.True(t, store.Latched())
 	require.Equal(t, 1, calls)
 	require.Zero(t, scheduler.count())
