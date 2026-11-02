@@ -135,6 +135,23 @@ const history = {
   },
   pruned: true,
 };
+test("retired backup audit vocabulary remains readable without live endpoints", () => {
+  for (const action of ["create", "delete", "restore"]) {
+    assert.doesNotThrow(() =>
+      decodeAuditItem({
+        event: {
+          ...event,
+          category: "backup",
+          action,
+          target: { type: "backup", id },
+          detail: { reason: null, problem: "encrypted_backup_unsupported" },
+        },
+        history,
+      }),
+    );
+  }
+});
+
 test("audit current recognition stays separate from evidence and validates complete unique coverage", () => {
   const envelope = {
     items: [event],

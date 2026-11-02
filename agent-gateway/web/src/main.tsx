@@ -591,12 +591,10 @@ function App() {
                 : destination === "grants" &&
                     resolved.canonicalFragment.startsWith("#/mcp/grants/new")
                   ? "Create MCP Grant"
-                  : resolved.canonicalFragment === "#/system/backups/new"
-                    ? "Create backup"
-                    : resolved.canonicalFragment ===
-                        "#/system/admin-credentials/new"
-                      ? "Create admin credential"
-                      : pageLabels[destination];
+                  : resolved.canonicalFragment ===
+                      "#/system/admin-credentials/new"
+                    ? "Create admin credential"
+                    : pageLabels[destination];
   const authenticated = session.lifecycle === "authenticated";
   const pendingRequests = pendingRequestsController.presentation(view);
 

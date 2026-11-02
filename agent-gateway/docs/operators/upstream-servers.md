@@ -121,7 +121,7 @@ Streamable HTTP create files and complete update transports accept an optional `
 
 Use `mcp server create --file PATH`, then supply the bearer through the separate credential command. For updates, include the complete transport under `transport` in the patch file and use `mcp server update SERVER_ID --file PATH --yes`. The API uses the same create/PATCH JSON.
 
-**Non-secret values only.** These values are ordinary plaintext configuration, readable by administrators and included in SQLite and backups. Never put tokens, API keys, passwords, cookies, or other secrets here. There is no environment interpolation or per-call override. Authentication remains on the existing credential paths.
+**Non-secret values only.** These values are ordinary plaintext configuration, readable by administrators and included in SQLite and configuration exports. Never put tokens, API keys, passwords, cookies, or other secrets here. There is no environment interpolation or per-call override. Authentication remains on the existing credential paths.
 
 Omitted, `null`, or `{}` headers in a **complete replacement transport** clear custom headers. Omitting the PATCH `transport` preserves them. Removing every row in the web form clears them. Header changes use the current ETag/revision, fence and replace the old runtime, and refresh the catalog; old routes cannot continue using the previous toolset.
 

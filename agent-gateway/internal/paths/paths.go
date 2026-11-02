@@ -18,7 +18,6 @@ const (
 	LockName               = "gateway.lock"
 	RunMarkerName          = "run.unclean"
 	MutationMarkerName     = "mutation.intent"
-	BackupsName            = "backups"
 )
 
 var (
@@ -34,7 +33,6 @@ type Layout struct {
 	Lock           string
 	RunMarker      string
 	MutationMarker string
-	Backups        string
 	AdminBearer    string
 }
 
@@ -106,7 +104,6 @@ func layoutForRoot(root string) Layout {
 		Lock:           filepath.Join(root, LockName),
 		RunMarker:      filepath.Join(root, RunMarkerName),
 		MutationMarker: filepath.Join(root, MutationMarkerName),
-		Backups:        filepath.Join(root, BackupsName),
 		AdminBearer:    filepath.Join(root, AdminBearerName),
 	}
 }
@@ -134,6 +131,10 @@ func AcquireExisting(root string) (*Ownership, error) {
 	// rather than applying the stopped tree scan to every retained artifact.
 	ownership, err := acquireExistingOwnership(root, false)
 	if err != nil {
+		return nil, err
+	}
+	if err := RequireInitializationComplete(ownership.Layout()); err != nil {
+		_ = ownership.Close()
 		return nil, err
 	}
 	if err := ownership.establishRunMarker(); err != nil {

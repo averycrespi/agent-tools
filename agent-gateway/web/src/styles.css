@@ -1273,9 +1273,6 @@ textarea[readonly] {
   padding-top: 16px;
 }
 @media (min-width: 1201px) {
-  .attention-preview {
-    contain: size;
-  }
   .attention-preview .attention-list a {
     display: -webkit-box;
     -webkit-box-orient: vertical;
@@ -1330,12 +1327,6 @@ textarea[readonly] {
 .protocol-attention .overview-headline > strong {
   display: inline;
   font-size: 16px;
-}
-.overview-facts .overview-backup-time {
-  font-size: 12px;
-  font-weight: 650;
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 .overview-facts {
   display: grid;

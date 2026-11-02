@@ -127,7 +127,7 @@ func TestDurableSecretSinkBoundaries(t *testing.T) {
 	credential, err := repository.IssueCredential(context.Background(), created.Principal.ID, created.Principal.Revision)
 	require.NoError(t, err)
 	backup := filepath.Join(t.TempDir(), "gateway.db")
-	require.NoError(t, store.BackupTo(context.Background(), backup))
+	require.NoError(t, store.CopyTo(context.Background(), backup))
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.MarkClean())
 	require.NoError(t, ownership.Close())
@@ -164,7 +164,7 @@ func TestSecurityEvidenceOwnerManifest(t *testing.T) {
 		{"foreground OAuth failure diagnostics", "./internal/oauth", "TestForegroundOAuthDiagnosticsObserveRealServiceOutcomes"},
 		{"upstream producer stderr wiring", "./test/e2e", "TestUpstreamDiagnosticsRealBinaryRetryAndRecovery"},
 		{"logs and acceptance reports", "./test/acceptance", "TestReleaseReportSecretSinkBoundaries"}, {"events", "./test/e2e", "TestE2EInvocationReadPrivacy"},
-		{"audit capture", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"SQLite and backups", "./test/security", "TestDurableSecretSinkBoundaries"},
+		{"audit capture", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"SQLite and migration copies", "./test/security", "TestDurableSecretSinkBoundaries"},
 		{"generated frontend assets", "./test/security", "TestSecurityEvidenceOwnerManifest"}, {"screenshots and reports", "./test/e2e", "TestBrowserSecretStoragePrivacy"},
 		{"process output", "./test/e2e", "TestE2EInvocationReadPrivacy"}, {"test artifacts", "./test/security", "TestSecurityEvidenceOwnerManifest"},
 	}

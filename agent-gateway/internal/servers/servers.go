@@ -458,7 +458,8 @@ func checkEnabledCapacity(ctx context.Context, transaction *sql.Tx) error {
 
 const serverSelect = `
 	SELECT i.insertion_sequence, s.id, i.namespace, s.display_name, s.desired_state,
-	       s.desired_revision, s.transport_json, s.created_at, s.updated_at, s.deleted_at, s.audit_cause
+	       s.desired_revision, s.transport_json, s.created_at, s.updated_at, s.deleted_at, s.audit_cause,
+           EXISTS(SELECT 1 FROM server_import_activation a WHERE a.server_id=s.id)
 	FROM servers s JOIN server_identities i ON i.id = s.id`
 
 func serverByIDTx(ctx context.Context, transaction *sql.Tx, serverID string) (Server, error) {
@@ -491,6 +492,7 @@ func scanServer(row scanner) (Server, error) {
 		&server.UpdatedAt,
 		&deletedAt,
 		&cause,
+		&server.ActivationRequired,
 	); err != nil {
 		return Server{}, err
 	}

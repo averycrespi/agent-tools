@@ -173,7 +173,8 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 	maximum := mustLimit("grants")
 	rows, err := transaction.QueryContext(ctx, `
 		SELECT insertion_sequence, id, description, revision, principal_id, effect, server_id, upstream_name,
-		       constraint_json, expires_at, created_at, read_only
+		       constraint_json, expires_at, created_at, read_only,
+               EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='mcp' AND e.id=grants.id AND e.expires_at=grants.expires_at)
 		FROM grants ORDER BY insertion_sequence, id LIMIT ?`, maximum+1)
 	if err != nil {
 		return fmt.Errorf("read grants for validation: %w", err)
@@ -184,13 +185,13 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 	var previousSequence int64
 	for rows.Next() {
 		var (
-			readOnly                                             bool
+			readOnly, importedExpiry                             bool
 			sequence                                             int64
 			id, revision, principalID, effect, serverID          string
 			description, upstreamName, constraintJSON, expiresAt sql.NullString
 			createdAt                                            string
 		)
-		if err := rows.Scan(&sequence, &id, &description, &revision, &principalID, &effect, &serverID, &upstreamName, &constraintJSON, &expiresAt, &createdAt, &readOnly); err != nil {
+		if err := rows.Scan(&sequence, &id, &description, &revision, &principalID, &effect, &serverID, &upstreamName, &constraintJSON, &expiresAt, &createdAt, &readOnly, &importedExpiry); err != nil {
 			return fmt.Errorf("scan grant for validation: %w", err)
 		}
 		if count >= maximum {
@@ -228,7 +229,7 @@ func validateGrants(ctx context.Context, transaction *sql.Tx, targets StoredGran
 		}
 		if expiresAt.Valid {
 			expiry, ok := canonicalTimestamp(expiresAt.String)
-			if !ok || !expiry.After(created) {
+			if !ok || !expiry.After(created) && !importedExpiry {
 				return errorsInvalidState("grant expiry timestamp is malformed")
 			}
 		}

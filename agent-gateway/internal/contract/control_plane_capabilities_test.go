@@ -35,7 +35,7 @@ func TestGitControlPlaneCapabilitiesKeepDedicatedOwners(t *testing.T) {
 
 func TestControlPlaneCapabilityManifest(t *testing.T) {
 	capabilities := ControlPlaneCapabilityManifest()
-	require.Len(t, capabilities, 46)
+	require.Len(t, capabilities, 43)
 	productIDs := make([]string, 0, len(capabilities))
 	for _, row := range capabilities {
 		assert.NotEmpty(t, row.ID)
@@ -56,10 +56,16 @@ func TestControlPlaneCapabilityManifest(t *testing.T) {
 	assert.NotEqual(t, "changed", ControlPlaneCapabilityManifest()[0].CLIUses[0])
 
 	lifecycle := ControlPlaneLifecycleManifest()
-	require.Len(t, lifecycle, 9)
+	require.Len(t, lifecycle, 8)
 	var lifecycleIDs []string
 	for _, row := range lifecycle {
 		lifecycleIDs = append(lifecycleIDs, "product.lifecycle."+strings.ReplaceAll(row.ID, "-", "."))
+		if row.ID == "cli-initialize" {
+			assert.Equal(t, []string{"init"}, row.CLIUses)
+			for _, boundary := range []string{"creation-only", "--from", "strict full-format", "fresh authority", "remapped references", "unset credentials", "explicit upstream activation", "retained input", "atomic import receipts", "--resume", "default-no", "bounded durable progress", "single-owner", "proven-missing", "no uncertain replay", "no upstream/process/OAuth effects", "no bearer or history validation"} {
+				assert.Contains(t, row.Mechanics, boundary)
+			}
+		}
 		if row.ID == "cli-bearer" {
 			assert.Equal(t, "owner-only explicit file/exclusive stdin/resolved default file", row.Mechanics)
 			assert.NotContains(t, row.Mechanics, "prompt")

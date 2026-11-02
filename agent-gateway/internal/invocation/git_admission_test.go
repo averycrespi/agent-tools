@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -39,7 +38,7 @@ func invocationGitRequest(t *testing.T, authority *authorization.Repository, pri
 	return request
 }
 
-func TestGitOnlyBoundedRefsEnterTrafficAndBackup(t *testing.T) {
+func TestGitOnlyBoundedRefsEnterTraffic(t *testing.T) {
 	c, audits, authority, principal, credential := newAdmissionCoordinator(t, nil)
 	ref, oid, pack := "refs/heads/observed-private-canary", "1234567890abcdef1234567890abcdef12345678", "PACKopaque-private-canary"
 	line := strings.Repeat("0", 40) + " " + oid + " " + ref
@@ -65,15 +64,7 @@ func TestGitOnlyBoundedRefsEnterTrafficAndBackup(t *testing.T) {
 	require.NoError(t, c.CompleteGit(t.Context(), result, gitTrafficCompletion()))
 	traffic := audits.traffic
 	waitTraffic(t, traffic)
-	require.NoError(t, audits.store.SelectTraffic(t.Context(), "", invocationID(90)))
-	root := t.TempDir()
-	backup := filepath.Join(root, "traffic.db")
-	traffic.writerGate.Lock()
-	busy := traffic.BackupPair(t.Context(), audits.store, filepath.Join(root, "control.db"), backup)
-	traffic.writerGate.Unlock()
-	require.ErrorIs(t, busy, ErrTrafficCapacity)
-	require.NoError(t, traffic.BackupPair(t.Context(), audits.store, filepath.Join(root, "control.db"), backup))
-	for _, path := range []string{traffic.path, traffic.path + "-wal", backup} {
+	for _, path := range []string{traffic.path, traffic.path + "-wal"} {
 		raw, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
 			continue
@@ -87,9 +78,6 @@ func TestGitOnlyBoundedRefsEnterTrafficAndBackup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, history.Records, 1)
 	require.Equal(t, &contract.GitTrafficRefEvidence{State: "complete", Refs: []contract.GitTrafficRequestedRef{{Name: ref, Action: "create"}}}, history.Records[0].Admission.RefEvidence)
-	retained, err := os.ReadFile(backup)
-	require.NoError(t, err)
-	require.Contains(t, string(retained), ref)
 }
 
 func TestGitOptionalRecordingNeverGrantsOrBlocksExecution(t *testing.T) {

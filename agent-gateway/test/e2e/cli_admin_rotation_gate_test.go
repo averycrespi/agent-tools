@@ -266,7 +266,7 @@ func stoppedMatrixValue(t *testing.T, value, root, command string) string {
 	t.Helper()
 	value = strings.Trim(value, "[]")
 	switch value {
-	case "ID", "BACKUP_ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
+	case "ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
 		if strings.HasPrefix(command, "git ") {

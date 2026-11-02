@@ -18,7 +18,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/api"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
@@ -41,11 +40,13 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now() }
 
 type offlineDependencies struct {
-	clock          admin.Clock
-	entropy        io.Reader
-	newComposition func(composition.Options) (*composition.Composition, error)
-	caOperation    func(context.Context, string, string, string, composition.Clock, io.Reader, composition.CACallbacks) ([]byte, error)
-	diagnostics    *diagnostics.Adapter
+	clock                      admin.Clock
+	entropy                    io.Reader
+	newComposition             func(composition.Options) (*composition.Composition, error)
+	caOperation                func(context.Context, string, string, string, composition.Clock, io.Reader, composition.CACallbacks) ([]byte, error)
+	diagnostics                *diagnostics.Adapter
+	initializationCleanup      func(*gatewaypaths.Ownership) error
+	initializationConfirmation controlclient.ConfirmationPrompt
 }
 
 func newRootCmd() *cobra.Command {
@@ -284,10 +285,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		eventHub.Publish(contract.Invalidation{Kind: contract.InvalidationSystemStatus})
 	})
 	defer unsubscribeEvents()
-	backupManager, err := backup.New(backup.Options{Diagnostics: dependencies.diagnostics, Ownership: ownership, Store: store, Layout: ownership.Layout(), Clock: dependencies.clock, Entropy: dependencies.entropy})
-	if err != nil {
-		return false, err
-	}
 	startedAt := dependencies.clock.Now().UTC().Format(time.RFC3339Nano)
 	capabilitySnapshot := contract.KeyringUnsupported
 	var boundary *httpboundary.Boundary
@@ -305,7 +302,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 
 		Credentials:   credentials,
 		Sessions:      sessions,
-		Backups:       backupManager,
 		Events:        eventHub,
 		Invalidate:    eventHub.Publish,
 		Origin:        origin,
@@ -313,6 +309,7 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
 		HistoryExport: controlAPI.Invocations,
+		Configuration: controlAPI.Configuration,
 		Invocations:   controlAPI.Invocations,
 		HTTPTraffic:   controlAPI.HTTPTraffic,
 		GitTraffic:    controlAPI.GitTraffic,
@@ -349,10 +346,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		CatalogTraversal: runtime.CatalogServerStatus,
 		DispatchStatus:   runtime.DispatchServerStatus,
 		Status: func(ctx context.Context) (contract.SystemStatus, error) {
-			backupRecords, backupIdempotency, accountingErr := backupManager.AccountingStatus(ctx)
-			if accountingErr != nil {
-				return contract.SystemStatus{}, accountingErr
-			}
 			current, identityErr := store.Identity(context.Background())
 			if identityErr != nil {
 				current = identity
@@ -372,10 +365,6 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 			proxyStatus := runtime.HTTPProxyStatus()
 			proxyStatus.Ready = proxyStatus.Ready && !store.Latched() && !draining.Load()
 			status.HTTPProxy = &proxyStatus
-			status.Backup = backupManager.Status()
-			status.Limits.BackupWork = backupManager.WorkStatus()
-			status.Limits.BackupRecords = backupRecords
-			status.Limits.IdempotencyRecords = backupIdempotency
 			status.Limits.EventStreams = eventHub.Status()
 			status.Limits.ServerReconciliations = runtime.ReconciliationStatus()
 			status.Limits.DownstreamRuntimes = runtime.RuntimeOccupancy()
@@ -611,8 +600,8 @@ func baseSystemStatus(
 	}
 	limits := contract.LimitsStatus{
 		MCPWork: mcpWork, MCPStreams: mcpStreams, AdminSessions: adminSessions,
-		LegacySessions: legacySessions, EventStreams: fixedStatus("event_streams", 0), BackupWork: fixedStatus("backup_work", 0),
-		BackupRecords: fixedStatus("backup_records", 0), AdminCredentials: fixedStatus("admin_credentials", 0), IdempotencyRecords: fixedStatus("idempotency_records", 0),
+		LegacySessions: legacySessions, EventStreams: fixedStatus("event_streams", 0),
+		AdminCredentials:  fixedStatus("admin_credentials", 0),
 		KeyringCandidates: fixedStatus("keyring_candidates", 0), KeyringWork: keyringWork, DatabaseBytes: fixedStatus("database_bytes", 0),
 		ServerIdentities: fixedStatus("server_identities", 0), Servers: fixedStatus("servers", 0), DownstreamRuntimes: fixedStatus("downstream_runtimes", 0),
 		ServerReconciliations: fixedStatus("server_reconciliations", 0), CatalogTraversals: fixedStatus("catalog_traversals", 0), OAuthFlows: fixedStatus("oauth_flows", 0),
@@ -624,7 +613,7 @@ func baseSystemStatus(
 	return contract.SystemStatus{
 		Process: contract.ProcessStatus{State: process, Ready: ready, StartedAt: startedAt},
 		SQLite:  contract.SQLiteStatus{State: state, SchemaVersion: fmt.Sprintf("%d", identity.SchemaVersion), Revision: fmt.Sprintf("%d", identity.Revision), Latched: latched},
-		Keyring: contract.KeyringStatus{Capability: capability}, Limits: limits, Backup: contract.BackupStatus{State: contract.BackupIdle},
+		Keyring: contract.KeyringStatus{Capability: capability}, Limits: limits,
 		Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: agentAuth},
 	}
 }
@@ -831,14 +820,12 @@ func boundedProblemPath(path, fallback string) string {
 	return safe
 }
 
-// recoveryResult is an operator projection, never durable backup metadata.
+// recoveryResult is the stopped maintenance result projection.
 type recoveryResult struct {
 	OK             bool   `json:"ok"`
 	Operation      string `json:"operation"`
 	InstallationID string `json:"installation_id"`
 	Revision       string `json:"revision"`
-	BackupID       string `json:"backup_id,omitempty"`
-	History        string `json:"history,omitempty"`
 }
 
 func offlineUsageProblem(title, usage string) *controlclient.Problem {

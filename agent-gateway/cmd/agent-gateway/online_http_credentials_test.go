@@ -16,7 +16,7 @@ import (
 )
 
 func httpCredentialCLIResource() contract.HTTPCredential {
-	return contract.HTTPCredential{ID: idForSecurityTest(), HTTPCredentialDefinition: contract.HTTPCredentialDefinition{Name: "API credential", Boundary: contract.HTTPCredentialBoundary{Host: "api.example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, Revision: "7", Available: true, References: []contract.HTTPCredentialReference{}, CreatedAt: "2026-09-21T00:00:00Z", UpdatedAt: "2026-09-21T00:00:00Z"}
+	return contract.HTTPCredential{ID: idForSecurityTest(), HTTPCredentialDefinition: contract.HTTPCredentialDefinition{Name: "API credential", Boundary: contract.HTTPCredentialBoundary{Host: "api.example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, Revision: "7", Available: true, MaterialState: contract.CredentialMaterialReady, References: []contract.HTTPCredentialReference{}, CreatedAt: "2026-09-21T00:00:00Z", UpdatedAt: "2026-09-21T00:00:00Z"}
 }
 
 func TestCLIHTTPCredentialPreconditionsAndPrivacy(t *testing.T) {

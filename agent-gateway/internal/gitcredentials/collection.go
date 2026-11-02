@@ -64,6 +64,7 @@ func (s *Service) Query(ctx context.Context, q authorization.GitCollectionQuery,
 				return e
 			}
 			rec.Available = item.State == "configured"
+			rec.MaterialState = contract.MaterialState(rec.materialRevision, rec.Available)
 			rec.References = append(rec.References, refs[item.ID]...)
 			page.Items = append(page.Items, rec.GitCredential)
 		}

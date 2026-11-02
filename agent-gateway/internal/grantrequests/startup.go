@@ -37,6 +37,22 @@ type startupRequest struct {
 	identityCreatedAt string
 }
 
+// ValidateImportedEmptyTx proves absence of source request state in the caller's
+// stopped fresh-import transaction without admitting another mutation owner.
+func ValidateImportedEmptyTx(ctx context.Context, tx *sql.Tx) error {
+	if tx == nil {
+		return ErrInvalidState
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM grant_requests)+(SELECT count(*) FROM grant_request_identities)`).Scan(&count); err != nil {
+		return err
+	}
+	if count != 0 {
+		return ErrInvalidState
+	}
+	return nil
+}
+
 // ValidateStartup validates every retained request and permanent identity before readiness.
 func (repository *Repository) ValidateStartup(ctx context.Context, principals StoredPrincipalInspector, targets StoredTargetInspector) error {
 	if repository == nil {

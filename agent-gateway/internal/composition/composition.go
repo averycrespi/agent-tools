@@ -3,6 +3,7 @@ package composition
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/configexport"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/credentialauthority"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
@@ -71,6 +73,7 @@ type AgentIngressDependencies struct {
 }
 
 type ControlAPIDependencies struct {
+	Configuration            *configexport.Service
 	Diagnostics              diagnostics.HTTPProxyObserver
 	AuthorizationCollections *authorization.CollectionService
 
@@ -90,6 +93,7 @@ type ControlAPIDependencies struct {
 }
 
 type Composition struct {
+	configuration        *configexport.Service
 	observations         *diagnostics.Observations
 	traffic              *invocation.TrafficStore
 	diagnosticReferences *diagnosticReferences
@@ -233,7 +237,7 @@ func (built *Composition) ControlAPI() (ControlAPIDependencies, bool) {
 	if built == nil || !built.authorityDependenciesComplete() || built.auditRepository == nil || built.httpCredentials == nil || built.gitCredentials == nil || built.traffic == nil {
 		return ControlAPIDependencies{}, false
 	}
-	return ControlAPIDependencies{Diagnostics: built.httpDiagnostics, AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, GitTraffic: built.invocationReads, ProtocolActivity: built.invocationReads, RecordedActivity: built.traffic.RecordedActivity, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
+	return ControlAPIDependencies{Configuration: built.configuration, Diagnostics: built.httpDiagnostics, AuthorizationCollections: built.collections, GrantRequests: built.requestAdmin, Invocations: built.invocationReads, HTTPTraffic: built.invocationReads, GitTraffic: built.invocationReads, ProtocolActivity: built.invocationReads, RecordedActivity: built.traffic.RecordedActivity, Audit: built.auditRepository, HTTPCredentials: built.httpCredentials, HTTPPolicies: built.authorization, GitPolicies: built.authorization, GitCredentials: built.gitCredentials}, true
 }
 func (built *Composition) authorityDependenciesComplete() bool {
 	return built.authorization != nil && built.collections != nil && built.selfProjections != nil && built.requests != nil && built.requestAdmin != nil && built.selfCursors != nil && built.selfService != nil &&
@@ -531,7 +535,7 @@ func newWithHooks(options Options, hooks constructorHooks) (_ *Composition, resu
 		return nil
 	}
 	references := &diagnosticReferences{process: options.DiagnosticProcessID}
-	built := &Composition{observations: diagnostics.NewObservations(), httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
+	built := &Composition{configuration: configexport.New(options.Store), observations: diagnostics.NewObservations(), httpDiagnostics: options.Diagnostics, diagnosticReferences: references, callbacks: &callbackSlots{}, startHooks: hooks.startHooks, ready: options.Ready, httpNow: options.Clock.Now}
 	cleanup := true
 	defer func() {
 		if cleanup {
@@ -1144,6 +1148,12 @@ func (built *Composition) observeDrainFailure(owner string, err error) {
 	detail := diagnostics.Snapshot("lifecycle", "drain", owner, err)
 	detail.Effect = "settlement unconfirmed; no replay"
 	built.httpDiagnostics.HTTPProxy(diagnostics.Facts{Event: diagnostics.OperatorFailure, Detail: detail})
+}
+
+// validateImportedRequestsTx keeps S5 access at the composition root inside the
+// supplied stopped transaction, without constructing live request services.
+func validateImportedRequestsTx(ctx context.Context, tx *sql.Tx) error {
+	return grantrequests.ValidateImportedEmptyTx(ctx, tx)
 }
 
 func (built *Composition) shutdownConstructed() {

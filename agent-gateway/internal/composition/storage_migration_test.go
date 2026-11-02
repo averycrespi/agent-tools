@@ -18,7 +18,7 @@ func TestStoppedMigrationAcceptsSchema17(t *testing.T) {
 	const generation = "01J60000000000000000000002"
 	_, err := storage.WriteAcceptedSchemaFixtureForIntegration(ctx, root, installation, 17)
 	require.NoError(t, err)
-	before, err := storage.VerifyBackup(ctx, filepath.Join(root, "gateway.db"))
+	before, err := storage.InspectClosedDatabase(ctx, filepath.Join(root, "gateway.db"))
 	require.NoError(t, err)
 	require.Equal(t, 17, before.SchemaVersion)
 
@@ -31,7 +31,7 @@ func TestStoppedMigrationAcceptsSchema17(t *testing.T) {
 	previous, err := filepath.Glob(filepath.Join(root, "gateway.db.previous-*"))
 	require.NoError(t, err)
 	require.Len(t, previous, 1)
-	retained, err := storage.VerifyBackup(ctx, previous[0])
+	retained, err := storage.InspectClosedDatabase(ctx, previous[0])
 	require.NoError(t, err)
 	require.Equal(t, 17, retained.SchemaVersion)
 	require.Equal(t, installation, retained.InstallationID)

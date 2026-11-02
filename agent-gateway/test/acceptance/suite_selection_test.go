@@ -265,6 +265,128 @@ func (execute suiteExecutorFunc) Run(ctx context.Context, root string, command C
 	return execute(ctx, root, command)
 }
 
+func TestSuitePartitionsCompositionLifecycleWithoutChangingBoundsOrCoverage(t *testing.T) {
+	root := suiteFixture(t, map[string]string{
+		"internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestGamma(t *testing.T) {}\nfunc TestDelta(t *testing.T) {}\n",
+		"internal/invocation/lifecycle_test.go":  "package invocation\nimport \"testing\"\nfunc TestInvokeAlpha(t *testing.T) {}\nfunc TestInvokeBeta(t *testing.T) {}\n",
+		"internal/storage/lifecycle_test.go":     "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
+	})
+	for _, goos := range []string{"linux", "darwin"} {
+		t.Run(goos, func(t *testing.T) {
+			inventory, err := DiscoverSuiteInventory(root, goos, "arm64")
+			require.NoError(t, err)
+			for _, id := range []string{"test-integration", "test-integration-3"} {
+				t.Run(id, func(t *testing.T) {
+					plan, err := PlanSuite(root, id, inventory, 1)
+					require.NoError(t, err)
+					require.Len(t, plan, 2)
+					seen := map[string]bool{}
+					for _, command := range plan {
+						require.NoError(t, validateSuiteCommand(root, inventory, command))
+						assert.Contains(t, command.Argv, "-race")
+						assert.Contains(t, command.Argv, "-count=1")
+						assert.Contains(t, command.Argv, "-timeout=5m0s")
+						count := 0
+						for _, test := range command.Tests {
+							key := test.Package + "/" + test.Name
+							assert.False(t, seen[key], key)
+							seen[key] = true
+							if test.Package == "./internal/composition" {
+								count++
+							}
+						}
+						assert.Equal(t, 2, count, "composition must not consume one cumulative five-minute binary")
+					}
+					wanted := 7
+					if id == "test-integration-3" {
+						wanted = 4
+					}
+					assert.Len(t, seen, wanted)
+				})
+			}
+		})
+	}
+}
+
+func TestSuiteIsolatesMeasuredCompositionMatricesWithoutReshufflingCoverage(t *testing.T) {
+	root := suiteFixture(t, map[string]string{
+		"internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestDelta(t *testing.T) {}\nfunc TestGamma(t *testing.T) {}\nfunc TestInitializationReconcilesCompletedEffectsWithoutDuplication(t *testing.T) {}\nfunc TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries(t *testing.T) {}\nfunc TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testing.T) {}\n",
+		"internal/composition/new_test.go":       "package composition\nimport \"testing\"\nfunc TestZulu(t *testing.T) {}\n",
+		"internal/invocation/lifecycle_test.go":  "package invocation\nimport \"testing\"\nfunc TestInvokeAlpha(t *testing.T) {}\nfunc TestInvokeBeta(t *testing.T) {}\n",
+		"internal/storage/lifecycle_test.go":     "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
+		"internal/other/lifecycle_test.go":       "package other\nimport \"testing\"\nfunc TestOther(t *testing.T) {}\n",
+	})
+	packages := map[string]map[string]bool{
+		"test-integration":   {"./internal/composition": true, "./internal/invocation": true, "./internal/storage": true, "./internal/other": true},
+		"test-integration-1": {"./internal/invocation": true, "./internal/storage": true},
+		"test-integration-2": {"./internal/other": true},
+		"test-integration-3": {"./internal/composition": true},
+	}
+	batchCounts := map[string]int{"test-integration": 3, "test-integration-1": 2, "test-integration-2": 1, "test-integration-3": 3}
+	compositionBatches := [][]string{
+		{"TestAlpha", "TestDelta"},
+		{"TestBeta", "TestGamma", "TestZulu"},
+		{"TestConfigurationImportActualMarkerPublicationFailuresNeverReplay", "TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries", "TestInitializationReconcilesCompletedEffectsWithoutDuplication"},
+	}
+	for _, platform := range []struct{ os, arch string }{{"linux", "amd64"}, {"linux", "arm64"}, {"darwin", "arm64"}} {
+		t.Run(platform.os+"/"+platform.arch, func(t *testing.T) {
+			inventory, err := DiscoverSuiteInventory(root, platform.os, platform.arch)
+			require.NoError(t, err)
+			for _, id := range []string{"test-integration", "test-integration-1", "test-integration-2", "test-integration-3"} {
+				t.Run(id, func(t *testing.T) {
+					wanted := map[string]bool{}
+					for _, test := range inventory.Tests {
+						if test.Selected && test.Owner == "test-integration" && packages[id][test.Package] {
+							wanted[test.Package+"/"+test.Name] = true
+						}
+					}
+					plan, err := PlanSuite(root, id, inventory, 1)
+					require.NoError(t, err)
+					require.Len(t, plan, batchCounts[id])
+					seen := map[string]bool{}
+					for batch, command := range plan {
+						require.NoError(t, validateSuiteCommand(root, inventory, command))
+						for _, flag := range []string{"-race", "-count=1", "-timeout=5m0s", "-tags=integration"} {
+							assert.Contains(t, command.Argv, flag)
+						}
+						var composition []string
+						for _, test := range command.Tests {
+							key := test.Package + "/" + test.Name
+							require.False(t, seen[key], "duplicate execution: %s", key)
+							seen[key] = true
+							switch test.Package {
+							case "./internal/composition":
+								composition = append(composition, test.Name)
+							case "./internal/storage":
+								assert.Equal(t, 1, batch, "storage keeps its existing overlap")
+							case "./internal/invocation":
+								assert.Equal(t, map[string]int{"TestInvokeAlpha": 0, "TestInvokeBeta": 1}[test.Name], batch)
+							case "./internal/other":
+								assert.Zero(t, batch)
+							}
+						}
+						if id == "test-integration" || id == "test-integration-3" {
+							assert.Equal(t, compositionBatches[batch], composition, "ordinary identities retain original full-inventory parity")
+						}
+					}
+					assert.Equal(t, wanted, seen, "exact independently selected source inventory")
+				})
+			}
+		})
+	}
+}
+
+func TestSuiteCompositionMatrixHintsDoNotPermitForeignSelection(t *testing.T) {
+	root := suiteFixture(t, map[string]string{
+		"internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testing.T) {}\nfunc TestZulu(t *testing.T) {}\n",
+		"internal/other/lifecycle_test.go":       "package other\nimport \"testing\"\nfunc TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testing.T) {}\n",
+	})
+	inventory, err := DiscoverSuiteInventory(root, "linux", "arm64")
+	require.NoError(t, err)
+	_, err = PlanSuite(root, "test-integration", inventory, 1)
+	require.ErrorContains(t, err, "foreign selection")
+}
+
 func TestSuiteRunnerKeepsPackageAndCommandDeadlinesSeparate(t *testing.T) {
 	root := suiteFixture(t, map[string]string{
 		"agent-gateway/internal/first/first_test.go":   "package first\nimport \"testing\"\nfunc TestFirst(t *testing.T) {}\n",

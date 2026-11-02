@@ -8,10 +8,7 @@ export const overviewLimitNames = [
   "admin_sessions",
   "legacy_sessions",
   "event_streams",
-  "backup_work",
-  "backup_records",
   "admin_credentials",
-  "idempotency_records",
   "keyring_candidates",
   "keyring_work",
   "database_bytes",
@@ -59,7 +56,6 @@ export function overviewStatusFixture() {
     },
     keyring: { capability: "unavailable" },
     limits,
-    backup: { state: "idle", last_completed_at: null },
     protocols: {
       modern: "2026-07-28",
       legacy: "2025-11-25",
@@ -262,6 +258,7 @@ export function serverReadFixture(
       | "authentication_required"
       | "deleted";
     credential:
+      | "absent"
       | "ready"
       | "reauthentication_required"
       | "not_required"

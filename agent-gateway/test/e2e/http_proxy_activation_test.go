@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,7 +20,6 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
@@ -141,7 +141,10 @@ func TestHTTPProxyStartupFailureCleansPartialBinds(t *testing.T) {
 	require.NoError(t, err)
 	store, err := storage.Open(t.Context(), owner)
 	require.NoError(t, err)
-	require.NoError(t, httpca.InvalidateStaged(t.Context(), store, e2eClock{}))
+	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `UPDATE secret_generations SET ciphertext=zeroblob(length(ciphertext)) WHERE kind='http_ca'`)
+		return err
+	}))
 	require.NoError(t, store.Close())
 	require.NoError(t, owner.Close())
 	proxy := contract.DefaultHTTPProxyAuthority

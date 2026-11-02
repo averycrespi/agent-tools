@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -261,29 +260,4 @@ func (s *Service) Close() {
 		s.signer.Close()
 		s.signer = nil
 	}
-}
-
-// InvalidateStaged changes only the stopped replacement database. Every restore
-// requires explicit replacement, including when retired physical keys survive.
-// It never touches the current installation's keyring or resurrects its handles.
-func InvalidateStaged(ctx context.Context, store *storage.Store, clock Clock) error {
-	identity, err := store.Identity(ctx)
-	if err != nil {
-		return err
-	}
-	return store.Mutate(ctx, func(tx *sql.Tx) error {
-		if _, err := read(ctx, tx); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM keyring_authorities WHERE kind='http_ca'`); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO keyring_authority_fences(owner,kind) VALUES(?,'http_ca')`, identity.InstallationID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE http_ca SET revision=revision+1,handle=NULL WHERE singleton=1`); err != nil {
-			return err
-		}
-		return audit.MutationTx(ctx, tx, clock.Now(), "keyring", "fence", contract.AuditTarget{Type: "installation", ID: identity.InstallationID})
-	})
 }

@@ -191,6 +191,9 @@ func gitGrantTable(body []byte) (controlclient.Table, error) {
 	return controlclient.Table{Headers: []string{"ID", "AGENT", "REPOSITORY", "POLICY"}, Rows: [][]string{{g.ID, g.PrincipalID, g.RepositoryID, string(policy)}}}, nil
 }
 func validGitCredential(c contract.GitCredential) bool {
+	if !c.MaterialState.Valid(c.Available) {
+		return false
+	}
 	if !contract.ValidAuditID(c.ID) || !validCanonicalRevision(c.Revision) || c.Revision == "0" || !validGrantDescription(c.Name) || !validGitLocatorResponse(c.Origin+"/repository") || !contract.ValidHTTPCredentialRecipe(c.Recipe) || c.Recipe.Header != http.CanonicalHeaderKey(c.Recipe.Header) || c.References == nil || len(c.References) > contract.GitRepositoryIdentities || !validGitTimes(c.CreatedAt, c.UpdatedAt) {
 		return false
 	}
@@ -206,7 +209,7 @@ func gitCredentialTable(body []byte) (controlclient.Table, error) {
 	if controlclient.DecodeExactResponse(body, &c) != nil || !validGitCredential(c) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"NAME", "ID", "ORIGIN", "AVAILABLE", "REFERENCES"}, Rows: [][]string{{c.Name, c.ID, c.Origin, strconv.FormatBool(c.Available), strconv.Itoa(len(c.References))}}}, nil
+	return controlclient.Table{Headers: []string{"NAME", "ID", "ORIGIN", "STATUS", "REFERENCES"}, Rows: [][]string{{c.Name, c.ID, c.Origin, c.MaterialState.Label(), strconv.Itoa(len(c.References))}}}, nil
 }
 func gitProfileTable(body []byte) (controlclient.Table, error) {
 	var g contract.GitRoutingProfile

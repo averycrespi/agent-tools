@@ -78,6 +78,58 @@ class SmokeTests(unittest.TestCase):
             Smoke(fake).cleanup()
         self.assertTrue(any(args[1:3] == ["image", "rm"] for args, _ in fake.calls))
 
+    def test_machine_json_separates_progress_and_preserves_cli_problem_channel(self):
+        success = [sys.executable, '-c',
+                   'import sys; print("[+] Creating helper", file=sys.stderr); print(\'{"marker": true}\')']
+        code, text = command(success, env={}, machine_json=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(text), {'marker': True})
+        self.assertNotIn('[+]', text)
+        failure = [sys.executable, '-c',
+                   'import sys; print("[+] Creating helper", file=sys.stderr); '
+                   'print(\'{"operation":"plan"}\', file=sys.stderr); '
+                   'print(\'{"code":"inspection_unavailable","exit_code":7,"uncertain":false}\', file=sys.stderr); sys.exit(7)']
+        code, text = command(failure, env={}, check=False, machine_json=True)
+        self.assertEqual(code, 7)
+        self.assertEqual(json.loads(text), {'code': 'inspection_unavailable', 'exit_code': 7, 'uncertain': False})
+        with self.assertRaisesRegex(RuntimeError, 'output withheld'):
+            command(failure, env={}, machine_json=True)
+        long_diagnostics = [sys.executable, '-c',
+                            'import sys; print("x" * 20000, file=sys.stderr); '
+                            'print(\'{"code":"inspection_unavailable"}\', file=sys.stderr); sys.exit(7)']
+        code, text = command(long_diagnostics, env={}, check=False, machine_json=True)
+        self.assertEqual(code, 7)
+        self.assertEqual(json.loads(text), {'code': 'inspection_unavailable'})
+
+    def test_machine_json_refuses_malformed_trailing_and_oversized_payloads_privately(self):
+        for script in ('print("PRIVATE-CANARY")',
+                       'print(\'{} {}\')',
+                       'print(" " * 16384 + "{}")',
+                       'import sys; print(" " * 16384 + "{}", file=sys.stderr); sys.exit(7)',
+                       'import sys; print(\'{"code":"inspection_unavailable"}\', file=sys.stderr); print("PRIVATE-CANARY", file=sys.stderr); sys.exit(7)',
+                       'import sys; print(\'{"valid":true}\', file=sys.stderr)',
+                       'import sys; print("bad stdout"); print(\'{"code":"private"}\', file=sys.stderr); sys.exit(7)'):
+            with self.subTest(script=script):
+                with self.assertRaisesRegex(RuntimeError, 'output withheld') as caught:
+                    command([sys.executable, '-c', script], env={}, check=False, machine_json=True)
+                self.assertNotIn('PRIVATE-CANARY', str(caught.exception))
+                self.assertNotIn('bad stdout', str(caught.exception))
+
+    def test_structured_compose_reads_alone_quiet_progress_and_select_machine_channel(self):
+        calls = []
+        def run(args, **kwargs):
+            calls.append((args, kwargs))
+            return 0, '{}'
+        owner = Smoke(run)
+        owner.dc('run', '--rm', 'gateway', 'doctor', '--json', machine_json=True, check=False)
+        owner.dc('run', '--rm', 'gateway', 'init', '--confirm')
+        self.assertTrue(calls[0][1]['machine_json'])
+        self.assertFalse(calls[0][1]['check'])
+        self.assertLess(calls[0][0].index('--progress'), calls[0][0].index('run'))
+        self.assertEqual(calls[0][0][calls[0][0].index('--progress') + 1], 'quiet')
+        self.assertNotIn('machine_json', calls[1][1])
+        self.assertNotIn('--progress', calls[1][0])
+
     def test_command_deadline_and_failure_are_enforced_without_echoing_output(self):
         with self.assertRaises(subprocess.TimeoutExpired):
             command([sys.executable, "-c", "import time; time.sleep(10)"], env={}, timeout=0.05)

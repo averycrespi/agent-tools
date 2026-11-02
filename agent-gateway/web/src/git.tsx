@@ -1,4 +1,5 @@
 import type { RefObject } from "preact";
+import { credentialMaterialLabel } from "./credential-material";
 import { normalizedGitLocator, submittedExpiry } from "./edit-values";
 import { oppositeGitAlias, validGitAliases } from "./git-alias";
 import { gitOriginCovered } from "./git-routing-contract";
@@ -177,7 +178,7 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
             <StatusLabel
               state={error ? "stale" : value.available ? "current" : "warning"}
             >
-              {value.available ? "Configured" : "Unavailable"}
+              {credentialMaterialLabel(value)}
             </StatusLabel>
           ) : kind === "grants" ? (
             <StatusLabel
@@ -656,9 +657,7 @@ function GitCollection(
                     }
                   >
                     {kind === "credentials"
-                      ? r.available
-                        ? "Configured"
-                        : "Unavailable"
+                      ? credentialMaterialLabel(r)
                       : r.state === "active"
                         ? "Active"
                         : "Expired"}

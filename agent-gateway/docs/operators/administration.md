@@ -22,7 +22,18 @@ agent-gateway serve --data-dir /path/to/gateway-data
 agent-gateway --data-dir /path/to/gateway-data doctor
 ```
 
-The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. `init` inspects and confirms missing setup, creates owner-only storage and initial administrator authority, prepares the initial CA, and writes its public certificate to `<root>/http-ca.pem`. Existing state, credentials and CA are preserved. `initialize` remains a quiet alias. Missing existing credential material never triggers a reset. Noninteractive changes require `--confirm`; no service, proxy or client trust changes occur. Interrupted setup resumes only demonstrably missing work. Unresolved markers, protected-generation evidence or nonempty WAL/journal state refuse rather than replay. A fully configured idle running installation may return an inspection-only no-op; changes require stopped ownership. If init reports active WAL or journal data, stop the selected Gateway cleanly and rerun init. Do not delete SQLite sidecars or change their permissions to force inspection; active data is not corruption.
+The zero-argument installation uses the default root and stores its administrator bearer at `<effective-data-dir>/admin-bearer`. Ordinary `init` creates only in an absent or empty safe directory. It asks for default-no confirmation (`[y/N]`); `--confirm` permits noninteractive consent. Setup provisions control/traffic storage, the protected master key, initial administrator authority, MCP and HTTP/Git proxy capability, the CA and its public `<root>/http-ca.pem` export. It is ready for `serve` but not listening. No supervisor, client trust, shell settings or client proxy settings are installed. `initialize` remains a quiet alias.
+
+An existing completed installation returns an already-initialized result and suggests `serve` or `doctor`, with no changes. This does not authenticate a bearer or validate optional history, even while Gateway is running; it is not a current health check. Missing credentials or certificates never authorize regeneration or a reset.
+
+For recognized interrupted setup only, inspect the selected directory with `doctor`, then explicitly continue using the same directory and recorded credential destination:
+
+```bash
+agent-gateway doctor --data-dir /path/to/gateway-data
+agent-gateway init --resume --data-dir /path/to/gateway-data --confirm
+```
+
+Resume retains one stopped owner, reconciles durable evidence and completes only proven-missing work. It preserves established key, CA and credential identity. Unknown/damaged evidence, changed files, missing established material, uncertain publication, unresolved recovery markers or nonempty WAL/journal state can require a separate stopped diagnosis rather than continuation. A refusal is not permission to rerun an uncertain step, replace a credential, delete the directory, remove evidence or discard SQLite sidecars. Keep `<root>/initialization` with the installation; it is local progress evidence, not a portable configuration export. `serve` refuses incomplete initialization. For portable configuration, use [fresh configuration import](#initialize-from-a-configuration-export).
 
 Exact syntax and defaults:
 
@@ -100,7 +111,110 @@ agent-gateway --data-dir /path/to/gateway-data \
   doctor --online --admin-bearer-file /safe/new/admin-bearer
 ```
 
-See [Backup, restore, and recovery](backup-and-recovery.md) for replacement-authority workflows.
+See [Recovery and fresh initialization](backup-and-recovery.md) for replacement-authority workflows.
+
+## Export portable configuration
+
+Run the authenticated online command against the selected Gateway:
+
+```bash
+(umask 077; agent-gateway export config > gateway-config.json)
+# Explicitly select a different installation's administrator credential:
+(umask 077; agent-gateway --data-dir /path/to/gateway-data export config > gateway-config.json)
+```
+
+`agent-gateway export --help` and `agent-gateway export config --help` describe the
+command. It always writes one versioned JSON document to stdout, without progress,
+confirmation or a human summary. There is no file flag, output-mode selector,
+per-protocol filter or secret-inclusion option. The shell owns file creation and
+permissions: `umask 077` makes a new file owner-private, but does not repair an
+existing file's permissions. Use a new private destination, verify the exit status
+and discard incomplete output after failure. Diagnostics go to stderr; do not merge
+stderr into the export.
+
+The export contains agent settings, MCP definitions and intended enabled settings,
+exact MCP/HTTP/Git policies and bindings, Git repositories/routing intent, and
+nonsecret credential definitions with portable secret references. It preserves
+expired grants and inactive deleted targets; it does not restore them to active
+access. No healthy upstream, configured secret value or external connection is
+needed. The command changes no storage or upstream state.
+
+Secret values, administrator/agent bearers, OAuth tokens/client secrets,
+installation master keys/CA identity, internal IDs/revisions, history, pending
+requests, operations and runtime/session state are excluded by projection, not by
+scanning. Supported MCP stdio secret slots and credential bindings remain explicit
+references even when material is absent. Ordinary authored strings are preserved:
+review arguments, ordinary environment values, URLs, headers and names before
+sharing because accidental secrets in unsupported fields cannot be detected
+reliably. Keep exports private even though supported secret material is excluded.
+
+The [version-one format](../design/public-contract.md#portable-configuration-export)
+defines document-local references and exact fields. It is independent of database
+schema versions and is the portable configuration transfer/recovery artifact, not
+an installation backup or secret backup. Absolute executable/working-directory
+paths and configured OAuth callback addresses may still need deliberate adaptation
+on another host. Export itself supplies no material; [fresh import](#initialize-from-a-configuration-export)
+uses a separate stopped command. Installation-snapshot backup/restore is [removed without artifact cleanup](backup-and-recovery.md#backup-and-restore-removal); unrelated stopped recovery remains supported.
+
+## Initialize from a configuration export
+
+Transfer definitions and exact policies into a **new absent or empty** safe data
+directory. This is not restore, merge, overwrite or synchronization:
+
+```bash
+agent-gateway init --from /safe/gateway-config.json --data-dir /path/to/new-gateway
+# For noninteractive consent to the preview:
+agent-gateway init --from /safe/gateway-config.json --data-dir /path/to/new-gateway --confirm
+agent-gateway serve --data-dir /path/to/new-gateway
+```
+
+The default-no preview reports definition/grant counts and fresh-authority
+consequences. The complete bounded format, references, policies and capacities must
+validate before any installation files are created. Keep the export private:
+ordinary authored strings are not guaranteed secret-free. No scanner or placeholder
+secret is required. Unsupported versions, partial output, unknown fields and invalid
+bindings refuse; populated roots are never imported into, even if already initialized.
+
+All identities, agent bearers, administrator authority, encryption key and CA are
+new. Included expired/duplicate grants and inactive deleted targets retain their
+policy meaning; no default grant is added beyond those actually exported. No
+source bearer/verifier, secret material, history, request, operation, OAuth session
+or runtime state is restored. Init/resume never launches upstream subprocesses,
+contacts upstreams or starts OAuth flows. It starts no listeners or native services.
+
+After starting the new Gateway, sign in using the reported **new** administrator
+bearer file, then:
+
+1. Run `doctor --verbose` against the new data directory to identify unset material.
+   Keep each imported HTTP/Git definition and supply its value with `http credential rotate ID --file PATH`
+   or `git credential rotate ID --file PATH`. Supply MCP static/client secrets with
+   `mcp server credential replace ID --file PATH`; authorize OAuth afresh using the
+   [upstream procedure](upstream-servers.md). Do not recreate bound definitions.
+2. Use `agent list`, then `agent credential issue ID --secret-output NEW_PATH` for
+   each required fresh agent bearer. Source tokens cannot authenticate here.
+3. Use `mcp server list` to identify intended-enabled servers. Every live imported
+   definition has a separate first-activation fence, including credential-free
+   servers: explicitly run `mcp server operation start ID --kind reload --yes` after
+   checking its paths, destinations and credentials. Disabled imports must first
+   be deliberately enabled. Merely serving, supplying material or enabling an
+   import does not remove this first-reload requirement. Check the resulting
+   operation; do not blindly replay it.
+4. Configure clients with the new endpoint and fresh agent credentials. Explicitly
+   adopt the reported new public CA certificate for HTTPS interception; source CA
+   trust does not transfer. No client trust or shell settings are installed.
+
+If interrupted, preserve all artifacts and run the same root's
+`init --resume --confirm` **without `--from`**. Validated input is privately retained
+and bound to that root, so the original source may be changed or deleted. Resume
+verifies committed imports instead of duplicating definitions/grants or replacing
+keys/CA/bearers. Missing/changed input, inconsistent committed configuration,
+partial publication and generic storage markers can refuse with diagnosis guidance.
+Only confirmed completion removes temporary retained input; keep the remaining
+initialization evidence. If only temporary-input cleanup remains, resume previews
+that work and still requires default-no confirmation or `--confirm`; it reports a
+cleanup change, not “Nothing changed.” Once cleanup is confirmed, completed resume
+is an unchanged no-op without another confirmation, including while running.
+Repeated completed resume changes no authority.
 
 ## Confirmations and one-time values
 
@@ -135,7 +249,7 @@ If durable publication itself fails after creation, the output path may contain 
 
 Use stopped-process `agent-gateway maintenance reset-admin-credentials` only for all-authority recovery. The command tree migrated immediately: `admin credential ...` and `maintenance reset-admin-credentials` are the only administrator spellings, and the legacy hyphenated forms perform no work and have no aliases.
 
-For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For backup and stopped-process failures, see [Backup, restore, and recovery](backup-and-recovery.md).
+For governed call evidence, `outcome_unknown` means the effect may already have happened. See [Invocation evidence and unknown outcomes](invocation-evidence.md). For stopped-process failures, see [Recovery and fresh initialization](backup-and-recovery.md).
 
 ## Trusted local forwarding and sandbox administration
 
@@ -193,6 +307,23 @@ Follow [Git setup](git.md) for repositories, read/ref grants, Git-only credentia
 
 Use **Git → Traffic** or `agent-gateway git traffic list|get`. The [Git evidence guide](git.md#git-traffic-history) explains admission, transport and upstream-reported outcomes. HTTP 200 is not proof of push success; missing completion is unknown, not permission to retry.
 
+## Complete missing credential setup
+
+Imported definitions can retain their scopes and references before values are
+supplied. **Not configured** means no material has been initialized, not that an
+upstream rejected or expired it. **Sign-in required** identifies initial OAuth
+authorization. Unset required authentication blocks only dependent operations;
+Gateway never substitutes ambient credentials or public access.
+
+Use the existing definition: supply HTTP/Git values with **Rotate** (or
+`http credential rotate` / `git credential rotate`), and MCP values with
+`mcp server credential replace`. For OAuth, supply a required client secret first,
+then start the server's authorization flow. Keep the ID and bindings; do not create
+a duplicate credential or use dummy values. Reads/JSON expose only safe setup
+state (`material_state` for HTTP/Git), never values. Ordinary credential creation
+still requires a real secret; only the internal import staging seam creates unset
+scoped definitions. See [fresh configuration import](#initialize-from-a-configuration-export) for initialization and explicit activation.
+
 ## Scoped HTTP credentials
 
 Use **HTTP → Credentials** to create, inspect, edit, rotate or delete a reusable HTTPS credential. It has one host/port boundary, one header, an optional fixed prefix, and one write-only secret. `Authorization` with `Bearer ` and custom API-key headers are supported. Wildcard hosts require both `*.example.com` spelling and explicit opt-in; they do not cover the apex. Transport-control headers cannot be overwritten. Credentials alone grant no HTTP access and do not start a proxy.
@@ -208,7 +339,7 @@ agent-gateway http credential delete ID --yes
 
 Create files contain `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, and `secret`. Update files contain the same complete metadata without `secret`; rotation files contain only `secret`. Treat input files as secrets and manage their permissions and removal yourself; Gateway neither persists nor deletes your source file. Never put a secret in argv, an environment variable or a browser URL. Browser input clears after submission, cancellation, navigation and sign-out; stored values cannot be revealed.
 
-Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Format-4 restore recovers backed-up HTTP material, not its present validity upstream; deliberate rotation may be needed after checking expiry or revocation. Legacy recovery does not recover native secrets. Every restore invalidates administrator and agent access tokens. See [backup recovery](backup-and-recovery.md#restore-a-backup) for custody and lineage requirements.
+Update, rotate and delete accept `--etag ETAG`; omission performs one validated read first. A stale revision requires inspection and a new decision, never automatic replay. Referencing grants are visible in detail: edits must preserve their entire scope, and deletion is blocked until references are removed. Rotation preserves identity and changes future admissions; a failed or uncertain rotation may leave authority unavailable. Inspect metadata before submitting another secret. Deliberate credential rotation may be needed after checking expiry or revocation. Installation-snapshot restore is removed; preserve [historical artifacts and key custody](backup-and-recovery.md#backup-and-restore-removal).
 
 ## HTTP traffic history
 
@@ -261,10 +392,7 @@ restarts at newest with a notice. MCP Invocations remains separate and unchanged
 On ordinary startup, existing selected traffic-schema-1 stores are fully validated
 and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
-pair is needed. Current format-4 control backups omit MCP, HTTP and Git traffic;
-restore disables capture. Preserve retained traffic through [separate history
-export](backup-and-recovery.md#export-optional-history). Paired verification and
-restoration apply only to historical format-2 artifacts. The stopped
+pair is needed. Preserve retained traffic through [history export](backup-and-recovery.md#export-optional-history). Installation-snapshot backup/restore is removed. The stopped
 `maintenance migrate-traffic-storage` command still rejects an already selected pair.
 [Proxy listener selection and manual client setup](http-proxy.md) remain separate from control administration.
 
@@ -364,7 +492,7 @@ Current human stderr and schema-2 serve diagnostics retain bounded, source-maske
 
 ## Output and failures
 
-Human output is the default. Online resource commands and `serve` accept `--output json` or `--json`; conflicting selectors fail before work begins. `init`, `doctor`, maintenance and CA commands use `--json`. CA `--output` is a certificate file path, never a format selector; `--stdout` explicitly streams public PEM and conflicts with JSON.
+Human output is the default except for `export config`, which always emits its versioned JSON document and has no output-mode selector. Other online resource commands and `serve` accept `--output json` or `--json`; conflicting selectors fail before work begins. `init`, `doctor`, maintenance and CA commands use `--json`. CA `--output` is a certificate file path, never a format selector; `--stdout` explicitly streams public PEM and conflicts with JSON.
 
 Stopped mutations display their safe plan on stderr before consent and mutation, including with `--confirm`. With `--json`, stderr is a diagnostic JSON-lines stream: a plan may precede a terminal problem. Successful finite results alone use stdout; errors leave stdout empty. Dry-run plans are results on stdout and need no confirmation. Doctor emits one partial checklist, with authenticated public status under `system` when `--online` succeeds; individual failed checks remain visible rather than being suppressed by a single global status.
 
@@ -393,7 +521,7 @@ agent-gateway mcp grant --help
 agent-gateway mcp grant-request --help
 agent-gateway mcp invocation --help
 agent-gateway audit --help
-agent-gateway backup --help
+agent-gateway history --help
 agent-gateway admin credential --help
 agent-gateway maintenance reset-admin-credentials --help
 ```
@@ -403,6 +531,6 @@ Focused workflow ownership:
 - [Upstream server configuration](upstream-servers.md)
 - [Access control](access-control.md)
 - [Invocation evidence and unknown outcomes](invocation-evidence.md)
-- [Backup, restore, and recovery](backup-and-recovery.md)
+- [Recovery and fresh initialization](backup-and-recovery.md)
 
 Consult [Administrative control plane](../design/administrative-control-plane.md) for normative CLI and administrator trust boundaries, and [Public contract](../design/public-contract.md) for public limits and failure vocabulary. Return to the [documentation map](../README.md) or [Gateway README](../../README.md) for installation and common workflows.

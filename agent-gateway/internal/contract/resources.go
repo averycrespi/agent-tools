@@ -62,10 +62,6 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/admin-credentials/{id}", Method: "DELETE"},
 	{Pattern: "/api/v2/admin-credentials/{id}", Method: "GET"},
 	{Pattern: "/api/v2/system-status", Method: "GET"},
-	{Pattern: "/api/v2/backups", Method: "GET", RequestSchema: "BackupListQuery", SuccessSchema: "Page<Backup>", SuccessStatuses: []int{200}, Cursor: true},
-	{Pattern: "/api/v2/backups", Method: "POST", Idempotency: true},
-	{Pattern: "/api/v2/backups/{id}", Method: "DELETE"},
-	{Pattern: "/api/v2/backups/{id}", Method: "GET"},
 	{Pattern: "/api/v2/events", Method: "GET"},
 	{Pattern: "/api/v2/mcp/servers", Method: "GET", RequestSchema: "ServerListQuery", SuccessSchema: "Page<Server>", SuccessStatuses: []int{200}, Cursor: true},
 	{Pattern: "/api/v2/mcp/servers", Method: "POST", RequestSchema: "ServerCreate", SuccessSchema: "ServerMutation", SuccessStatuses: []int{200, 201}, Idempotency: true, ETag: true},
@@ -124,6 +120,7 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/http/credentials/{id}/rotate", Method: "POST", RequestSchema: "HTTPCredentialRotate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v2/protocol-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "ProtocolActivity", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/recorded-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "RecordedActivitySummary", SuccessStatuses: []int{200}},
+	{Pattern: ConfigExportPath, Method: "GET", RequestSchema: "None", SuccessSchema: "ConfigExport", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/history/export", Method: "GET", RequestSchema: "HistoryExportQuery", SuccessSchema: "HistoryExport", SuccessStatuses: []int{200}},
 }
 

@@ -29,7 +29,7 @@ func TestHubIsBoundedBestEffortAndHasNoReplay(t *testing.T) {
 	default:
 	}
 
-	event := contract.Invalidation{Kind: contract.InvalidationBackups}
+	event := contract.Invalidation{Kind: contract.InvalidationServers}
 	for range 16 {
 		hub.Publish(event)
 	}

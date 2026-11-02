@@ -2,7 +2,7 @@ package contract
 
 import "strings"
 
-const ProductBehaviorManifestVersion = 3
+const ProductBehaviorManifestVersion = 4
 
 type ProductBehavior struct {
 	ID            string
@@ -59,7 +59,7 @@ var productClauseGroups = []struct {
 		"pending_collection", "evidence_item", "approval_narrowing", "rejection_contract", "conflict_and_uncertainty", "historical_approval",
 	}},
 	{prefix: "administration", owner: "tier.integration.compatibility", ids: []string{
-		"admin_credentials", "backup_idempotency", "stopped_recovery_guidance", "offline_commands",
+		"admin_credentials", "stopped_recovery_guidance", "offline_commands",
 	}},
 	{prefix: "invocation", owner: "tier.integration.compatibility", ids: []string{
 		"read_only_routes", "closed_filters", "newest_first_cursor", "page_coherence", "summary_projection", "item_redacted_arguments", "synthetic_target_derivation", "outcome_derivation", "missing_terminal_unknown", "local_target_unknown", "bounded_retention", "polling_without_authority",
@@ -82,15 +82,15 @@ var productCapabilityIDs = []string{
 	"http-grant-read", "http-grant-create", "http-grant-update", "http-grant-delete", "http-default", "http-preview",
 	"http-credential-read", "http-credential-create", "http-credential-update", "http-credential-rotate", "http-credential-delete",
 	"audit-read",
-	"status", "admin-credential-read", "admin-credential-create", "admin-credential-revoke", "history-export", "backup-read", "backup-create", "backup-delete", "server-read", "server-create", "server-update", "server-delete", "operation-read", "operation-start", "server-credential", "auth-flow-read", "auth-flow-start", "auth-flow-cancel", "descriptor-read", "catalog-list", "principal-read", "principal-create", "principal-update", "principal-credential-issue", "principal-credential-revoke", "grant-read", "grant-create", "grant-update", "grant-delete", "grant-request-read", "grant-request-approve", "grant-request-reject", "http-traffic-read", "invocation-read",
+	"status", "admin-credential-read", "admin-credential-create", "admin-credential-revoke", "history-export", "server-read", "server-create", "server-update", "server-delete", "operation-read", "operation-start", "server-credential", "auth-flow-read", "auth-flow-start", "auth-flow-cancel", "descriptor-read", "catalog-list", "principal-read", "principal-create", "principal-update", "principal-credential-issue", "principal-credential-revoke", "grant-read", "grant-create", "grant-update", "grant-delete", "grant-request-read", "grant-request-approve", "grant-request-reject", "http-traffic-read", "invocation-read",
 }
 
 var productLifecycleIDs = []string{
-	"web-exchange", "web-bootstrap", "web-logout", "web-events", "cli-bearer", "cli-initialize", "cli-admin-reset", "cli-storage-verify", "cli-backup-restore",
+	"web-exchange", "web-bootstrap", "web-logout", "web-events", "cli-bearer", "cli-initialize", "cli-admin-reset", "cli-storage-verify",
 }
 
 var securityBehaviorIDs = []string{
-	"browser.storage", "browser.fragment_attributes", "browser.dom_inputs", "browser.one_time_display", "browser.clipboard", "browser.oauth_opener_referrer", "browser.authentication_epoch", "browser.sink_loss", "cli.argv_environment", "cli.output", "observability.logs_reports", "events.payloads", "invocation.audit_capture", "storage.sqlite_backups", "frontend.generated_assets", "browser.screenshots_reports", "process.output", "tests.artifacts",
+	"browser.storage", "browser.fragment_attributes", "browser.dom_inputs", "browser.one_time_display", "browser.clipboard", "browser.oauth_opener_referrer", "browser.authentication_epoch", "browser.sink_loss", "cli.argv_environment", "cli.output", "observability.logs_reports", "events.payloads", "invocation.audit_capture", "storage.sqlite", "frontend.generated_assets", "browser.screenshots_reports", "process.output", "tests.artifacts",
 }
 
 var documentationTopicIDs = []string{

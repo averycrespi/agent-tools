@@ -471,14 +471,13 @@ export async function runFragmentStorage(
     ["#/mcp/invocations", "#/mcp/invocations"],
     [`#/mcp/invocations/${idA}`, `#/mcp/invocations/${idA}`],
     ["#/system", "#/system"],
-    ...["status", "resource-limits", "admin-credentials", "backups"].map(
+    ...["status", "resource-limits", "admin-credentials", "history"].map(
       (tab): [string, string] => [
         `#/system?tab=${tab}`,
         tab === "status" ? "#/system" : `#/system?tab=${tab}`,
       ],
     ),
     ["#/system/admin-credentials/new", "#/system/admin-credentials/new"],
-    ["#/system/backups/new", "#/system/backups/new"],
     ["#/sign-in", "#/sign-in"],
   ];
   const requestsBeforeLocations = requestCount();

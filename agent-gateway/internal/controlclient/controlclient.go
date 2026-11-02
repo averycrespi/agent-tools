@@ -24,10 +24,11 @@ import (
 )
 
 const (
-	DefaultAddress    = "http://127.0.0.1:8210"
-	MaxResponseBytes  = 1 * 1024 * 1024
-	MaxJSONDepth      = 64
-	MaxErrorTextBytes = 128
+	DefaultAddress         = "http://127.0.0.1:8210"
+	MaxResponseBytes       = 1 * 1024 * 1024
+	MaxConfigResponseBytes = contract.ConfigExportMaxBytes
+	MaxJSONDepth           = 64
+	MaxErrorTextBytes      = 128
 
 	defaultConnectTimeout = 5 * time.Second
 	defaultHeaderTimeout  = 15 * time.Second
@@ -176,15 +177,19 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 		return Response{}, &Failure{local: diagnostics.Snapshot("control-client", request.Method, client.address, err, request.Header.Get("Authorization")), kind: kind, handoff: handoff, refused: errors.Is(kind, ErrTransport) && handoff == HandoffNone && errors.Is(err, syscall.ECONNREFUSED)}
 	}
 	defer func() { _ = response.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(response.Body, MaxResponseBytes+1))
+	responseLimit := MaxResponseBytes
+	if request.Method == http.MethodGet && request.Path == contract.ConfigExportPath && response.StatusCode == http.StatusOK {
+		responseLimit = MaxConfigResponseBytes
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, int64(responseLimit)+1))
 	if err != nil {
 		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, fmt.Errorf("http_status=%d; response body read: %w", response.StatusCode, err), request.Header.Get("Authorization"), strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))}
 	}
-	if len(body) > MaxResponseBytes {
-		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, fmt.Errorf("http_status=%d; response exceeds size limit: observed_bytes=%d allowed_bytes=%d", response.StatusCode, len(body), MaxResponseBytes))}
+	if len(body) > responseLimit {
+		return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "read response", client.address, fmt.Errorf("http_status=%d; response exceeds size limit: observed_bytes=%d allowed_bytes=%d", response.StatusCode, len(body), responseLimit))}
 	}
 	if len(body) > 0 {
-		if _, err := strictjson.ParseValue(body, strictjson.Options{MaxBytes: MaxResponseBytes, MaxDepth: MaxJSONDepth}); err != nil {
+		if _, err := strictjson.ParseValue(body, strictjson.Options{MaxBytes: int64(responseLimit), MaxDepth: MaxJSONDepth}); err != nil {
 			return Response{}, &Failure{kind: ErrResponseInvalid, handoff: HandoffPossible, local: diagnostics.Snapshot("control-client", "parse response", client.address, fmt.Errorf("http_status=%d; expected bounded unique-member JSON depth<=%d; response body and parser values withheld", response.StatusCode, MaxJSONDepth))}
 		}
 	}

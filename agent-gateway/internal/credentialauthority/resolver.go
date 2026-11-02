@@ -68,7 +68,11 @@ func (resolver *Resolver) Resolve(ctx context.Context, candidate runtimes.Candid
 func (resolver *Resolver) resolveStatic(ctx context.Context, candidate runtimes.Candidate, slots map[string]struct{}) runtimes.AuthorityOutcome {
 	authority := candidate.Authority
 	if authority.StaticCredentialHandle == nil || authority.CredentialRevisions.StaticCredential == "0" {
-		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+		state := contract.ServerCredentialAbsent
+		if authority.CredentialRevisions.StaticCredential != "0" {
+			state = contract.ServerCredentialUnavailable
+		}
+		return rejected(state, contract.ReasonCredentialAbsent, false)
 	}
 	contents, result, err := resolver.read(ctx, candidate.Server.ID, keyring.RecordStaticCredential)
 	if err != nil {
@@ -76,7 +80,7 @@ func (resolver *Resolver) resolveStatic(ctx context.Context, candidate runtimes.
 	}
 	defer clear(contents)
 	if string(result.Handle) != *authority.StaticCredentialHandle || result.Revision != authority.CredentialRevisions.StaticCredential {
-		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonCredentialAbsent, false)
 	}
 	generation, err := servercredentials.DecodeStaticGeneration(contents)
 	if err != nil || !sameSlots(generation.Values, slots) {
@@ -116,8 +120,14 @@ func sameStringPointer(left, right *string) bool {
 
 func (resolver *Resolver) resolveOAuth(ctx context.Context, candidate runtimes.Candidate) runtimes.AuthorityOutcome {
 	authority := candidate.Authority
+	if authority.CredentialRevisions.OAuthTokens == "0" {
+		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+	}
 	registration, err := resolver.repository.OAuthRegistration(ctx, candidate.Server.ID)
-	if err != nil || registration.Revision == "0" || registration.Revision != authority.RegistrationRevision || !servers.RegistrationMatchesDesired(candidate.Server.Transport, registration) {
+	if err != nil {
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonKeyringUnavailable, false)
+	}
+	if registration.Revision == "0" || registration.Revision != authority.RegistrationRevision || !servers.RegistrationMatchesDesired(candidate.Server.Transport, registration) {
 		return rejected(contract.ServerCredentialReauthenticationRequired, contract.ReasonCredentialAbsent, false)
 	}
 	if registration.ClientSecretExpiresAt != nil {
@@ -283,7 +293,7 @@ func mapReadError(err error) (outcome runtimes.AuthorityOutcome) {
 		return rejected(contract.ServerCredentialUnavailable, contract.ReasonResourceLimit, true)
 	}
 	if errors.Is(err, keyring.ErrNoAuthority) || errors.Is(err, keyring.ErrNotFound) {
-		return rejected(contract.ServerCredentialAbsent, contract.ReasonCredentialAbsent, false)
+		return rejected(contract.ServerCredentialUnavailable, contract.ReasonCredentialAbsent, false)
 	}
 	var capability *keyring.CapabilityError
 	if errors.As(err, &capability) {

@@ -42,17 +42,18 @@ type Patch struct {
 }
 
 type Server struct {
-	Cause             audit.Cause `json:"-"`
-	InsertionSequence int64
-	ID                string
-	Namespace         string
-	DisplayName       string
-	DesiredState      contract.DesiredServerState
-	DesiredRevision   string
-	Transport         json.RawMessage
-	CreatedAt         string
-	UpdatedAt         string
-	DeletedAt         *string
+	Cause              audit.Cause `json:"-"`
+	InsertionSequence  int64
+	ID                 string
+	Namespace          string
+	DisplayName        string
+	DesiredState       contract.DesiredServerState
+	DesiredRevision    string
+	ActivationRequired bool
+	Transport          json.RawMessage
+	CreatedAt          string
+	UpdatedAt          string
+	DeletedAt          *string
 }
 
 type IdempotencyRequest struct {

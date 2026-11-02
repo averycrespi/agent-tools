@@ -42,7 +42,7 @@ agent-gateway init
 agent-gateway serve
 ```
 
-`init` asks for confirmation and creates the protected `<data-dir>/master-key`, initial administrator authority and interception CA. It reports the administrator bearer file at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. No service supervisor or client trust is installed.
+`init` creates only in an absent or empty safe directory after default-no confirmation. It provisions control/traffic storage, the protected `<data-dir>/master-key`, initial administrator authority, MCP and HTTP/Git proxy capability, and the interception CA. It reports the administrator bearer at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. Setup is ready for `serve`, not listening; no service supervisor, client trust or shell settings are installed. Import with [`init --from PATH`](docs/operators/administration.md#initialize-from-a-configuration-export). Existing installations are never repaired by ordinary init. Recognized interrupted setup requires explicit `init --resume`; preserve refused artifacts and follow [initialization guidance](docs/operators/administration.md#installation-root).
 
 In another terminal:
 
@@ -72,7 +72,8 @@ For HTTP or Git, reuse the agent identity and credential but configure **separat
 | HTTP/HTTPS requests           | [HTTP grants and policy preview](docs/operators/access-control.md#http-grants-and-test-access), [scoped credentials](docs/operators/administration.md#scoped-http-credentials), [client proxy and CA setup](docs/operators/http-proxy.md)                                       |
 | Native smart-HTTPS Git        | [Git setup and first read-only check](docs/operators/git.md)                                                                                                                                                                                                                    |
 | Investigate activity          | [MCP invocations](docs/operators/invocation-evidence.md), [HTTP traffic](docs/operators/administration.md#http-traffic-history), [Git traffic](docs/operators/git.md#git-traffic-history), [administrative audit](docs/operators/administration.md#control-plane-audit-history) |
-| Back up or recover            | [Control backups, separate history export and stopped recovery](docs/operators/backup-and-recovery.md)                                                                                                                                                                          |
+| Export portable configuration | [`export config`: versioned JSON without secret material](docs/operators/administration.md#export-portable-configuration)                                                                                                                                                       |
+| Preserve or recover state     | [Fresh initialization, history export and stopped recovery](docs/operators/backup-and-recovery.md)                                                                                                                                                                              |
 
 HTTP proxy listening is default-on at `127.0.0.1:8212`; client use and CA trust are explicit setup. Use `serve --clear-http-proxy-listen` for MCP-only startup. [Proxy setup](docs/operators/http-proxy.md) explains custom listeners and the narrow historical launchd exception. Supervise the foreground process with operator-owned [launchd](docs/operators/launchd.md) or [systemd](docs/operators/systemd.md) configuration.
 
@@ -104,7 +105,7 @@ Only legacy single-store installations need [stopped traffic migration](docs/ope
 - Administrator, agent and upstream credentials have different authority. Raw secrets never belong in argv, ordinary configuration, logs or read APIs. Only [supported client exports](docs/operators/access-control.md#configure-an-agent-client-manually) and [declared stdio secret slots](docs/design/downstream-servers.md#direct-stdio-supervision) permit runtime environment delivery; no administrator environment fallback exists.
 - MCP calls require current `ALLOW`; HTTP defaults/grants and Git policy are independent. An access-request approval never executes or resumes a call.
 - Gateway does not automatically replay governed operations. `outcome_unknown` means an effect may already have occurred; inspect the authoritative system before deciding on a new caller-owned attempt. HTTP 200 is not proof of Git push success.
-- [Safeguard the master key separately from backups](docs/operators/backup-and-recovery.md#encrypted-secret-storage). Format-4 control backups recover historical upstream secrets and CA but omit traffic; restore invalidates administrator and agent tokens.
+- [Safeguard keys and historical artifacts](docs/operators/backup-and-recovery.md#backup-and-restore-removal). Snapshot backup/restore is removed; artifacts stay untouched. Use `export config` and fresh `init --from`, with new authority and unset secrets.
 
 ## Documentation
 

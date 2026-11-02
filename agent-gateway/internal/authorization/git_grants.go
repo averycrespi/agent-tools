@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
@@ -20,13 +19,15 @@ type GitGrantInput struct {
 	ExpiresAt    *time.Time
 }
 
-const gitGrantSelect = `SELECT id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at FROM git_grants`
+const gitGrantColumns = `SELECT id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at`
+const gitGrantSelect = gitGrantColumns + `,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='git' AND e.id=git_grants.id AND e.expires_at=git_grants.expires_at) FROM git_grants`
 
 func scanGitGrant(row interface{ Scan(...any) error }, now time.Time) (contract.GitGrant, error) {
 	var g contract.GitGrant
 	var description, expiry sql.NullString
 	var raw string
-	if err := row.Scan(&g.ID, &g.PrincipalID, &g.RepositoryID, &description, &g.Revision, &raw, &expiry, &g.CreatedAt, &g.UpdatedAt); err != nil {
+	var importedExpiry bool
+	if err := row.Scan(&g.ID, &g.PrincipalID, &g.RepositoryID, &description, &g.Revision, &raw, &expiry, &g.CreatedAt, &g.UpdatedAt, &importedExpiry); err != nil {
 		return g, err
 	}
 	if description.Valid {
@@ -46,7 +47,7 @@ func scanGitGrant(row interface{ Scan(...any) error }, now time.Time) (contract.
 	g.State = contract.GrantActive
 	if expiry.Valid {
 		expires, ok := canonicalTimestamp(expiry.String)
-		if !ok || !expires.After(created) {
+		if !ok || !expires.After(created) && !importedExpiry {
 			return g, ErrInvalidState
 		}
 		if !expires.After(now) {
@@ -235,36 +236,6 @@ func (r *Repository) EvaluateGit(ctx context.Context, principalID, repositoryID 
 		return nil
 	})
 	return decision, err
-}
-
-// ValidateGitBackupTx validates Git's complete retained graph on a read-only
-// artifact transaction. It neither migrates nor constructs a live authority owner.
-func ValidateGitBackupTx(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, `SELECT id FROM principals ORDER BY id LIMIT ?`, mustLimit("principals")+1)
-	if err != nil {
-		return err
-	}
-	principals := map[string]struct{}{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		if !validOpaqueID(id) {
-			_ = rows.Close()
-			return ErrInvalidState
-		}
-		principals[id] = struct{}{}
-	}
-	err = errors.Join(rows.Err(), rows.Close())
-	if err != nil {
-		return err
-	}
-	if int64(len(principals)) > mustLimit("principals") {
-		return ErrInvalidState
-	}
-	return validateGitAuthorityTx(ctx, tx, principals)
 }
 
 func validateGitAuthorityTx(ctx context.Context, tx *sql.Tx, principals map[string]struct{}) error {

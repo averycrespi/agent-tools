@@ -21,6 +21,12 @@ import {
   type ViewSnapshot,
 } from "./view";
 
+import {
+  credentialMaterialLabel,
+  validCredentialMaterial,
+  type CredentialMaterialState,
+} from "./credential-material";
+
 interface Credential {
   id: string;
   name: string;
@@ -28,6 +34,7 @@ interface Credential {
   recipe: { header: string; prefix: string };
   revision: string;
   available: boolean;
+  material_state: CredentialMaterialState;
   referencing_grants: { id: string }[];
   created_at: string;
   updated_at: string;
@@ -51,6 +58,7 @@ export function decodeHTTPCredential(value: unknown): Credential {
     "recipe",
     "revision",
     "available",
+    "material_state",
     "referencing_grants",
     "created_at",
     "updated_at",
@@ -65,7 +73,7 @@ export function decodeHTTPCredential(value: unknown): Credential {
     new TextEncoder().encode(r.name).length > 256 ||
     typeof r.revision !== "string" ||
     !/^[1-9][0-9]*$/.test(r.revision) ||
-    typeof r.available !== "boolean" ||
+    !validCredentialMaterial(r.material_state, r.available) ||
     typeof b.host !== "string" ||
     b.host.length === 0 ||
     b.host.length > 255 ||
@@ -198,7 +206,7 @@ export function HTTPCredentials(props: Props) {
         <div class="detail-context-heading">
           <h1 tabindex={-1}>{detail.name}</h1>
           <StatusLabel state={detail.available ? "current" : "warning"}>
-            {detail.available ? "Configured" : "Unavailable"}
+            {credentialMaterialLabel(detail)}
           </StatusLabel>
         </div>
         <p class="technical-value">{detail.id}</p>
@@ -411,7 +419,7 @@ function CredentialCollection(props: Props) {
               sortValue: (c) => (c.available ? "configured" : "unavailable"),
               render: (c) => (
                 <StatusLabel state={c.available ? "current" : "warning"}>
-                  {c.available ? "Configured" : "Unavailable"}
+                  {credentialMaterialLabel(c)}
                 </StatusLabel>
               ),
             },
@@ -918,7 +926,7 @@ function CredentialEditor({
               </p>
             </div>
           ) : mode === "delete" ? (
-            "Permanently retire this unreferenced credential. Stored material cannot be restored from a backup."
+            "Permanently retire this unreferenced credential and its stored material."
           ) : (
             "Once replacement starts, failure may leave this credential unavailable; replacement does not fall back to the old secret."
           )

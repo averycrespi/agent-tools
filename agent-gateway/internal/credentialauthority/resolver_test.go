@@ -97,7 +97,7 @@ func TestResolverRejectsInvalidStaticGenerationWithoutLeasingMaterial(t *testing
 
 func TestResolverRejectsForeignAndMissingStaticAuthority(t *testing.T) {
 	transport := contract.StreamableHTTPTransport{Kind: contract.TransportStreamableHTTP, URL: "https://resource.example/mcp", ProtocolMode: contract.ProtocolModern, Authentication: contract.BearerAuthentication{Mode: contract.AuthenticationBearer}}
-	missing := activationCandidate(t, transport, servers.AuthorityMetadata{})
+	missing := activationCandidate(t, transport, servers.AuthorityMetadata{CredentialRevisions: contract.CredentialRevisions{StaticCredential: "0"}})
 	missingCoordinator := &resolverCoordinator{err: errors.New("must not read")}
 	missingResolver, err := New(&resolverRepository{server: missing.Server, authority: missing.Authority}, missingCoordinator, testInstallationID, func() time.Time { return testNow })
 	require.NoError(t, err)
@@ -114,7 +114,7 @@ func TestResolverRejectsForeignAndMissingStaticAuthority(t *testing.T) {
 	resolver, err := New(&resolverRepository{server: candidate.Server, authority: candidate.Authority}, coordinator, testInstallationID, func() time.Time { return testNow })
 	require.NoError(t, err)
 	outcome = resolver.Resolve(context.Background(), candidate)
-	assert.Equal(t, contract.ServerCredentialAbsent, outcome.CredentialState)
+	assert.Equal(t, contract.ServerCredentialUnavailable, outcome.CredentialState)
 	assert.Nil(t, outcome.Lease)
 	assert.Equal(t, 1, coordinator.calls)
 }

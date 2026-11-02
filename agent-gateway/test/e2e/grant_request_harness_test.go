@@ -220,19 +220,6 @@ func (harness *gatewayHarness) ModernCallDiscardResponse(bearer *agentBearer, id
 	return done
 }
 
-func (harness *gatewayHarness) RestoreBackup(backupID string) testutil.ProcessResult {
-	harness.t.Helper()
-	require.Nil(harness.t, harness.process, "restore requires a stopped Gateway")
-	secretPath := filepath.Join(harness.t.TempDir(), "restored-admin")
-	result, err := harness.runner.Run(harness.ctx, harness.binary, "maintenance", "restore-backup", "--confirm", backupID, "--data-dir", harness.root, "--secret-output", secretPath, "--json")
-	require.NoError(harness.t, err, string(result.Stderr))
-	require.False(harness.t, result.StdoutTruncated)
-	require.False(harness.t, result.StderrTruncated)
-	harness.results = append(harness.results, result)
-	harness.bearer = readBearer(harness.t, secretPath)
-	return result
-}
-
 func (harness *gatewayHarness) AssertCanaryAbsent(canary []byte) {
 	harness.t.Helper()
 	scanner, err := testutil.NewCanaryScanner(canary)

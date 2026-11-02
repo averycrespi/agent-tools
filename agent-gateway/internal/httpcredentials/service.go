@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -165,6 +166,21 @@ func (s *Service) Acquire(ctx context.Context, ref contract.HTTPRevisionRef) (*M
 	if err != nil {
 		if result != nil {
 			result.Clear()
+		}
+		if errors.Is(err, keyring.ErrNoAuthority) {
+			setupErr := s.repository.store.View(ctx, func(tx *sql.Tx) error {
+				rec, readErr := readTx(ctx, tx, ref.ID)
+				if readErr != nil {
+					return readErr
+				}
+				if !rec.deleted && rec.Revision == strconv.FormatUint(ref.Revision, 10) && rec.materialRevision == 0 && !rec.handle.Valid {
+					return ErrNotConfigured
+				}
+				return nil
+			})
+			if setupErr != nil {
+				return nil, errors.Join(ErrUnavailable, setupErr)
+			}
 		}
 		return nil, err
 	}

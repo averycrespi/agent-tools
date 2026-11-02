@@ -28,11 +28,12 @@ type HTTPCredentialReference struct {
 type HTTPCredential struct {
 	ID string `json:"id"`
 	HTTPCredentialDefinition
-	Revision   string                    `json:"revision"`
-	Available  bool                      `json:"available"`
-	References []HTTPCredentialReference `json:"referencing_grants"`
-	CreatedAt  string                    `json:"created_at"`
-	UpdatedAt  string                    `json:"updated_at"`
+	Revision      string                    `json:"revision"`
+	Available     bool                      `json:"available"`
+	MaterialState CredentialMaterialState   `json:"material_state"`
+	References    []HTTPCredentialReference `json:"referencing_grants"`
+	CreatedAt     string                    `json:"created_at"`
+	UpdatedAt     string                    `json:"updated_at"`
 }
 
 // HTTPCredentialRecipe is safe configuration, never a secret template.

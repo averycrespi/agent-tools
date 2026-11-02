@@ -67,7 +67,7 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 					if selector, ok := node.(*ast.SelectorExpr); ok {
 						if owner, ok := selector.X.(*ast.Ident); ok {
 							if owner.Name == "contract" {
-								assert.Equal(t, "NormalizeHostname", selector.Sel.Name, "controlclient may consume only the hostname grammar")
+								assert.True(t, selector.Sel.Name == "NormalizeHostname" || entry.Name() == "controlclient.go" && (selector.Sel.Name == "ConfigExportPath" || selector.Sel.Name == "ConfigExportMaxBytes"), "controlclient may consume only hostname grammar and exact configuration resource bounds")
 							}
 							if owner.Name == "diagnostics" {
 								assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, selector.Sel.Name, "finite CLI may consume value formatting, not the serve writer")
@@ -89,10 +89,10 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 	command := newRootCmd()
 	command.SetOut(stdout)
 	command.SetErr(stderr)
-	command.SetArgs([]string{"maintenance", "restore-backup"})
+	command.SetArgs([]string{"maintenance", "reset-admin-credentials"})
 	err := command.ExecuteContext(context.Background())
 	require.Error(t, err)
 	assert.Equal(t, 2, commandExitCode(err))
 	assert.Empty(t, stdout.String())
-	assert.Equal(t, "Provide one valid BACKUP_ID. Usage: agent-gateway maintenance restore-backup BACKUP_ID --secret-output NEW_PATH\n", stderr.String())
+	assert.Equal(t, "The --secret-output flag must name a new owner-only file. Usage: agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH\n", stderr.String())
 }

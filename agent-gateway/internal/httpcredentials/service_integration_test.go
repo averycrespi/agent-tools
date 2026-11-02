@@ -58,6 +58,12 @@ func fixture(t *testing.T) (*Service, *storage.Store, string) {
 
 func fixtureWithFault(t *testing.T, fault func(storage.FaultPoint) error) (*Service, *storage.Store, string) {
 	t.Helper()
+	s, store, owner := fixtureWithOwnership(t, fault)
+	return s, store, owner.Layout().Root
+}
+
+func fixtureWithOwnership(t *testing.T, fault func(storage.FaultPoint) error) (*Service, *storage.Store, *gatewaypaths.Ownership) {
+	t.Helper()
 	root := filepath.Join(t.TempDir(), "gateway")
 	require.NoError(t, os.Mkdir(root, 0o700))
 	owner, err := gatewaypaths.Acquire(root)
@@ -78,7 +84,7 @@ func fixtureWithFault(t *testing.T, fault func(storage.FaultPoint) error) (*Serv
 	require.NoError(t, err)
 	service, err := NewService(repo, keyring.NewCoordinator(provider, store, clock{}, rand.Reader), "01ARZ3NDEKTSV4RRFFQ69G5FAV")
 	require.NoError(t, err)
-	return service, store, root
+	return service, store, owner
 }
 func resourceRef(t *testing.T, r Resource) contract.HTTPRevisionRef {
 	t.Helper()
@@ -225,20 +231,4 @@ func TestIntegrationCredentialReferencesAreCheckedOnMutationTransaction(t *testi
 	require.NoError(t, s.Delete(ctx, created.ID, updated.Revision))
 	err = store.Mutate(ctx, func(tx *sql.Tx) error { return s.repository.CheckReferenceTx(ctx, tx, created.ID, compiled) })
 	require.ErrorIs(t, err, ErrNotFound)
-}
-
-func TestIntegrationRestoredHTTPAuthorityCannotUseSurvivingKeyringMaterial(t *testing.T) {
-	s, store, _ := fixture(t)
-	ctx := audit.WithOffline(t.Context())
-	created, err := s.Create(ctx, testDefinition(), []byte("restored-private-canary"))
-	require.NoError(t, err)
-	require.NoError(t, InvalidateStagedCredentials(ctx, store, clock{}))
-	restored, err := s.Get(ctx, created.ID)
-	require.NoError(t, err)
-	require.False(t, restored.Available)
-	_, err = s.Acquire(ctx, resourceRef(t, restored))
-	require.Error(t, err)
-	rotated, err := s.Rotate(ctx, restored.ID, restored.Revision, []byte("new-authorized-canary"))
-	require.NoError(t, err)
-	require.True(t, rotated.Available)
 }

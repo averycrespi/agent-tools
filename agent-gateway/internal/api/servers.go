@@ -284,13 +284,7 @@ func (handler *Handler) serverResource(ctx context.Context, stored serverdomain.
 			return contract.Server{}, err
 		}
 	}
-	credentialState := contract.ServerCredentialNotRequired
-	if transportRequiresCredential(transport) {
-		credentialState = contract.ServerCredentialAbsent
-		if authority.CredentialRevisions.StaticCredential != "0" || authority.CredentialRevisions.OAuthTokens != "0" {
-			credentialState = contract.ServerCredentialReady
-		}
-	}
+	credentialState := serverdomain.CredentialSetupState(transport, authority)
 	runtime := handler.runtimeStatus(stored.ID)
 	if runtime.CredentialState != "" && (!transportRequiresCredential(transport) || runtime.CredentialState != contract.ServerCredentialNotRequired) {
 		credentialState = runtime.CredentialState

@@ -213,7 +213,7 @@ func TestDrainingRejectsNewWorkButKeepsHealthAndStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for path, want := range map[string]int{"/livez": 200, "/readyz": 503, "/api/v2/system-status": 204, "/api/v2/backups": 503} {
+	for path, want := range map[string]int{"/livez": 200, "/readyz": 503, "/api/v2/system-status": 204, "/api/v2/mcp/servers": 503} {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		request.Host = contract.DefaultAuthority
 		if strings.HasPrefix(path, "/api/") {
@@ -225,7 +225,7 @@ func TestDrainingRejectsNewWorkButKeepsHealthAndStatus(t *testing.T) {
 			t.Errorf("%s = %d, want %d: %s", path, response.Code, want, response.Body.String())
 		}
 	}
-	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v2/backups", nil)
+	unauthenticated := httptest.NewRequest(http.MethodGet, "/api/v2/mcp/servers", nil)
 	unauthenticated.Host = contract.DefaultAuthority
 	response := httptest.NewRecorder()
 	boundary.ServeHTTP(response, unauthenticated)

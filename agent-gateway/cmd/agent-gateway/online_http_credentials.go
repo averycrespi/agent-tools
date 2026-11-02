@@ -15,6 +15,9 @@ import (
 var httpCredentialETagPattern = regexp.MustCompile(`^"http-credential-([0-7][0-9A-HJKMNP-TV-Z]{25})-([1-9][0-9]*)"$`)
 
 func validHTTPCredential(r contract.HTTPCredential) bool {
+	if !r.MaterialState.Valid(r.Available) {
+		return false
+	}
 	if !contract.ValidAuditID(r.ID) || !validCanonicalRevision(r.Revision) || r.Revision == "0" || r.Name == "" || len(r.Name) > contract.HTTPCredentialNameBytes || r.Boundary.Host == "" || r.Boundary.Port == 0 || !contract.ValidHTTPCredentialRecipe(r.Recipe) || r.References == nil || len(r.References) > contract.HTTPPolicyGrants {
 		return false
 	}
@@ -28,21 +31,21 @@ func validHTTPCredential(r contract.HTTPCredential) bool {
 	return created == nil && updated == nil
 }
 func httpCredentialRow(r contract.HTTPCredential) []string {
-	return []string{r.Name, r.ID, r.Boundary.Host + ":" + strconv.Itoa(int(r.Boundary.Port)), r.Recipe.Header, r.Recipe.Prefix, strconv.FormatBool(r.Available), strconv.Itoa(len(r.References))}
+	return []string{r.Name, r.ID, r.Boundary.Host + ":" + strconv.Itoa(int(r.Boundary.Port)), r.Recipe.Header, r.Recipe.Prefix, r.MaterialState.Label(), strconv.Itoa(len(r.References))}
 }
 func httpCredentialItemTable(body []byte) (controlclient.Table, error) {
 	var resource contract.HTTPCredential
 	if controlclient.DecodeResponse(body, &resource) != nil || !validHTTPCredential(resource) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"NAME", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "AVAILABLE", "REFERENCES"}, Rows: [][]string{httpCredentialRow(resource)}}, nil
+	return controlclient.Table{Headers: []string{"NAME", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "STATUS", "REFERENCES"}, Rows: [][]string{httpCredentialRow(resource)}}, nil
 }
 func httpCredentialListTable(body []byte) (controlclient.Table, error) {
 	var page contract.QueryCollection[contract.HTTPCredential]
 	if controlclient.DecodeResponse(body, &page) != nil || page.Items == nil || len(page.Items) > 100 || page.TotalCount < 0 || page.Offset < 0 || page.Offset > page.TotalCount-len(page.Items) || (page.NextCursor != nil) != (page.Offset+len(page.Items) < page.TotalCount) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	table := controlclient.Table{Headers: []string{"NAME", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "AVAILABLE", "REFERENCES"}}
+	table := controlclient.Table{Headers: []string{"NAME", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "STATUS", "REFERENCES"}}
 	for _, r := range page.Items {
 		if !validHTTPCredential(r) {
 			return controlclient.Table{}, controlclient.ErrResponseInvalid

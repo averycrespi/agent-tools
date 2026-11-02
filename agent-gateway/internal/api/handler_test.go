@@ -14,7 +14,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/events"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpboundary"
@@ -75,42 +74,6 @@ func (credentials *fakeCredentials) List(context.Context) ([]contract.AdminCrede
 }
 func (credentials *fakeCredentials) Revoke(context.Context, string) error { return nil }
 
-type fakeBackups struct {
-	items []contract.Backup
-}
-
-func (backups *fakeBackups) Create(_ context.Context, authorityID, key string) (contract.Backup, bool, error) {
-	if key == "bad key" {
-		return contract.Backup{}, false, backup.ErrInvalidIdempotency
-	}
-	for _, item := range backups.items {
-		if key == "retry" {
-			return item, true, nil
-		}
-	}
-	item := contract.Backup{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAX", CreatedAt: "2026-08-22T18:00:00Z", InstallationID: testID, SchemaVersion: "3", SourceRevision: "1", SizeBytes: 4096, SHA256: strings.Repeat("a", 64)}
-	backups.items = append(backups.items, item)
-	return item, false, nil
-}
-func (backups *fakeBackups) List(context.Context) ([]contract.Backup, error) {
-	return append([]contract.Backup(nil), backups.items...), nil
-}
-func (backups *fakeBackups) Get(_ context.Context, id string) (contract.Backup, error) {
-	for _, item := range backups.items {
-		if item.ID == id {
-			return item, nil
-		}
-	}
-	return contract.Backup{}, backup.ErrNotFound
-}
-func (backups *fakeBackups) Delete(_ context.Context, id string) error {
-	if len(backups.items) == 0 || backups.items[0].ID != id {
-		return backup.ErrNotFound
-	}
-	backups.items = nil
-	return nil
-}
-
 type fakeSessions struct{}
 
 func (fakeSessions) Exchange(context.Context, string) (admin.CreatedSession, error) {
@@ -152,7 +115,7 @@ func credential() contract.AdminCredential {
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
-	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: &fakeBackups{}, Status: func(context.Context) (contract.SystemStatus, error) {
+	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Status: func(context.Context) (contract.SystemStatus, error) {
 		return contract.SystemStatus{
 			Process: contract.ProcessStatus{State: contract.ProcessReady, Ready: true, StartedAt: "2026-08-22T18:00:00Z"},
 			SQLite:  contract.SQLiteStatus{State: contract.SQLiteReady, SchemaVersion: "3", Revision: "1"},
@@ -162,7 +125,6 @@ func newTestHandler(t *testing.T) http.Handler {
 				GrantRequests:             contract.LimitStatus{InUse: 2, Limit: 4096},
 				GrantRequestEvidenceBytes: contract.LimitStatus{InUse: 64, Limit: 268435456},
 			},
-			Backup:    contract.BackupStatus{State: contract.BackupIdle},
 			Protocols: contract.ProtocolStatus{Modern: contract.ModernProtocolVersion, Legacy: contract.LegacyProtocolVersion, AgentAuth: contract.AgentAuthDenyAll},
 		}, nil
 	}})
@@ -199,12 +161,12 @@ func TestStatusIsAuthenticatedNoStoreAndUsesSnapshot(t *testing.T) {
 	}
 }
 
-func TestStatusAccountingFailureIsAuthenticatedAndTyped(t *testing.T) {
+func TestStatusFailureIsAuthenticatedAndTyped(t *testing.T) {
 	calls := 0
 	handler := New(Options{Credentials: &fakeCredentials{items: []contract.AdminCredential{credential()}}, Sessions: fakeSessions{}, Status: func(ctx context.Context) (contract.SystemStatus, error) {
 		require.NoError(t, ctx.Err())
 		calls++
-		return contract.SystemStatus{}, backup.ErrInvalidArtifact
+		return contract.SystemStatus{}, admin.ErrAuthenticationRequired
 	}})
 	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
 	require.NoError(t, err)
@@ -216,7 +178,7 @@ func TestStatusAccountingFailureIsAuthenticatedAndTyped(t *testing.T) {
 	require.Equal(t, 1, calls)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	require.Contains(t, response.Body.String(), `"code":"storage_unavailable"`)
-	require.NotContains(t, response.Body.String(), backup.ErrInvalidArtifact.Error())
+	require.NotContains(t, response.Body.String(), admin.ErrAuthenticationRequired.Error())
 }
 
 func TestAuthenticationDomainsAndAmbiguity(t *testing.T) {
@@ -483,7 +445,7 @@ func TestEventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 		close(done)
 	}()
 	<-writer.flushed
-	hub.Publish(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: ptr(testID)})
+	hub.Publish(contract.Invalidation{Kind: contract.InvalidationServers, ResourceID: ptr(testID)})
 	<-writer.flushed
 	hub.Publish(contract.Invalidation{Kind: contract.InvalidationAuthorization})
 	<-writer.flushed
@@ -497,7 +459,7 @@ func TestEventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 		t.Fatalf("handshake: %d %v", status, writer.header)
 	}
 	if strings.HasPrefix(body, "id:") || strings.Contains(body, "\nid:") || strings.Contains(body, testBearer) ||
-		!strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"backups\",\"resource_id\":\""+testID+"\"}") ||
+		!strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"servers\",\"resource_id\":\""+testID+"\"}") ||
 		!strings.Contains(body, "event: invalidate\ndata: {\"kind\":\"authorization\",\"resource_id\":null}") ||
 		strings.Contains(body, "principal_id") || strings.Contains(body, "credential") || strings.Contains(body, "grant") || strings.Count(body, ": keepalive") != 2 {
 		t.Fatalf("unsafe event stream: %q", body)
@@ -509,59 +471,15 @@ func TestEventsStreamIsInvalidationOnlyAndRejectsReplay(t *testing.T) {
 
 func ptr(value string) *string { return &value }
 
-func TestBackupResourcesAreIdempotentBoundedAndNoStore(t *testing.T) {
-	t.Parallel()
-	credentials := &fakeCredentials{items: []contract.AdminCredential{credential()}}
-	backups := &fakeBackups{}
-	var invalidations []contract.Invalidation
-	handler := New(Options{Credentials: credentials, Sessions: fakeSessions{}, Backups: backups, Invalidate: func(event contract.Invalidation) {
-		invalidations = append(invalidations, event)
-	}})
-	boundary, err := httpboundary.New(httpboundary.Options{Authority: contract.DefaultAuthority, Authenticate: handler.Authenticate, Next: handler})
-	if err != nil {
-		t.Fatal(err)
-	}
-	headers := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON, "Idempotency-Key": "retry"}
-	created := perform(boundary, http.MethodPost, "/api/v2/backups", `{}`, headers)
-	if created.Code != 201 || created.Header().Get("Cache-Control") != "no-store" || created.Header().Get("ETag") != "" {
-		t.Fatalf("create: %d %v %s", created.Code, created.Header(), created.Body.String())
-	}
-	replayed := perform(boundary, http.MethodPost, "/api/v2/backups", `{}`, headers)
-	if replayed.Code != 200 || replayed.Body.String() != created.Body.String() || len(invalidations) != 2 {
-		t.Fatalf("replay: %d %s invalidations=%d", replayed.Code, replayed.Body.String(), len(invalidations))
-	}
-	listed := perform(boundary, http.MethodGet, "/api/v2/backups?limit=50", "", map[string]string{"Authorization": "Bearer " + testBearer})
-	if listed.Code != 200 || !strings.Contains(listed.Body.String(), `"next_cursor":null`) {
-		t.Fatalf("list: %d %s", listed.Code, listed.Body.String())
-	}
-	id := backups.items[0].ID
-	got := perform(boundary, http.MethodGet, "/api/v2/backups/"+id, "", map[string]string{"Authorization": "Bearer " + testBearer})
-	if got.Code != 200 || got.Header().Get("ETag") != "" {
-		t.Fatalf("get: %d %s", got.Code, got.Body.String())
-	}
-	deleted := perform(boundary, http.MethodDelete, "/api/v2/backups/"+id, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
-	if deleted.Code != 204 || len(invalidations) != 4 || invalidations[2].Kind != contract.InvalidationBackups {
-		t.Fatalf("delete: %d %s invalidations=%v", deleted.Code, deleted.Body.String(), invalidations)
-	}
-}
-
-func TestBackupCreateRequiresValidIdempotencyKeyAndExactBody(t *testing.T) {
+func TestBackupRoutesAreAbsent(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandler(t)
-	base := map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON}
-	missing := perform(handler, http.MethodPost, "/api/v2/backups", `{}`, base)
-	if missing.Code != 400 || !strings.Contains(missing.Body.String(), "invalid_idempotency_key") {
-		t.Fatalf("missing key: %d %s", missing.Code, missing.Body.String())
-	}
-	base["Idempotency-Key"] = "retry"
-	invalidBody := perform(handler, http.MethodPost, "/api/v2/backups", `{"extra":true}`, base)
-	if invalidBody.Code != 400 || !strings.Contains(invalidBody.Body.String(), "invalid_json") {
-		t.Fatalf("invalid body: %d %s", invalidBody.Code, invalidBody.Body.String())
-	}
-	base["Idempotency-Key"] = "bad key"
-	invalidKey := perform(handler, http.MethodPost, "/api/v2/backups", `{}`, base)
-	if invalidKey.Code != 400 || !strings.Contains(invalidKey.Body.String(), "invalid_idempotency_key") {
-		t.Fatalf("invalid key: %d %s", invalidKey.Code, invalidKey.Body.String())
+	for _, path := range []string{"/api/v2/backups", "/api/v2/backups/" + testID} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+			response := perform(handler, method, path, `{}`, map[string]string{"Authorization": "Bearer " + testBearer, "Content-Type": contract.MediaTypeJSON})
+			require.Equal(t, http.StatusNotFound, response.Code, "%s %s", method, path)
+			require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+		}
 	}
 }
 

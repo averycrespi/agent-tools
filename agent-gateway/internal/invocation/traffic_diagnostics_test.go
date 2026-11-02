@@ -3,12 +3,10 @@ package invocation
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/downstream"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -55,27 +53,19 @@ func TestTrafficServicePersistsSafeFailureDiagnostics(t *testing.T) {
 	}
 }
 
-func TestTrafficDiagnosticsPairedBackupRestore(t *testing.T) {
+func TestTrafficDiagnosticsRestart(t *testing.T) {
 	traffic, owner := trafficFixture(t, nil, nil)
-	control, err := storage.Initialize(t.Context(), owner, invocationTestInstallationID)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, control.Close()) }()
-	require.NoError(t, control.SelectTraffic(t.Context(), "", invocationID(90)))
 	observation := recordMCP(t, traffic, trafficPrepared(1))
 	completion := trafficCompletion()
 	completion.Class = contract.TerminalDownstreamFailure
 	diagnostic := &contract.FailureDiagnostics{GatewayObserved: contract.FailureObservation{Source: "protocol", Reason: "rpc_error"}}
 	require.NoError(t, traffic.ObserveMCPCompletion(observation, completion, diagnostic))
 	waitTraffic(t, traffic)
-	root := t.TempDir()
-	backup := filepath.Join(root, "traffic.db")
-	require.NoError(t, traffic.BackupPair(t.Context(), control, filepath.Join(root, "control.db"), backup))
 	require.NoError(t, traffic.Close())
-	require.NoError(t, RestoreTraffic(t.Context(), owner, backup, invocationTestInstallationID, invocationID(90), invocationID(91), traffic.config))
-	restored, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(91), traffic.config)
+	reopened, err := OpenTraffic(t.Context(), owner, invocationTestInstallationID, invocationID(90), traffic.config)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, restored.Close()) }()
-	history, err := restored.History(t.Context(), 0, 10)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	history, err := reopened.History(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, history.Records, 1)
 	require.Equal(t, diagnostic, history.Records[0].Diagnostics)

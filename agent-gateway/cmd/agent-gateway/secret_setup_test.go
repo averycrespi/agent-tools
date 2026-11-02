@@ -13,7 +13,7 @@ import (
 func TestStoppedSecretSetupPreservesExistingInstallation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "gateway")
 	bearer := filepath.Join(root, "admin-bearer")
-	initializeLegacyBackupFixture(t, root, bearer)
+	initializeUnconfiguredCustodyFixture(t, root, bearer)
 	before := treeBytes(t, root)
 	run := func(flags ...string) error {
 		command := newTestRootCmd(t)

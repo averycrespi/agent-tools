@@ -69,26 +69,11 @@ func ClearLegacyTraffic(ctx context.Context, control *storage.Store) error {
 	return control.Mutate(ctx, func(tx *sql.Tx) error { return OmitLegacyTrafficTx(ctx, tx) })
 }
 
-// OmitLegacyTrafficTx removes optional embedded history only from a private
-// backup or stopped replacement. It never validates omitted traffic as history.
+// OmitLegacyTrafficTx removes embedded history only from a stopped replacement
+// after its selected traffic generation is durable.
 func OmitLegacyTrafficTx(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `DELETE FROM invocations`)
 	return err
-}
-
-// VerifyOmittedLegacyTraffic establishes the explicit security-artifact claim
-// without validating or projecting any history rows.
-func VerifyOmittedLegacyTraffic(ctx context.Context, path string) error {
-	return storage.ViewBackup(ctx, path, func(tx *sql.Tx) error {
-		var count int
-		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM invocations`).Scan(&count); err != nil {
-			return err
-		}
-		if count != 0 {
-			return ErrInvalidState
-		}
-		return nil
-	})
 }
 
 func extractTraffic(ctx context.Context, source *sql.Tx, destination *sql.DB, config TrafficConfig, sourceLimit int64) (result error) {

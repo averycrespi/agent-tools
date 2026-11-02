@@ -21,7 +21,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/admin"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/backup"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/catalog"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
@@ -50,13 +49,6 @@ type SessionService interface {
 	LogoutAuthenticated(context.Context, string) error
 	Subscribe(string) (<-chan struct{}, error)
 	Status() contract.LimitStatus
-}
-
-type BackupService interface {
-	Create(context.Context, string, string) (contract.Backup, bool, error)
-	List(context.Context) ([]contract.Backup, error)
-	Get(context.Context, string) (contract.Backup, error)
-	Delete(context.Context, string) error
 }
 
 type EventService interface {
@@ -96,7 +88,6 @@ type Options struct {
 	InstallationID   string
 	Credentials      CredentialService
 	Sessions         SessionService
-	Backups          BackupService
 	Events           EventService
 	Invalidate       func(contract.Invalidation)
 	NewKeepalive     func() (<-chan time.Time, func())
@@ -108,6 +99,7 @@ type Options struct {
 	GrantRequests    GrantRequestService
 	Invocations      InvocationReader
 	HistoryExport    HistoryExporter
+	Configuration    ConfigurationExporter
 	GitTraffic       GitTrafficReader
 	HTTPTraffic      HTTPTrafficReader
 	ProtocolActivity ProtocolActivityReader
@@ -135,7 +127,6 @@ type Handler struct {
 	installationID          string
 	credentials             CredentialService
 	sessions                SessionService
-	backups                 BackupService
 	events                  EventService
 	invalidate              func(contract.Invalidation)
 	newKeepalive            func() (<-chan time.Time, func())
@@ -148,6 +139,7 @@ type Handler struct {
 	grantRequests           GrantRequestService
 	invocations             InvocationReader
 	history                 HistoryExporter
+	configuration           ConfigurationExporter
 	gitTraffic              GitTrafficReader
 	httpTraffic             HTTPTrafficReader
 	protocolActivity        ProtocolActivityReader
@@ -214,7 +206,7 @@ func New(options Options) *Handler {
 	if options.DispatchStatus == nil {
 		options.DispatchStatus = func(string) contract.LimitStatus { return limitStatus("per_server_downstream_dispatch") }
 	}
-	return &Handler{diagnostics: options.Diagnostics, inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, backups: options.Backups, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, protocolActivity: options.ProtocolActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
+	return &Handler{diagnostics: options.Diagnostics, inventoryEpoch: rand.Text(), httpCredentialCursorKey: rand.Text() + rand.Text(), installationID: options.InstallationID, credentials: options.Credentials, sessions: options.Sessions, events: options.Events, invalidate: options.Invalidate, newKeepalive: options.NewKeepalive, origin: options.Origin, status: options.Status, callbackService: options.OAuthCallback, servers: options.Servers, principals: options.Principals, collections: options.AuthorizationCollections, grantRequests: options.GrantRequests, invocations: options.Invocations, history: options.HistoryExport, configuration: options.Configuration, httpTraffic: options.HTTPTraffic, gitTraffic: options.GitTraffic, recordedActivity: options.RecordedActivity, protocolActivity: options.ProtocolActivity, audit: options.Audit, httpCredentials: options.HTTPCredentials, httpPolicies: options.HTTPPolicies, gitPolicies: options.GitPolicies, gitCredentials: options.GitCredentials, grantTarget: options.GrantTarget, authFlows: options.AuthFlows, replacements: options.Replacements, catalog: options.Catalog, activeCatalog: options.ActiveCatalog, operationState: options.OperationState, runtimeStatus: options.RuntimeStatus, triggerServer: options.TriggerServer, catalogTraversal: options.CatalogTraversal, dispatchStatus: options.DispatchStatus}
 }
 
 func (handler *Handler) Authenticate(ctx context.Context, request *http.Request, authority contract.CredentialAuthority) (context.Context, error) {
@@ -396,14 +388,6 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 			return
 		}
 		writeJSON(writer, http.StatusOK, status)
-	case path == "/api/v2/backups" && request.Method == http.MethodGet:
-		handler.listBackups(writer, request)
-	case path == "/api/v2/backups" && request.Method == http.MethodPost:
-		handler.createBackup(writer, request)
-	case strings.HasPrefix(path, "/api/v2/backups/") && request.Method == http.MethodGet:
-		handler.getBackup(writer, request)
-	case strings.HasPrefix(path, "/api/v2/backups/") && request.Method == http.MethodDelete:
-		handler.deleteBackup(writer, request)
 	case path == "/api/v2/events" && (request.Method == http.MethodGet || request.Method == http.MethodPost):
 		handler.streamEvents(writer, request)
 	case path == "/api/v2/mcp/catalog" && handler.activeCatalog != nil:
@@ -425,6 +409,8 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
+	case path == contract.ConfigExportPath:
+		handler.configurationExport(writer, request)
 	case path == "/api/v2/history/export" && handler.history != nil:
 		handler.historyExport(writer, request)
 	case path == "/api/v2/mcp/invocations" && handler.invocations != nil:
@@ -786,93 +772,6 @@ func (handler *Handler) revokeCredential(writer http.ResponseWriter, request *ht
 	writer.WriteHeader(http.StatusNoContent)
 }
 
-func (handler *Handler) listBackups(writer http.ResponseWriter, request *http.Request) {
-	if handler.backups == nil || !bodyless(request) {
-		writeProblem(writer, contract.ProblemMalformedRequest)
-		return
-	}
-	limit, after, problem := parseCollectionQuery(request.URL.Query(), "backups")
-	if problem != "" {
-		writeProblem(writer, problem)
-		return
-	}
-	items, err := handler.backups.List(request.Context())
-	if err != nil {
-		handler.observeLocalFailure("list backup inventory", "", "inventory unavailable; preserve artifacts", err)
-		writeServiceError(writer, err)
-		return
-	}
-	sort.Slice(items, func(left, right int) bool { return items[left].ID < items[right].ID })
-	start := sort.Search(len(items), func(index int) bool { return items[index].ID > after })
-	end := start + limit
-	var next *string
-	if end < len(items) {
-		value := encodeCursor("backups", items[end-1].ID)
-		next = &value
-	} else {
-		end = len(items)
-	}
-	writeJSON(writer, http.StatusOK, contract.Collection[contract.Backup]{Items: items[start:end], NextCursor: next})
-}
-
-func (handler *Handler) createBackup(writer http.ResponseWriter, request *http.Request) {
-	if handler.backups == nil || !decodeEmptyObject(writer, request) {
-		return
-	}
-	key := request.Header.Get("Idempotency-Key")
-	if key == "" {
-		writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
-		return
-	}
-	authenticated, ok := request.Context().Value(authContextKey{}).(authentication)
-	if !ok {
-		writeProblem(writer, contract.ProblemAuthenticationRequired)
-		return
-	}
-	item, replay, err := handler.backups.Create(request.Context(), authenticated.credential.ID, key)
-	if err != nil {
-		handler.observeLocalFailure("create backup", "", "inspect publication before retry", err, key)
-		writeServiceError(writer, err)
-		return
-	}
-	status := http.StatusCreated
-	if replay {
-		status = http.StatusOK
-	} else {
-		id := item.ID
-		handler.emit(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
-	}
-	writeJSON(writer, status, item)
-}
-
-func (handler *Handler) getBackup(writer http.ResponseWriter, request *http.Request) {
-	if handler.backups == nil || !bodyless(request) || len(request.URL.Query()) != 0 {
-		writeProblem(writer, contract.ProblemMalformedRequest)
-		return
-	}
-	item, err := handler.backups.Get(request.Context(), strings.TrimPrefix(request.URL.Path, "/api/v2/backups/"))
-	if err != nil {
-		handler.observeLocalFailure("get backup", "", "verification failed; preserve artifact", err)
-		writeServiceError(writer, err)
-		return
-	}
-	writeJSON(writer, http.StatusOK, item)
-}
-
-func (handler *Handler) deleteBackup(writer http.ResponseWriter, request *http.Request) {
-	if handler.backups == nil || !decodeEmptyObject(writer, request) {
-		return
-	}
-	id := strings.TrimPrefix(request.URL.Path, "/api/v2/backups/")
-	if err := handler.backups.Delete(request.Context(), id); err != nil {
-		handler.observeLocalFailure("delete backup", id, "inspect removal before retry", err)
-		writeServiceError(writer, err)
-		return
-	}
-	handler.emit(contract.Invalidation{Kind: contract.InvalidationBackups, ResourceID: &id})
-	writer.WriteHeader(http.StatusNoContent)
-}
-
 func (handler *Handler) streamEvents(writer http.ResponseWriter, request *http.Request) {
 	if handler.events == nil || len(request.URL.Query()) != 0 || len(request.Header.Values("Last-Event-ID")) != 0 {
 		writeProblem(writer, contract.ProblemMalformedRequest)
@@ -1022,10 +921,6 @@ func parseCollectionQuery(query url.Values, collection string) (int, string, con
 	}
 	limit := contract.AdminListPageDefault
 	limitName := "admin_list_page"
-	if collection == "backups" {
-		limit = contract.BackupListPageDefault
-		limitName = "backup_list_page"
-	}
 	if text := query.Get("limit"); text != "" {
 		value, err := strconv.Atoi(text)
 		maximum, _ := contract.FixedLimitByName(limitName)
@@ -1137,15 +1032,11 @@ func adminAuthorityPrecondition(writer http.ResponseWriter, request *http.Reques
 
 func writeServiceError(writer http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, backup.ErrEncryptedCustodyUnsupported):
-		writeProblem(writer, contract.ProblemEncryptedBackupUnsupported)
-	case errors.Is(err, admin.ErrNotFound), errors.Is(err, backup.ErrNotFound):
+	case errors.Is(err, admin.ErrNotFound):
 		writeProblem(writer, contract.ProblemNotFound)
-	case errors.Is(err, backup.ErrInvalidIdempotency):
-		writeProblem(writer, contract.ProblemInvalidIdempotencyKey)
 	case errors.Is(err, admin.ErrInvalidExpiry):
 		writeProblem(writer, contract.ProblemMalformedRequest)
-	case errors.Is(err, admin.ErrResourceLimit), errors.Is(err, admin.ErrSessionLimit), errors.Is(err, backup.ErrResourceLimit), errors.Is(err, events.ErrStreamLimit):
+	case errors.Is(err, admin.ErrResourceLimit), errors.Is(err, admin.ErrSessionLimit), errors.Is(err, events.ErrStreamLimit):
 		writeProblem(writer, contract.ProblemResourceLimit)
 	case errors.Is(err, admin.ErrLastNonExpiring):
 		writeProblem(writer, contract.ProblemConflict)

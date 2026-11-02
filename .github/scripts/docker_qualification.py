@@ -36,7 +36,7 @@ CADDY_START = ('test "$(awk \'/^CapEff:/ {print $2}\' /proc/self/status)" = 0000
 CASES = ('image-network-isolation', 'shipped-image-then-derived', 'browser-generic-proxy', 'boundary-and-caddy',
          'mcp-stdio-http-https-stream', 'mcp-address-denials', 'oauth-callbacks',
          'forward-http-https-trust', 'native-git-permissions', 'one-shot-uncertain',
-         'replacement-persistence', 'stopped-backup-maintenance', 'forced-stop-diagnostics')
+         'replacement-persistence', 'stopped-maintenance', 'forced-stop-diagnostics')
 
 
 # Read-only fingerprints stay private; no file bytes or paths enter the report.
@@ -462,7 +462,7 @@ class Qualification(Smoke):
         self.case('native-git-permissions', self.git)
         self.case('one-shot-uncertain', self.uncertain)
         self.case('replacement-persistence', self.persistence)
-        self.case('stopped-backup-maintenance', self.maintenance)
+        self.case('stopped-maintenance', self.maintenance)
         self.case('forced-stop-diagnostics', self.forced_stop)
         return self.container
 
@@ -778,13 +778,23 @@ class Qualification(Smoke):
                 self.operations[sid] = updated['operation']['id']
             self.wait_server(sid, False)
 
+    def installation_identity(self):
+        # Fixture-only read of public installation identity, never credential data.
+        _, text = self.dc('exec', '-T', 'gateway', 'python3', '-c',
+                          'import json,sqlite3; db=sqlite3.connect("file:gateway.db?mode=ro",uri=True); '
+                          'print(json.dumps(db.execute("SELECT installation_id FROM gateway_meta WHERE singleton=1").fetchone()[0])); db.close()',
+                          machine_json=True)
+        identity = json.loads(text)
+        require(isinstance(identity, str) and re.fullmatch(r'[0-7][0-9A-HJKMNP-TV-Z]{25}', identity), 'invalid installation identity')
+        return identity
+
     def persistence(self):
         # Keep STDIO for the real SIGTERM child-stop assertion and HTTPS for
         # the admitted drain call. Disabled OAuth's pending callback is untouched.
         self.quiesce_fixture_servers({self.servers[0], self.servers[2]})
         before = self.dc('exec', '-T', 'gateway', 'sha256sum', 'admin-bearer', 'master-key', 'http-ca.pem')[1]
-        backup, _ = self.api('POST', '/api/v2/backups', {}, 201, {'Idempotency-Key': 'before-replacement'})
-        self.report['installation_identity'] = backup['installation_id']
+        identity = self.installation_identity()
+        self.report['installation_identity'] = identity
         outcomes = []
         def admitted():
             try:
@@ -824,10 +834,9 @@ class Qualification(Smoke):
         after = self.dc('exec', '-T', 'gateway', 'sha256sum', 'admin-bearer', 'master-key', 'http-ca.pem')[1]
         require(before == after, 'replacement changed persistent authority')
         # Readiness admits control requests before optional runtimes settle.
-        # Do not add a backup writer to the reconstruction being qualified.
+        # Keep reconstruction free of unrelated mutations.
         self.wait_server(self.servers[2])
-        current, _ = self.api('POST', '/api/v2/backups', {}, 201, {'Idempotency-Key': 'after-replacement'})
-        require(current['installation_id'] == backup['installation_id'], 'replacement changed installation identity')
+        require(self.installation_identity() == identity, 'replacement changed installation identity')
         require(self.fixture_get('/stats').get('drain-started', 0) == 1, 'replacement replayed uncertain call')
         self.call('https.echo')
         require(self.proxy_request('https')[0] == 200, 'replacement lost encrypted HTTP credential or CA')
@@ -846,7 +855,6 @@ class Qualification(Smoke):
         # STDIO stop and OAuth reactivation were already qualified above. Only
         # HTTPS must reconstruct during the stopped-maintenance/crash cases.
         self.quiesce_fixture_servers({self.servers[2]})
-        self.dc('exec', '-T', 'gateway', 'agent-gateway', 'backup', 'create', '--address', 'http://127.0.0.1:18210', timeout=60)
         code, _ = self.dc('exec', '-T', 'gateway', 'agent-gateway', 'maintenance', 'verify-and-recover-storage', '--dry-run', check=False)
         require(code != 0, 'maintenance admitted while serving')
         self.stop()
@@ -874,13 +882,13 @@ class Qualification(Smoke):
         require(not state['Running'] and state['ExitCode'] == 137, 'forced stop not observed')
         def snapshot():
             _, text = self.dc('run', '--rm', '--no-deps', '--entrypoint', 'python3', 'gateway',
-                              '-c', STOPPED_SNAPSHOT, '/var/lib/agent-gateway', timeout=60)
+                              '-c', STOPPED_SNAPSHOT, '/var/lib/agent-gateway', timeout=60, machine_json=True)
             return json.loads(text)
         before = snapshot()
         require(before['marker'], 'forced-stop marker absent')
         # A crash marker alone is not corruption: normal startup verifies integrity.
         # Stopped diagnostic inspection must neither remove it nor repair/reinitialize.
-        _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--verify-storage', '--json', check=False)
+        _, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'doctor', '--verify-storage', '--json', check=False, machine_json=True)
         diagnostics = json.loads(text)
         require(any(check['name'] == 'process ownership' and check['state'] == 'stopped' for check in diagnostics['checks']), 'forced-stop ownership diagnostic absent')
         expected = 'failed' if before['control_pending'] else 'ok'
@@ -888,7 +896,7 @@ class Qualification(Smoke):
                     for check in diagnostics['checks']), 'forced-stop storage diagnostic did not match control sidecar state')
         require(snapshot() == before, 'stopped doctor changed installation evidence')
         code, text = self.dc('run', '--rm', '--no-deps', 'gateway', 'maintenance',
-                             'verify-and-recover-storage', '--dry-run', '--json', timeout=60, check=False)
+                             'verify-and-recover-storage', '--dry-run', '--json', timeout=60, check=False, machine_json=True)
         require(snapshot() == before, 'stopped dry-run changed installation evidence')
         self.report['forced_stop_inspection'] = validate_stopped_plan(
             code, text, before['control_pending'], self.report['installation_identity'])

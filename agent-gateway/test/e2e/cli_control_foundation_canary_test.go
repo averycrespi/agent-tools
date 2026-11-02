@@ -25,6 +25,8 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 	bearerPath := filepath.Join(root, "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(usabilityTestBearer+"\n"), 0o600))
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	createPath := filepath.Join(root, "create.json")
+	require.NoError(t, os.WriteFile(createPath, []byte(`{"namespace":"foundation","display_name":"Foundation","enabled":false,"transport":{"kind":"stdio","executable":"/bin/cat","arguments":[],"working_directory":"/tmp","environment":{},"secret_environment":{}}}`), 0o600))
 
 	run := func(t *testing.T, address string, args ...string) processResultView {
 		t.Helper()
@@ -43,7 +45,7 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 		read := run(t, address, "agent", "list")
 		read.requireProblem(t, 9, "gateway_not_running", false)
 		assert.Contains(t, string(read.result.Stderr), "agent-gateway serve --listen "+listener.Addr().String())
-		mutation := run(t, address, "backup", "create", "--idempotency-key", "foundation-refusal")
+		mutation := run(t, address, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "foundation-refusal")
 		mutation.requireProblem(t, 9, "gateway_not_running", false)
 	})
 
@@ -63,28 +65,35 @@ func TestCLIControlFoundationCanary(t *testing.T) {
 
 	t.Run("malformed and post-handoff mutation failures are uncertain", func(t *testing.T) {
 		var malformedRequests atomic.Int64
-		malformed := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		malformed := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 			malformedRequests.Add(1)
+			assert.Equal(t, http.MethodPost, request.Method)
+			assert.Equal(t, "/api/v2/mcp/servers", request.URL.Path)
+			assert.Equal(t, "foundation-malformed", request.Header.Get("Idempotency-Key"))
 			response.Header().Set("Content-Type", "application/json")
 			response.WriteHeader(http.StatusCreated)
 			_, _ = response.Write([]byte(`{"id":`))
 		}))
 		defer malformed.Close()
-		result := run(t, malformed.URL, "backup", "create", "--idempotency-key", "foundation-malformed")
+		result := run(t, malformed.URL, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "foundation-malformed")
 		result.requireProblem(t, 8, "client_outcome_uncertain", true)
-		assert.Contains(t, string(result.result.Stderr), "Nothing was replayed")
+		assert.Contains(t, string(result.result.Stderr), "Nothing was retried")
+		assert.Contains(t, string(result.result.Stderr), "reuse idempotency key foundation-malformed")
 		assert.Equal(t, int64(1), malformedRequests.Load())
 
 		var abruptRequests atomic.Int64
-		abrupt := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		abrupt := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 			abruptRequests.Add(1)
+			assert.Equal(t, http.MethodPost, request.Method)
+			assert.Equal(t, "/api/v2/mcp/servers", request.URL.Path)
+			assert.Equal(t, "foundation-abrupt", request.Header.Get("Idempotency-Key"))
 			connection, _, err := response.(http.Hijacker).Hijack()
 			if err == nil {
 				_ = connection.Close()
 			}
 		}))
 		defer abrupt.Close()
-		result = run(t, abrupt.URL, "backup", "create", "--idempotency-key", "foundation-abrupt")
+		result = run(t, abrupt.URL, "mcp", "server", "create", "--file", createPath, "--idempotency-key", "foundation-abrupt")
 		result.requireProblem(t, 8, "client_outcome_uncertain", true)
 		assert.Equal(t, int64(1), abruptRequests.Load())
 	})

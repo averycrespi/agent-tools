@@ -60,11 +60,12 @@ type GitCredentialDefinition struct {
 type GitCredential struct {
 	ID string `json:"id"`
 	GitCredentialDefinition
-	Revision   string                   `json:"revision"`
-	Available  bool                     `json:"available"`
-	References []GitCredentialReference `json:"referencing_repositories"`
-	CreatedAt  string                   `json:"created_at"`
-	UpdatedAt  string                   `json:"updated_at"`
+	Revision      string                   `json:"revision"`
+	Available     bool                     `json:"available"`
+	MaterialState CredentialMaterialState  `json:"material_state"`
+	References    []GitCredentialReference `json:"referencing_repositories"`
+	CreatedAt     string                   `json:"created_at"`
+	UpdatedAt     string                   `json:"updated_at"`
 }
 
 type GitCredentialReference struct {

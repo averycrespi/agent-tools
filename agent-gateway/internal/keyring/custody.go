@@ -98,6 +98,28 @@ func DatabaseCustodyTx(ctx context.Context, tx *sql.Tx) (bool, error) {
 	return count != 0, err
 }
 
+// InspectInitialCustodyTx validates established key identity without writes or
+// provider construction. Unbound complete keys remain eligible for explicit setup.
+func InspectInitialCustodyTx(ctx context.Context, owner *gatewaypaths.Ownership, tx *sql.Tx) error {
+	var id string
+	err := tx.QueryRowContext(ctx, `SELECT key_id FROM secret_custody WHERE singleton=1 AND version=1`).Scan(&id)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	key, keyErr := gatewaypaths.MasterKey(owner, nil)
+	if keyErr != nil {
+		if id == "" && errors.Is(keyErr, os.ErrNotExist) {
+			return nil
+		}
+		return errors.Join(ErrCustodyUnavailable, keyErr)
+	}
+	defer clear(key)
+	if id != "" && id != masterKeyID(key) {
+		return ErrCustodyUnavailable
+	}
+	return nil
+}
+
 func custodyKeyID(ctx context.Context, store *storage.Store) (string, error) {
 	var id string
 	err := store.View(ctx, func(tx *sql.Tx) error {

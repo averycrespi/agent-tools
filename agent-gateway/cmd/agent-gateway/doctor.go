@@ -73,6 +73,21 @@ func newDoctorCmd() *cobra.Command {
 			detail := doctorCause("inspect root", layout.Root, err)
 			add("installation", "failed", layout.Root, detail, "Correct the reported path issue; do not delete installation files.")
 		}
+		if rootErr == nil {
+			evidencePath := filepath.Join(layout.Root, gatewaypaths.InitializationName)
+			if _, err := os.Lstat(evidencePath); !errors.Is(err, os.ErrNotExist) {
+				_, complete, err := gatewaypaths.ReadInitialization(layout)
+				switch {
+				case err != nil:
+					add("initialization", "failed", evidencePath, "Initialization evidence is unsafe or damaged.", "Preserve all artifacts and obtain a stopped recovery diagnosis.")
+				case complete:
+					add("initialization", "ok", evidencePath, "Recorded initialization completed; current usability is checked separately.", "")
+				default:
+					resume, _ := renderInstallationCommand("agent-gateway init --resume", layout.Root)
+					add("initialization", "failed", evidencePath, "Recognized interrupted initialization; serve will not adopt it.", resume)
+				}
+			}
+		}
 		presence := func(name, path string) {
 			if rootErr != nil && !errors.Is(rootErr, os.ErrNotExist) && filepath.Dir(path) == layout.Root {
 				add(name, "not-checked", path, "Selected root is unsafe; its files were not inspected.", "Correct the selected directory before inspecting its files.")
@@ -119,7 +134,7 @@ func newDoctorCmd() *cobra.Command {
 		}
 		add("protected CA signing material", "not-checked", "", "No protected-keyring probe was performed. Public certificate presence does not establish signing capability.", "")
 		if verifyStorage {
-			owner, openErr := gatewaypaths.AcquireStoppedExisting(layout.Root)
+			owner, openErr := gatewaypaths.AcquireStoppedControl(layout.Root)
 			switch {
 			case openErr == nil:
 				inspection, inspectErr := inspectInit(command.Context(), owner)

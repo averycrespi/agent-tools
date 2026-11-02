@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
+func TestIntegrationCAStableRestartReplacementAndKeyLoss(t *testing.T) {
 	ctx := t.Context()
 	const installation = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
 	root := filepath.Join(t.TempDir(), "gateway")
@@ -69,17 +69,9 @@ func TestIntegrationCAStableRestartRestoreAndKeyLoss(t *testing.T) {
 	require.Equal(t, revision, rev)
 	_, err = s.Load(ctx)
 	require.NoError(t, err)
-	// Explicit staged invalidation cannot reuse retained ciphertext as authority.
+	// Explicit replacement changes authority without an old-key fallback.
 	s.Close()
-	require.NoError(t, InvalidateStaged(ctx, store, c))
-	require.NoError(t, ValidateStartup(ctx, store))
 	s = makeService()
-	_, err = s.Load(ctx)
-	require.Error(t, err)
-	var current uint64
-	require.NoError(t, store.View(ctx, func(tx *sql.Tx) error { return tx.QueryRowContext(ctx, `SELECT revision FROM http_ca`).Scan(&current) }))
-	_, rev, err = s.PublicCertificate(ctx)
-	require.NoError(t, err)
 	require.NoError(t, s.Replace(ctx, rev))
 	replacement, rev, err := s.PublicCertificate(ctx)
 	require.NoError(t, err)

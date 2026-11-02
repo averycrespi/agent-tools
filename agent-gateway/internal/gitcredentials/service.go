@@ -28,12 +28,13 @@ import (
 )
 
 var (
-	ErrInvalid     = errors.New("invalid Git credential")
-	ErrNotFound    = errors.New("git credential not found")
-	ErrStale       = errors.New("git credential revision is stale")
-	ErrReferenced  = errors.New("git credential is referenced")
-	ErrLimit       = errors.New("git credential limit reached")
-	ErrUnavailable = errors.New("git credential unavailable")
+	ErrInvalid       = errors.New("invalid Git credential")
+	ErrNotFound      = errors.New("git credential not found")
+	ErrStale         = errors.New("git credential revision is stale")
+	ErrReferenced    = errors.New("git credential is referenced")
+	ErrLimit         = errors.New("git credential limit reached")
+	ErrUnavailable   = errors.New("git credential unavailable")
+	ErrNotConfigured = errors.New("git credential not configured: supply a value using this credential's rotate action")
 )
 
 const identityLimit = 1024
@@ -97,6 +98,7 @@ func availabilityTx(ctx context.Context, tx *sql.Tx, r *record) error {
 	var current int
 	err := tx.QueryRowContext(ctx, `SELECT count(*) FROM keyring_authorities a WHERE a.owner=? AND a.kind='git_credential' AND a.handle=? AND a.revision=? AND NOT EXISTS (SELECT 1 FROM keyring_authority_fences f WHERE f.owner=a.owner AND f.kind=a.kind)`, r.ID, r.handle, r.materialRevision).Scan(&current)
 	r.Available = !r.deleted && r.handle.Valid && current == 1
+	r.MaterialState = contract.MaterialState(r.materialRevision, r.Available)
 	return err
 }
 func referencesTx(ctx context.Context, tx *sql.Tx, r *record) error {
@@ -130,6 +132,7 @@ func (s *Service) Get(ctx context.Context, id string) (contract.GitCredential, e
 	}
 	if s.store.Latched() {
 		rec.Available = false
+		rec.MaterialState = contract.MaterialState(rec.materialRevision, false)
 	}
 	return rec.GitCredential, nil
 }
@@ -168,6 +171,7 @@ func (s *Service) List(ctx context.Context) ([]contract.GitCredential, error) {
 			}
 			if s.store.Latched() {
 				rec.Available = false
+				rec.MaterialState = contract.MaterialState(rec.materialRevision, false)
 			}
 			out = append(out, rec.GitCredential)
 		}
@@ -470,6 +474,21 @@ func (s *Service) Acquire(ctx context.Context, ref contract.GitRevisionRef) (*Ma
 	if err != nil {
 		if result != nil {
 			result.Clear()
+		}
+		if errors.Is(err, keyring.ErrNoAuthority) {
+			setupErr := s.store.View(ctx, func(tx *sql.Tx) error {
+				rec, readErr := readTx(ctx, tx, ref.ID)
+				if readErr != nil {
+					return readErr
+				}
+				if !rec.deleted && rec.Revision == ref.Revision && rec.materialRevision == 0 && !rec.handle.Valid {
+					return ErrNotConfigured
+				}
+				return nil
+			})
+			if setupErr != nil {
+				return nil, errors.Join(ErrUnavailable, setupErr)
+			}
 		}
 		return nil, err
 	}

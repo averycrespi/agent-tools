@@ -90,25 +90,22 @@ func AppendTx(ctx context.Context, tx *sql.Tx, event contract.AuditEvent) (contr
 	return event, nil
 }
 
-// ReplaceHistoryTx changes continuity and records the restore attempt in the
-// staged generation together. Installation success must be appended only after
-// the replacement has actually been installed.
-func ReplaceHistoryTx(ctx context.Context, tx *sql.Tx, attempt contract.AuditEvent) error {
-	if tx == nil || attempt.Category != "backup" || attempt.Action != "restore" || attempt.Phase != "attempt" || attempt.Actor.Type != contract.AuditOffline {
-		return ErrInvalidInput
+// AttemptedTx supports stopped one-time initialization reconciliation. Absence
+// is meaningful only with complete retained history; pruning cannot grant replay.
+func AttemptedTx(ctx context.Context, tx *sql.Tx, category, action string) (bool, error) {
+	if tx == nil || category == "" || action == "" || contract.ValidateAuditFilters(contract.AuditFilters{Category: category, Action: action}) != nil {
+		return false, ErrInvalidInput
 	}
-	if _, err := historyTx(ctx, tx); err != nil {
-		return err
+	history, err := historyTx(ctx, tx)
+	if err != nil {
+		return false, err
 	}
-	var generation [32]byte
-	if _, err := rand.Read(generation[:]); err != nil {
-		return fmt.Errorf("generate audit history generation: %w", err)
+	if history.Pruned {
+		return false, ErrUnavailable
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE control_audit_history SET generation = ? WHERE singleton = 1`, hex.EncodeToString(generation[:])); err != nil {
-		return fmt.Errorf("replace audit history generation: %w", err)
-	}
-	_, err := AppendTx(ctx, tx, attempt)
-	return err
+	var attempted bool
+	err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM control_audit_events WHERE category=? AND action=? AND json_extract(event, '$.phase')='attempt')`, category, action).Scan(&attempted)
+	return attempted, err
 }
 
 func (repository *Repository) Append(ctx context.Context, event contract.AuditEvent) (contract.AuditEvent, error) {

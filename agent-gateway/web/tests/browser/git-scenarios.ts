@@ -183,7 +183,11 @@ export async function runGit(
         headers: {
           ETag: `"git-credential-${credential.id}-${credential.revision}"`,
         },
-        json: { ...credential, available: false },
+        json: {
+          ...credential,
+          available: false,
+          material_state: "unavailable",
+        },
       });
     },
   );
@@ -697,6 +701,7 @@ export async function runGit(
     id: fixtureID(i + 201),
     name: i >= 49 ? "Duplicate credential" : `Credential ${i}`,
     available: true,
+    material_state: "ready",
   }));
   let choicesUnavailable = false;
   let missingCredential = false;

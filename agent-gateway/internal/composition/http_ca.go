@@ -65,9 +65,13 @@ func httpCA(ctx context.Context, root, installation, operation string, clock Clo
 	if err != nil {
 		return nil, err
 	}
+	defer func() { err = errors.Join(err, owner.Close()) }()
+	return httpCAOwned(ctx, owner, installation, operation, clock, entropy, providerFactory, callbacks)
+}
+
+func httpCAOwned(ctx context.Context, owner *gatewaypaths.Ownership, installation, operation string, clock Clock, entropy io.Reader, providerFactory func(string) (*keyring.Provider, error), callbacks CACallbacks) (certificate []byte, err error) {
 	mutated := false
 	defer func() {
-		err = errors.Join(err, owner.Close())
 		if err != nil && mutated {
 			err = &CAEffectError{Effect: "changed", Cause: err}
 		}

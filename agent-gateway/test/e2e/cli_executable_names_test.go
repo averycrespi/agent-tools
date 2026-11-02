@@ -85,12 +85,13 @@ func TestCLIExecutableNames(t *testing.T) {
 			assert.NotContains(t, string(rootCompletions.Stdout), "storage\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "\nrestore\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "installation\t")
-			for _, family := range []struct{ name, leaf string }{{"maintenance", "verify-and-recover-storage"}, {"maintenance", "restore-backup"}} {
+			for _, family := range []struct{ name, leaf string }{{"maintenance", "verify-and-recover-storage"}} {
 				leaves, leafErr := runner.Run(t.Context(), filepath.Join(directory, name), "__complete", family.name, "")
 				require.NoError(t, leafErr)
 				assert.Contains(t, string(leaves.Stdout), family.leaf+"\t")
+				assert.NotContains(t, string(leaves.Stdout), "restore-backup\t")
 			}
-			for _, retired := range []string{"server", "catalog", "restore", "installation"} {
+			for _, retired := range []string{"server", "catalog", "restore", "installation", "backup"} {
 				rejected, rejectedErr := runner.Run(t.Context(), filepath.Join(directory, name), retired, "list", "--json")
 				require.Error(t, rejectedErr)
 				assert.Empty(t, rejected.Stdout)
@@ -152,7 +153,6 @@ func TestCLIExecutableNames(t *testing.T) {
 		assert.Empty(t, newResult.Stdout)
 	}
 
-	var artifact contract.Backup
 	for _, names := range [][2]string{{preferred, legacy}, {legacy, preferred}} {
 		t.Run(filepath.Base(names[0])+" owns", func(t *testing.T) {
 			authority := unusedAuthority(t)
@@ -201,11 +201,8 @@ func TestCLIExecutableNames(t *testing.T) {
 			assert.Equal(t, 5, blocked.ExitCode)
 			assert.Contains(t, string(blocked.Stderr), `"code":"gateway_running"`)
 			assert.Contains(t, string(blocked.Stderr), "Stop the selected installation")
-			created, createErr := runner.Run(t.Context(), names[0], "backup", "create", "--address", "http://"+authority, "--json")
-			require.NoError(t, createErr, "%s", created.Stderr)
-			require.NoError(t, json.Unmarshal(created.Stdout, &artifact))
 			unusedSecret := filepath.Join(t.TempDir(), "blocked-replacement")
-			refused, restoreErr := runner.Run(t.Context(), names[1], "maintenance", "restore-backup", "--confirm", artifact.ID, "--secret-output", unusedSecret, "--json")
+			refused, restoreErr := runner.Run(t.Context(), names[1], "maintenance", "reset-admin-credentials", "--confirm", "--secret-output", unusedSecret, "--json")
 			require.Error(t, restoreErr)
 			assert.Equal(t, 5, refused.ExitCode)
 			assert.Empty(t, refused.Stdout)
@@ -227,17 +224,15 @@ func TestCLIExecutableNames(t *testing.T) {
 	}
 	for _, binary := range []string{preferred, legacy} {
 		secret := filepath.Join(t.TempDir(), "replacement")
-		restored, restoreErr := runner.Run(t.Context(), binary, "maintenance", "restore-backup", "--confirm", artifact.ID, "--secret-output", secret, "--json")
-		require.NoError(t, restoreErr, "%s", restored.Stderr)
-		assertSettledResult(t, restored)
-		assertMaintenancePlan(t, restored.Stderr, "restore-backup")
+		reset, resetErr := runner.Run(t.Context(), binary, "maintenance", "reset-admin-credentials", "--confirm", "--secret-output", secret, "--json")
+		require.NoError(t, resetErr, "%s", reset.Stderr)
+		assertSettledResult(t, reset)
+		assertMaintenancePlan(t, reset.Stderr, "reset-admin-credentials")
 		var result map[string]any
-		require.NoError(t, json.Unmarshal(restored.Stdout, &result))
-		assert.Len(t, result, 6)
-		assert.Equal(t, "omitted-not-verified", result["history"])
-		assert.Equal(t, "restore-backup", result["operation"])
-		assert.Equal(t, artifact.InstallationID, result["installation_id"])
-		assert.Equal(t, artifact.ID, result["backup_id"])
+		require.NoError(t, json.Unmarshal(reset.Stdout, &result))
+		assert.Len(t, result, 4)
+		assert.Equal(t, "reset-admin-credentials", result["operation"])
+		assert.NotEmpty(t, result["installation_id"])
 	}
 	assertDirectoryEntries(t, xdg, []string{"agent-gateway"})
 	assertDirectoryEntries(t, home, nil)

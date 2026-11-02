@@ -99,6 +99,7 @@ func TestIntegrationInterceptBodylessResponses(t *testing.T) {
 		} {
 			t.Run(protocol+"/"+tc.name, func(t *testing.T) {
 				f := fixture(t)
+				diagnoseProxyCompletionOnFailure(t, f)
 				var calls atomic.Int64
 				upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					calls.Add(1)

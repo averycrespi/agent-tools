@@ -29,7 +29,7 @@ func TestRequestSchemaMigratesPopulatedPredecessorAndReplacement(t *testing.T) {
 	ownership := newOwnership(t)
 	writePopulatedSchemaNineFixture(t, ctx, ownership)
 
-	identity, err := VerifyBackup(ctx, ownership.Layout().Database)
+	identity, err := InspectClosedDatabase(ctx, ownership.Layout().Database)
 	require.NoError(t, err)
 	assert.Equal(t, 9, identity.SchemaVersion)
 
@@ -42,7 +42,7 @@ func TestRequestSchemaMigratesPopulatedPredecessorAndReplacement(t *testing.T) {
 
 	staged := filepath.Join(ownership.Layout().Root, "schema-nine-replacement.db")
 	writePopulatedSchemaNineFixtureAt(t, ctx, ownership.Layout(), staged)
-	identity, err = VerifyBackup(ctx, staged)
+	identity, err = InspectClosedDatabase(ctx, staged)
 	require.NoError(t, err)
 	assert.Equal(t, 9, identity.SchemaVersion)
 	replacement, err := OpenReplacement(ctx, ownership, staged)

@@ -62,8 +62,8 @@ func InspectTrafficLayout(ctx context.Context, layout gatewaypaths.Layout, ident
 	return evidence.Seal, err
 }
 
-// TrafficEvidence binds a restore plan even when a closed generation is missing
-// or corrupt. It does not certify integrity or permit ignoring live sidecars.
+// TrafficEvidence binds a stopped inspection to the exact closed generation.
+// It does not certify integrity or permit ignoring live sidecars.
 type TrafficEvidence struct {
 	Present bool
 	Seal    [32]byte
@@ -185,7 +185,7 @@ func MigrateStorage(ctx context.Context, root, expectedInstallation, generation 
 	}
 	stage := owner.Layout().Database + ".traffic-migration"
 	effect = "staged"
-	err = control.BackupTo(ctx, stage)
+	err = control.CopyTo(ctx, stage)
 	err = errors.Join(err, control.Close())
 	if err != nil {
 		return storage.Identity{}, err

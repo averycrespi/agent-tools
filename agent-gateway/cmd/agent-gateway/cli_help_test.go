@@ -97,7 +97,17 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:6f828c5f4ff91020da289e067a5cd77642cf9582e83b866194454992a7c2d853", digest)
+	assert.Equal(t, "sha256:0b75e3e0934a7c7b1ad57b9bd7ee8529507d08a05a5faf64c00fb9e5bcca623f", digest)
+}
+
+func TestCLICredentialSetupHelp(t *testing.T) {
+	for _, path := range []string{"http credential rotate", "git credential rotate", "mcp server credential replace"} {
+		command, _, err := newRootCmd().Find(strings.Fields(path))
+		require.NoError(t, err)
+		for _, expected := range []string{"Not configured", "identity or bindings", "Empty material is invalid", "no ambient or unrelated credential fallback"} {
+			assert.Contains(t, command.Long, expected, path)
+		}
+	}
 }
 
 func TestCLIOAuthCompatibilityHelp(t *testing.T) {
@@ -140,7 +150,6 @@ func TestCLICredentialHelpExplainsOneTimeOutput(t *testing.T) {
 		{path: []string{"agent", "credential", "rotate"}, expected: []string{"0600", "controlling terminal", "cannot be recovered", "stdout or JSON"}},
 		{path: []string{"initialize"}, expected: []string{"0600", "cannot be recovered"}},
 		{path: []string{"maintenance", "reset-admin-credentials"}, expected: []string{"0600", "cannot be recovered"}},
-		{path: []string{"maintenance", "restore-backup"}, expected: []string{"0600", "cannot be recovered", "--recovery-key", "nonrefundable", "do not refund", "decryption only"}},
 		{path: []string{"maintenance", "rotate-master-key"}, expected: []string{"stopped ownership", "--retain-recovery-keys", "--recover", "without replaying encryption", "cannot protect stolen copies"}},
 		{path: []string{"maintenance", "verify-and-recover-storage"}, expected: []string{"recognized recovery", "without replacing"}},
 	} {
@@ -252,9 +261,6 @@ func testCLICommandErrors(t *testing.T) {
 		{name: "admin reset arguments", args: []string{"maintenance", "reset-admin-credentials", "EXTRA", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
 		{name: "admin reset required flag", args: []string{"maintenance", "reset-admin-credentials", "--json"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
 		{name: "admin reset flag", args: []string{"maintenance", "reset-admin-credentials", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance reset-admin-credentials --secret-output NEW_PATH"},
-		{name: "restore arguments", args: []string{"maintenance", "restore-backup", "--json"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID"},
-		{name: "restore required flag", args: []string{"maintenance", "restore-backup", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "--json"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID --secret-output NEW_PATH"},
-		{name: "restore flag", args: []string{"maintenance", "restore-backup", "--json", "--definitely-invalid"}, usage: "agent-gateway maintenance restore-backup BACKUP_ID"},
 		{name: "verify arguments", args: []string{"maintenance", "verify-and-recover-storage", "unexpected", "--json"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
 		{name: "verify secret flag", args: []string{"maintenance", "verify-and-recover-storage", "--json", "--secret-output", "unused"}, usage: "agent-gateway maintenance verify-and-recover-storage"},
 		{name: "serve arguments", args: []string{"serve", "EXTRA", "--json"}, usage: "agent-gateway serve"},
@@ -271,6 +277,22 @@ func testCLICommandErrors(t *testing.T) {
 	for _, spec := range onlineCommandSpecs() {
 		spec := spec
 		assert.Equal(t, requiredFlags[spec.ManifestUse], spec.RequiredFlags, spec.ManifestUse)
+		if strings.Join(spec.Path, " ") == "export config" {
+			// JSON-only success has no output-mode flag; errors remain stderr-only.
+			for _, suffix := range [][]string{{"EXTRA"}, {"--definitely-invalid"}} {
+				command := newRootCmd()
+				var out, stderr bytes.Buffer
+				command.SetOut(&out)
+				command.SetErr(&stderr)
+				command.SetArgs(append(append([]string(nil), spec.Path...), suffix...))
+				err := command.ExecuteContext(t.Context())
+				require.Error(t, err)
+				assert.Equal(t, 2, commandExitCode(err))
+				assert.Empty(t, out.String())
+				assert.Contains(t, stderr.String(), "Usage: agent-gateway export config")
+			}
+			continue
+		}
 		t.Run("arguments/"+strings.Join(spec.Path, "_"), func(t *testing.T) {
 			args := append([]string(nil), spec.Path...)
 			positionals := positionalArguments(spec.Use)

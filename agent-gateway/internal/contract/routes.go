@@ -38,8 +38,6 @@ var routes = []Route{
 	{Pattern: "/api/v2/admin-credentials", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/admin-credentials/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/system-status", Methods: []string{"GET"}, Authority: AuthorityAdmin},
-	{Pattern: "/api/v2/backups", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
-	{Pattern: "/api/v2/backups/{id}", Methods: []string{"DELETE", "GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/events", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/mcp/servers", Methods: []string{"GET", "POST"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/mcp/servers/{id}", Methods: []string{"DELETE", "GET", "PATCH"}, Authority: AuthorityAdmin},
@@ -88,6 +86,7 @@ var routes = []Route{
 	{Pattern: "/api/v2/protocol-activity", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/recorded-activity", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/history/export", Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: ConfigExportPath, Methods: []string{"GET"}, Authority: AuthorityAdmin},
 }
 
 func Routes() []Route {

@@ -404,9 +404,16 @@ function authenticationPresentation(server: ServerView): {
     status:
       description === undefined
         ? "Not required"
-        : warning
-          ? "Action required"
-          : "Configured",
+        : server.credentialState === "absent" &&
+            (authentication.mode === "oauth"
+              ? server.oauthTokensRevision === "0"
+              : server.staticRevision === "0")
+          ? authentication.mode === "oauth"
+            ? "Sign-in required"
+            : "Not configured"
+          : warning
+            ? "Action required"
+            : "Configured",
     warning,
   };
 }

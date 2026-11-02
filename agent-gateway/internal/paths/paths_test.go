@@ -101,7 +101,6 @@ func TestAcquireCreatesOwnerOnlyCanonicalLayout(t *testing.T) {
 	assert.Equal(t, filepath.Join(layout.Root, LockName), layout.Lock)
 	assert.Equal(t, filepath.Join(layout.Root, RunMarkerName), layout.RunMarker)
 	assert.Equal(t, filepath.Join(layout.Root, MutationMarkerName), layout.MutationMarker)
-	assert.Equal(t, filepath.Join(layout.Root, BackupsName), layout.Backups)
 	assert.Equal(t, filepath.Join(layout.Root, AdminBearerName), layout.AdminBearer)
 	assert.False(t, ownership.WasUnclean())
 

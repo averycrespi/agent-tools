@@ -86,22 +86,18 @@ class AdapterTests(unittest.TestCase):
                 owner.maintenance()
             commands.assert_not_called()
 
-    def test_unsettled_replacement_does_not_start_backup_mutation(self):
+    def test_unsettled_replacement_does_not_start_mutation(self):
         owner = Qualification(FakeDocker())
         self.addCleanup(owner.temp.cleanup)
         owner.servers = ['stdio', 'http', 'https']
-        backups = []
-        def api(_method, _path, _body, _status, headers):
-            backups.append(headers['Idempotency-Key'])
-            return {'installation_id': 'fixture'}, {}
         outcome = json.dumps({'error': {'code': -32000, 'data': {'code': 'outcome_unknown', 'outcomeUnknown': True, 'invocationId': 'fixture'}}})
-        with (patch.object(owner, 'api', side_effect=api), patch.object(owner, 'dc', return_value=(0, 'same')),
+        with (patch.object(owner, 'api') as api, patch.object(owner, 'installation_identity', return_value='fixture'), patch.object(owner, 'dc', return_value=(0, 'same')),
              patch.object(owner, 'rpc', return_value=(200, {}, outcome)), patch.object(owner, 'fixture_get', return_value={'drain-started': 1, 'drain-completed': 1}),
              patch.object(owner, 'stop'), patch.object(owner, 'start'), patch.object(owner, 'shell'), patch.object(owner, 'docker'),
               patch.object(owner, 'wait_server', side_effect=RuntimeError('startup unsettled'))):
             with self.assertRaisesRegex(RuntimeError, 'startup unsettled'):
                 owner.persistence()
-        self.assertEqual(backups, ['before-replacement'])
+        api.assert_not_called()
 
     def test_settlement_logs_keep_only_correlated_closed_causes(self):
         resource = 'private-canary-server/private-canary-operation'

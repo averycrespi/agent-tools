@@ -101,7 +101,7 @@ func TestServicePublishesOneCompleteStaticGenerationAndSafeOperation(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "1", stored.DesiredRevision)
 	backup := filepath.Join(t.TempDir(), "replacement-safe.db")
-	require.NoError(t, store.BackupTo(context.Background(), backup))
+	require.NoError(t, store.CopyTo(context.Background(), backup))
 	contents, err := os.ReadFile(backup)
 	require.NoError(t, err)
 	assert.False(t, bytes.Contains(contents, []byte("replacement-canary")))

@@ -430,9 +430,8 @@ traffic write. Acknowledged changes emit coalesced invocation/System invalidatio
 uncertain or failed writes do not invent durable evidence. One asynchronous
 self-contained completion observation writes the canonical time/class pair and optional
 validated, bounded failure diagnostics atomically. The queued representation is
-owned encoded data, never raw tool errors or mutable caller metadata. Migration and eligible historical paired restore preserve this validated diagnostic
-evidence. Current format-4 control backups omit all traffic; separate bounded history
-export does not promise complete capture.
+owned encoded data, never raw tool errors or mutable caller metadata. Migration and ordinary restart preserve this validated diagnostic
+evidence. Separate bounded history export does not promise complete capture.
 
 ### Optional traffic persistence
 

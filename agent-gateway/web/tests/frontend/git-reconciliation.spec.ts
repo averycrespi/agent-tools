@@ -14,6 +14,7 @@ test("git-rotation-reconciliation", async ({ page, frontend }) => {
     origin: "https://example.invalid:443",
     recipe: { header: "Authorization", prefix: "Bearer " },
     available: true,
+    material_state: "ready",
     referencing_repositories: [],
     created_at: timestamp,
     updated_at: timestamp,

@@ -7,8 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
@@ -130,66 +128,4 @@ func validateTx(ctx context.Context, tx *sql.Tx) error {
 func gitRevision(raw string) bool {
 	n, err := strconv.ParseInt(raw, 10, 64)
 	return err == nil && n > 0 && strconv.FormatInt(n, 10) == raw
-}
-
-// VerifyBackup validates the copied closed artifact, never the live source or
-// native keyring. Historical schemas without Git authority remain supported.
-func VerifyBackup(ctx context.Context, path string, schema int) error {
-	if schema < 22 {
-		return nil
-	}
-	return storage.ViewBackup(ctx, path, func(tx *sql.Tx) error {
-		if err := validateTx(ctx, tx); err != nil {
-			return err
-		}
-		return authorization.ValidateGitBackupTx(ctx, tx)
-	})
-}
-
-// InvalidateStagedCredentials acts only on a stopped replacement. Retained
-// configuration survives; every selected Git handle loses authority, even when
-// old physical provider chunks remain. No provider operation is performed.
-func InvalidateStagedCredentials(ctx context.Context, store *storage.Store, clock Clock) error {
-	return store.Mutate(ctx, func(tx *sql.Tx) error {
-		if err := validateTx(ctx, tx); err != nil {
-			return err
-		}
-		rows, err := tx.QueryContext(ctx, `SELECT id FROM git_credentials WHERE handle IS NOT NULL ORDER BY id LIMIT ?`, identityLimit+1)
-		if err != nil {
-			return err
-		}
-		ids := []string{}
-		for rows.Next() {
-			var id string
-			if err := rows.Scan(&id); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			ids = append(ids, id)
-		}
-		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-			return err
-		}
-		if len(ids) > identityLimit {
-			return ErrInvalid
-		}
-		for _, id := range ids {
-			if _, err := tx.ExecContext(ctx, `DELETE FROM keyring_authorities WHERE owner=? AND kind='git_credential'`, id); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO keyring_authority_fences(owner,kind) VALUES(?,'git_credential')`, id); err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `UPDATE git_credentials SET handle=NULL,revision=revision+1,material_revision=material_revision+1,updated_at=? WHERE id=?`, clock.Now().UTC().Format(contract.AuditTimestampLayout), id); err != nil {
-				return err
-			}
-			if err := authorization.AdvanceGitCredentialRevisionTx(ctx, tx); err != nil {
-				return err
-			}
-			if err := audit.MutationTx(ctx, tx, clock.Now(), "git_credential", "invalidate", contract.AuditTarget{Type: "git_credential", ID: id}); err != nil {
-				return err
-			}
-		}
-		return validateTx(ctx, tx)
-	})
 }

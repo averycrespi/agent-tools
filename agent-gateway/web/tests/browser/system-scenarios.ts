@@ -187,7 +187,7 @@ export async function runSystemAdministrationCanary(
     ["#/system", "system-status-panel"],
     ["#/system?tab=resource-limits", "system-limits-view"],
     ["#/system?tab=admin-credentials", "admin-credentials-view"],
-    ["#/system?tab=backups", "backups-view"],
+    ["#/system?tab=history", "history-export"],
   ];
   let rendered = "";
   for (const [hash, testID] of destinations) {
@@ -209,7 +209,7 @@ export async function runSystemAdministrationCanary(
     "Gateway status",
     "Resource limits",
     "Admin credentials",
-    "Backups",
+    "History export",
   ])
     if (!rendered.includes(phrase))
       fail(`System administration canary omitted ${phrase}`);
@@ -236,6 +236,13 @@ export async function runCapabilityAudit(
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/api/v2/events"))
       eventStreams += 1;
+    if (
+      request.method() !== "GET" &&
+      /\/api\/v2\/admin-credentials(?:\/|$)/.test(
+        new URL(request.url()).pathname,
+      )
+    )
+      mutations += 1;
   });
   await page.route("**/api/v2/system-status", async (route) =>
     route.fulfill({
@@ -245,15 +252,6 @@ export async function runCapabilityAudit(
     }),
   );
   await page.route("**/api/v2/admin-credentials?*", async (route) => {
-    if (route.request().method() !== "GET") mutations += 1;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ items: [], next_cursor: null }),
-    });
-  });
-  await page.route("**/api/v2/backups?*", async (route) => {
-    if (route.request().method() !== "GET") mutations += 1;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -288,37 +286,37 @@ export async function runCapabilityAudit(
       )?.disabled === true,
   );
   await page.evaluate(() => {
-    window.location.hash = "#/system?tab=backups";
+    window.location.hash = "#/system";
   });
-  await page.locator('[data-testid="backups-view"]').waitFor();
-  await page.locator('[data-testid="backup-create"]').click();
-  await page.waitForFunction(
-    () =>
-      (
-        document.querySelector(
-          '[data-testid="backup-review-create"]',
-        ) as HTMLButtonElement | null
-      )?.disabled === true,
+  await expect(page.getByTestId("system-status-panel")).toContainText(
+    "Storage mutations are unavailable",
   );
+  await page.evaluate(() => {
+    window.location.hash = "#/system?tab=admin-credentials";
+  });
+  await page
+    .getByRole("link", { name: "Create admin credential", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Review and create", exact: true }),
+  ).toBeDisabled();
   if (mutations !== 0)
     fail("cross-destination storage latch submitted a mutation");
   const reconnectDeadline = Date.now() + 5000;
   while (eventStreams < 2 && Date.now() < reconnectDeadline)
     await new Promise((resolve) => setTimeout(resolve, 25));
   if (eventStreams < 2) fail("event stream did not reconnect");
-  const body = (await page.locator("body").textContent()) ?? "";
-  if (
-    !body.includes("stopped-process operation") ||
-    !body.includes("Storage mutation is closed")
-  )
-    fail("cross-destination latch guidance is incomplete");
+  await expect(page.getByTestId("gateway-shell")).toHaveAttribute(
+    "data-mutation-availability",
+    "storage_latched",
+  );
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
     `${JSON.stringify({ event: "capability_audit_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), event_streams: eventStreams, mutations, destinations: 2 })}\n`,
   );
 }
 
-export async function runBackups(
+export async function runHistoryExport(
   browserVersion: string,
   context: BrowserContext,
   page: Page,
@@ -327,22 +325,6 @@ export async function runBackups(
   requestCount: () => number,
 ): Promise<void> {
   const ids = ["01ARZ3NDEKTSV4RRFFQ69G5FB0", "01ARZ3NDEKTSV4RRFFQ69G5FB1"];
-  const backup = (index: number) => ({
-    ...(index === 1 ? { history: "omitted" } : {}),
-    id: ids[index],
-    created_at: `2026-08-2${8 + index}T12:00:00Z`,
-    installation_id: "11111111-2222-3333-4444-555555555555",
-    schema_version: "10",
-    source_revision: String(index + 7),
-    size_bytes: 4096 + index,
-    sha256: String(index + 1).repeat(64),
-  });
-  let items = [backup(0)];
-  let creates = 0;
-  let deletes = 0;
-  let details = 0;
-  let backupReadFails = false;
-  let recoveryKey: string | undefined;
   let exports = 0;
   let exportMode:
     | "success"
@@ -425,156 +407,25 @@ export async function runBackups(
       }),
     });
   });
-  await page.route("**/api/v2/backups**", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const id =
-      url.pathname === "/api/v2/backups"
-        ? undefined
-        : url.pathname.split("/").pop();
-    if (request.method() === "GET" && id === undefined) {
-      if (url.searchParams.get("limit") !== "100")
-        fail("backup list changed shape");
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(
-          backupReadFails ? {} : { items, next_cursor: null },
-        ),
-      });
-      return;
-    }
-    if (request.method() === "GET" && id !== undefined) {
-      details += 1;
-      const item = items.find((candidate) => candidate.id === id);
-      if (item === undefined) fail("unknown backup detail");
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(item),
-      });
-      return;
-    }
-    if (request.method() === "POST" && id === undefined) {
-      creates += 1;
-      const headers = await request.allHeaders();
-      const key = headers["idempotency-key"];
-      if (request.postData() !== "{}" || key === undefined)
-        fail("backup create changed shape");
-      if (creates === 1) {
-        recoveryKey = key;
-        await route.abort("failed");
-        return;
-      }
-      if (creates === 2) {
-        if (key !== recoveryKey) fail("backup replay changed idempotency key");
-        const created = backup(1);
-        items = [...items, created];
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify(created),
-        });
-        return;
-      }
-      await route.fulfill({
-        status: 503,
-        contentType: "application/problem+json",
-        body: JSON.stringify({
-          status: 503,
-          code: "storage_unavailable",
-          title: "Storage is unavailable.",
-        }),
-      });
-      return;
-    }
-    if (request.method() === "DELETE" && id !== undefined) {
-      deletes += 1;
-      const headers = await request.allHeaders();
-      if (
-        request.postData() !== "{}" ||
-        headers["idempotency-key"] !== undefined
-      )
-        fail("backup delete changed shape");
-      items = items.filter((item) => item.id !== id);
-      if (deletes === 2) {
-        await route.abort("failed");
-        return;
-      }
-      await route.fulfill({ status: 204, body: "" });
-      return;
-    }
-    fail("unexpected backup request");
+  await page.route("**/api/v2/backups**", () => {
+    fail("retired backup API was requested");
   });
-
   await page.evaluate(() => {
-    window.location.hash = "#/system?tab=backups";
+    window.location.hash = "#/system?tab=history";
   });
   await waitForLifecycle(page, "signed_out");
   await page.locator('[data-testid="admin-bearer-input"]').fill(bearer);
   await page.locator('[data-testid="sign-in-submit"]').click();
   await waitForLifecycle(page, "authenticated");
-  await page.locator('[data-testid="backups-view"]').waitFor();
-  if (
-    (
-      (await page.locator('[data-testid="backups-view"]').textContent()) ?? ""
-    ).includes(
-      "The browser cannot restore, reset, verify, or clear a storage latch.",
-    )
-  )
-    fail("backup inventory retained redundant recovery guidance");
-  await assertTableConventions(
-    page,
-    "Published backup artifacts",
-    ["Backup", "Source", "Size", "Created", "Actions"],
-    "Backup",
-  );
-  const inventory = page.locator('[data-testid="backups-view"]');
-  await expect(
-    inventory.locator(".panel-heading .status-label.current"),
-  ).toHaveCount(0);
-  await captureStateFeedback(page, "backups-current");
-  const rows = inventory.locator('[data-testid="backup-row"]');
-  const assertSimplifiedInventory = async () => {
-    await expect(
-      inventory.getByRole("button", { name: "Inspect" }),
-    ).toHaveCount(0);
-    await expect(
-      inventory.locator('[data-testid="backup-detail"]'),
-    ).toHaveCount(0);
-    await expect(rows.locator("a, summary, [role=link]")).toHaveCount(0);
-    await expect(rows.getByRole("button")).toHaveText(
-      items.map(() => "Delete"),
-    );
-    expect(details).toBe(0);
-  };
-  await assertSimplifiedInventory();
-  await expect(rows.first().getByRole("rowheader")).toHaveText(
-    `Legacy backup${ids[0]}`,
-  );
-  await expect(rows.first().locator('[data-label="Source"]')).toHaveText(
-    "Schema 10Revision 7",
-  );
-  await expect(rows.first().locator('[data-label="Size"]')).toHaveText(
-    "4,096 bytes",
-  );
-  await expect(rows.first().locator("time")).toHaveAttribute(
-    "datetime",
-    backup(0).created_at,
-  );
   expect(exports).toBe(0);
   const exportPanel = page.getByTestId("history-export");
   await expect(
-    inventory.getByRole("heading", { name: "Control-plane backups" }),
-  ).toBeVisible();
+    page.getByRole("link", { name: "Backups", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("backup-create")).toHaveCount(0);
   await expect(
     exportPanel.getByRole("heading", { name: "Traffic history export" }),
   ).toBeVisible();
-  expect(
-    await inventory.evaluate((element) =>
-      element.nextElementSibling?.getAttribute("data-testid"),
-    ),
-  ).toBe("history-export");
   await expect(exportPanel.locator("summary, pre")).toHaveCount(0);
   let downloadCount = 0;
   page.on("download", () => {
@@ -619,160 +470,53 @@ export async function runBackups(
   expect(file.coverage.new_records_excluded).toBe(true);
   expect(file.coverage.retained_boundary_traversed).toBe(true);
   await expect(exportPanel).not.toContainText("private-export-name");
-  await captureFrontend(page, "backup-history-export");
+  await captureFrontend(page, "history-export");
   exportMode = "unavailable";
   await exportPanel.getByRole("button", { name: "Download JSON" }).click();
   await expect(
     exportPanel.getByText("History export stopped", { exact: true }),
   ).toBeVisible();
-  await captureFrontend(page, "backup-history-unavailable");
+  await captureFrontend(page, "history-unavailable");
   for (const mode of ["replaced", "pruned"] as const) {
     exportMode = mode;
     await exportPanel.getByRole("button", { name: "Download JSON" }).click();
     await expect(exportPanel).toContainText(`was ${mode} during export`);
   }
-  await captureFrontend(page, "backup-history-changed");
+  await captureFrontend(page, "history-changed");
   exportMode = "pending";
   await exportPanel.getByRole("button", { name: "Download JSON" }).click();
   await expect(exportPanel).toContainText("160 records · 1 page");
   await expect(
     exportPanel.getByRole("button", { name: "Download JSON" }),
   ).toBeDisabled();
-  await expect(
-    rows.first().getByRole("button", { name: "Delete" }),
-  ).toBeEnabled();
-  await expect(page.getByTestId("backup-create")).toBeEnabled();
-  await captureFrontend(page, "backup-history-progress");
+  await captureFrontend(page, "history-progress");
   await exportPanel.getByRole("button", { name: "Cancel export" }).click();
   settleExport();
   await expect(exportPanel).toContainText(
     "Export cancelled. No file was downloaded.",
   );
-  await captureFrontend(page, "backup-history-cancelled");
+  await captureFrontend(page, "history-cancelled");
   expect(downloadCount).toBe(1);
   // Navigation cancels the owned read; the late response cannot download.
   releaseExport = undefined;
   await exportPanel.getByRole("button", { name: "Download JSON" }).click();
   await expect(exportPanel).toContainText("160 records · 1 page");
-  await page.getByTestId("backup-create").click();
+  await page.getByRole("link", { name: "Status", exact: true }).click();
   settleExport();
-  await page
-    .getByTestId("backup-create-view")
-    .getByRole("link", { name: "Cancel", exact: true })
-    .click();
+  await page.getByRole("link", { name: "History export", exact: true }).click();
   await expect(
     exportPanel.getByRole("button", { name: "Download JSON" }),
   ).toBeEnabled();
   expect(downloadCount).toBe(1);
   exportMode = "empty";
   expect((await downloadFile()).pages[0].records).toHaveLength(0);
-  await captureFrontend(page, "backup-history-empty");
+  await captureFrontend(page, "history-empty");
   expect(
     await page.evaluate(
       () => (window as unknown as { exportURLCounts: unknown }).exportURLCounts,
     ),
   ).toEqual({ created: 2, revoked: 2 });
   await expect(page.locator("a[download]")).toHaveCount(0);
-  expect(creates).toBe(0);
-  await page.locator('[data-testid="backup-create"]').click();
-  await captureFrontend(page, "backup-create");
-  await page
-    .locator('[data-testid="backup-create-view"]')
-    .getByRole("link", { name: "Cancel", exact: true })
-    .click();
-  await expect(inventory).toBeVisible();
-  expect(creates).toBe(0);
-  await page.locator('[data-testid="backup-create"]').click();
-  await page.locator('[data-testid="backup-review-create"]').click();
-  await page.locator('[data-testid="backup-create-confirm-cancel"]').click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await expect(
-    page.locator('[data-testid="backup-review-create"]'),
-  ).toBeFocused();
-  await page.locator('[data-testid="backup-review-create"]').click();
-  await captureFrontend(page, "backup-create-confirmation");
-  if (Number(creates) !== 0) fail("backup submitted before final review");
-  await page.locator('[data-testid="backup-create-confirm-submit"]').click();
-  await page.getByText("Backup outcome is unknown", { exact: true }).waitFor();
-  await captureFrontend(page, "backup-create-uncertain");
-  if (creates !== 1) fail("uncertain backup create replayed automatically");
-  await page.locator('[data-testid="backup-replay"]').click();
-  await page.getByText(/is durably published/).waitFor();
-  await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText("Security backup · history omitted");
-  await expect(rows.first()).toContainText(ids[1]!);
-  await inventory.getByRole("button", { name: "Size", exact: true }).click();
-  await expect(rows.first()).toContainText(ids[0]!);
-  await page.setViewportSize({ width: 390, height: 1000 });
-  await inventory
-    .locator(".table-sort-controls select")
-    .selectOption("created");
-  await expect(rows.first()).toContainText(ids[0]!);
-  await inventory
-    .getByRole("button", { name: "Published backup artifacts sort direction" })
-    .click();
-  await expect(rows.first()).toContainText(ids[1]!);
-  await assertSimplifiedInventory();
-  await page.locator('[data-testid="backup-delete"]').first().click();
-  await expect(page.getByRole("dialog")).toContainText(ids[1]!);
-  await captureTableState(page, "backup-delete-confirmation");
-  await page.locator('[data-testid="backup-delete-confirm-cancel"]').click();
-  await expect(page.getByRole("dialog")).not.toBeVisible();
-  await expect(page.getByTestId("backup-delete").first()).toBeFocused();
-  expect(deletes).toBe(0);
-  await expect(rows).toHaveCount(2);
-  backupReadFails = true;
-  await page.getByTestId("manual-refresh").click();
-  await expect(
-    page.getByText("Last-known backups", { exact: true }),
-  ).toBeVisible();
-  await expect(rows).toHaveCount(2);
-  await expect(
-    page.getByText("2 backups (last-known)", { exact: true }),
-  ).toBeVisible();
-  await captureTableState(page, "backups-stale");
-  backupReadFails = false;
-  await page.getByTestId("manual-refresh").click();
-  await expect(
-    page.getByText("Last-known backups", { exact: true }),
-  ).toHaveCount(0);
-  await page.locator('[data-testid="backup-delete"]').first().click();
-  await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
-  await page.getByText(/Backup deleted/).waitFor();
-  await expect(rows).toHaveCount(1);
-  await expect(rows.first()).toContainText(ids[0]!);
-  await page.locator('[data-testid="backup-delete"]').click();
-  await page.locator('[data-testid="backup-delete-confirm-submit"]').click();
-  await expect(
-    inventory.getByText("Refresh backups before taking another action."),
-  ).toBeVisible();
-  await expect(page.getByTestId("backup-replay")).toHaveCount(0);
-  await captureStateFeedback(page, "backup-delete-unknown");
-  expect(deletes).toBe(2);
-  await page.getByTestId("manual-refresh").click();
-  await expect(
-    inventory.getByText("No backups", { exact: true }),
-  ).toBeVisible();
-  await assertSimplifiedInventory();
-  await page.locator('[data-testid="backup-create"]').click();
-  await page.locator('[data-testid="backup-review-create"]').click();
-  await page.locator('[data-testid="backup-create-confirm-submit"]').click();
-  await page.waitForFunction(
-    () =>
-      document
-        .querySelector('[data-testid="gateway-shell"]')
-        ?.getAttribute("data-mutation-availability") === "storage_latched",
-  );
-  await captureFrontend(page, "backup-storage-latched");
-  if (await page.locator('[data-testid="backup-review-create"]').isEnabled())
-    fail("storage latch left backup mutation enabled");
-  const body = (await page.locator("body").textContent()) ?? "";
-  for (const phrase of ["immutable owner-only", "stopped-process operation"])
-    if (!body.includes(phrase)) fail(`backup boundary omitted ${phrase}`);
-  await page
-    .getByTestId("backup-create-view")
-    .getByRole("link", { name: "Cancel", exact: true })
-    .click();
   exportMode = "pending";
   releaseExport = undefined;
   await exportPanel.getByRole("button", { name: "Download JSON" }).click();
@@ -787,7 +531,7 @@ export async function runBackups(
   expect(downloadCount).toBe(2);
   await assertSecretAbsent(page, context, baseURL, [bearer], false);
   process.stdout.write(
-    `${JSON.stringify({ event: "backups_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), creates, deletes, details })}\n`,
+    `${JSON.stringify({ event: "history_export_complete", chromium_version: browserVersion, playwright_version: "1.62.1", requests: requestCount(), exports })}\n`,
   );
 }
 
@@ -1381,10 +1125,6 @@ export async function runOverview(
     }
     const status = {
       ...overviewStatusFixture(),
-      backup: {
-        state: "idle",
-        last_completed_at: "2026-10-03T10:23:45.000000000Z",
-      },
       ...(reportedStatus
         ? {
             endpoints: {
@@ -1983,7 +1723,7 @@ export async function runOverview(
     "Resource limits",
     "Needs attention",
     "Admin credentials",
-    "Backups",
+    "History export",
   ]);
   await expect(attention.locator("li")).toHaveCount(11);
   await expect(
@@ -2128,26 +1868,12 @@ export async function runOverview(
       ).toBeLessThanOrEqual(1);
   }
   await assertCardAlignment();
-  const backupStyle = await source("material")
-    .locator(".overview-backup-time")
-    .evaluate((node) => {
-      const style = getComputedStyle(node);
-      return [style.fontSize, style.fontWeight];
-    });
-  expect(backupStyle).toEqual(
-    await source("material")
-      .getByText("Idle", { exact: true })
-      .evaluate((node) => {
-        const style = getComputedStyle(node);
-        return [style.fontSize, style.fontWeight];
-      }),
-  );
   await expect(
     source("material").getByText("Credential storage", { exact: true }),
   ).not.toHaveAttribute("title", /./);
   await expect(
-    source("material").getByText("Idle", { exact: true }),
-  ).toHaveAttribute("data-state", "neutral");
+    source("material").getByText("Backup activity", { exact: true }),
+  ).toHaveCount(0);
   for (const removed of [
     "downstream reachability",
     "client trust",
@@ -3452,7 +3178,6 @@ export async function runSystemStatus(
   let eventStreams = 0;
   let currentStatus = {
     ...overviewStatusFixture(),
-    backup: { state: "idle", last_completed_at: null as string | null },
     endpoints: {
       authority: "127.0.0.1:8210",
       api: "read_only",
@@ -3632,7 +3357,7 @@ export async function runSystemStatus(
     .allTextContents();
   if (
     systemTabs.join("|") !==
-    "Status|Resource limits|Needs attention|Admin credentials|Backups"
+    "Status|Resource limits|Needs attention|Admin credentials|History export"
   )
     fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [
@@ -4036,35 +3761,13 @@ export async function runSystemStatus(
   currentStatus.diagnostics.state = "unavailable";
   currentStatus.keyring.capability = "unavailable";
   currentStatus.http_proxy.ca_ready = false;
-  currentStatus.backup.state = "unavailable";
   currentStatus.protocols.agent_auth = "deny_all";
   await page.getByTestId("manual-refresh").click();
   await expect(activity).toHaveText("Request activityTracking unavailable");
   await expect(
     page.getByText("Agent authentication is disabled.", { exact: true }),
   ).toBeVisible();
-  await expect(
-    statusPanel.getByText("No completion reported", { exact: true }),
-  ).toBeVisible();
   await captureDetailLayout(page, "status-unavailable-material");
-  currentStatus.backup = {
-    state: "creating",
-    last_completed_at: "2026-10-06T11:22:33.456Z",
-  };
-  await page.getByTestId("manual-refresh").click();
-  await expect(
-    statusPanel.getByText("Creating", { exact: true }),
-  ).toBeVisible();
-  const backupTime = statusPanel.locator(
-    'time[datetime="2026-10-06T11:22:33.456Z"]',
-  );
-  await expect(backupTime).toHaveAttribute("title", "2026-10-06T11:22:33.456Z");
-  await expect(backupTime).toHaveAttribute(
-    "aria-label",
-    /2026-10-06T11:22:33\.456Z/,
-  );
-  await expect(statusPanel).not.toContainText("verified integrity");
-  await captureDetailLayout(page, "status-backup-busy");
   currentStatus = beforeDiagnosticFailure;
   currentStatus = {
     ...currentStatus,

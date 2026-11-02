@@ -112,7 +112,7 @@ func TestInitialOAuthTokenPublicationActivatesAuthorityAndFlowAtomically(t *test
 	assert.Equal(t, secret, loaded)
 	assert.Equal(t, "1", active.Revision)
 	backup := filepath.Join(t.TempDir(), "token-safe.db")
-	require.NoError(t, store.BackupTo(context.Background(), backup))
+	require.NoError(t, store.CopyTo(context.Background(), backup))
 	contents, err := os.ReadFile(backup)
 	require.NoError(t, err)
 	assert.False(t, bytes.Contains(contents, []byte("token-canary")))

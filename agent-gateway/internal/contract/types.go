@@ -111,17 +111,6 @@ type AdminCredentialRotationResult struct {
 	NewCredential AdminCredential `json:"new_credential"`
 }
 
-type Backup struct {
-	History        string `json:"history,omitempty"`
-	ID             string `json:"id"`
-	CreatedAt      string `json:"created_at"`
-	InstallationID string `json:"installation_id"`
-	SchemaVersion  string `json:"schema_version"`
-	SourceRevision string `json:"source_revision"`
-	SizeBytes      int64  `json:"size_bytes"`
-	SHA256         string `json:"sha256"`
-}
-
 type Collection[T any] struct {
 	Items      []T     `json:"items"`
 	NextCursor *string `json:"next_cursor"`
@@ -243,10 +232,7 @@ type LimitsStatus struct {
 	AdminSessions             LimitStatus `json:"admin_sessions"`
 	LegacySessions            LimitStatus `json:"legacy_sessions"`
 	EventStreams              LimitStatus `json:"event_streams"`
-	BackupWork                LimitStatus `json:"backup_work"`
-	BackupRecords             LimitStatus `json:"backup_records"`
 	AdminCredentials          LimitStatus `json:"admin_credentials"`
-	IdempotencyRecords        LimitStatus `json:"idempotency_records"`
 	KeyringCandidates         LimitStatus `json:"keyring_candidates"`
 	KeyringWork               LimitStatus `json:"keyring_work"`
 	DatabaseBytes             LimitStatus `json:"database_bytes"`
@@ -265,11 +251,6 @@ type LimitsStatus struct {
 	Grants                    LimitStatus `json:"grants"`
 	GrantRequests             LimitStatus `json:"grant_requests"`
 	GrantRequestEvidenceBytes LimitStatus `json:"grant_request_evidence_bytes"`
-}
-
-type BackupStatus struct {
-	State           BackupState `json:"state"`
-	LastCompletedAt *string     `json:"last_completed_at"`
 }
 
 type ProtocolStatus struct {
@@ -340,7 +321,6 @@ type SystemStatus struct {
 	SQLite       SQLiteStatus              `json:"sqlite"`
 	Keyring      KeyringStatus             `json:"keyring"`
 	Limits       LimitsStatus              `json:"limits"`
-	Backup       BackupStatus              `json:"backup"`
 	Protocols    ProtocolStatus            `json:"protocols"`
 }
 

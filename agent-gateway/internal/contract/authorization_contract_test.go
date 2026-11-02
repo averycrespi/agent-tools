@@ -124,9 +124,9 @@ func TestAuthorizationProblemsLimitsAndProtocolVocabularyAreExact(t *testing.T) 
 	require.Equal(t, []AgentAuthMode{AgentAuthDenyAll, AgentAuthPrincipalCredentials}, AgentAuthModes())
 	require.Equal(t, AgentBearerPrefix, "mgw_agent_")
 	require.Equal(t, []InvalidationKind{
-		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationBackups, InvalidationServers,
+		InvalidationAdminCredentials, InvalidationSystemStatus, InvalidationServers,
 		InvalidationServerOperations, InvalidationServerAuthFlows, InvalidationCatalog, InvalidationAuthorization,
-	}, InvalidationKinds()[:8])
+	}, InvalidationKinds()[:7])
 	require.Contains(t, InvalidationKinds(), InvalidationInvocations)
 	require.Equal(t, SecretSinkAgentCredentialCreation, ApprovedSecretSinks()[7], "S3 sink must retain its historical prefix position")
 }
@@ -199,7 +199,7 @@ func TestAuthorizationResourceShapesETagsAndStatusAreExact(t *testing.T) {
 
 	requireJSONKeys(t, LimitsStatus{},
 		"http_regular", "http_control_auth", "http_admin", "http_health", "mcp_work", "mcp_streams", "admin_sessions", "legacy_sessions",
-		"event_streams", "backup_work", "backup_records", "admin_credentials", "idempotency_records", "keyring_candidates", "keyring_work", "database_bytes",
+		"event_streams", "admin_credentials", "keyring_candidates", "keyring_work", "database_bytes",
 		"server_identities", "servers", "downstream_runtimes", "server_reconciliations", "catalog_traversals", "oauth_flows", "oauth_callback_work",
 		"server_idempotency_records", "active_tools", "durable_tool_identities", "downstream_dispatch", "principals", "grants",
 		"grant_requests", "grant_request_evidence_bytes",

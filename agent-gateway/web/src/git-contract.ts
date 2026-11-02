@@ -1,3 +1,8 @@
+import {
+  validCredentialMaterial,
+  type CredentialMaterialState,
+} from "./credential-material.ts";
+
 export type GitKind = "repositories" | "grants" | "credentials";
 export interface GitRef {
   id: string;
@@ -31,6 +36,7 @@ export interface GitResource {
   origin?: string;
   recipe?: { header: string; prefix: string };
   available?: boolean;
+  material_state?: CredentialMaterialState;
   referencing_repositories?: { id: string }[];
 }
 export const gitID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
@@ -75,7 +81,14 @@ export function decodeGitResource(kind: GitKind, value: unknown): GitResource {
     kind === "repositories"
       ? ["name", "url", "aliases", "credential_id", "alias_revision"]
       : kind === "credentials"
-        ? ["name", "origin", "recipe", "available", "referencing_repositories"]
+        ? [
+            "name",
+            "origin",
+            "recipe",
+            "available",
+            "material_state",
+            "referencing_repositories",
+          ]
         : [
             "principal_id",
             "repository_id",
@@ -112,7 +125,7 @@ export function decodeGitResource(kind: GitKind, value: unknown): GitResource {
       !r.origin.startsWith("https://") ||
       !text(recipe.header, 128) ||
       !text(recipe.prefix, 128) ||
-      typeof r.available !== "boolean" ||
+      !validCredentialMaterial(r.material_state, r.available) ||
       !Array.isArray(r.referencing_repositories) ||
       r.referencing_repositories.length > 256
     )

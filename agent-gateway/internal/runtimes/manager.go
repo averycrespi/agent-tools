@@ -393,7 +393,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 		cursor = page.Next
 	}
 	for _, server := range all {
-		if server.DesiredState != contract.DesiredServerEnabled {
+		if server.DesiredState != contract.DesiredServerEnabled || server.ActivationRequired {
 			manager.initializeInactive(server)
 			continue
 		}
@@ -979,7 +979,7 @@ func (manager *Manager) reconcile(serverID string, generation uint64, operationI
 			return
 		}
 	}
-	if server.DesiredState != contract.DesiredServerEnabled {
+	if server.DesiredState != contract.DesiredServerEnabled || server.ActivationRequired {
 		state := contract.RuntimeInactive
 		durableState := contract.DurableCatalogStale
 		if server.DesiredState == contract.DesiredServerDeleted {

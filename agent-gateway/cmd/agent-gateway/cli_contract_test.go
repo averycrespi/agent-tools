@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:5488985a33597b4a7247d5776f6460d8c271292df96a33a49bdc952774169d6f", digest)
+	assert.Equal(t, "sha256:3779318bc5ff964641390dd93c87c59128a36d997916378c70c5759034a83d43", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -86,6 +86,9 @@ func TestCLIContract(t *testing.T) {
 		for _, row := range append(contract.ControlPlaneCapabilityManifest(), contract.GitControlPlaneCapabilityManifest()...) {
 			expected = append(expected, row.CLIUses...)
 		}
+		for _, row := range contract.ConfigurationControlPlaneCapabilityManifest() {
+			expected = append(expected, row.CLIUses...)
+		}
 		sort.Strings(expected)
 		actual := append(onlineCapabilityUses(), "doctor --online")
 		doctor, rest, err := root.Find([]string{"doctor"})
@@ -99,7 +102,10 @@ func TestCLIContract(t *testing.T) {
 			command, _, err := root.Find(spec.Path)
 			require.NoError(t, err, strings.Join(spec.Path, " "))
 			assert.Equal(t, spec.Use, command.Use, strings.Join(spec.Path, " "))
-			expectedFlags := append([]string{"address", "admin-bearer-file", "admin-bearer-stdin", "json", "output"}, spec.Flags...)
+			expectedFlags := append([]string{"address", "admin-bearer-file", "admin-bearer-stdin"}, spec.Flags...)
+			if strings.Join(spec.Path, " ") != "export config" {
+				expectedFlags = append(expectedFlags, "json", "output")
+			}
 			actualFlags := make([]string, 0, len(expectedFlags))
 			command.Flags().VisitAll(func(flag *pflag.Flag) { actualFlags = append(actualFlags, flag.Name) })
 			sort.Strings(expectedFlags)
@@ -116,9 +122,8 @@ func TestCLIContract(t *testing.T) {
 			use   string
 			flags []string
 		}{
-			{path: []string{"init"}, use: "init", flags: []string{"confirm", "json", "secret-output"}},
+			{path: []string{"init"}, use: "init", flags: []string{"confirm", "from", "json", "resume", "secret-output"}},
 			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
-			{path: []string{"maintenance", "restore-backup"}, use: "restore-backup BACKUP_ID", flags: []string{"confirm", "dry-run", "installation-id", "json", "recovery-key", "secret-output", "security-only", "traffic-budget-bytes"}},
 			{path: []string{"maintenance", "rotate-master-key"}, use: "rotate-master-key", flags: []string{"confirm", "dry-run", "installation-id", "json", "recover", "retain-recovery-keys"}},
 			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
 			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "clear-http-proxy-listen", "data-dir", "external-origin", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},

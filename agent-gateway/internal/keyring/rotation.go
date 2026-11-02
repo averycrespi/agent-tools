@@ -51,7 +51,7 @@ func rotateStoppedMasterKey(ctx context.Context, owner *gatewaypaths.Ownership, 
 		return result, err
 	}
 	snapshot, err := storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
-		_, err := VerifyBackupCustodyTx(ctx, tx, owner, nil)
+		_, err := VerifyCustodyTx(ctx, tx, owner)
 		return err
 	})
 	if err != nil {
@@ -139,7 +139,7 @@ func rotateStoppedMasterKey(ctx context.Context, owner *gatewaypaths.Ownership, 
 	// Verify the selected key against every committed generation before unblocking
 	// startup. Reconciliation repeats these reads, never the encryption transaction.
 	if _, err := storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
-		_, err := VerifyBackupCustodyTx(ctx, tx, owner, nil)
+		_, err := VerifyCustodyTx(ctx, tx, owner)
 		return err
 	}); err != nil {
 		return result, err
@@ -158,10 +158,10 @@ func recoverMasterKey(ctx context.Context, owner *gatewaypaths.Ownership, approv
 		return result, errors.Join(gatewaypaths.ErrKeyRotationPending, err)
 	}
 	defer material.Clear()
-	var selected BackupCustody
+	var selected CustodyIdentity
 	snapshot, err := storage.InspectMaintenance(ctx, owner, func(tx *sql.Tx) error {
 		var err error
-		selected, err = InspectBackupCustodyTx(ctx, tx)
+		selected, err = InspectCustodyTx(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -171,7 +171,7 @@ func recoverMasterKey(ctx context.Context, owner *gatewaypaths.Ownership, approv
 		} else if selected.KeyID != masterKeyID(material.OldKey) {
 			return ErrCustodyUnavailable
 		}
-		_, err = VerifyRecoveryCustodyTx(ctx, tx, key, nil)
+		_, err = VerifyKeyCustodyTx(ctx, tx, key)
 		return err
 	})
 	if err != nil {
@@ -243,7 +243,7 @@ func RewrapCustody(ctx context.Context, store *storage.Store, oldKey, newKey []b
 		return ErrCustodyUnavailable
 	}
 	return store.Mutate(ctx, func(tx *sql.Tx) error {
-		custody, err := VerifyRecoveryCustodyTx(ctx, tx, oldKey, nil)
+		custody, err := VerifyKeyCustodyTx(ctx, tx, oldKey)
 		if err != nil || custody.KeyID != oldID {
 			return errors.Join(ErrCustodyUnavailable, err)
 		}

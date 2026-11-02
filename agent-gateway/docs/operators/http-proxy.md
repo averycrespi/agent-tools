@@ -227,13 +227,7 @@ not a production side effect. Do not broadly exempt private networks or wildcard
 hosts to make requests succeed. Proxy environment variables do not enforce egress.
 
 Token rotation requires securely refreshing the private client file and restarting
-client processes; existing environments retain old bytes. **Format-4 restore recovers
-the backed-up CA**, not a new signing identity. Compare client trust with the recovered
-public certificate; refresh trust only if it differs. Every restore invalidates agent
-and administrator tokens, so reissue agent access separately. Ordinary restarts retain
-the selected CA. Missing signing material never triggers regeneration; master-key loss
-requires [qualified encrypted recovery](backup-and-recovery.md#encrypted-secret-storage),
-not CA replacement or a new key. Historical formats have separate recovery limits.
+client processes; existing environments retain old bytes. Ordinary restarts retain the selected CA. Installation-snapshot restore is removed. Missing signing material never triggers regeneration; master-key loss requires a [qualified stopped recovery plan](backup-and-recovery.md#encrypted-secret-storage), not CA replacement or a new key.
 After deliberate CA replacement, export its public certificate, update client bundles
 and retire old trust explicitly; no automatic trust removal is promised.
 

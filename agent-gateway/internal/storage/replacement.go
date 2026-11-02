@@ -117,13 +117,6 @@ func OpenReplacement(ctx context.Context, ownership *gatewaypaths.Ownership, pat
 	return store, nil
 }
 
-// CompactReplacement removes freed pages from a private, unselected stage.
-// Callers reserve control-sized database, WAL and compaction headroom first.
-func (store *Store) CompactReplacement(ctx context.Context) error {
-	_, err := store.database.ExecContext(ctx, `VACUUM`)
-	return err
-}
-
 // Checkpoint closes the replacement's WAL into its database file before generation publication.
 func (store *Store) Checkpoint(ctx context.Context) error {
 	var busy, logFrames, checkpointed int
@@ -134,15 +127,6 @@ func (store *Store) Checkpoint(ctx context.Context) error {
 		return fmt.Errorf("checkpoint replacement database remained busy")
 	}
 	return nil
-}
-
-// ClearVerifiedMarker clears prior uncertain mutation state only after a replacement verifies and activates.
-func ClearVerifiedMarker(ownership *gatewaypaths.Ownership, installationID string) error {
-	layout, err := ownership.ActiveLayout()
-	if err != nil {
-		return err
-	}
-	return newMutationMarker(layout, nil).clearVerified(installationID)
 }
 
 // InstallReplacement atomically selects a closed staged generation and removes sidecars from both generations.

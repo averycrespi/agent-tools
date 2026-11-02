@@ -15,7 +15,7 @@ import (
 )
 
 func gitCLIResource() contract.GitCredential {
-	return contract.GitCredential{ID: idForSecurityTest(), GitCredentialDefinition: contract.GitCredentialDefinition{Name: "Git access", Origin: "https://example.com:443", Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, Revision: "7", Available: true, References: []contract.GitCredentialReference{}, CreatedAt: "2026-09-21T00:00:00.000000000Z", UpdatedAt: "2026-09-21T00:00:00.000000000Z"}
+	return contract.GitCredential{ID: idForSecurityTest(), GitCredentialDefinition: contract.GitCredentialDefinition{Name: "Git access", Origin: "https://example.com:443", Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, Revision: "7", Available: true, MaterialState: contract.CredentialMaterialReady, References: []contract.GitCredentialReference{}, CreatedAt: "2026-09-21T00:00:00.000000000Z", UpdatedAt: "2026-09-21T00:00:00.000000000Z"}
 }
 func TestCLIGitCredentialDeleteShapeAndLatchedOutcome(t *testing.T) {
 	for _, code := range []string{"", "storage_unavailable", "keyring_unavailable"} {

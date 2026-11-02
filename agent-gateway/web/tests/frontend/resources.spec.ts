@@ -48,6 +48,7 @@ const entities = [
       origin: "https://example.invalid:443",
       recipe: { header: "Authorization", prefix: "Bearer " },
       available: true,
+      material_state: "ready",
       referencing_repositories: [],
     },
   },
@@ -84,6 +85,7 @@ const entities = [
       boundary: { host: "example.invalid", port: 443, allow_wildcard: false },
       recipe: { header: "Authorization", prefix: "Bearer " },
       available: true,
+      material_state: "ready",
       referencing_grants: [],
     },
   },
@@ -928,6 +930,7 @@ for (const entity of entities) {
     if (entity.path.endsWith("credentials")) {
       Object.assign(current, {
         available: false,
+        material_state: "unavailable",
         [entity.path.startsWith("http")
           ? "referencing_grants"
           : "referencing_repositories"]: [{ id }],
