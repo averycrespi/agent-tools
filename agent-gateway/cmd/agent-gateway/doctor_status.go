@@ -116,7 +116,9 @@ func appendDoctorSystem(result *doctorResult, s contract.SystemStatus) {
 	}
 	if t := s.Traffic; t != nil {
 		state, action := "ok", ""
-		if !t.Ready || t.Pressure || t.Faulted || t.Health == "degraded" || t.Health == "failed" {
+		if t.State == "disabled" && t.Incident == nil && !t.Faulted && !t.Pressure {
+			state = "inactive"
+		} else if !t.Ready || t.Pressure || t.Faulted || t.Health == "degraded" || t.Health == "failed" {
 			state = "degraded"
 			action = historyAction(t)
 		}

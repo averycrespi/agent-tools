@@ -130,7 +130,11 @@ func newDoctorCmd() *cobra.Command {
 			}
 			add("process ownership", state, layout.Lock, "Existing lock observation; not listener identity or clean-shutdown evidence.", "")
 		} else {
-			add("process ownership", "not-checked", layout.Lock, doctorCause("probe ownership", layout.Lock, ownershipErr), "")
+			state := "failed"
+			if errors.Is(ownershipErr, os.ErrNotExist) {
+				state = "incomplete"
+			}
+			add("process ownership", state, layout.Lock, doctorCause("probe ownership", layout.Lock, ownershipErr), "Inspect the selected lock path and its ownership/permissions; do not remove the lock on this evidence.")
 		}
 		selectedBearer := bearerFile
 		if selectedBearer == "" {

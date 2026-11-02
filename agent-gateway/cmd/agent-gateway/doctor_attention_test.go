@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/stretchr/testify/require"
 )
@@ -263,6 +264,52 @@ func TestDoctorSetupAndServerConditionsAreIndependent(t *testing.T) {
 			require.Contains(t, check.Next, "auth-flow start")
 		}
 	}
+}
+
+func TestDoctorDisabledHistoryFacadeIsInactive(t *testing.T) {
+	facade := invocation.NewOptionalTraffic(invocation.TrafficConfig{})
+	facade.StartOpening(nil)
+	defer func() { require.NoError(t, facade.Close()) }()
+	traffic := facade.Status(t.Context())
+	require.Equal(t, "disabled", traffic.State)
+	result := doctorResult{}
+	appendDoctorSystem(&result, contract.SystemStatus{Process: contract.ProcessStatus{Ready: true, State: contract.ProcessReady}, SQLite: contract.SQLiteStatus{State: contract.SQLiteReady}, Keyring: contract.KeyringStatus{Capability: contract.KeyringReady}, Traffic: &traffic})
+	check := doctorCheckByName(t, result, "traffic history")
+	require.Equal(t, "inactive", check.State)
+	require.Empty(t, check.Next)
+	require.Equal(t, "healthy", doctorSummary(result.Checks))
+	require.NotContains(t, renderDoctorChecks(result, false), "traffic history")
+}
+
+func TestDoctorOwnershipFailureCannotBeHiddenByHealthyLiveStatus(t *testing.T) {
+	layout, plan := initializedDoctorRoot(t)
+	rootIdentity, err := gatewaypaths.DiagnosticRootIdentity(layout.Root)
+	require.NoError(t, err)
+	require.NoError(t, os.Chmod(layout.Lock, 0666))
+	before := treeBytes(t, layout.Root)
+	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/readyz":
+			_, _ = w.Write([]byte(`{"status":"ready"}`))
+		case "/api/v2/system-status":
+			require.NoError(t, json.NewEncoder(w).Encode(contract.SystemStatus{InstallationID: plan.Installation, InstallationRoot: rootIdentity, Process: contract.ProcessStatus{State: contract.ProcessReady, Ready: true}, SQLite: contract.SQLiteStatus{State: contract.SQLiteReady}, Keyring: contract.KeyringStatus{Capability: contract.KeyringReady}, Setup: &contract.CredentialSetupStatus{State: "ok", Facts: []contract.CredentialSetupFact{}}}))
+		case "/api/v2/mcp/servers":
+			_, _ = w.Write([]byte(`{"items":[],"next_cursor":null}`))
+		default:
+			t.Errorf("unexpected request %s", r.URL.Path)
+		}
+	}))
+	defer listener.Close()
+	result := executeDoctorJSON(t, t.Context(), layout.Root, listener.URL)
+	require.NotNil(t, result.System)
+	require.NotEqual(t, "healthy", result.Result)
+	check := doctorCheckByName(t, result, "process ownership")
+	require.Equal(t, "failed", check.State)
+	text := renderDoctorChecks(result, false)
+	require.Contains(t, text, "0666")
+	require.Contains(t, text, "gateway.lock")
+	require.Equal(t, before, treeBytes(t, layout.Root))
 }
 
 func TestDoctorUnknownInitializationAndUnsafeFilesDoNotMutate(t *testing.T) {

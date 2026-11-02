@@ -43,6 +43,25 @@ export function overviewStatusFixture() {
     saturated: false,
   };
   return {
+    installation_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    installation_root: "1:42",
+    setup: {
+      state: "ok",
+      facts: [
+        {
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FAW",
+          kind: "static_credential",
+          action: "supply_value",
+          slots: ["TOKEN"],
+          inactive: true,
+        },
+        {
+          id: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+          kind: "oauth_tokens",
+          action: "sign_in",
+        },
+      ],
+    },
     process: {
       state: "storage_failed",
       ready: false,
