@@ -828,11 +828,16 @@ func TestServerCapacityAndStorageLatchMapping(t *testing.T) {
 	assert.ErrorIs(t, err, ErrResourceLimit)
 
 	require.NoError(t, store.Close())
-	marker := ownership.Layout().MutationMarker
-	require.NoError(t, os.WriteFile(marker, []byte(`{"installation_id":"`+testInstallationID+`","state":"armed"}`+"\n"), 0o600))
-	latched, err := storage.Open(context.Background(), ownership)
+	latched, err := storage.OpenWithFaultInjection(t.Context(), ownership, func(point storage.FaultPoint) error {
+		if point == storage.FaultAfterCommit {
+			return errors.New("lost commit acknowledgment")
+		}
+		return nil
+	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = latched.Close() })
+	require.ErrorIs(t, latched.Mutate(t.Context(), func(*sql.Tx) error { return nil }), storage.ErrStorageLatched)
+	require.True(t, latched.Latched(), "exercise actual process-local commit uncertainty, not retained historical evidence")
 	latchedRepository, err := New(latched, &mutableClock{now: testTime}, new(sequenceReader))
 	require.NoError(t, err)
 	_, err = latchedRepository.Create(context.Background(), CreateRequest{

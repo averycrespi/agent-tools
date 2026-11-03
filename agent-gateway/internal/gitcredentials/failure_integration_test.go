@@ -46,8 +46,6 @@ func TestIntegrationGitCredentialLostAcknowledgmentAndStoppedRecovery(t *testing
 			root := owner.Layout().Root
 			require.NoError(t, s.store.Close())
 			require.NoError(t, owner.Close())
-			_, err = storage.VerifyCurrent(ctx, root)
-			require.NoError(t, err)
 			freshOwner, err := gatewaypaths.Acquire(root)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, freshOwner.Close()) }()

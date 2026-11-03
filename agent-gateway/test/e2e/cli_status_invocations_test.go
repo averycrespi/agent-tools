@@ -61,7 +61,7 @@ func TestCLIStatusInvocations(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 
-	statusJSON := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
+	statusJSON := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--json", "--data-dir", harness.root)
 	statusAPI := harness.adminSnapshot(http.MethodGet, "/api/v2/system-status", nil)
 	var checklist struct {
 		System json.RawMessage `json:"system"`
@@ -75,10 +75,10 @@ func TestCLIStatusInvocations(t *testing.T) {
 	assert.Equal(t, contract.SQLiteReady, status.SQLite.State)
 	assert.Empty(t, statusJSON.Stderr)
 
-	statusTable := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--data-dir", harness.root)
-	assert.Contains(t, string(statusTable.Stdout), "process")
+	statusTable := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--verbose", "--data-dir", harness.root)
+	assert.Contains(t, string(statusTable.Stdout), "serving")
 	assert.Contains(t, string(statusTable.Stdout), "ready")
-	assert.Contains(t, string(statusTable.Stdout), "sqlite")
+	assert.Contains(t, string(statusTable.Stdout), "control storage")
 	assert.NotContains(t, string(statusTable.Stdout), harness.bearer)
 
 	captureCanary := "CLI_CAPTURE_" + strings.Repeat("c", 32)

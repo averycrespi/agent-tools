@@ -53,7 +53,7 @@ The default service authority is `http://127.0.0.1:8210`:
 agent-gateway init --confirm
 agent-gateway serve
 # In another terminal:
-agent-gateway doctor --online
+agent-gateway doctor
 ```
 
 `serve` also enables HTTP proxying at `127.0.0.1:8212` by default. Select a custom
@@ -65,11 +65,15 @@ and [manual proxy/client trust setup](http-proxy.md).
 
 `serve --listen` accepts only a canonical numeric IPv4 loopback address and explicit port. Online `--address` accepts a canonical numeric `127/8` HTTP URL or an explicitly trusted hostname HTTP URL with a canonical decimal port (1–65535). Wildcard and non-loopback numeric destinations, URL userinfo, paths (including a trailing slash), queries, fragments, forwarding headers, redirects, ambient proxies, cookies, compression, and automatic transport retries are not accepted. When a selected loopback address refuses the connection, every online leaf reports `gateway_not_running` and renders the exact `agent-gateway serve` command for the selected address and explicit data directory. A hostname refusal instead directs you to check forwarding and the numeric-loopback service; a hostname is never a valid `--listen` value.
 
-`GET /livez` is unauthenticated process liveness. `GET /readyz` reports only ready or not ready. `doctor` replaces the old top-level `status` (no alias). It reports independent checks as verified, failed, presence-only, absent, stopped or not checked; an unreachable listener is not proof of a stopped process. It shows one line per condition, with additional indented diagnostics only when needed. The absolute data directory and selection source appear once; paths inside it are relative, while external paths remain absolute. Native supervisor configuration and log paths are operator-owned; doctor does not inspect them. The optional `service` JSON member and `installed service` check are retired; other structured facts are unchanged. `doctor --verbose` adds explanations for every check without running extra checks; `--json` retains structured details regardless of verbosity. File presence proves neither authority nor signing usability. `doctor --verify-storage` opts into expensive stopped, closed-generation inspection without recovery. `doctor --online` adds authenticated public-API status using `--admin-bearer-file` or the selected default. Protected keyring material is not probed. A partial checklist never claims whole-installation readiness.
+`GET /livez` is unauthenticated process liveness. `GET /readyz` reports only listener readiness, not installation identity. Plain `doctor` automatically reads readiness and authenticated public status using `--admin-bearer-file` or the selected default, with a shared three-second live deadline. It adopts status only after matching selected installation evidence; a different listener, unknown legacy identity, missing credential or timeout leaves live evidence explicitly unavailable/unverified. File presence never proves usable authority. Explicit hostname forwarding remains an operator trust decision, not cryptographic listener authentication.
+
+Default output leads with the selected directory, running/reachable state and actionable problems/setup tasks. Healthy supporting facts and unverified capabilities appear with `--verbose`, without additional work. Paths inside the displayed directory are relative; external paths remain absolute. JSON retains all independent `checks` plus matched API status under `system`. Its `result` is `attention` for known failure/degradation, otherwise `incomplete` for missing setup/live evidence, otherwise `healthy`. Emitting a checklist exits zero, including partial/attention results; usage, selection and output failures remain nonzero. A healthy sibling never hides a failed check.
+
+Doctor never repairs, clears markers, opens writable SQLite, scans integrity, accesses protected custody, refreshes tokens, starts OAuth/subprocesses, probes upstreams or invokes tools. Stopped-only metadata uses the existing no-create lock and refuses nonempty WAL/journal; normal startup and explicit stopped operations retain full validation. `--online` and `--verify-storage` are removed without aliases. Imported unset credentials and explicit authorization tasks are reported without resolving material; disabled servers are inactive, not warnings. External client CA trust remains unverified. Native supervisor configuration/logs and client environments are not inspected. Missing files alone never justify administrator reset, reinitialization or replacement of established keys.
 
 ### Serving without optional evidence
 
-`doctor --online` and browser **System → Status** show serving, optional history,
+`doctor --verbose` and browser **System → Status** show serving, optional history,
 and diagnostic delivery separately. A history-only failure does not mean MCP/HTTP/Git
 forwarding stopped. Read the history state and pressure reason first: checkpoint
 readers, budget reservation and low disk space have different causes. Unavailable
@@ -108,7 +112,7 @@ For a replacement bearer created by reset or restore, select it explicitly:
 
 ```bash
 agent-gateway --data-dir /path/to/gateway-data \
-  doctor --online --admin-bearer-file /safe/new/admin-bearer
+  doctor --admin-bearer-file /safe/new/admin-bearer
 ```
 
 See [Recovery and fresh initialization](backup-and-recovery.md) for replacement-authority workflows.
@@ -240,7 +244,7 @@ Use the online routine rotation command while Gateway is running:
 agent-gateway admin credential rotate OLD_CREDENTIAL_ID \
   --secret-output /safe/new/admin-bearer \
   --yes
-agent-gateway doctor --online --admin-bearer-file /safe/new/admin-bearer
+agent-gateway doctor --admin-bearer-file /safe/new/admin-bearer
 ```
 
 Rotation conditionally creates one non-expiring replacement, durably publishes and securely reopens the file, verifies its metadata and authentication, and only then conditionally revokes the named old credential. It never promotes the replacement into the default bearer path. If completion is uncertain, do not replay: retain the replacement file and use the rendered metadata command to inspect the old and new records. Before replacement verification, workflow-owned failures preserve old authority; after verified publication, an incomplete workflow may intentionally leave both credentials active.
@@ -275,7 +279,7 @@ agent-gateway admin credential create --secret-output /safe/new/sandbox-admin
 Retain the credential ID from the safe metadata output. Securely transfer only that owner-only bearer file into the sandbox, not Gateway's database or installation root. Then select the destination and credential explicitly inside the sandbox (use the port exposed by your forwarding setup):
 
 ```bash
-agent-gateway doctor --online --address http://host.lima.internal:8210 \
+agent-gateway doctor --address http://host.lima.internal:8210 \
   --admin-bearer-file /safe/sandbox-admin
 ```
 
@@ -392,8 +396,7 @@ restarts at newest with a notice. MCP Invocations remains separate and unchanged
 On ordinary startup, existing selected traffic-schema-1 stores are fully validated
 and transactionally receive empty HTTP tables in the same file before readiness.
 MCP history and generation bindings are preserved; no upgrade command or replacement
-pair is needed. Preserve retained traffic through [history export](backup-and-recovery.md#export-optional-history). Installation-snapshot backup/restore is removed. The stopped
-`maintenance migrate-traffic-storage` command still rejects an already selected pair.
+pair is needed. Preserve retained traffic through [history export](backup-and-recovery.md#export-optional-history). Installation-snapshot backup/restore and legacy single-store traffic cutover are removed. Existing selected pairs retain their normal startup validation; no migration command or automatic extraction remains.
 [Proxy listener selection and manual client setup](http-proxy.md) remain separate from control administration.
 
 ## Control-plane audit history
@@ -494,7 +497,7 @@ Current human stderr and schema-2 serve diagnostics retain bounded, source-maske
 
 Human output is the default except for `export config`, which always emits its versioned JSON document and has no output-mode selector. Other online resource commands and `serve` accept `--output json` or `--json`; conflicting selectors fail before work begins. `init`, `doctor`, maintenance and CA commands use `--json`. CA `--output` is a certificate file path, never a format selector; `--stdout` explicitly streams public PEM and conflicts with JSON.
 
-Stopped mutations display their safe plan on stderr before consent and mutation, including with `--confirm`. With `--json`, stderr is a diagnostic JSON-lines stream: a plan may precede a terminal problem. Successful finite results alone use stdout; errors leave stdout empty. Dry-run plans are results on stdout and need no confirmation. Doctor emits one partial checklist, with authenticated public status under `system` when `--online` succeeds; individual failed checks remain visible rather than being suppressed by a single global status.
+Stopped mutations display their safe plan on stderr before consent and mutation, including with `--confirm`. With `--json`, stderr is a diagnostic JSON-lines stream: a plan may precede a terminal problem. Successful finite results alone use stdout; errors leave stdout empty. Dry-run plans are results on stdout and need no confirmation. Doctor emits one partial checklist, with authenticated public status under `system` only when selected-installation evidence matches; individual failed checks remain visible rather than being suppressed by a single global status.
 
 Finite successes write to stdout. Finite and pre-start failures leave stdout empty and write one bounded problem to stderr; serve may additionally emit the separate diagnostic lines described above. Problems retain stable codes and typed exit classes so automation can distinguish invalid input, authentication, conflict, unavailable storage, and uncertain outcomes without parsing prose.
 

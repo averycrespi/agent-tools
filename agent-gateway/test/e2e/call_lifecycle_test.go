@@ -23,6 +23,8 @@ import (
 func TestGatewayBinaryCallOccupancyDrainsAndNeverReplaysAfterRestart(t *testing.T) {
 	harness := newGatewayHarness(t)
 	harness.Start()
+	// This scenario requires retained evidence, unlike ordinary serving readiness.
+	waitTrafficStatus(t, harness, func(status *contract.TrafficStatus) bool { return status.Ready })
 	catalog := harness.SetupCurrentCatalog("call-capacity", []fixtureTool{{Name: "alpha", InputSchema: json.RawMessage(`{"type":"object"}`)}})
 	principal := harness.CreatePrincipal("Capacity caller", contract.VisibilityAll)
 	issued := harness.IssueCredential(principal)
@@ -47,6 +49,7 @@ func TestGatewayBinaryCallOccupancyDrainsAndNeverReplaysAfterRestart(t *testing.
 	harness.Stop(syscall.SIGTERM)
 	harness.Start()
 	waitForStdioServer(t, harness, catalog.ServerID, activeCatalog)
+	waitTrafficStatus(t, harness, func(status *contract.TrafficStatus) bool { return status.Ready })
 	assert.Equal(t, 1, httpFixtureMethodCount(catalog.Fixture.Events(), "tools/call"), "restart replayed an admitted call")
 	fresh := harness.ModernCall(issued.Bearer, json.RawMessage(`"fresh-after-restart"`), "call-capacity.alpha", json.RawMessage(`{}`))
 	assertCallSuccess(t, fresh)

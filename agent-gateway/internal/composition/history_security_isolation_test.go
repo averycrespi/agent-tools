@@ -19,7 +19,7 @@ import (
 )
 
 func TestSecurityFaultsRemainClosedWhileHistoryOpeningStalls(t *testing.T) {
-	for _, fault := range []string{"audit", string(storage.FaultArmCreate), string(storage.FaultAfterCommit)} {
+	for _, fault := range []string{"audit", string(storage.FaultBeforeBegin), string(storage.FaultAfterCommit)} {
 		t.Run(fault, func(t *testing.T) {
 			var armed atomic.Bool
 			options, cleanup := newCompositionOptionsWithFault(t, func(point storage.FaultPoint) error {
@@ -69,7 +69,7 @@ func TestSecurityFaultsRemainClosedWhileHistoryOpeningStalls(t *testing.T) {
 				require.Zero(t, principals)
 				require.Zero(t, audits)
 			}
-			if fault != "audit" {
+			if fault == string(storage.FaultAfterCommit) {
 				require.True(t, options.Store.Latched())
 			}
 		})

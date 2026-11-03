@@ -39,7 +39,7 @@ func TestDoctorExplainsReadinessAndAuthenticationAtCLISink(t *testing.T) {
 			output := new(bytes.Buffer)
 			command.SetOut(output)
 			command.SetErr(new(bytes.Buffer))
-			args := []string{"doctor", "--data-dir", root, "--address", server.URL, "--online", "--admin-bearer-file", bearerPath}
+			args := []string{"doctor", "--data-dir", root, "--address", server.URL, "--admin-bearer-file", bearerPath}
 			if mode == "json" {
 				args = append(args, "--json")
 			}
@@ -74,7 +74,7 @@ func TestDoctorExpiredContextDoesNotImplyAuthentication(t *testing.T) {
 	output := new(bytes.Buffer)
 	command.SetOut(output)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"doctor", "--data-dir", root, "--address", server.URL, "--online", "--admin-bearer-file", bearerPath})
+	command.SetArgs([]string{"doctor", "--data-dir", root, "--address", server.URL, "--admin-bearer-file", bearerPath})
 	require.NoError(t, command.ExecuteContext(ctx))
 	require.Contains(t, output.String(), "shared doctor context expired")
 	require.Contains(t, output.String(), "authentication=not_attempted")

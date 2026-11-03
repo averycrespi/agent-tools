@@ -63,7 +63,7 @@ func TestDoctorCompactOutputAndVerboseDetails(t *testing.T) {
 		{Name: "administrator credential", State: "failed", Path: "/external/bearer", Detail: "permissions are 0666; expected 0600", Next: "Correct permissions"},
 	}}
 	compact := renderDoctorChecks(result, false)
-	require.Contains(t, compact, "Database           Present      gateway.db\n")
+	require.NotContains(t, compact, "Database           Present")
 	require.Contains(t, compact, "API readiness      Ready\n")
 	require.Contains(t, compact, "  Next: agent-gateway init\n")
 	require.Contains(t, compact, "/external/bearer")
@@ -73,6 +73,7 @@ func TestDoctorCompactOutputAndVerboseDetails(t *testing.T) {
 	require.NotContains(t, compact, "[ok]")
 	require.Equal(t, 1, strings.Count(compact, "/private/gateway"))
 	verbose := renderDoctorChecks(result, true)
+	require.Contains(t, verbose, "Database           Present      gateway.db\n")
 	require.Contains(t, verbose, "  presence is not integrity\n")
 	require.Contains(t, verbose, "  no keyring probe\n")
 }

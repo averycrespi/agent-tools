@@ -60,7 +60,7 @@ func TestStorageDiagnosticsClosedDurabilityStagesAndPrivacy(t *testing.T) {
 	for _, test := range []struct {
 		point FaultPoint
 		stage string
-	}{{FaultArmWrite, "intent_arm"}, {FaultAfterCommit, "transaction_commit"}, {FaultDisarmDelete, "intent_cleanup"}} {
+	}{{FaultAfterCommit, "transaction_commit"}} {
 		t.Run(test.stage, func(t *testing.T) {
 			var armed atomic.Bool
 			store, err := InitializeWithFaultInjection(t.Context(), newOwnership(t), testInstallationID, func(point FaultPoint) error {
@@ -115,7 +115,7 @@ func (e *admissionFormattingError) Error() string {
 }
 
 func TestStorageFailureFormattingAfterAdmissionRelease(t *testing.T) {
-	for _, point := range []FaultPoint{FaultArmWrite, FaultAfterCommit, FaultDisarmDelete} {
+	for _, point := range []FaultPoint{FaultAfterCommit} {
 		var armed bool
 		cause := &admissionFormattingError{}
 		store, err := InitializeWithFaultInjection(t.Context(), newOwnership(t), testInstallationID, func(p FaultPoint) error {

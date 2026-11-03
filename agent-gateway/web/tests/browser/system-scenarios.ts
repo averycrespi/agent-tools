@@ -151,8 +151,18 @@ export async function runOverviewInvocationSystemCanary(
     window.location.hash = "#/system?tab=resource-limits";
   });
   await page.locator('[data-testid="system-limits-view"]').waitFor();
-  if ((await page.locator('[data-testid="system-limit-row"]').count()) !== 31)
-    fail("Resource limits workflow omitted closed limits");
+  await expect(page.getByTestId("system-limit-row")).toHaveCount(
+    overviewLimitNames.length,
+  );
+  expect(
+    (
+      await page.getByTestId("system-limit-row").locator("th").allTextContents()
+    ).sort(),
+  ).toEqual(
+    overviewLimitNames
+      .map((name) => (name === "principals" ? "Agents" : name))
+      .sort(),
+  );
 
   await assertSecretAbsent(page, context, baseURL, [bearer], true);
   process.stdout.write(
@@ -3264,6 +3274,7 @@ export async function runSystemStatus(
   );
   let holdStatus = false;
   let failStatus = false;
+  let invalidMetadata = false;
   const statusReleases: Array<() => void> = [];
   const releaseStatus = () => {
     for (const release of statusReleases.splice(0)) release();
@@ -3300,7 +3311,11 @@ export async function runSystemStatus(
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify(currentStatus),
+      body: JSON.stringify(
+        invalidMetadata
+          ? { ...currentStatus, setup: { state: "unknown", facts: [] } }
+          : currentStatus,
+      ),
     });
   });
   await page.route(
@@ -3478,6 +3493,18 @@ export async function runSystemStatus(
   )
     fail("System healthy status repeated its conclusion");
   await captureDetailLayout(page, "system-status-healthy");
+
+  invalidMetadata = true;
+  await page.getByTestId("manual-refresh").click();
+  await expect(statusPanel).toHaveAttribute("data-panel-status", "error");
+  await expect(
+    statusPanel.getByText("Refresh failed — last known status", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  invalidMetadata = false;
+  await page.getByTestId("manual-refresh").click();
+  await expect(statusPanel).toHaveAttribute("data-panel-status", "current");
 
   failStatus = true;
   await page.getByTestId("manual-refresh").click();

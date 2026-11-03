@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,33 +11,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTrafficMigrationReportsErrors(t *testing.T) {
-	for _, test := range []struct {
-		args    []string
-		message string
-		exit    int
-	}{
-		{nil, "--installation-id", 2},
-		{[]string{"--confirm"}, "--installation-id", 2},
-		{[]string{"unexpected"}, "Usage:", 2},
-		{[]string{"--traffic-budget-bytes", "invalid"}, "--traffic-budget-bytes", 2},
-		{[]string{"--installation-id", "01J60000000000000000000001", "--confirm"}, "absent", 4},
-	} {
+func TestRemovedMaintenanceCommandsPreserveArtifacts(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"gateway.db.previous-old", "traffic-old.db", "master-key", "tombstone", "gateway.db.traffic-migration", "backups/retained"} {
+		path := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte("retained "+name), 0o600))
+	}
+	before := treeBytes(t, root)
+	for _, operation := range []string{"setup-secret-storage", "migrate-traffic-storage"} {
 		command := newRootCmd()
 		stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 		command.SetOut(stdout)
 		command.SetErr(stderr)
-		args := []string{"maintenance", "migrate-traffic-storage", "--data-dir", filepath.Join(t.TempDir(), "absent")}
-		command.SetArgs(append(args, test.args...))
+		command.SetArgs([]string{"maintenance", operation, "--data-dir", root, "--confirm", "--json"})
 		err := command.ExecuteContext(t.Context())
 		require.Error(t, err)
-		require.Equal(t, test.exit, commandExitCode(err))
 		require.Empty(t, stdout.String())
-		require.Contains(t, stderr.String(), test.message)
+		require.Contains(t, err.Error(), "maintenance --help")
+		require.Equal(t, before, treeBytes(t, root))
 	}
 }
 
-func TestTrafficMigrationProblemDoesNotExposeRawErrors(t *testing.T) {
+func TestMaintenanceProblemDoesNotExposeRawErrors(t *testing.T) {
 	for _, cause := range []error{errors.New("private-database-value"), errors.Join(gatewaypaths.ErrInUse, errors.New("private-process-value"))} {
 		problem := maintenanceProblem(cause, "/selected-root")
 		require.NotContains(t, problem.Title, "private-")

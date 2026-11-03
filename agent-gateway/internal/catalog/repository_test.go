@@ -272,8 +272,6 @@ func TestRepositoryCommitMarkerUncertaintyRecoversDurableSnapshot(t *testing.T) 
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 
-	_, err = storage.VerifyCurrent(context.Background(), root)
-	require.NoError(t, err)
 	reopenedOwnership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	reopened, err := storage.Open(context.Background(), reopenedOwnership)

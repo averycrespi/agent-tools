@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:3779318bc5ff964641390dd93c87c59128a36d997916378c70c5759034a83d43", digest)
+	assert.Equal(t, "sha256:b4439e0e0f587ce1843006005b5af50710f9336de94ce1a2822c539cb8e63493", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -90,11 +90,12 @@ func TestCLIContract(t *testing.T) {
 			expected = append(expected, row.CLIUses...)
 		}
 		sort.Strings(expected)
-		actual := append(onlineCapabilityUses(), "doctor --online")
+		actual := append(onlineCapabilityUses(), "doctor")
 		doctor, rest, err := root.Find([]string{"doctor"})
 		require.NoError(t, err)
 		require.Empty(t, rest)
-		require.NotNil(t, doctor.Flags().Lookup("online"))
+		require.Nil(t, doctor.Flags().Lookup("online"))
+		require.Nil(t, doctor.Flags().Lookup("verify-storage"))
 		sort.Strings(actual)
 		assert.Equal(t, expected, actual)
 
@@ -123,9 +124,8 @@ func TestCLIContract(t *testing.T) {
 			flags []string
 		}{
 			{path: []string{"init"}, use: "init", flags: []string{"confirm", "from", "json", "resume", "secret-output"}},
-			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output", "traffic-budget-bytes"}},
+			{path: []string{"maintenance", "reset-admin-credentials"}, use: "reset-admin-credentials", flags: []string{"confirm", "dry-run", "installation-id", "json", "secret-output"}},
 			{path: []string{"maintenance", "rotate-master-key"}, use: "rotate-master-key", flags: []string{"confirm", "dry-run", "installation-id", "json", "recover", "retain-recovery-keys"}},
-			{path: []string{"maintenance", "verify-and-recover-storage"}, use: "verify-and-recover-storage", flags: []string{"confirm", "dry-run", "installation-id", "json", "traffic-budget-bytes"}},
 			{path: []string{"serve"}, use: "serve", flags: []string{"allowed-host", "clear-http-proxy-listen", "data-dir", "external-origin", "http-proxy-listen", "json", "listen", "log-level", "output", "traffic-budget-bytes"}},
 		}
 		for _, test := range cases {

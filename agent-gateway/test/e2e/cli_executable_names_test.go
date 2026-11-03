@@ -85,11 +85,12 @@ func TestCLIExecutableNames(t *testing.T) {
 			assert.NotContains(t, string(rootCompletions.Stdout), "storage\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "\nrestore\t")
 			assert.NotContains(t, string(rootCompletions.Stdout), "installation\t")
-			for _, family := range []struct{ name, leaf string }{{"maintenance", "verify-and-recover-storage"}} {
+			for _, family := range []struct{ name, leaf string }{{"maintenance", "rotate-master-key"}} {
 				leaves, leafErr := runner.Run(t.Context(), filepath.Join(directory, name), "__complete", family.name, "")
 				require.NoError(t, leafErr)
 				assert.Contains(t, string(leaves.Stdout), family.leaf+"\t")
 				assert.NotContains(t, string(leaves.Stdout), "restore-backup\t")
+				assert.NotContains(t, string(leaves.Stdout), "verify-and-recover-storage\t")
 			}
 			for _, retired := range []string{"server", "catalog", "restore", "installation", "backup"} {
 				rejected, rejectedErr := runner.Run(t.Context(), filepath.Join(directory, name), retired, "list", "--json")
@@ -176,7 +177,7 @@ func TestCLIExecutableNames(t *testing.T) {
 				// Service readiness deliberately precedes optional history attachment.
 				require.Eventually(t, func() bool {
 					var statusErr error
-					status, statusErr = runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--online", "--address", "http://"+authority, "--json")
+					status, statusErr = runner.Run(t.Context(), binary, "--data-dir", root, "doctor", "--address", "http://"+authority, "--json")
 					require.NoError(t, statusErr, "status: %s", status.Stderr)
 					var checklist struct {
 						System contract.SystemStatus `json:"system"`
@@ -194,7 +195,7 @@ func TestCLIExecutableNames(t *testing.T) {
 					assert.Equal(t, idleStatusSnapshot(t, statusJSON), idleStatusSnapshot(t, status.Stdout))
 				}
 			}
-			blocked, blockedErr := runner.Run(t.Context(), names[1], "maintenance", "verify-and-recover-storage", "--confirm", "--json")
+			blocked, blockedErr := runner.Run(t.Context(), names[1], "maintenance", "rotate-master-key", "--retain-recovery-keys", "--dry-run", "--json")
 			require.Error(t, blockedErr)
 			assertSettledResult(t, blocked)
 			assert.Empty(t, blocked.Stdout)
@@ -216,7 +217,7 @@ func TestCLIExecutableNames(t *testing.T) {
 			require.NoError(t, waitErr, "serve: %s", served.Stderr)
 			assertSettledResult(t, served)
 			assert.True(t, json.Valid(served.Stdout))
-			verified, verifyErr := runner.Run(t.Context(), names[1], "maintenance", "verify-and-recover-storage", "--confirm", "--json")
+			verified, verifyErr := runner.Run(t.Context(), names[1], "maintenance", "rotate-master-key", "--retain-recovery-keys", "--dry-run", "--json")
 			require.NoError(t, verifyErr, "verify after owner exit: %s", verified.Stderr)
 			assertSettledResult(t, verified)
 			assert.True(t, json.Valid(verified.Stdout))

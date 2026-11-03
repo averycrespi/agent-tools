@@ -45,7 +45,7 @@ func TestHTTPProxyEncryptedCustodyRestartAndKeyLoss(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, failed.Stdout)
 	require.Contains(t, string(failed.Stderr), "master-key")
-	setup, err := h.runner.Run(h.ctx, binary, "maintenance", "setup-secret-storage", "--data-dir", h.root, "--confirm", "--json")
+	setup, err := h.runner.Run(h.ctx, binary, "maintenance", "rotate-master-key", "--retain-recovery-keys", "--data-dir", h.root, "--dry-run", "--json")
 	require.Error(t, err)
 	require.Empty(t, setup.Stdout)
 	require.Contains(t, string(setup.Stderr), "secret_storage_unavailable")

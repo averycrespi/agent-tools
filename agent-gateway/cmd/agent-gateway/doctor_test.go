@@ -79,7 +79,7 @@ func TestDoctorDoesNotReadDefaultBearerThroughUnsafeRoot(t *testing.T) {
 	stdout := new(bytes.Buffer)
 	command.SetOut(stdout)
 	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"doctor", "--data-dir", root, "--address", server.URL, "--online", "--json"})
+	command.SetArgs([]string{"doctor", "--data-dir", root, "--address", server.URL, "--json"})
 	require.NoError(t, command.ExecuteContext(t.Context()))
 	require.Zero(t, authenticated.Load())
 	require.NotContains(t, stdout.String(), testAdministratorBearer)

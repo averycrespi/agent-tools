@@ -9,7 +9,6 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,7 +40,7 @@ func TestMaintenanceDryRunAndUnconfirmedExecutionDoNotWrite(t *testing.T) {
 	init.SetArgs([]string{"init", "--data-dir", root, "--confirm"})
 	require.NoError(t, init.ExecuteContext(t.Context()))
 	before := treeBytes(t, root)
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials"} {
+	for _, operation := range []string{"reset-admin-credentials"} {
 		for _, dry := range []bool{true, false} {
 			command := newTestRootCmd(t)
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
@@ -103,14 +102,14 @@ func TestMaintenanceCrashMarkerPlanningPreservesClosedAndWALState(t *testing.T) 
 			stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
 			command.SetOut(stdout)
 			command.SetErr(stderr)
-			command.SetArgs([]string{"maintenance", "verify-and-recover-storage", "--data-dir", root, "--dry-run", "--json"})
+			command.SetArgs([]string{"maintenance", "reset-admin-credentials", "--secret-output", filepath.Join(t.TempDir(), "replacement"), "--data-dir", root, "--dry-run", "--json"})
 			err = command.ExecuteContext(t.Context())
 			if sidecar == "" {
 				require.NoError(t, err, stderr.String())
 				var plan maintenancePlan
 				require.NoError(t, json.Unmarshal(stdout.Bytes(), &plan))
 				require.True(t, plan.DryRun)
-				require.Equal(t, "verify-and-recover-storage", plan.Operation)
+				require.Equal(t, "reset-admin-credentials", plan.Operation)
 				require.NotEmpty(t, plan.InstallationID)
 			} else {
 				require.Error(t, err)
@@ -135,7 +134,7 @@ func TestMaintenanceCrashMarkerPlanningPreservesClosedAndWALState(t *testing.T) 
 }
 
 func TestSecurityMaintenanceLeavesOptionalHistoryUntouched(t *testing.T) {
-	for _, operation := range []string{"verify-and-recover-storage", "reset-admin-credentials"} {
+	for _, operation := range []string{"reset-admin-credentials"} {
 		t.Run(operation, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "gateway")
 			initialize := newTestRootCmd(t)
@@ -181,34 +180,6 @@ func TestSecurityMaintenanceLeavesOptionalHistoryUntouched(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestMigrationDryRunRequiresIdentityAndPreservesGeneration(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "gateway")
-	owner, err := gatewaypaths.Acquire(root)
-	require.NoError(t, err)
-	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	store, err := storage.Initialize(t.Context(), owner, id)
-	require.NoError(t, err)
-	require.NoError(t, store.Close())
-	require.NoError(t, owner.MarkClean())
-	require.NoError(t, owner.Close())
-	before := treeBytes(t, root)
-	command := newTestRootCmd(t)
-	stdout, stderr := new(bytes.Buffer), new(bytes.Buffer)
-	command.SetOut(stdout)
-	command.SetErr(stderr)
-	command.SetArgs([]string{"maintenance", "migrate-traffic-storage", "--data-dir", root, "--installation-id", id, "--dry-run", "--traffic-budget-bytes", "256MiB", "--json"})
-	require.NoError(t, command.ExecuteContext(t.Context()), stderr.String())
-	require.Contains(t, stdout.String(), id)
-	require.Equal(t, before, treeBytes(t, root))
-	command = newTestRootCmd(t)
-	command.SetOut(new(bytes.Buffer))
-	command.SetErr(stderr)
-	command.SetArgs([]string{"maintenance", "migrate-traffic-storage", "--data-dir", root, "--dry-run"})
-	require.Error(t, command.ExecuteContext(t.Context()))
-	require.Contains(t, stderr.String(), "--installation-id")
-	require.Equal(t, before, treeBytes(t, root))
 }
 
 func TestRetiredOfflineGrammarIsAbsent(t *testing.T) {

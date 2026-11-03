@@ -3,15 +3,15 @@
 package e2e
 
 import (
-	"bytes"
-	"database/sql"
+	"crypto/rand"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/composition"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/controlclient"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
@@ -19,64 +19,47 @@ import (
 )
 
 func TestRecoveryCommandRefusalsPreserveGenerationRealBinary(t *testing.T) {
-	ctx := t.Context()
-	binary, runner := gatewayBinary(t), firstRunRunner(t)
-	root := filepath.Join(t.TempDir(), "gateway")
-	ownership, err := gatewaypaths.Acquire(root)
-	require.NoError(t, err)
-	layout := ownership.Layout()
-	store, err := storage.Initialize(ctx, ownership, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
-	require.NoError(t, err)
-	require.NoError(t, store.Close())
-	require.NoError(t, ownership.Close())
-	original, err := os.ReadFile(layout.Database)
+	h := newGatewayHarness(t)
+	db := filepath.Join(h.root, gatewaypaths.DatabaseName)
+	original, err := os.ReadFile(db)
 	require.NoError(t, err)
 	marker := []byte(`{"installation_id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","state":"armed","recovery":{"action":"unknown"}}`)
-	require.NoError(t, os.WriteFile(layout.MutationMarker, marker, 0o600))
+	markerPath := filepath.Join(h.root, gatewaypaths.MutationMarkerName)
+	require.NoError(t, os.WriteFile(markerPath, marker, 0600))
 	corruptID := "01ARZ3NDEKTSV4RRFFQ69G5FAW"
-	corruptRoot := filepath.Join(root, "backups", corruptID)
-	require.NoError(t, os.MkdirAll(corruptRoot, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(corruptRoot, "metadata.json"), []byte("not-json"), 0o600))
+	corruptRoot := filepath.Join(h.root, "backups", corruptID)
+	require.NoError(t, os.MkdirAll(corruptRoot, 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(corruptRoot, "metadata.json"), []byte("not-json"), 0600))
 	secret := filepath.Join(t.TempDir(), "unused-secret")
-	for _, test := range []struct {
-		name string
-		args []string
-		exit int
-		code string
-	}{
-		{"retired restore", []string{"restore", corruptID, "--secret-output", secret}, 2, ""},
-		{"retired verification", []string{"restore", "--verify-current"}, 2, ""},
-		{"retired backup create", []string{"backup", "create", "--json"}, 2, ""},
-		{"retired backup list", []string{"backup", "list", "--json"}, 2, ""},
-		{"retired backup get", []string{"backup", "get", corruptID, "--json"}, 2, ""},
-		{"retired backup delete", []string{"backup", "delete", corruptID, "--yes", "--json"}, 2, ""},
-		{"retired stopped restore", []string{"maintenance", "restore-backup", "--confirm", corruptID, "--json", "--secret-output", secret}, 2, ""},
-		{"verification cannot restore", []string{"maintenance", "verify-and-recover-storage", "--confirm", corruptID, "--json"}, 2, "client_invalid_input"},
-		{"unknown recovery remains latched", []string{"maintenance", "verify-and-recover-storage", "--confirm", "--json"}, 7, "storage_latched"},
+	for _, args := range [][]string{
+		{"restore", corruptID, "--secret-output", secret},
+		{"restore", "--verify-current"},
+		{"backup", "create", "--json"}, {"backup", "list", "--json"}, {"backup", "get", corruptID, "--json"}, {"backup", "delete", corruptID, "--yes", "--json"},
+		{"maintenance", "restore-backup", "--confirm", corruptID, "--json", "--secret-output", secret},
+		{"maintenance", "verify-and-recover-storage", "--confirm", corruptID, "--json"},
+		{"maintenance", "verify-and-recover-storage", "--confirm", "--json"},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			args := append([]string{"--data-dir", root}, test.args...)
-			result, runErr := runner.Run(ctx, binary, args...)
-			require.Error(t, runErr)
-			assertSettledResult(t, result)
-			assert.Equal(t, test.exit, result.ExitCode)
-			assert.Empty(t, result.Stdout)
-			if test.code != "" {
-				var problem controlclient.Problem
-				require.NoError(t, json.Unmarshal(result.Stderr, &problem))
-				assert.Equal(t, test.code, problem.Code)
-				assert.Equal(t, test.exit, problem.Exit)
-			}
-			current, readErr := os.ReadFile(layout.Database)
-			require.NoError(t, readErr)
-			assert.True(t, bytes.Equal(original, current), "refusal must not replace or mutate the database")
-			retained, readErr := os.ReadFile(layout.MutationMarker)
-			require.NoError(t, readErr)
-			assert.Equal(t, marker, retained)
-			_, statErr := os.Lstat(secret)
-			assert.ErrorIs(t, statErr, os.ErrNotExist)
-		})
+		result, runErr := h.runner.Run(t.Context(), h.binary, append([]string{"--data-dir", h.root}, args...)...)
+		require.Error(t, runErr)
+		assertSettledResult(t, result)
+		require.Equal(t, 2, result.ExitCode)
+		require.Empty(t, result.Stdout)
+		current, err := os.ReadFile(db)
+		require.NoError(t, err)
+		require.Equal(t, original, current)
+		retained, err := os.ReadFile(markerPath)
+		require.NoError(t, err)
+		require.Equal(t, marker, retained)
+		_, err = os.Lstat(secret)
+		require.ErrorIs(t, err, os.ErrNotExist)
 	}
+	// Unknown authority evidence still blocks normal startup, not merely a retired command.
+	result, err := h.runner.Run(t.Context(), h.binary, h.serveArgs...)
+	require.Error(t, err)
+	require.NotZero(t, result.ExitCode)
+	retained, err := os.ReadFile(markerPath)
+	require.NoError(t, err)
+	require.Equal(t, marker, retained)
 }
 
 func assertMaintenancePlan(t *testing.T, output []byte, operation string) {
@@ -94,51 +77,38 @@ func assertMaintenancePlan(t *testing.T, output []byte, operation string) {
 	assert.NotEmpty(t, plan.Actions)
 }
 
-func TestStorageVerifyExactCandidateRealBinary(t *testing.T) {
-	ctx := t.Context()
-	binary, runner := gatewayBinary(t), firstRunRunner(t)
-	root := filepath.Join(t.TempDir(), "gateway")
-	ownership, err := gatewaypaths.Acquire(root)
+func TestHistoricalCandidatePreservesValidatedCommittedAuthorityRealBinary(t *testing.T) {
+	h := newGatewayHarness(t)
+	owner, err := gatewaypaths.AcquireStoppedExisting(h.root)
 	require.NoError(t, err)
-	layout := ownership.Layout()
-	const installationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	const principalID = "01J60000000000000000000011"
-	const credentialID = "01J60000000000000000000012"
-	store, err := storage.Initialize(ctx, ownership, installationID)
+	store, err := storage.Open(t.Context(), owner)
 	require.NoError(t, err)
-	require.NoError(t, composition.InitializeTraffic(ctx, ownership, store, "01ARZ3NDEKTSV4RRFFQ69G5FAW"))
-	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
-		_, insertErr := tx.ExecContext(ctx, `INSERT INTO principals (
-			id, display_name, state, visibility, revision, credential_revision,
-			credential_id, credential_verifier, credential_fingerprint, credential_created_at, created_at, updated_at
-		) VALUES (?, 'Recovery fixture', 'active', 'requestable', 2, 1, ?, ?, '0123456789abcdef', ?, ?, ?)`,
-			principalID, credentialID, make([]byte, 32), "2026-08-25T18:00:00.000000000Z", "2026-08-25T18:00:00.000000000Z", "2026-08-25T18:00:00.000000000Z")
-		return insertErr
-	}))
+	repository, err := authorization.New(store, e2eClock{}, rand.Reader)
+	require.NoError(t, err)
+	principal, err := repository.CreatePrincipal(t.Context(), authorization.CreatePrincipalRequest{DisplayName: "Committed credential", Visibility: contract.VisibilityRequestable})
+	require.NoError(t, err)
+	issued, err := repository.IssueCredential(t.Context(), principal.Principal.ID, principal.Principal.Revision)
+	require.NoError(t, err)
+	identity, err := store.Identity(t.Context())
+	require.NoError(t, err)
 	require.NoError(t, store.Close())
-	// Model the durable state left by a post-commit candidate-cleanup interruption.
-	marker := `{"installation_id":"` + installationID + `","state":"armed","recovery":{"action":"invalidate_agent_credential_candidate","principal_id":"` + principalID + `","credential_id":"` + credentialID + `","principal_revision":2,"credential_revision":1}}`
-	require.NoError(t, os.WriteFile(layout.MutationMarker, []byte(marker), 0o600))
-	require.NoError(t, ownership.Close())
-	result, err := runner.Run(ctx, binary, "maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", root, "--json")
-	require.NoError(t, err, "%s", result.Stderr)
-	assertSettledResult(t, result)
-	assertMaintenancePlan(t, result.Stderr, "verify-and-recover-storage")
-	assert.JSONEq(t, `{"ok":true,"operation":"verify-and-recover-storage","installation_id":"`+installationID+`","revision":"0"}`, string(result.Stdout))
-	_, err = os.Lstat(layout.MutationMarker)
-	assert.ErrorIs(t, err, os.ErrNotExist)
-	ownership, err = gatewaypaths.Acquire(root)
+	marker := []byte(`{"installation_id":"` + identity.InstallationID + `","state":"armed","recovery":{"action":"invalidate_agent_credential_candidate","principal_id":"` + principal.Principal.ID + `","credential_id":"` + issued.Principal.Credential.ID + `","principal_revision":` + issued.Principal.Revision + `,"credential_revision":` + issued.Principal.CredentialRevision + `}}`)
+	require.NoError(t, os.WriteFile(owner.Layout().MutationMarker, marker, 0600))
+	require.NoError(t, owner.Close())
+	h.Start()
+	h.Stop(syscall.SIGTERM)
+	owner, err = gatewaypaths.AcquireStoppedExisting(h.root)
 	require.NoError(t, err)
-	defer func() { require.NoError(t, ownership.Close()) }()
-	store, err = storage.Open(ctx, ownership)
+	defer func() { require.NoError(t, owner.Close()) }()
+	store, err = storage.Open(t.Context(), owner)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
-	var revision, credentialRevision int
-	var slot sql.NullString
-	require.NoError(t, store.View(ctx, func(tx *sql.Tx) error {
-		return tx.QueryRowContext(ctx, `SELECT revision, credential_revision, credential_id FROM principals WHERE id = ?`, principalID).Scan(&revision, &credentialRevision, &slot)
-	}))
-	assert.Equal(t, 3, revision)
-	assert.Equal(t, 2, credentialRevision)
-	assert.False(t, slot.Valid)
+	repository, err = authorization.New(store, e2eClock{}, rand.Reader)
+	require.NoError(t, err)
+	lease, err := repository.Authenticate(t.Context(), issued.Bearer)
+	require.NoError(t, err)
+	lease.Release()
+	actual, err := os.ReadFile(owner.Layout().MutationMarker)
+	require.NoError(t, err)
+	require.Equal(t, marker, actual)
 }

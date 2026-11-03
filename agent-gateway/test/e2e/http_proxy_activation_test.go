@@ -101,6 +101,8 @@ func TestHTTPProxyProductionActivation(t *testing.T) {
 	for _, target := range []string{"http://" + h.authority + "/api/v2/system-status", "http://" + proxyAuthority + "/"} {
 		require.Equal(t, 403, request(credentialText, target))
 	}
+	// Security/proxy readiness does not wait for the optional history opener.
+	waitTrafficStatus(t, h, func(status *contract.TrafficStatus) bool { return status.Ready })
 	status := h.adminSnapshot("GET", "/api/v2/system-status", nil)
 	var parsed contract.SystemStatus
 	require.NoError(t, json.Unmarshal(status.Body, &parsed))

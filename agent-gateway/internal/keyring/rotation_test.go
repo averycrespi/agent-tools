@@ -147,6 +147,63 @@ func TestMasterKeyRotationFaultsReconcileWithoutReplay(t *testing.T) {
 	}
 }
 
+func TestMasterKeyRotationCrashWithCommittedWALReconcilesWithoutEncryptionReplay(t *testing.T) {
+	owner, store, provider := custodyFixture(t)
+	namespace, err := NewNamespace(testInstallationID, testOwnerID, RecordStaticCredential)
+	require.NoError(t, err)
+	handle, err := NewHandle(rand.Reader)
+	require.NoError(t, err)
+	require.NoError(t, provider.WriteGeneration(t.Context(), namespace, handle, []byte("WAL rotation material")))
+	root := owner.Layout().Root
+	require.NoError(t, store.Close())
+	require.NoError(t, owner.Close())
+	binary, err := os.Executable()
+	require.NoError(t, err)
+	runner, err := testutil.NewBinaryRunner(30*time.Second, 4096)
+	require.NoError(t, err)
+	result, err := runner.Run(t.Context(), binary, "-test.run=^TestRotationCrashSubprocess$", "--", "rotation-crash", root)
+	require.Error(t, err)
+	require.Equal(t, 23, result.ExitCode, "%s", result.Stderr)
+	require.True(t, result.Cleanup.Reaped)
+	wal, err := os.ReadFile(filepath.Join(root, gatewaypaths.DatabaseName) + "-wal")
+	require.NoError(t, err)
+	require.NotEmpty(t, wal)
+	freshOwner, err := gatewaypaths.AcquireStoppedExisting(root)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, freshOwner.Close()) }()
+	reconciled, err := RotateStoppedMasterKey(t.Context(), freshOwner, testutil.NewFakeClock(time.Now()), true, nil)
+	require.NoError(t, err)
+	require.Equal(t, "completed-committed-rotation", reconciled.Disposition)
+	reopened, err := storage.Open(t.Context(), freshOwner)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close()) }()
+	require.NoError(t, provider.UseDatabaseCustody(t.Context(), freshOwner, reopened))
+	value, err := provider.ReadGeneration(t.Context(), namespace, handle)
+	require.NoError(t, err)
+	require.Equal(t, []byte("WAL rotation material"), value)
+	require.NoError(t, reopened.View(t.Context(), func(tx *sql.Tx) error {
+		var used int
+		require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT encryptions FROM secret_custody`).Scan(&used))
+		require.Equal(t, 1, used, "recovery must not repeat encryption")
+		return nil
+	}))
+}
+
+func TestRotationCrashSubprocess(t *testing.T) {
+	if len(os.Args) < 3 || os.Args[len(os.Args)-2] != "rotation-crash" {
+		t.Skip("fixture-only process crash")
+	}
+	owner, err := gatewaypaths.AcquireStoppedExisting(os.Args[len(os.Args)-1])
+	require.NoError(t, err)
+	_, err = rotateStoppedMasterKey(t.Context(), owner, testutil.NewFakeClock(time.Now()), false, nil, func(point string) error {
+		if point == "database_commit" {
+			os.Exit(23)
+		}
+		return nil
+	})
+	t.Fatalf("rotation did not reach committed crash boundary: %v", err)
+}
+
 func TestMasterKeyRotationRefusesLegacyWrongKeyAndConsent(t *testing.T) {
 	for _, mode := range []string{"legacy", "wrong-key", "consent"} {
 		t.Run(mode, func(t *testing.T) {

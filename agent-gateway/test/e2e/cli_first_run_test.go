@@ -68,10 +68,11 @@ func TestCLIFirstRun(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("default serve did not acknowledge startup")
 	}
-	status, err := runner.Run(t.Context(), gatewayBinary(t), "doctor", "--online")
+	status, err := runner.Run(t.Context(), gatewayBinary(t), "doctor")
 	require.NoError(t, err, "default status: %s", status.Stderr)
 	assertSettledResult(t, status)
-	assert.Contains(t, string(status.Stdout), "principal_credentials")
+	assert.Contains(t, string(status.Stdout), "Live status        OK")
+	assert.Contains(t, string(status.Stdout), "API readiness      Ready")
 	assert.Empty(t, status.Stderr)
 	assert.NotContains(t, string(status.Stdout), strings.TrimSpace(string(bearer)))
 	require.NoError(t, process.Signal(syscall.SIGTERM))

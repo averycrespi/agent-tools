@@ -60,16 +60,18 @@ type Settings struct {
 }
 
 type Store struct {
-	diagnostics   diagnostics.StorageObserver
-	diagnosticIDs atomic.Uint64
-	database      *sql.DB
-	path          string
-	marker        mutationMarker
-	mutations     mutationAdmission
-	fault         func(FaultPoint) error
-	databaseLimit int64
-	latched       atomic.Bool
-	faultFence    sync.Mutex
+	diagnostics        diagnostics.StorageObserver
+	diagnosticIDs      atomic.Uint64
+	database           *sql.DB
+	path               string
+	marker             mutationMarker
+	mutations          mutationAdmission
+	fault              func(FaultPoint) error
+	databaseLimit      int64
+	latched            atomic.Bool
+	faultFence         sync.Mutex
+	quarantineMu       sync.Mutex
+	pendingConnections []*sql.Conn // Quarantined until actual SQLite settlement.
 }
 
 type testOptions struct {
@@ -81,7 +83,7 @@ func Initialize(ctx context.Context, ownership *gatewaypaths.Ownership, installa
 	return initializeWithOptions(ctx, ownership, installationID, testOptions{})
 }
 
-// InitializeWithFaultInjection is an internal test seam for deterministic marker and commit faults.
+// InitializeWithFaultInjection is an internal test seam for transaction boundary faults.
 func InitializeWithFaultInjection(
 	ctx context.Context,
 	ownership *gatewaypaths.Ownership,
@@ -156,7 +158,7 @@ func Open(ctx context.Context, ownership *gatewaypaths.Ownership) (*Store, error
 }
 
 // OpenWithFaultInjection is the reopened-store counterpart of the initialization
-// test seam, for deterministic stopped-import marker and commit qualification.
+// test seam, for deterministic stopped-import transaction qualification.
 func OpenWithFaultInjection(ctx context.Context, ownership *gatewaypaths.Ownership, fault func(FaultPoint) error) (*Store, error) {
 	return openWithOptions(ctx, ownership, testOptions{fault: fault})
 }
@@ -181,8 +183,18 @@ func openWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, opt
 	if err != nil {
 		return nil, fmt.Errorf("%w: inspect mutation marker: %w", ErrStorageLatched, err)
 	}
-	if marked && version != CurrentSchema {
-		return nil, fmt.Errorf("%w: an armed prior-schema database cannot migrate online", ErrStorageLatched)
+	if marked {
+		identityDB, err := sql.Open("sqlite3", dataSource(layout.Database, true, false))
+		if err != nil {
+			return nil, err
+		}
+		identity, identityErr := (&Store{database: identityDB}).Identity(ctx)
+		if err := errors.Join(identityErr, identityDB.Close()); err != nil {
+			return nil, err
+		}
+		if err := marker.validateHistorical(identity.InstallationID); err != nil {
+			return nil, fmt.Errorf("%w: historical mutation evidence: %w", ErrStorageLatched, err)
+		}
 	}
 	store, err := openConfigured(ctx, layout, options)
 	if err != nil {
@@ -197,13 +209,11 @@ func openWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, opt
 	if err := store.View(ctx, func(tx *sql.Tx) error { return RequireNoLegacyCustodyTx(ctx, tx) }); err != nil {
 		return nil, err
 	}
-	if !marked {
-		if err := store.configureSizeLimit(ctx); err != nil {
-			return nil, err
-		}
-		if err := store.migrate(ctx, version); err != nil {
-			return nil, err
-		}
+	if err := store.configureSizeLimit(ctx); err != nil {
+		return nil, err
+	}
+	if err := store.migrate(ctx, version); err != nil {
+		return nil, err
 	}
 	if err := store.verify(ctx); err != nil {
 		return nil, err
@@ -212,12 +222,33 @@ func openWithOptions(ctx context.Context, ownership *gatewaypaths.Ownership, opt
 	if err != nil {
 		return nil, err
 	}
-	store.latched.Store(marked || overLimit)
+	// Recognized historical intent is retained, not replayed or cleared. The
+	// committed database and subsequent domain/custody validation own authority.
+	store.latched.Store(overLimit)
 	opened = true
 	return store, nil
 }
 
 func (store *Store) Close() error {
+	store.quarantineMu.Lock()
+	defer store.quarantineMu.Unlock()
+	for len(store.pendingConnections) > 0 {
+		connection := store.pendingConnections[0]
+		settled := false
+		err := connection.Raw(func(raw any) error {
+			if connection, ok := raw.(sqliteDriver.Conn); ok {
+				settled = connection.Raw().GetAutocommit()
+			}
+			return nil
+		})
+		if err != nil || !settled {
+			return errors.Join(ErrStorageLatched, errors.New("security mutation connection remains quarantined"), err)
+		}
+		if err := connection.Close(); err != nil {
+			return err
+		}
+		store.pendingConnections = store.pendingConnections[1:]
+	}
 	if err := store.database.Close(); err != nil {
 		return fmt.Errorf("close Gateway database: %w", err)
 	}
@@ -243,14 +274,19 @@ func (store *Store) Identity(ctx context.Context) (Identity, error) {
 	return identity, nil
 }
 
-func (store *Store) View(ctx context.Context, view func(*sql.Tx) error) error {
-	transaction, err := store.database.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+func (store *Store) View(ctx context.Context, view func(*sql.Tx) error) (result error) {
+	connection, err := store.database.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { result = errors.Join(result, store.finishConnection(connection)) }()
+	transaction, err := connection.BeginTx(context.WithoutCancel(ctx), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return fmt.Errorf("begin storage view: %w", err)
 	}
 	defer func() { _ = transaction.Rollback() }()
 	if err := view(transaction); err != nil {
-		return err
+		return errors.Join(err, transaction.Rollback())
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit storage view: %w", err)

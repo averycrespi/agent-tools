@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ncruces/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +72,7 @@ func TestConfiguredConnectionsEnforcePragmasAndFiniteBusyDeadline(t *testing.T) 
 
 }
 
-func TestBusyBeyondDeadlineLatchesMutationAcrossRestart(t *testing.T) {
+func TestBusyBeginSettlesWithoutLatchingAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 	ownership := newOwnership(t)
 	store, err := Initialize(ctx, ownership, testInstallationID)
@@ -91,7 +92,8 @@ func TestBusyBeyondDeadlineLatchesMutationAcrossRestart(t *testing.T) {
 		return nil
 	})
 	elapsed := time.Since(started)
-	assert.ErrorIs(t, err, ErrStorageLatched)
+	assert.ErrorIs(t, err, sqlite3.BUSY)
+	assert.False(t, store.Latched(), "a settled busy BEGIN never acquired mutation authority")
 	assert.GreaterOrEqual(t, elapsed, time.Second)
 	assert.Less(t, elapsed, 5*time.Second)
 	require.NoError(t, transaction.Rollback())
@@ -100,7 +102,14 @@ func TestBusyBeyondDeadlineLatchesMutationAcrossRestart(t *testing.T) {
 
 	reopened, err := Open(ctx, ownership)
 	require.NoError(t, err)
-	assert.True(t, reopened.Latched())
+	assert.False(t, reopened.Latched())
+	require.NoError(t, reopened.Mutate(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `UPDATE gateway_meta SET revision=revision+1 WHERE singleton=1`)
+		return err
+	}))
+	identity, err := reopened.Identity(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), identity.Revision, "only a new independent mutation commits after busy ownership settles")
 	require.NoError(t, reopened.Close())
 }
 

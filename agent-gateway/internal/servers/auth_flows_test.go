@@ -9,6 +9,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -182,7 +183,7 @@ func TestAuthFlowFencesRegistrationPublicationAfterSupersession(t *testing.T) {
 }
 
 func TestBeginAuthFlowExchangeRechecksEveryCapturedAuthority(t *testing.T) {
-	repository, _, _ := newRepository(t, new(sequenceReader))
+	repository, store, _ := newRepository(t, new(sequenceReader))
 	server := mustCreateOAuthServer(t, repository, "flow-exchange-fence", contract.DynamicOAuthRegistration{Mode: contract.RegistrationDynamic})
 	created, err := repository.CreateAuthFlow(context.Background(), AuthFlowCreateRequest{ServerID: server.ID, ExpectedDesiredRevision: "1"})
 	require.NoError(t, err)
@@ -194,6 +195,16 @@ func TestBeginAuthFlowExchangeRechecksEveryCapturedAuthority(t *testing.T) {
 	exchanging, err := repository.BeginAuthFlowExchange(context.Background(), fence)
 	require.NoError(t, err)
 	assert.Equal(t, contract.AuthFlowExchanging, exchanging.State)
+	refreshCallback, err := repository.OAuthRefreshAuthorityCallback(OAuthRefreshFence{ServerID: server.ID, ExpectedDesiredRevision: "1", ExpectedRegistrationRevision: "1", ExpectedOAuthClientRevision: "0", ExpectedOAuthTokensRevision: "0"})
+	require.NoError(t, err)
+	require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
+		var fences int
+		require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT count(*) FROM keyring_authority_fences WHERE owner=? AND kind='oauth_tokens'`, server.ID).Scan(&fences))
+		require.Equal(t, 1, fences, "exchange state and durable denial commit together before external handoff")
+		_, err := refreshCallback(t.Context(), tx, keyring.AuthorityUpdate{Owner: server.ID, Kind: keyring.RecordOAuthTokens, ValidateOnly: true})
+		require.ErrorIs(t, err, ErrStaleRevision, "refresh cannot clear a concurrent foreground exchange fence")
+		return nil
+	}))
 	_, err = repository.BeginAuthFlowExchange(context.Background(), fence)
 	assert.ErrorIs(t, err, ErrStaleRevision)
 }

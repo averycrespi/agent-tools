@@ -231,7 +231,13 @@ export function decodeStatus(value: unknown): StatusView {
     value !== null && typeof value === "object" && "endpoints" in value;
   const additions =
     value !== null && typeof value === "object"
-      ? ["diagnostics", "observations"].filter((k) => k in value)
+      ? [
+          "diagnostics",
+          "observations",
+          "installation_id",
+          "installation_root",
+          "setup",
+        ].filter((k) => k in value)
       : [];
   const root = record(value, [
     ...additions,
@@ -244,6 +250,53 @@ export function decodeStatus(value: unknown): StatusView {
     "limits",
     "protocols",
   ]);
+  if ("installation_id" in root) identifier(root.installation_id);
+  if (
+    "installation_root" in root &&
+    !/^[0-9]+:[0-9]+$/.test(stringValue(root.installation_root))
+  )
+    throw new Error("invalid response");
+  if ("setup" in root) {
+    const setup = record(root.setup, ["state", "facts"]);
+    closed(setup.state, ["ok", "unavailable"]);
+    const facts = array(setup.facts);
+    if (
+      facts.length > 640 ||
+      (setup.state === "unavailable" && facts.length !== 0)
+    )
+      throw new Error("invalid response");
+    for (const value of facts) {
+      const optional =
+        value && typeof value === "object"
+          ? ["slots", "inactive"].filter((key) => key in value)
+          : [];
+      const fact = record(value, ["id", "kind", "action", ...optional]);
+      identifier(fact.id);
+      const kind = closed(fact.kind, [
+        "static_credential",
+        "oauth_client",
+        "oauth_tokens",
+        "http_credential",
+        "git_credential",
+      ]);
+      if (
+        fact.action !== (kind === "oauth_tokens" ? "sign_in" : "supply_value")
+      )
+        throw new Error("invalid response");
+      if ("inactive" in fact) booleanValue(fact.inactive);
+      if ("slots" in fact) {
+        const slots = array(fact.slots);
+        if (
+          slots.length > 64 ||
+          slots.some(
+            (slot) =>
+              stringValue(slot).length === 0 || stringValue(slot).length > 128,
+          )
+        )
+          throw new Error("invalid response");
+      }
+    }
+  }
   let endpoints: StatusView["endpoints"];
   if (hasEndpoints) {
     const item = record(root.endpoints, ["authority", "api", "mcp"]);

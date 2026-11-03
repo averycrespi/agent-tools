@@ -235,13 +235,6 @@ func testSourceOwnershipGuards(t *testing.T, root string, sources []productionSo
 	} {
 		assert.Contains(t, compositionSource, symbol, "internal/composition/composition.go: missing atomic production ingress symbol %s", symbol)
 	}
-	recoverySource := readProductionSource(t, root, "internal/storage/recovery.go")
-	assert.Contains(t, recoverySource, "func invalidateAgentCredentialCandidate(")
-	assert.Equal(t, 1, strings.Count(recoverySource, "UPDATE principals"), "internal/storage/recovery.go: only stopped candidate recovery may own S3 SQL")
-	assert.Equal(t, 1, strings.Count(recoverySource, "principals"), "internal/storage/recovery.go: stopped recovery gets one exact S3 table reference")
-	assert.Equal(t, 1, strings.Count(recoverySource, "authorization_meta"), "internal/storage/recovery.go: only stopped Git fence recovery may advance shared revision")
-	assert.Equal(t, 1, strings.Count(recoverySource, "UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1"))
-	assert.NotContains(t, recoverySource, "grants")
 }
 
 func TestSourceNegativeFixturesReportExactPathAndSymbol(t *testing.T) {
@@ -339,6 +332,11 @@ var _ invocation.Service
 			name: "traffic selected outside composition", path: "internal/api/bad.go",
 			contents: "package composition\nfunc build() { _ = evidence.OpenTraffic(ctx, owner, installation, generation, config) }\n",
 			want:     "internal/api/bad.go: prohibited unselected traffic constructor OpenTraffic",
+		},
+		{
+			name: "traffic initialization cannot mutate historical evidence", path: "internal/invocation/traffic_initialization.go",
+			contents: "package invocation\nfunc mutate() { _ = `DELETE FROM invocations` }\n",
+			want:     "internal/invocation/traffic_initialization.go: prohibited S4 SQL table invocations",
 		},
 		{
 			name: "traffic generation cannot mutate evidence", path: "internal/invocation/traffic_generation.go",
@@ -672,15 +670,6 @@ func s3SQLViolations(source productionSource) []string {
 		if err != nil || !s3SQLStatement.MatchString(value) {
 			return true
 		}
-		function := functions[literal]
-		if source.path == "internal/storage/recovery.go" && function == "invalidateAgentCredentialCandidate" {
-			return true
-		}
-		// Stopped marker recovery may fence Git material before a live authority
-		// owner exists, but cannot read or mutate principals or grants.
-		if source.path == "internal/storage/recovery.go" && function == "restoreKeyringAuthorityFence" && value == "UPDATE authorization_meta SET revision=revision+1 WHERE singleton=1" {
-			return true
-		}
 		seen := make(map[string]struct{})
 		for _, match := range s3SQLTable.FindAllStringSubmatch(value, -1) {
 			table := strings.ToLower(match[1])
@@ -689,6 +678,7 @@ func s3SQLViolations(source productionSource) []string {
 			}
 			seen[table] = struct{}{}
 			location := "package scope"
+			function := functions[literal]
 			if function != "" {
 				location = "function " + function
 			}
@@ -702,7 +692,7 @@ func s3SQLViolations(source productionSource) []string {
 func s4SQLViolations(source productionSource) []string {
 	violations := make([]string, 0)
 	ast.Inspect(source.file, func(node ast.Node) bool {
-		if identifier, ok := node.(*ast.Ident); ok && source.path != "internal/invocation/traffic_generation.go" && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" {
+		if identifier, ok := node.(*ast.Ident); ok && source.path != "internal/invocation/traffic_generation.go" && source.path != "internal/invocation/traffic_initialization.go" && source.path != "internal/composition/composition.go" && source.path != "internal/composition/storage.go" {
 			switch identifier.Name {
 			case "CreateTraffic", "OpenTraffic", "openTraffic":
 				violations = append(violations, fmt.Sprintf("%s: prohibited unselected traffic constructor %s", source.path, identifier.Name))
@@ -717,13 +707,13 @@ func s4SQLViolations(source productionSource) []string {
 			return true
 		}
 		switch source.path {
-		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go", "internal/invocation/traffic_migration.go":
+		case "internal/invocation/repository.go", "internal/invocation/traffic_writer.go":
 			return true
 		case "internal/invocation/protocol_activity.go", "internal/invocation/reads.go", "internal/invocation/history_export.go", "internal/invocation/search.go", "internal/invocation/http_reads.go", "internal/invocation/http_traffic.go", "internal/invocation/http_evidence.go", "internal/invocation/git_evidence.go":
 			if !s4SQLDML.MatchString(value) && !s4SQLJoin.MatchString(value) {
 				return true
 			}
-		case "internal/invocation/validation.go", "internal/storage/storage.go",
+		case "internal/invocation/validation.go", "internal/storage/storage.go", "internal/invocation/traffic_initialization.go",
 			"internal/invocation/traffic_generation.go", "internal/invocation/traffic_verify.go", "internal/invocation/traffic_http_migration.go", "internal/invocation/git_traffic.go", "internal/storage/traffic_git_schema.go", "internal/storage/traffic_schema.go", "internal/storage/traffic_http_schema.go", "internal/storage/traffic_selection.go":
 			if !s4SQLDML.MatchString(value) {
 				return true

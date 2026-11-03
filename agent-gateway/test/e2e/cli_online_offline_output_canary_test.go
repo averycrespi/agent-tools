@@ -22,7 +22,7 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	bearerPath := filepath.Join(t.TempDir(), "admin-bearer")
 	require.NoError(t, os.WriteFile(bearerPath, []byte(harness.bearer+"\n"), 0o600))
 
-	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--online", "--json", "--data-dir", harness.root)
+	status := runOnlineCLI(t, harness, bearerPath, true, "doctor", "--json", "--data-dir", harness.root)
 	var snapshot struct {
 		System contract.SystemStatus `json:"system"`
 	}
@@ -36,7 +36,7 @@ func TestCLIOnlineOfflineOutputCanary(t *testing.T) {
 	require.NoError(t, json.Unmarshal(invocations.Stdout, &page))
 	assert.Empty(t, page.Items)
 
-	restore, err := harness.runner.Run(context.Background(), harness.binary, "maintenance", "verify-and-recover-storage", "--confirm", "--data-dir", harness.root, "--json")
+	restore, err := harness.runner.Run(context.Background(), harness.binary, "maintenance", "reset-admin-credentials", "--secret-output", filepath.Join(t.TempDir(), "replacement"), "--confirm", "--data-dir", harness.root, "--json")
 	require.Error(t, err)
 	assert.Equal(t, 5, restore.ExitCode)
 	assert.Empty(t, restore.Stdout)

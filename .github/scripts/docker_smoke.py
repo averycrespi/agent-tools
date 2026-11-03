@@ -127,7 +127,7 @@ class Smoke:
         container = container.strip()
         if not container or "\n" in container:
             raise RuntimeError("expected exactly one Gateway container")
-        self.dc("exec", "-T", "gateway", "agent-gateway", "doctor", "--online",
+        self.dc("exec", "-T", "gateway", "agent-gateway", "doctor",
                 "--address", "http://127.0.0.1:18210", timeout=30)
         container = self.qualify(container) or container
         print("Stop with SIGTERM and 30-second grace; require clean exit", flush=True)

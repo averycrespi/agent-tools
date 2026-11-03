@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
@@ -128,99 +127,7 @@ func InitializeTraffic(ctx context.Context, owner *gatewaypaths.Ownership, store
 		return err
 	}
 	defer releaseSpace()
-	return invocation.MigrateTraffic(ctx, owner, store, generation, invocation.DefaultTrafficConfig())
-}
-
-// MigrateStorage is explicit stopped staging, never serve-time migration. The
-// original control generation remains authoritative until the final rename.
-func MigrateStorage(ctx context.Context, root, expectedInstallation, generation string, budget int64, approvals ...storage.StoppedApproval) (result storage.Identity, resultErr error) {
-	effect := "unchanged"
-	defer func() {
-		if resultErr != nil && effect != "unchanged" {
-			resultErr = &storage.OperationError{Effect: effect, Cause: resultErr}
-		}
-	}()
-	if !ValidTrafficBudget(budget) {
-		return storage.Identity{}, invocation.ErrInvalidInput
-	}
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
-	owner, err := gatewaypaths.AcquireStoppedExisting(root)
-	if err != nil {
-		return storage.Identity{}, err
-	}
-	defer func() { _ = owner.Close() }()
-	if err := storage.ApproveStopped(ctx, owner, approvals); err != nil {
-		return storage.Identity{}, err
-	}
-	releaseSpace, err := gatewaypaths.ReserveHeadroom(owner.Layout().Root, budget+2*(1<<30))
-	if err != nil {
-		return storage.Identity{}, err
-	}
-	defer releaseSpace()
-	control, err := storage.OpenMigrationSource(ctx, owner)
-	if err != nil {
-		return storage.Identity{}, err
-	}
-	if control.Latched() {
-		_ = control.Close()
-		return storage.Identity{}, storage.ErrStorageLatched
-	}
-	sourceIdentity, err := control.Identity(ctx)
-	if err != nil {
-		_ = control.Close()
-		return storage.Identity{}, err
-	}
-	if sourceIdentity.InstallationID != expectedInstallation {
-		_ = control.Close()
-		return storage.Identity{}, invocation.ErrInvalidInput
-	}
-	// Released schema 17 has failure diagnostics, but no traffic selector.
-	if sourceIdentity.SchemaVersion >= 18 {
-		selected, err := control.SelectedTraffic(ctx)
-		if err != nil || selected != "" {
-			_ = control.Close()
-			return storage.Identity{}, errors.Join(err, invocation.ErrInvalidState)
-		}
-	}
-	stage := owner.Layout().Database + ".traffic-migration"
-	effect = "staged"
-	err = control.CopyTo(ctx, stage)
-	err = errors.Join(err, control.Close())
-	if err != nil {
-		return storage.Identity{}, err
-	}
-	replacement, err := storage.OpenReplacement(ctx, owner, stage)
-	if err != nil {
-		return storage.Identity{}, err
-	}
-	err = invocation.MigrateTraffic(ctx, owner, replacement, generation, trafficConfiguration(budget))
-	if err == nil {
-		err = replacement.Checkpoint(ctx)
-	}
-	identity, identityErr := replacement.Identity(ctx)
-	err = errors.Join(err, identityErr, replacement.Close())
-	if err != nil {
-		return storage.Identity{}, err
-	}
-	effect = "uncertain"
-	if err = storage.InstallReplacement(owner, stage); err != nil {
-		return storage.Identity{}, err
-	}
-	return identity, nil
-}
-
-func VerifyStorage(ctx context.Context, root string) (storage.Identity, error) {
-	return VerifyStorageBudget(ctx, root, DefaultTrafficBudget)
-}
-
-func VerifyStorageBudget(ctx context.Context, root string, budget int64, approvals ...storage.StoppedApproval) (storage.Identity, error) {
-	if !ValidTrafficBudget(budget) {
-		return storage.Identity{}, invocation.ErrInvalidInput
-	}
-	// Recovery acts on control and security markers only. The control snapshot
-	// binds the selector, not bytes of optional files this operation never touches.
-	return storage.VerifyCurrentWithTraffic(ctx, root, nil, approvals...)
+	return invocation.InitializeTraffic(ctx, owner, store, generation, invocation.DefaultTrafficConfig())
 }
 
 // openOptionalTraffic retains installation ownership while OpenTraffic validates

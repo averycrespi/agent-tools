@@ -48,6 +48,7 @@ type Inspection struct {
 	Marked   bool     `json:"recovery_marked"`
 	Recovery string   `json:"recovery_action,omitempty"`
 	seal     [32]byte
+	walAware bool
 }
 
 // RequireClosedGeneration refuses immutable reads that could hide committed WAL
@@ -158,6 +159,12 @@ func InspectClosedInstallation(ctx context.Context, layout gatewaypaths.Layout, 
 		_, _ = fmt.Fprintf(hash, "marker:%d:%d:", index, len(data))
 		_, _ = hash.Write(data)
 	}
+	if err := marker.validateHistorical(identity.InstallationID); err != nil {
+		return result, errors.Join(ErrStorageLatched, err)
+	}
+	// Recognized historical SQL intents are retained evidence, not pending work.
+	result.Marked = false
+	result.Recovery = ""
 	copy(result.seal[:], hash.Sum(nil))
 	if view != nil {
 		uri := &url.URL{Scheme: "file", Path: layout.Database, RawQuery: "mode=ro&immutable=1"}
@@ -179,7 +186,13 @@ func InspectClosedInstallation(ctx context.Context, layout gatewaypaths.Layout, 
 }
 
 func (expected Inspection) Revalidate(ctx context.Context, owner *gatewaypaths.Ownership) error {
-	current, err := InspectMaintenance(ctx, owner, nil)
+	var current Inspection
+	var err error
+	if expected.walAware {
+		current, err = InspectRotation(ctx, owner, nil)
+	} else {
+		current, err = InspectMaintenance(ctx, owner, nil)
+	}
 	if err != nil {
 		return err
 	}

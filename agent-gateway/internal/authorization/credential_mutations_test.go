@@ -256,7 +256,7 @@ func TestCredentialEntropyIdentityAndKnownRollbackFailuresPreserveAuthority(t *t
 }
 
 func TestCredentialIssueFaultsNeverReturnBearerAndRecoverCommittedCandidate(t *testing.T) {
-	for _, point := range []storage.FaultPoint{storage.FaultArmCreate, storage.FaultAfterCommit} {
+	for _, point := range []storage.FaultPoint{storage.FaultAfterCommit} {
 		t.Run(string(point), func(t *testing.T) {
 			ctx := context.Background()
 			armed := false
@@ -276,17 +276,10 @@ func TestCredentialIssueFaultsNeverReturnBearerAndRecoverCommittedCandidate(t *t
 			require.NoError(t, store.Close())
 			require.NoError(t, ownership.Close())
 
-			_, err = storage.VerifyCurrent(ctx, root)
-			require.NoError(t, err)
 			principalRevision, credentialRevision, credentialID := readRecoveredCredentialState(t, root, principal.ID)
-			if point == storage.FaultArmCreate {
-				assert.Equal(t, int64(1), principalRevision)
-				assert.Equal(t, int64(0), credentialRevision)
-			} else {
-				assert.Equal(t, int64(3), principalRevision)
-				assert.Equal(t, int64(2), credentialRevision)
-			}
-			assert.Nil(t, credentialID)
+			assert.Equal(t, int64(2), principalRevision)
+			assert.Equal(t, int64(1), credentialRevision)
+			assert.NotNil(t, credentialID, "committed issuance remains current; lost bearer requires inspect/revoke/reissue")
 		})
 	}
 }
@@ -311,12 +304,11 @@ func TestUncertainReplacementNeverRestoresPriorCredential(t *testing.T) {
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 
-	_, err = storage.VerifyCurrent(ctx, root)
-	require.NoError(t, err)
 	principalRevision, credentialRevision, credentialID := readRecoveredCredentialState(t, root, principal.ID)
-	assert.Equal(t, int64(4), principalRevision)
-	assert.Equal(t, int64(3), credentialRevision)
-	assert.Nil(t, credentialID)
+	assert.Equal(t, int64(3), principalRevision)
+	assert.Equal(t, int64(2), credentialRevision)
+	require.NotNil(t, credentialID)
+	assert.NotEqual(t, first.Principal.Credential.ID, *credentialID, "no fallback to superseded credential")
 	assert.NotEmpty(t, first.Bearer)
 }
 
@@ -339,8 +331,6 @@ func TestUncertainRevokeRemainsCommittedWithoutCandidateRevision(t *testing.T) {
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
 
-	_, err = storage.VerifyCurrent(ctx, root)
-	require.NoError(t, err)
 	principalRevision, credentialRevision, credentialID := readRecoveredCredentialState(t, root, principal.ID)
 	assert.Equal(t, int64(3), principalRevision)
 	assert.Equal(t, int64(2), credentialRevision)

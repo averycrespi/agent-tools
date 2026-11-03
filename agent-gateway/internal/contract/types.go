@@ -312,16 +312,19 @@ type ControlEndpointsStatus struct {
 }
 
 type SystemStatus struct {
-	Observations *ExecutionObservations    `json:"observations,omitempty"`
-	Diagnostics  *DiagnosticDeliveryStatus `json:"diagnostics,omitempty"`
-	Endpoints    *ControlEndpointsStatus   `json:"endpoints,omitempty"`
-	HTTPProxy    *HTTPProxyStatus          `json:"http_proxy,omitempty"`
-	Traffic      *TrafficStatus            `json:"traffic,omitempty"`
-	Process      ProcessStatus             `json:"process"`
-	SQLite       SQLiteStatus              `json:"sqlite"`
-	Keyring      KeyringStatus             `json:"keyring"`
-	Limits       LimitsStatus              `json:"limits"`
-	Protocols    ProtocolStatus            `json:"protocols"`
+	InstallationID   string                    `json:"installation_id,omitempty"`
+	InstallationRoot string                    `json:"installation_root,omitempty"`
+	Setup            *CredentialSetupStatus    `json:"setup,omitempty"`
+	Observations     *ExecutionObservations    `json:"observations,omitempty"`
+	Diagnostics      *DiagnosticDeliveryStatus `json:"diagnostics,omitempty"`
+	Endpoints        *ControlEndpointsStatus   `json:"endpoints,omitempty"`
+	HTTPProxy        *HTTPProxyStatus          `json:"http_proxy,omitempty"`
+	Traffic          *TrafficStatus            `json:"traffic,omitempty"`
+	Process          ProcessStatus             `json:"process"`
+	SQLite           SQLiteStatus              `json:"sqlite"`
+	Keyring          KeyringStatus             `json:"keyring"`
+	Limits           LimitsStatus              `json:"limits"`
+	Protocols        ProtocolStatus            `json:"protocols"`
 }
 
 type AdminSessionBootstrap struct {

@@ -189,7 +189,7 @@ func ReceiptTx(ctx context.Context, tx *sql.Tx) (string, error) {
 }
 
 // StageTx commits all domain definitions and a content-bound receipt in the
-// caller's single marker-protected transaction. A receipt is never replay input.
+// caller's single atomic database transaction. A receipt is never replay input.
 func StageTx(ctx context.Context, tx *sql.Tx, input Input, newID func() (string, error), now time.Time, targets authorization.StoredGrantTargetInspector) error {
 	previous, err := ReceiptTx(ctx, tx)
 	if err != nil {

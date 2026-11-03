@@ -47,7 +47,11 @@ func newRotateMasterKeyCmd(dependencies offlineDependencies) *cobra.Command {
 		ctx, cancel := context.WithTimeout(command.Context(), time.Minute)
 		defer cancel()
 		approval := func(ctx context.Context, owner *gatewaypaths.Ownership) error {
-			snapshot, err := storage.InspectMaintenance(ctx, owner, nil)
+			inspect := storage.InspectMaintenance
+			if recoverPending {
+				inspect = storage.InspectRotation
+			}
+			snapshot, err := inspect(ctx, owner, nil)
 			if err != nil {
 				return err
 			}

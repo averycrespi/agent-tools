@@ -130,7 +130,7 @@ changes also invalidate affected cursors. Evidence is ordered by durable inserti
 sequence, never client timestamps. A missing row proves neither success nor
 nonexecution; no fixed history window is promised.
 
-**System → Status** and `agent-gateway doctor --online --json` expose independent traffic health, pressure, byte occupancy,
+**System → Status** and `agent-gateway doctor --json` expose independent traffic health, pressure, byte occupancy,
 quota refusals and pruning. Traffic faults, queue pressure and missing capture do
 not block otherwise authorized MCP, HTTP or Git execution, responses or cleanup.
 History can therefore be incomplete even when the live caller received a result.

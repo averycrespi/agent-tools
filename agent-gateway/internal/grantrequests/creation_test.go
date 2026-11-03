@@ -313,9 +313,6 @@ func TestDrainCreatePostCommitUncertaintyReturnsUnavailableWithoutInvalidation(t
 	assert.Zero(t, invalidations)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
-	_, err = storage.VerifyCurrent(context.Background(), root)
-	require.NoError(t, err)
-
 	ownership, err = gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	store, err = storage.Open(context.Background(), ownership)
@@ -370,9 +367,6 @@ func TestDrainCancellationPostCommitUncertaintyHasNoLateInvalidationOrReplay(t *
 	assert.Zero(t, invalidations)
 	require.NoError(t, store.Close())
 	require.NoError(t, ownership.Close())
-	_, err = storage.VerifyCurrent(context.Background(), root)
-	require.NoError(t, err)
-
 	ownership, err = gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	store, err = storage.Open(context.Background(), ownership)

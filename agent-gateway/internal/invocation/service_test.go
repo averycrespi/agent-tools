@@ -198,11 +198,11 @@ func TestServiceMapsAdmissionFailuresWithoutDispatch(t *testing.T) {
 }
 
 func TestServiceRejectionReasonsUseAuthorityWithoutDispatch(t *testing.T) {
-	for _, scenario := range []string{"block", "authorization failure", "binding failure", "storage failure", "known audit failure", "uncertain audit failure"} {
+	for _, scenario := range []string{"block", "authorization failure", "binding failure", "storage failure", "known prebegin refusal", "uncertain audit failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			armed := false
 			fault := func(point storage.FaultPoint) error {
-				if armed && (scenario == "known audit failure" && point == storage.FaultArmCreate || scenario == "uncertain audit failure" && point == storage.FaultAfterCommit) {
+				if armed && (scenario == "known prebegin refusal" && point == storage.FaultBeforeBegin || scenario == "uncertain audit failure" && point == storage.FaultAfterCommit) {
 					return errors.New("private-audit-canary")
 				}
 				return nil
@@ -238,8 +238,16 @@ func TestServiceRejectionReasonsUseAuthorityWithoutDispatch(t *testing.T) {
 			})
 			require.NoError(t, err)
 			armed = true
-			if scenario == "known audit failure" || scenario == "uncertain audit failure" {
-				require.Error(t, audits.store.Mutate(t.Context(), func(*sql.Tx) error { return nil }))
+			if scenario == "known prebegin refusal" || scenario == "uncertain audit failure" {
+				called := false
+				require.Error(t, audits.store.Mutate(t.Context(), func(*sql.Tx) error { called = true; return nil }))
+				if scenario == "known prebegin refusal" {
+					require.False(t, called, "known pre-BEGIN refusal never executes SQL work")
+					require.False(t, audits.store.Latched(), "settled pre-BEGIN refusal cannot replace current policy authority")
+				} else {
+					require.True(t, called)
+					require.True(t, audits.store.Latched())
+				}
 			}
 			response := service.Call(t.Context(), lease, validCallParams())
 			assert.Equal(t, 1, resolutions)
@@ -248,12 +256,12 @@ func TestServiceRejectionReasonsUseAuthorityWithoutDispatch(t *testing.T) {
 			assert.Nil(t, response.Result)
 			assert.False(t, response.BlockedSelfService)
 			switch scenario {
-			case "block", "authorization failure":
+			case "block", "authorization failure", "known prebegin refusal":
 				assert.Equal(t, contract.CallRejected, response.ErrorCode)
 				assert.NotEmpty(t, response.InvocationID)
 				record := onlyInvocationRecord(t, audits)
 				assert.Nil(t, record.TerminalClass)
-				if scenario == "block" {
+				if scenario == "block" || scenario == "known prebegin refusal" {
 					assert.Equal(t, contract.RejectionBlock, response.RejectionReason)
 					assert.Equal(t, contract.DecisionBlock, *record.AuthorizationDecision)
 				} else {

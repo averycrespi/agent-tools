@@ -40,6 +40,7 @@ type refreshStore interface {
 }
 
 type refreshOperation interface {
+	FenceOAuthHandoff(context.Context, keyring.Namespace, keyring.AuthorityCallback, bool) error
 	ReadActive(context.Context, keyring.Namespace) ([]byte, keyring.CutoverResult, error)
 	ReplaceFencedAfterAuthorizationSuccess(context.Context, keyring.Namespace, []byte, keyring.AuthorityCallback) (keyring.CutoverResult, error)
 	InvalidateFencedExact(context.Context, keyring.Namespace, keyring.AuthorityCallback) (keyring.CutoverResult, error)
@@ -300,12 +301,21 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 				effectErr = errors.Join(effectErr, &refreshSettlementFailure{operation: "refresh audit settlement", cause: err})
 			}
 		}()
+		if err := operation.FenceOAuthHandoff(ctx, tokenNamespace, callback, true); err != nil {
+			clear(body)
+			state(request.ServerID, contract.ServerCredentialReauthenticationRequired, true)
+			return err
+		}
 		handed := false
 		status, responseHeader, responseBody, requestErr := service.requester.Request(ctx, graph.TokenEndpoint, graph.AllowsRestrictedEndpoint(graph.TokenEndpoint), header, body, limit("oauth_response_body_bytes"), func() { handed = true })
 		clear(body)
 		if requestErr != nil {
 			if handed {
 				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, requestErr, state)
+			}
+			if err := operation.FenceOAuthHandoff(ctx, tokenNamespace, callback, false); err != nil {
+				state(request.ServerID, contract.ServerCredentialReauthenticationRequired, true)
+				return errors.Join(requestErr, err)
 			}
 			state(request.ServerID, contract.ServerCredentialReady, false)
 			return requestErr
@@ -319,11 +329,12 @@ func (service *RefreshService) refresh(ctx context.Context, request RefreshReque
 		if parseErr != nil {
 			oauthError := tokenErrorCode(responseBody)
 			clear(responseBody)
-			if oauthError == "invalid_grant" || oauthError == "invalid_client" {
+			if status >= 200 && status < 300 || oauthError == "invalid_grant" || oauthError == "invalid_client" {
 				return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, ErrRefreshReauthorization, state)
 			}
-			state(request.ServerID, contract.ServerCredentialReady, false)
-			return parseErr
+			// A failed or unusable response does not prove the remote refresh
+			// token survived. Do not make that generation eligible for replay.
+			return service.invalidateRefresh(ctx, operation, tokenNamespace, callback, request.ServerID, parseErr, state)
 		}
 		clear(responseBody)
 		masking = append(masking, token.accessToken)

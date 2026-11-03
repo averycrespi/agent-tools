@@ -86,7 +86,7 @@ var productCapabilityIDs = []string{
 }
 
 var productLifecycleIDs = []string{
-	"web-exchange", "web-bootstrap", "web-logout", "web-events", "cli-bearer", "cli-initialize", "cli-admin-reset", "cli-storage-verify",
+	"web-exchange", "web-bootstrap", "web-logout", "web-events", "cli-bearer", "cli-initialize", "cli-admin-reset",
 }
 
 var securityBehaviorIDs = []string{

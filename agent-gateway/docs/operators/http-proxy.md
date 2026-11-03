@@ -58,7 +58,7 @@ it is not authentication. See [launchd](launchd.md), [systemd](systemd.md) and
 [upgrade guidance](upgrade-compatibility.md#http-listener-default-cutover).
 Source checks never authorize mutations against a live installation.
 
-`doctor --online` and **System → Status** report enablement, selected address, loaded CA,
+`doctor --verbose` and **System → Status** report enablement, selected address, loaded CA,
 proxy readiness, active request/stream and tunnel counts, connection/work occupancy,
 and the shared traffic pressure, quota and fault facts. Loaded CA means current
 process signing capability, not native-keyring health or installed client trust.

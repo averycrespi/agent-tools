@@ -282,7 +282,32 @@ func TestPostAuthorizationFailureDoesNotInvalidateNewerCredentialRevision(t *tes
 	assert.Equal(t, "2", active.Revision)
 }
 
-func TestPostAuthorizationActivationAfterCommitFaultRecoversNoAuthority(t *testing.T) {
+func TestOAuthHandoffFenceSurvivesRestartWithoutOldSecretFallback(t *testing.T) {
+	ctx := t.Context()
+	repository, _, coordinator, _, namespace, server, closeHarness := newServerCutoverHarness(t, nil)
+	_, err := coordinator.ReplaceFenced(ctx, namespace, []byte("old refresh token"), credentialCallback(t, repository, server, "0"))
+	require.NoError(t, err)
+	callback := credentialCallback(t, repository, server, "1")
+	require.NoError(t, coordinator.WithOperation(ctx, func(operation *keyring.Operation) error {
+		return operation.FenceOAuthHandoff(ctx, namespace, callback, true)
+	}))
+	_, _, err = coordinator.ReadActive(ctx, namespace)
+	require.ErrorIs(t, err, keyring.ErrNoAuthority)
+	root := closeHarness()
+	owner, err := gatewaypaths.Acquire(root)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, owner.Close()) }()
+	store, err := storage.Open(ctx, owner)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close()) }()
+	restarted := keyring.NewCoordinator(coordinator.ProviderForTest(), store, serverTestClock{}, new(serverTestEntropy))
+	for range 2 {
+		_, _, err := restarted.ReadActive(ctx, namespace)
+		require.ErrorIs(t, err, keyring.ErrNoAuthority, "pending external effects require reauthentication, never reuse of old refresh material")
+	}
+}
+
+func TestCommittedActivationAfterLostAcknowledgmentRemainsAuthority(t *testing.T) {
 	ctx := context.Background()
 	var faultArmed bool
 	fault := func(point storage.FaultPoint) error {
@@ -320,9 +345,6 @@ func TestPostAuthorizationActivationAfterCommitFaultRecoversNoAuthority(t *testi
 	assert.ErrorIs(t, <-result, storage.ErrStorageLatched)
 
 	root := closeHarness()
-	identity, err := storage.VerifyCurrent(ctx, root)
-	require.NoError(t, err)
-	assert.Equal(t, serverTestInstallationID, identity.InstallationID)
 	ownership, err := gatewaypaths.Acquire(root)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, ownership.Close()) }()
@@ -333,15 +355,17 @@ func TestPostAuthorizationActivationAfterCommitFaultRecoversNoAuthority(t *testi
 	require.NoError(t, err)
 	page, err := reader.List(ctx, audit.Query{Limit: 100, Filters: contract.AuditFilters{Category: "keyring", Action: "fence", ActorType: contract.AuditOffline}})
 	require.NoError(t, err)
-	require.Len(t, page.Items, 2)
+	require.Empty(t, page.Items, "restart never adds compensating fence audit")
 	for _, event := range page.Items {
 		assert.Equal(t, server.ID, event.Target.ID)
 		assert.Nil(t, event.Actor.Credential)
 		assert.Nil(t, event.Initiator)
 	}
 	restarted := keyring.NewCoordinator(baseline.ProviderForTest(), reopened, serverTestClock{}, new(serverTestEntropy))
-	_, _, err = restarted.ReadActive(ctx, namespace)
-	assert.ErrorIs(t, err, keyring.ErrNoAuthority)
+	secret, active, err := restarted.ReadActive(ctx, namespace)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("new tokens"), secret)
+	assert.Equal(t, "2", active.Revision)
 }
 
 func newServerCutoverHarness(
