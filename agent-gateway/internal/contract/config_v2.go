@@ -2,8 +2,8 @@ package contract
 
 import "encoding/json"
 
-// ConfigV2Version is independent of storage and policy dialect versions. The
-// old ConfigExport types exist only for the coordinated stopped-init cutover.
+// ConfigV2Version is the sole portable format version, independent of storage
+// and policy dialect versions. Version-one parsing and execution are retired.
 const ConfigV2Version = 2
 
 // ConfigV2KeyBindings bounds permanent typed-key bindings, including live rows,

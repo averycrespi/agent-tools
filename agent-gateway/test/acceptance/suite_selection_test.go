@@ -310,7 +310,7 @@ func TestSuitePartitionsCompositionLifecycleWithoutChangingBoundsOrCoverage(t *t
 
 func TestSuiteIsolatesMeasuredCompositionMatricesWithoutReshufflingCoverage(t *testing.T) {
 	root := suiteFixture(t, map[string]string{
-		"internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestDelta(t *testing.T) {}\nfunc TestGamma(t *testing.T) {}\nfunc TestInitializationReconcilesCompletedEffectsWithoutDuplication(t *testing.T) {}\nfunc TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries(t *testing.T) {}\nfunc TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testing.T) {}\n",
+		"internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestDelta(t *testing.T) {}\nfunc TestGamma(t *testing.T) {}\nfunc TestInitializationReconcilesCompletedEffectsWithoutDuplication(t *testing.T) {}\n",
 		"internal/composition/new_test.go":       "package composition\nimport \"testing\"\nfunc TestZulu(t *testing.T) {}\n",
 		"internal/invocation/lifecycle_test.go":  "package invocation\nimport \"testing\"\nfunc TestInvokeAlpha(t *testing.T) {}\nfunc TestInvokeBeta(t *testing.T) {}\n",
 		"internal/storage/lifecycle_test.go":     "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
@@ -326,7 +326,7 @@ func TestSuiteIsolatesMeasuredCompositionMatricesWithoutReshufflingCoverage(t *t
 	compositionBatches := [][]string{
 		{"TestAlpha", "TestDelta"},
 		{"TestBeta", "TestGamma", "TestZulu"},
-		{"TestConfigurationImportActualMarkerPublicationFailuresNeverReplay", "TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries", "TestInitializationReconcilesCompletedEffectsWithoutDuplication"},
+		{"TestInitializationReconcilesCompletedEffectsWithoutDuplication"},
 	}
 	for _, platform := range []struct{ os, arch string }{{"linux", "amd64"}, {"linux", "arm64"}, {"darwin", "arm64"}} {
 		t.Run(platform.os+"/"+platform.arch, func(t *testing.T) {

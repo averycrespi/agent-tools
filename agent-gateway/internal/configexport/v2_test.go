@@ -104,13 +104,7 @@ func TestV2BundleAndEverySingleDefinitionRetainTypedKeysAndState(t *testing.T) {
 	repeated, err := service.ExportBundle(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, raw, repeated)
-	// Deliberately no translator or unsupported init round-trip: v1 init and its
-	// matching route remain paired only until the next backend ticket's cutover.
-	old, err := service.ExportConfiguration(t.Context())
-	require.NoError(t, err)
-	_, err = configdefinition.DecodeBundle(old)
-	require.ErrorIs(t, err, configdefinition.ErrInvalid)
-	require.Contains(t, string(old), `"version":1`)
+	require.NoError(t, contract.ValidateConfigBundleEnvelope(bundle))
 }
 
 func TestV2ReferencesDoNotMoveAfterUnrelatedInventoryInsertion(t *testing.T) {

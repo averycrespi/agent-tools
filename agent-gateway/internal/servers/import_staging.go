@@ -3,7 +3,6 @@ package servers
 import (
 	"context"
 	"database/sql"
-	"strings"
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
@@ -42,44 +41,12 @@ func ValidateImportedConfiguration(values []contract.ConfigServer) error {
 	return nil
 }
 
-// ImportedStageFactsTx verifies absence of imported runtime/credential authority
-// and returns only persisted activation fences for the stopped receipt digest.
-func ImportedStageFactsTx(ctx context.Context, tx *sql.Tx) (string, error) {
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM server_credentials WHERE revision<>0 OR handle IS NOT NULL)+(SELECT count(*) FROM server_oauth_registrations WHERE revision<>0)+(SELECT count(*) FROM server_operations)+(SELECT count(*) FROM server_auth_flows)`).Scan(&count); err != nil {
-		return "", err
-	}
-	if count != 0 {
-		return "", ErrInvalidInput
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT server_id FROM server_import_activation ORDER BY server_id`)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = rows.Close() }()
-	var facts strings.Builder
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return "", err
-		}
-		facts.WriteString(id + "\n")
-	}
-	return facts.String(), rows.Err()
-}
-
-// StageImportedConfigurationTx is a stopped, fresh-stage seam. It creates no
-// operations, catalog publication, credential handles or reconciliation work.
-func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, values []contract.ConfigServer, ids map[string]string, now time.Time) error {
+// StageOnlineConfigurationTx creates committed desired state without the retired
+// stopped-import first-activation fence. Composition triggers normal lifecycle
+// work only after the configuration transaction is acknowledged.
+func StageOnlineConfigurationTx(ctx context.Context, tx *sql.Tx, values []contract.ConfigServer, ids map[string]string, now time.Time) error {
 	if err := ValidateImportedConfiguration(values); err != nil {
 		return err
-	}
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM server_identities`).Scan(&count); err != nil {
-		return err
-	}
-	if count != 0 {
-		return ErrInvalidInput
 	}
 	for _, value := range values {
 		id := ids[value.Ref]
@@ -125,11 +92,6 @@ func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, values []cont
 			`INSERT INTO server_catalogs(server_id,durable_revision,durable_state,durable_tool_count,issue_count,last_success_at) VALUES(?,0,'empty',0,0,NULL)`,
 		} {
 			if _, err := tx.ExecContext(ctx, statement, id); err != nil {
-				return err
-			}
-		}
-		if !value.Deleted {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO server_import_activation(server_id) VALUES(?)`, id); err != nil {
 				return err
 			}
 		}

@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func emptyConfig() contract.ConfigExport {
-	return contract.ConfigExport{Format: contract.ConfigExportFormat, Version: 1, Agents: []contract.ConfigAgent{}, MCP: contract.ConfigMCP{Servers: []contract.ConfigServer{}, Grants: []contract.ConfigMCPGrant{}}, HTTP: contract.ConfigHTTP{Credentials: []contract.ConfigHTTPCredential{}, Grants: []contract.ConfigHTTPGrant{}}, Git: contract.ConfigGit{Credentials: []contract.ConfigGitCredential{}, Repositories: []contract.ConfigGitRepository{}, Grants: []contract.ConfigGitGrant{}, RoutingOrigins: []string{}}}
+func emptyConfig() contract.ConfigBundle {
+	return contract.ConfigBundle{Format: contract.ConfigExportFormat, Version: 2, Resources: []contract.ConfigDefinition{{Format: contract.ConfigExportFormat, Version: 2, Kind: "git_routing", Spec: json.RawMessage(`{"origins":[]}`)}}}
 }
 func configCommand(t *testing.T, body string, sink io.Writer) (string, int, error) {
 	t.Helper()
@@ -52,7 +52,9 @@ func TestCLIConfigurationExportOneAuthenticatedJSONDocument(t *testing.T) {
 	// Complete configuration is not a one-MiB collection page.
 	for i := 0; i < 64; i++ {
 		transport, _ := json.Marshal(contract.StdioTransport{Kind: contract.TransportStdio, Executable: "/bin/example", Arguments: []string{strings.Repeat("x", 18000)}, WorkingDirectory: "/tmp", Environment: map[string]string{}, SecretEnvironment: map[string]string{}})
-		document.MCP.Servers = append(document.MCP.Servers, contract.ConfigServer{Ref: fmt.Sprintf("mcp/s%d", i), Namespace: fmt.Sprintf("s%d", i), DisplayName: "Server", Transport: transport, Credentials: contract.ConfigServerCredentials{Static: map[string]string{}}})
+		spec, err := json.Marshal(contract.ConfigServerSpec{DisplayName: "Server", Transport: transport, Credentials: contract.ConfigServerCredentials{Static: map[string]string{}}})
+		require.NoError(t, err)
+		document.Resources = append(document.Resources, contract.ConfigDefinition{Format: contract.ConfigExportFormat, Version: 2, Kind: "mcp_server", Key: fmt.Sprintf("s%d", i), Spec: spec})
 	}
 	body, err = json.Marshal(document)
 	require.NoError(t, err)
@@ -70,12 +72,12 @@ func TestCLIConfigurationExportRejectsInvalidDocumentsBeforeStdout(t *testing.T)
 	require.NoError(t, err)
 	valid := string(encoded)
 	for _, body := range []string{
-		strings.Replace(valid, `"version":1`, `"version":2`, 1),
-		strings.Replace(valid, `"version":1`, `"version":null`, 1),
-		strings.Replace(valid, `"version":1`, `"version":1,"version":1`, 1),
-		strings.Replace(valid, `"version":1,`, "", 1),
-		strings.Replace(valid, `"agents":[]`, `"agents":null`, 1),
-		strings.Replace(valid, `"version":1`, `"version":1,"token":"canary"`, 1),
+		strings.Replace(valid, `"version":2`, `"version":1`, 1),
+		strings.Replace(valid, `"version":2`, `"version":null`, 1),
+		strings.Replace(valid, `"version":2`, `"version":2,"version":2`, 1),
+		strings.Replace(valid, `"version":2,`, "", 1),
+		strings.Replace(valid, `"resources":[`, `"unknown":[`, 1),
+		strings.Replace(valid, `"version":2`, `"version":2,"token":"canary"`, 1),
 		valid + "{}",
 	} {
 		var out bytes.Buffer

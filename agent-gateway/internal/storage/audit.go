@@ -21,6 +21,9 @@ func (store *Store) verifyMigrationStructure(ctx context.Context, name string) e
 		statement = strings.TrimSpace(statement)
 		fields := strings.Fields(statement)
 		if len(fields) >= 3 && fields[0] == "ALTER" {
+			if name == "027_configuration_targets.sql" && statement == "ALTER TABLE git_grants RENAME TO git_grants_previous" {
+				continue
+			}
 			// Later migrations deliberately replace the closed keyring-kind check.
 			if (name == "019_http_credentials.sql" || name == "021_http_ca.sql" || name == "022_git_authority.sql") && statement == "ALTER TABLE keyring_authority_fences RENAME TO keyring_authority_fences_previous" {
 				continue
@@ -44,6 +47,15 @@ func (store *Store) verifyMigrationStructure(ctx context.Context, name string) e
 		if (name == "019_http_credentials.sql" || name == "021_http_ca.sql") && fields[1] == "TABLE" && fields[2] == "keyring_authority_fences" {
 			// Schema 22's replacement is checked separately against exact DDL.
 			continue
+		}
+		if name == "022_git_authority.sql" && fields[1] == "TABLE" && fields[2] == "git_grants" {
+			var version int
+			if err := store.database.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil {
+				return err
+			}
+			if version >= 27 {
+				continue
+			} // Exact replacement is verified from migration 27.
 		}
 		kind, name := fields[1], fields[2]
 		if kind == "UNIQUE" {

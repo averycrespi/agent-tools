@@ -261,6 +261,15 @@ func validateGitAuthorityTx(ctx context.Context, tx *sql.Tx, principals map[stri
 			return ErrInvalidState
 		}
 	}
+	keys, err := resourcekeys.ConfigurationTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if key.Kind == resourcekeys.GitRepository {
+			ids[key.ResourceID] = true
+		}
+	}
 	grants, err := readGitGrantsTx(ctx, tx, time.Now())
 	if err != nil {
 		return err

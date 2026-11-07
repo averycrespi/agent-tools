@@ -846,9 +846,14 @@ func s3MigrationViolations(t *testing.T, root string) []string {
 		}
 		relative, relErr := filepath.Rel(root, path)
 		require.NoError(t, relErr)
+		scan := string(contents)
+		if filepath.Base(path) == "027_configuration_targets.sql" {
+			// Preserve only the existing Git grant principal FK, not arbitrary S3 SQL.
+			scan = strings.Replace(scan, "principal_id TEXT NOT NULL REFERENCES principals(id)", "principal_id TEXT NOT NULL", 1)
+		}
 		seen := make(map[string]struct{})
-		for _, match := range s3SQLTable.FindAllSubmatch(contents, -1) {
-			table := strings.ToLower(string(match[1]))
+		for _, match := range s3SQLTable.FindAllStringSubmatch(scan, -1) {
+			table := strings.ToLower(match[1])
 			if _, duplicate := seen[table]; duplicate {
 				continue
 			}

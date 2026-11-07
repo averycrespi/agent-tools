@@ -160,7 +160,7 @@ func TestIntegrationInvocationPartitionsStaySequentialAndComplete(t *testing.T) 
 
 func TestIntegrationCompositionMatrixBatchesKeepOneOwnerBudget(t *testing.T) {
 	root := suiteFixture(t, map[string]string{
-		"agent-gateway/internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestInitializationReconcilesCompletedEffectsWithoutDuplication(t *testing.T) {}\nfunc TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries(t *testing.T) {}\nfunc TestConfigurationImportActualMarkerPublicationFailuresNeverReplay(t *testing.T) {}\n",
+		"agent-gateway/internal/composition/lifecycle_test.go": "package composition\nimport \"testing\"\nfunc TestAlpha(t *testing.T) {}\nfunc TestBeta(t *testing.T) {}\nfunc TestInitializationReconcilesCompletedEffectsWithoutDuplication(t *testing.T) {}\n",
 		"agent-gateway/internal/invocation/lifecycle_test.go":  "package invocation\nimport \"testing\"\nfunc TestInvokeAlpha(t *testing.T) {}\nfunc TestInvokeBeta(t *testing.T) {}\n",
 		"agent-gateway/internal/storage/lifecycle_test.go":     "package storage\nimport \"testing\"\nfunc TestStorage(t *testing.T) {}\n",
 		"agent-gateway/internal/other/lifecycle_test.go":       "package other\nimport \"testing\"\nfunc TestOther(t *testing.T) {}\n",

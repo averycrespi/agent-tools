@@ -21,7 +21,7 @@ var ErrConfigurationNotFound = errors.New("configuration definition not found")
 
 // ExportBundle emits the complete retained v2 graph in one coherent snapshot.
 // It is creation input, not an authoritative file or an installation backup.
-// The old ExportConfiguration route/init pair is transitional until TOOLS-151.
+// This is the sole public configuration export format.
 func (s *Service) ExportBundle(ctx context.Context) ([]byte, error) {
 	var bundle contract.ConfigBundle
 	err := s.store.View(ctx, func(tx *sql.Tx) error { var err error; bundle, err = configurationV2Tx(ctx, tx); return err })
@@ -75,6 +75,12 @@ func marshalV2(value any) ([]byte, error) {
 }
 
 func configurationV2Tx(ctx context.Context, tx *sql.Tx) (contract.ConfigBundle, error) {
+	return BundleTx(ctx, tx)
+}
+
+// BundleTx supplies a configuration-only projection on the caller's snapshot.
+// Online import uses it to validate the combined graph before any writes.
+func BundleTx(ctx context.Context, tx *sql.Tx) (contract.ConfigBundle, error) {
 	return configurationV2KindTx(ctx, tx, "")
 }
 

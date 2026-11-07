@@ -28,7 +28,7 @@ The schema has no runtime ID, PID, session, route capability, external request I
 
 All generations use authenticated-encrypted control SQLite custody. Schema 23 retains historical `legacy` selectors for fail-closed recognition, not access. Any legacy generation or unresolved schema-24 cleanup inventory refuses startup and maintenance without reading native storage, discarding references or generating replacement material. Production composition binds database custody before publishing any credential consumer.
 
-`init` provisions a random 256-bit installation key, including configuration import and evidence-bound initialization resume. Existing installations must already have encrypted custody; no separate maintenance setup command exists. Without valid custody, all protected reads and writes refuse. AES-256-GCM uses Go's `NewGCMWithRandomNonce`, with a fresh random 96-bit nonce per encryption. The stored blob contains nonce, ciphertext and authentication tag. A durable per-key counter charges every published ciphertext (including later-retired generations) and refuses beyond 2^32 encryptions, the library's random-nonce lifetime bound. Deletion never refunds that budget. Associated data binds a fixed versioned domain, installation, immutable owner, closed kind, opaque generation handle and key identity. The key identity is SHA-256 of the random key; it is not a password verifier. Ciphertext substitution, wrong keys, modified nonces/tags, unknown versions and malformed bounds fail closed.
+`init` and evidence-bound ordinary initialization resume provision a random 256-bit installation key. Online configuration import uses existing custody and never provisions or replaces it. Existing installations must already have encrypted custody; no separate maintenance setup command exists. Without valid custody, all protected reads and writes refuse. AES-256-GCM uses Go's `NewGCMWithRandomNonce`, with a fresh random 96-bit nonce per encryption. The stored blob contains nonce, ciphertext and authentication tag. A durable per-key counter charges every published ciphertext (including later-retired generations) and refuses beyond 2^32 encryptions, the library's random-nonce lifetime bound. Deletion never refunds that budget. Associated data binds a fixed versioned domain, installation, immutable owner, closed kind, opaque generation handle and key identity. The key identity is SHA-256 of the random key; it is not a password verifier. Ciphertext substitution, wrong keys, modified nonces/tags, unknown versions and malformed bounds fail closed.
 
 The owner-only `master-key` file stays outside SQLite and traffic storage. Stealing the database alone does not reveal secrets, but possession of both database and key, or compromise of the Gateway account/root, defeats protection. This is not hardware-backed custody, whole-database integrity protection or rollback resistance against an attacker controlling the installation. Explicit [stopped master-key rotation](storage-and-recovery.md#offline-master-key-rotation) preserves protected values and retains historical keys as decrypt-only recovery material, without an installation-snapshot restore path. Native adapters and transition commands are removed; see [legacy custody refusal](storage-and-recovery.md#legacy-custody-refusal). Portable recovery is not implied.
 
@@ -51,11 +51,19 @@ Deterministic tests exercise real encrypted custody, generation faults, N/N+1 ca
 Credential requirements are configuration, independently of material. MCP retains
 its validated transport/slot/OAuth requirements and identity with revision `0`
 and null handles. HTTP/Git retain complete scoped definitions and references with
-material revision `0` and a null handle. Only the stopped, supplied-transaction
-`StageImportedDefinitionTx` seams reserve unset HTTP/Git definitions; there is no
-live empty-create route or checkbox. Ordinary creation/replacement still requires
-valid nonempty material; existing definition-only MCP/OAuth setup is unchanged.
-The fresh-install importer owns identity remapping and atomic stage publication.
+material revision `0` and a null handle. Atomic online configuration import uses
+supplied-transaction `StageConfigurationDefinitionTx` seams for explicit unset
+HTTP/Git definitions. Ordinary public creation/replacement still requires valid
+nonempty material; no empty-secret checkbox or credential-acquisition consent is
+inferred. Existing definition-only MCP/OAuth setup is unchanged. Import creates
+fresh local IDs, preserves submitted typed keys and resolves existing dependencies
+without implicit resources or grants.
+
+Intended-enabled servers enter normal runtime lifecycle only after configuration
+commit; missing material/startup failures leave visible blocked/failed resources,
+not rollback. Online import creates no first-activation fence and starts no OAuth
+flow. Historical stopped-import fences remain effective until explicit reload;
+old plans, input and receipts are retained without replay or cleanup.
 
 Safe HTTP/Git reads include `material_state`: `not_configured` for an untouched
 zero-material-revision definition, `ready` for selected unfenced material, otherwise

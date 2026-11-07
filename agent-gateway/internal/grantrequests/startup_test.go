@@ -17,26 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImportedStageRequiresNoRequestsOrRetainedIdentities(t *testing.T) {
-	repository, store := newRequestRepository(t, requestRepositoryOptions{namespaces: &fakeNamespaceInspector{targets: map[string]servers.NamespaceTarget{"sample": {ID: requestID(400), Namespace: "sample", State: contract.DesiredServerDisabled}}}})
-	require.ErrorIs(t, ValidateImportedEmptyTx(t.Context(), nil), ErrInvalidState)
-	inspect := func() error {
-		return store.View(t.Context(), func(tx *sql.Tx) error { return ValidateImportedEmptyTx(t.Context(), tx) })
-	}
-	require.NoError(t, inspect())
-	created, err := repository.CreateOrExisting(t.Context(), CreateRequest{PrincipalID: requestID(200), Policy: contract.Policy{Scope: contract.PolicyServer, Target: "sample", FutureToolsAcknowledged: true}})
-	require.NoError(t, err)
-	require.ErrorIs(t, inspect(), ErrInvalidState)
-	_, err = repository.CancelOwned(t.Context(), requestID(200), created.Request.ID)
-	require.NoError(t, err)
-	require.ErrorIs(t, inspect(), ErrInvalidState, "closed source requests must not become import state")
-	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
-		_, err := tx.Exec(`DELETE FROM grant_requests WHERE id=?`, created.Request.ID)
-		return err
-	}))
-	require.ErrorIs(t, inspect(), ErrInvalidState, "retained source identities are not portable authority")
-}
-
 func TestStartupAcceptsCompleteLifecycleAndHistoricalDeletedGrantID(t *testing.T) {
 	clock := &countingRequestClock{now: requestTestTime}
 	descriptor := requestDescriptor(t, requestID(400), requestID(401), "sample", "echo", contract.EvidenceRetired)

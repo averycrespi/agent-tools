@@ -24,12 +24,19 @@ func runConfigExport(command *cobra.Command, options *onlineOptions) error {
 	if failure := evaluateOnlineResponse(response, options.adminBearer.path); failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	var document contract.ConfigExport
-	if controlclient.DecodeConfigResponse(response.Body, &document) != nil || contract.ValidateConfigExport(document) != nil {
+	var document contract.ConfigBundle
+	if controlclient.DecodeConfigResponse(response.Body, &document) != nil || contract.ValidateConfigBundleEnvelope(document) != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
 	}
-	for _, server := range document.MCP.Servers {
-		if !server.Deleted && validateServerTransportInput(server.Transport) != nil {
+	for _, definition := range document.Resources {
+		if definition.Reserved {
+			continue
+		}
+		spec := contract.ConfigSpecDestination(definition.Kind)
+		if spec == nil || controlclient.DecodeConfigResponse(definition.Spec, spec) != nil {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
+		}
+		if server, ok := spec.(*contract.ConfigServerSpec); ok && !server.Deleted && validateServerTransportInput(server.Transport) != nil {
 			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
 		}
 	}

@@ -37,7 +37,7 @@ credential generations (encrypted control records for new writes). Unresolved le
 
 Schema 23 adds `secret_custody` (the installation key identity/version and nonrefundable encryption count) and bounded `secret_generations` (explicit legacy selection or authenticated ciphertext). Migration labels only existing keyring handles as legacy and never reads native material. Secret selection still commits atomically with domain metadata through the existing coordinator. Admin and agent tokens remain hash-only; the protected administrator-bearer file is unchanged.
 
-Schema 25 adds configuration-import input/result digests, independent server first-activation fences and exact expired-grant receipts. Existing installations migrate with empty import facts and unchanged authority. The stopped importer owns one atomic definitions/receipt transaction; authorization owns expired-policy validation and servers own explicit activation. The result digest binds the resulting portable graph, activation and expiry facts, while domain checks prove unset imported authority. Storage verifies the exact embedded DDL. Current-schema validation never falls back on missing or damaged import evidence. These are new-installation facts, never restored source history or secret material; see [initialization and import](administrative-control-plane.md#installation-and-stopped-commands).
+Schema 25 retains historical initialization-import input/result digests and independent server first-activation fences, plus exact expired-grant receipts. Version-one stopped import execution is removed; retained historical evidence is never deleted or replayed. Old activation fences remain effective until explicit reload. Authorization reuses exact expiry receipts for online v2 creation of retained expired policies with actual new timestamps, without weakening ordinary public creation. Online import creates no historical initialization digest or activation fence. Storage continues verifying exact embedded DDL; these are local creation facts, never restored source history or secret material. See [initialization and import](administrative-control-plane.md#installation-and-stopped-commands).
 
 Schema 26 adds permanent, immutable type-scoped `resource_keys` reservations for
 agents, MCP/HTTP/Git grants, HTTP/Git credential definitions and Git repositories.
@@ -47,12 +47,22 @@ existing rows or authority. MCP namespaces keep their existing identity table.
 There is no foreign key from a reservation to a mutable resource: physical grant
 deletion must not free its key or ID. No keys are invented for previously removed
 rows whose keys are unrecoverable. The reservation owner writes on the caller's
-existing creation transaction, including default grants, approval and stopped
-import. Reservation conflicts fail atomically; update/delete triggers protect the
+existing creation transaction, including default grants, approval and explicit
+online configuration import. Reservation conflicts fail atomically; update/delete triggers protect the
 ledger. Startup verifies the exact DDL and complete retained-resource coverage,
 without backfilling damaged current schemas. The existing 1 GiB control-store
 bound also bounds permanent reservation growth; deletion does not refund it.
 See [public key grammar and generation](public-contract.md#stable-configuration-resource-keys).
+
+Schema 27 preserves every Git grant row, policy, timestamp and insertion-sequence
+high-water while replacing its foreign key to a mutable repository row with a
+permanent-target identity rule. Insert/update triggers require an actual repository
+or its permanent typed reservation. Startup checks the exact replacement DDL and
+authorization validates every grant target against that identity inventory. A
+key-only target never fabricates a repository or becomes routable authority;
+collections retain the grant and exports retain its typed inactive reference.
+This enables exact online creation of explicitly retained inactive target graphs,
+not resurrection or relaxation of ordinary public target validation.
 
 The fixed `master-key` file is a 32-byte random key, not a password. Creation uses exclusive no-follow creation relative to a verified 0700 owner directory, a regular single-link 0600 owner file, file sync and directory sync before recording key identity. Setup retains partial/uncertain files rather than overwriting or replaying creation. A complete unbound key from interrupted initial setup can be adopted explicitly; an established database key identity or encrypted material never permits generating a replacement for a missing/wrong key. Reads check ownership, mode, file type, link count and exact size. Initialization provisions custody before administrator/CA authority. Existing installations must already have encrypted custody; separate stopped setup is retired without aliases or automatic invocation. Established missing/wrong keys fail startup closed. Explicit initialization resume additionally retains a custody-publication intent before key creation; an interrupted attempt with no remaining key refuses instead of generating a new identity. The bounded initialization protocol in [administrative control](administrative-control-plane.md#installation-and-stopped-commands) is the sole initialization resume protocol and never clears historical SQL markers.
 
@@ -357,7 +367,7 @@ Historical generic and recovery-bearing SQL marker slots are recognized only und
 
 ### Operator command boundary
 
-The canonical executable exposes only `maintenance reset-admin-credentials` and `maintenance rotate-master-key` (including its `--recover` mode). Installation-era custody setup and traffic extraction are retired, without aliases, transition commands or automatic startup invocation. Generic storage verification/recovery has no replacement catch-all repair/unlock command. Ordinary init and configuration import provision encrypted custody and both stores before authority; recognized interruption uses only the existing explicit phase-bound `init --resume` protocol. Retained maintenance operations accept an optional installation assertion. Administrator reset requires a fresh exclusive owner-only replacement bearer sink.
+The canonical executable exposes only `maintenance reset-admin-credentials` and `maintenance rotate-master-key` (including its `--recover` mode). Installation-era custody setup and traffic extraction are retired, without aliases, transition commands or automatic startup invocation. Generic storage verification/recovery has no replacement catch-all repair/unlock command. Ordinary init provisions encrypted custody and both stores before authority; recognized ordinary interruption uses only the explicit phase-bound `init --resume` protocol. Online v2 import uses the existing running installation and never provisions custody. Incomplete historical initialization imports are preserved and refused without replay or cleanup. Retained maintenance operations accept an optional installation assertion. Administrator reset requires a fresh exclusive owner-only replacement bearer sink.
 
 Every maintenance command plans against an existing stopped owner, supports nonmutating `--dry-run`, and requires default-no confirmation or explicit `--confirm`. Ordinary immutable inspection refuses nonempty WAL/journal state rather than hiding committed content or opening writable recovery; dedicated rotation reconciliation uses its exclusive WAL-aware inspection instead. Administrator reset hashes closed control and historical marker slots, binding the selector without reading untouched optional history. A changed selector invalidates consent. Execution revalidates the plan under uninterrupted stopped ownership before writing. Unknown or inconsistent marker actions refuse. Dry runs never write audits, markers, sidecars, stages or bearer files. Domain owners report known staging, changed-selection and uncertain effects without replay.
 
@@ -365,7 +375,7 @@ Exact JSON, typed exits, stopped-service prerequisites and uncertainty procedure
 
 ## Backup and restore retirement
 
-Installation-snapshot create/list/get/delete and stopped restore support is deliberately removed, including format verification, staging, encrypted-restore reservation/rewrap orchestration, APIs, UI, status occupancy and live manifests. No execution alias, compatibility endpoint, transition procedure or legacy restore path remains. Portable definitions use `export config` plus fresh `init --from`, never source authority, custody, CA identity or history.
+Installation-snapshot create/list/get/delete and stopped restore support is deliberately removed, including format verification, staging, encrypted-restore reservation/rewrap orchestration, APIs, UI, status occupancy and live manifests. No execution alias, compatibility endpoint, transition procedure or legacy restore path remains. Portable definitions use version-two `export config` and online create-only import after ordinary initialization/start, never source authority, custody, CA identity or history.
 
 Existing artifacts are untouched. Startup, upgrade, init/resume and normal operation never traverse, validate, rewrite, relocate, chmod or delete historical backup inventory or restore-specific residue. Initialization may classify root names to preserve its closed setup boundary, but skips only the exact retired `backups`, `gateway.db.restore` and restore sidecar/marker names without opening them. Malformed inventory cannot gate readiness or status. Unknown markers still refuse; generic mutation intents, initialization receipts, rotation bundles and native cleanup provenance retain their actual owners. Keyring authority fences retain genuinely pending credential cutovers and external OAuth handoffs, not installation snapshots. Validated committed activation is never refenced from a historical SQL intent.
 

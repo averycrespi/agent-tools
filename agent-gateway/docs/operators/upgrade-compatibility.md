@@ -30,7 +30,7 @@ Installation-snapshot backup create/list/get/delete and stopped restore support 
 
 Existing backup inventory and restore-specific residue remain untouched, even malformed or unsafe artifacts. Startup, init/resume and status do not inspect their contents or let them gate readiness. Shared security recovery, initialization, rotation and cleanup provenance remain fail-closed; do not clear unknown markers. No schema or historical file is rewritten by removal.
 
-Use `export config` plus fresh `init --from` for portable definitions, with new authority and CA identity, unset secrets and explicit upstream activation. It is not installation restoration or rollback. Existing `history export` and System / History export retain bounded rolling-history behavior, without a complete-audit claim. See [artifact preservation and fresh initialization](backup-and-recovery.md#backup-and-restore-removal). No installed-resource mutation or live qualification is authorized by this source cutover.
+Use version-two `export config`, ordinary initialization/start and online create-only import for portable definitions. Import leaves material unset, retains receiving installation/CA authority and honors enabled state after commit through normal lifecycle. Version one and `init --from` are removed; incomplete historical imports are preserved without replay or cleanup. It is not installation restoration or rollback. Existing `history export` and System / History export retain bounded rolling-history behavior, without a complete-audit claim. See [artifact preservation and fresh initialization](backup-and-recovery.md#backup-and-restore-removal). No installed-resource mutation or live qualification is authorized by this source cutover.
 
 ## HTTP URL compatibility expansion
 

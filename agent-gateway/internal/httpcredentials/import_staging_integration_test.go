@@ -29,7 +29,7 @@ func TestIntegrationImportedHTTPDefinitionRestartAndCompletion(t *testing.T) {
 	raw, err := json.Marshal(policy)
 	require.NoError(t, err)
 	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
-		if err := StageImportedDefinitionTx(ctx, tx, id, def, clock{}.Now()); err != nil {
+		if err := StageConfigurationDefinitionTx(ctx, tx, id, def, false, clock{}.Now()); err != nil {
 			return err
 		}
 		if err := s.repository.CheckReferenceTx(ctx, tx, id, compiled); err != nil {

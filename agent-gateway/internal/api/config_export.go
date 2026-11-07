@@ -9,7 +9,7 @@ import (
 )
 
 type ConfigurationExporter interface {
-	ExportConfiguration(context.Context) ([]byte, error)
+	ExportBundle(context.Context) ([]byte, error)
 }
 
 func (h *Handler) configurationExport(w http.ResponseWriter, r *http.Request) {
@@ -21,7 +21,7 @@ func (h *Handler) configurationExport(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, contract.ProblemStorageUnavailable)
 		return
 	}
-	body, err := h.configuration.ExportConfiguration(r.Context())
+	body, err := h.configuration.ExportBundle(r.Context())
 	if err != nil {
 		writeProblem(w, contract.ProblemStorageUnavailable)
 		return

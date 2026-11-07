@@ -9,7 +9,8 @@ import (
 )
 
 // ValidateBundle requires a complete retained graph. Single definitions need only
-// typed dependency references; resolving those belongs to the future import owner.
+// typed dependency references; the online import owner resolves a receiving
+// snapshot before using this complete-graph validator.
 func ValidateBundle(b contract.ConfigBundle) error {
 	if b.Format != contract.ConfigExportFormat || b.Version != contract.ConfigV2Version || b.Resources == nil || len(b.Resources) > MaxKeyBindings+1025 {
 		return ErrInvalid
@@ -76,7 +77,7 @@ func ValidateBundle(b contract.ConfigBundle) error {
 	}
 	// Pure owner validation also checks cross-resource credential containment,
 	// locator collisions, active capacities and routing independently of policy.
-	graph := contract.ConfigExport{}
+	graph := contract.ConfigurationGraph{}
 	graph.Git.RoutingOrigins = []string{}
 	serverSpecs := []contract.ConfigServer{}
 	for _, d := range b.Resources {

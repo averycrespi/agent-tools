@@ -42,7 +42,7 @@ agent-gateway init
 agent-gateway serve
 ```
 
-`init` creates only in an absent or empty safe directory after default-no confirmation. It provisions control/traffic storage, the protected `<data-dir>/master-key`, initial administrator authority, MCP and HTTP/Git proxy capability, and the interception CA. It reports the administrator bearer at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. Setup is ready for `serve`, not listening; no service supervisor, client trust or shell settings are installed. Import with [`init --from PATH`](docs/operators/administration.md#initialize-from-a-configuration-export). Existing installations are never repaired by ordinary init. Recognized interrupted setup requires explicit `init --resume`; preserve refused artifacts and follow [initialization guidance](docs/operators/administration.md#installation-root).
+`init` creates only in an absent or empty safe directory after default-no confirmation. It provisions control/traffic storage, the protected `<data-dir>/master-key`, initial administrator authority, MCP and HTTP/Git proxy capability, and the interception CA. It reports the administrator bearer at `<data-dir>/admin-bearer` and exports the **public** CA at `<data-dir>/http-ca.pem`. Use `--confirm` for noninteractive setup. `init` starts no listeners and installs no supervisor, client trust or shell settings. Start the instance before [online version-two configuration import](docs/operators/administration.md#import-configuration-online). Version one and `init --from` are removed. `init` never repairs existing installations. Resume recognized ordinary interruptions with `init --resume`; preserve refused artifacts and follow [initialization guidance](docs/operators/administration.md#installation-root).
 
 In another terminal:
 
@@ -105,7 +105,7 @@ Init/import provision custody and both stores; interrupted setup uses `init --re
 - Administrator, agent and upstream credentials have different authority. Raw secrets never belong in argv, ordinary configuration, logs or read APIs. Only [supported client exports](docs/operators/access-control.md#configure-an-agent-client-manually) and [declared stdio secret slots](docs/design/downstream-servers.md#direct-stdio-supervision) permit runtime environment delivery; no administrator environment fallback exists.
 - MCP calls require current `ALLOW`; HTTP defaults/grants and Git policy are independent. An access-request approval never executes or resumes a call.
 - Gateway does not automatically replay governed operations. `outcome_unknown` means an effect may already have occurred; inspect the authoritative system before deciding on a new caller-owned attempt. HTTP 200 is not proof of Git push success.
-- [Safeguard keys and historical artifacts](docs/operators/backup-and-recovery.md#backup-and-restore-removal). Snapshot backup/restore is removed; artifacts stay untouched. Use `export config` and fresh `init --from`, with new authority and unset secrets.
+- [Safeguard keys and historical artifacts](docs/operators/backup-and-recovery.md#backup-and-restore-removal). Snapshot backup/restore is removed; artifacts stay untouched. Use version-two `export config` and online create-only import after ordinary initialization/start; imported credentials are unset.
 
 ## Documentation
 

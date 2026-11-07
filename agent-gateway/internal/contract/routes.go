@@ -87,6 +87,8 @@ var routes = []Route{
 	{Pattern: "/api/v2/recorded-activity", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: "/api/v2/history/export", Methods: []string{"GET"}, Authority: AuthorityAdmin},
 	{Pattern: ConfigExportPath, Methods: []string{"GET"}, Authority: AuthorityAdmin},
+	{Pattern: ConfigPreviewPath, Methods: []string{"POST"}, Authority: AuthorityAdmin},
+	{Pattern: ConfigImportPath, Methods: []string{"POST"}, Authority: AuthorityAdmin},
 }
 
 func Routes() []Route {

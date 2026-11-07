@@ -121,36 +121,11 @@ func Equivalent(a, b contract.ConfigDefinition) (bool, error) {
 }
 
 func normalizeSpec(d contract.ConfigDefinition) ([]byte, error) {
-	var spec any
-	switch d.Kind {
-	case "agent":
-		spec = &contract.ConfigAgentSpec{}
-	case "mcp_server":
-		spec = &contract.ConfigServerSpec{}
-	case "mcp_grant":
-		spec = &contract.ConfigMCPGrantSpec{}
-	case "http_credential":
-		spec = &contract.ConfigHTTPCredentialSpec{}
-	case "http_grant":
-		spec = &contract.ConfigHTTPGrantSpec{}
-	case "git_credential":
-		spec = &contract.ConfigGitCredentialSpec{}
-	case "git_repository":
-		spec = &contract.ConfigGitRepositorySpec{}
-	case "git_grant":
-		spec = &contract.ConfigGitGrantSpec{}
-	case "git_routing":
-		spec = &contract.ConfigGitRoutingSpec{}
-	default:
+	spec := contract.ConfigSpecDestination(d.Kind)
+	if spec == nil {
 		return nil, ErrInvalid
 	}
-	maxBytes := int64(contract.ConfigExportMaxBytes)
-	if d.Kind == "mcp_server" {
-		maxBytes = 2 * 1024 * 1024
-	}
-	if d.Kind == "mcp_grant" || d.Kind == "http_grant" || d.Kind == "git_grant" {
-		maxBytes = 2 * 1024 * 1024
-	}
+	maxBytes := contract.ConfigSpecMaxBytes(d.Kind)
 	if decode(d.Spec, spec, maxBytes) != nil {
 		return nil, ErrInvalid
 	}

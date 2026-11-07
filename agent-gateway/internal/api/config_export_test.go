@@ -16,9 +16,9 @@ type configFixture struct {
 	err   error
 }
 
-func (f *configFixture) ExportConfiguration(context.Context) ([]byte, error) {
+func (f *configFixture) ExportBundle(context.Context) ([]byte, error) {
 	f.calls++
-	return []byte("{\"format\":\"agent-gateway-config\",\"version\":1}\n"), f.err
+	return []byte("{\"format\":\"agent-gateway-config\",\"version\":2,\"resources\":[]}\n"), f.err
 }
 
 func TestConfigurationExportAdministratorReadBoundary(t *testing.T) {
@@ -42,7 +42,7 @@ func TestConfigurationExportAdministratorReadBoundary(t *testing.T) {
 	require.Equal(t, 200, response.Code)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	require.Equal(t, "application/json", response.Header().Get("Content-Type"))
-	require.Equal(t, "{\"format\":\"agent-gateway-config\",\"version\":1}\n", response.Body.String())
+	require.Equal(t, "{\"format\":\"agent-gateway-config\",\"version\":2,\"resources\":[]}\n", response.Body.String())
 	require.Equal(t, 1, reader.calls)
 	reader.err = errors.New("private failure canary")
 	response = perform(handler, http.MethodGet, contract.ConfigExportPath, "", headers)
