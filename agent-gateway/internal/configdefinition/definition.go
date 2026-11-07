@@ -204,6 +204,10 @@ func normalizeSpec(d contract.ConfigDefinition) ([]byte, error) {
 		if !reference(s.Agent, "agent") || s.Policy.Credential != nil && !reference(*s.Policy.Credential, "http_credential") || authorization.ValidateConfigurationHTTPGrant(*s) != nil {
 			return nil, ErrInvalid
 		}
+		if s.Policy.AllowPrivate == nil && (s.Policy.Type == contract.HTTPAllowRequests || s.Policy.Type == contract.HTTPAllowTunnel) {
+			private := false
+			s.Policy.AllowPrivate = &private
+		}
 	case *contract.ConfigGitCredentialSpec:
 		if !validSecretRequirement(s.SecretRef, d, s.Deleted) {
 			return nil, ErrInvalid

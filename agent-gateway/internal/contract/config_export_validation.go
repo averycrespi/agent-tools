@@ -151,7 +151,7 @@ func ValidConfigServerCredentials(s ConfigServer) bool {
 	default:
 		return false
 	}
-	return maps.Equal(expected, s.Credentials.Static) && oauth == s.Credentials.OAuthAuthorization && clientSecret == (s.Credentials.OAuthClientSecret != nil)
+	return maps.Equal(expected, s.Credentials.Static) && oauth == s.Credentials.OAuthAuthorization && clientSecret == (s.Credentials.OAuthClientSecret != nil) && (s.Credentials.OAuthClientSecret == nil || *s.Credentials.OAuthClientSecret == s.Ref+"/oauth/client_secret")
 }
 
 func validConfigHTTPPolicy(p ConfigHTTPPolicy) bool {
