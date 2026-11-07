@@ -30,8 +30,9 @@ func TestConfigurationRouteAndCapability(t *testing.T) {
 		require.Equal(t, []string{test.method}, route.Methods)
 	}
 	rows := ConfigurationControlPlaneCapabilityManifest()
-	require.Len(t, rows, 2)
-	require.Len(t, rows[1].CLIUses, 16)
+	require.Len(t, rows, 3)
+	require.Equal(t, []string{"import --file PATH [--dry-run | --confirm]"}, rows[1].CLIUses)
+	require.Len(t, rows[2].CLIUses, 16)
 	require.Equal(t, []string{"export config"}, rows[0].CLIUses)
 	require.Empty(t, rows[0].WebControl)
 	rows[0].CLIUses[0] = "changed"

@@ -107,6 +107,7 @@ func TestCLIOutputMatrix(t *testing.T) {
 			"mcp grant-request list", "mcp grant-request get REQUEST_ID", "mcp invocation list", "mcp invocation get INVOCATION_ID",
 		},
 		"mutation": {
+			"import --file PATH [--dry-run | --confirm]",
 			"git repository create --file PATH", "git repository update ID --file PATH [--etag ETAG]",
 			"git grant create --file PATH", "git grant update ID --file PATH [--etag ETAG]",
 			"git credential create --file PATH", "git credential update ID --file PATH [--etag ETAG]", "git credential rotate ID --file PATH [--etag ETAG]",

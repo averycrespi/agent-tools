@@ -362,7 +362,12 @@ Operator procedure and private-file guidance belong to
 [administration](../operators/administration.md#export-portable-configuration).
 Online import and material supply are separate actions. Resource CLI imports
 require `--confirm` or read-only `--dry-run`, reject bundles/wrong kinds and never
-create implicit dependencies. They use the public backend version-two contract;
+create implicit dependencies. Top-level `import --file PATH` (or `-`) accepts the
+same version-two bundle or individual definition, using the identical confirmation,
+backend preview, atomic creation and no-replay boundary. It reports every explicit
+creation/reservation, dependency and declared requirement; JSON preserves the
+complete public result. Configuration acknowledgment never claims successful
+activation, material availability or client trust. They use the public backend version-two contract;
 no update, skip-identical or grouped export mode is exposed.
 
 ## Optional history export

@@ -129,6 +129,22 @@ CLI direct `--read-only` and the browser **Allowed tools** option **Only tools m
 
 `export config` is a nonmutating online administrator command with one coherent configuration-only public read and JSON-only stdout, no output-mode/confirmation/file/filter/secret-inclusion flags, and stderr-only failures. It never opens private storage or resolves secret material; the [portable format contract](public-contract.md#portable-configuration-export) owns its fields, references and snapshot semantics. The CLI's complete-response limit is resource-specific, not a relaxation of ordinary one-MiB reads. Shell redirection owns permissions and output failure may leave a partial file.
 
+Top-level `import --file PATH` (or `--file -`) accepts a version-two bundle or
+individual definition through that same public control client. `--dry-run` and
+`--confirm` are exclusive and one is required before credential acquisition or
+submission. Read-only preview displays every explicit creation/reservation and
+typed dependency binding with declared credential/activation requirements; it is
+advisory, never a reservation. Confirmed import revalidates the entire explicit
+graph atomically and reports configuration commit separately from runtime and
+credential readiness. Partial bundles may bind existing receiving resources;
+existing/reserved submitted keys conflict even identically. A lost acknowledgment
+never permits replay. JSON preserves the complete result; successful configuration
+responses use the portable document's bounded size rather than ordinary page
+limits. There is no second whole-export spelling: `export config` retains all
+configuration, without filters or selected-subgraph modes. Setup remains ordinary
+initialize, start, online import, then separate credential provisioning and readiness
+inspection.
+
 Resource `import`/`export` leaves under the eight ordinary resource namespaces
 use only the public control client. Import requires exactly one matching v2
 definition and `--file PATH` (or `-`), rejects bundles and never creates implicit

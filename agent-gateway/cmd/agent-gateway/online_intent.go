@@ -34,7 +34,7 @@ type onlineIntent struct {
 }
 
 func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) (onlineIntent, *controlclient.OnlineError) {
-	if resourceConfigAction(spec) == "import" {
+	if resourceConfigAction(spec) == "import" || strings.Join(spec.Path, " ") == "import" {
 		if failure := validateOnlineLocalOptions(command, spec, options, args); failure != nil {
 			return onlineIntent{}, failure
 		}

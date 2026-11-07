@@ -7,6 +7,7 @@ Purpose: Preserve installation evidence, recover recognized stopped state, and c
 [Storage and recovery](../design/storage-and-recovery.md) owns normative durability and recovery semantics. [Installation safety](installation-safety.md) owns root selection and retained identities. Renaming a binary never bypasses the installation lock. Generated help owns exact syntax:
 
 - `agent-gateway export config --help`
+- `agent-gateway import --help`
 - `agent-gateway init --help`
 - `agent-gateway history --help`
 - `agent-gateway http ca --help`
@@ -25,7 +26,11 @@ Portable configuration transfer uses version-two export, ordinary initialization
 (umask 077; agent-gateway export config > gateway-config.json)
 agent-gateway init --data-dir /new/empty/gateway --confirm
 agent-gateway serve --data-dir /new/empty/gateway
-# Then authenticate and use the administrator preview/import API
+# In another terminal, select the receiving installation and review, then create:
+agent-gateway --data-dir /new/empty/gateway import --file gateway-config.json --dry-run
+agent-gateway --data-dir /new/empty/gateway import --file gateway-config.json --confirm
+# Provision credentials separately, then inspect readiness:
+agent-gateway --data-dir /new/empty/gateway doctor --verbose
 ```
 
 See [configuration export and online import](administration.md#import-configuration-online) for the full procedure and administrator API. Export contains definitions only, not installation authority, credentials, CA signing identity, history or in-flight work. Online import creates only explicit keyed resources on the running instance, leaves material unset and honors enabled state after commit through normal lifecycle. Existing/reserved keys conflict even identically; there is no update or merge. Source tokens and CA trust do not transfer. Import does not replace receiving installation authority or CA. It is not installation recovery, cloning or rollback. Never initialize over an established installation to bypass a refusal. `init --from` and version-one import/export are removed; incomplete historical imports are preserved for separately reviewed recovery, never replayed or cleaned up.

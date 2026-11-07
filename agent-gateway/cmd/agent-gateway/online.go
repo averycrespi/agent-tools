@@ -231,6 +231,8 @@ func onlineLongDescription(spec onlineCommandSpec) string {
 		return spec.Short + ". Supply exactly one matching version-2 definition using --file PATH or --file -. Use top-level import for bundles. Dependencies must already exist. --dry-run performs advisory backend validation only; --confirm creates configuration once and may activate enabled servers after commit. Credentials, client trust and upstream readiness require separate setup and inspection. No prompt, update, skipping or automatic replay."
 	}
 	switch strings.Join(spec.Path, " ") {
+	case "import":
+		return spec.Short + ". Initialize and start Gateway first, then submit a version-2 bundle or individual definition using --file PATH or --file -. --dry-run validates against the running instance and previews every creation, dependency and credential/activation requirement without mutation. --confirm atomically creates only the explicit graph, revalidating current conflicts and references. Existing and reserved keys conflict even when identical. Configuration commit is separate from credential provisioning and runtime readiness; inspect resources and doctor afterward. No update, remapping, skipping or automatic replay. Whole-gateway export uses export config."
 	case "export config":
 		return spec.Short + ". Emits one coherent versioned JSON document to stdout, without secret material or runtime state. No confirmation or upstream connection is required. Use an owner-private shell umask when redirecting: (umask 077; agent-gateway export config > gateway-config.json). See docs/operators/administration.md."
 	case "history export":
@@ -466,6 +468,7 @@ func onlineCommandSpecs() []onlineCommandSpec {
 		onlineSpec([]string{"http", "credential", "rotate"}, "rotate ID", "http credential rotate ID --file PATH [--etag ETAG]", "file", "etag", "yes"),
 		onlineSpec([]string{"http", "credential", "delete"}, "delete ID", "http credential delete ID [--etag ETAG]", "etag", "yes"),
 		onlineSpec([]string{"export", "config"}, "config", "export config"),
+		{Path: []string{"import"}, Use: "import", ManifestUse: "import --file PATH [--dry-run | --confirm]", Short: "Create configuration from a bundle", Flags: []string{"file", "dry-run", "confirm"}, RequiredFlags: []string{"file"}},
 		onlineSpec([]string{"history", "export"}, "export", "history export", "limit", "after-sequence"),
 		onlineSpec([]string{"audit", "list"}, "list", "audit list", "limit", "cursor", "generation", "actor-type", "credential-id", "category", "action", "target-type", "target-id", "outcome", "correlation-id", "from", "until"),
 		onlineSpec([]string{"audit", "get"}, "get AUDIT_EVENT_ID", "audit get AUDIT_EVENT_ID", "generation"),

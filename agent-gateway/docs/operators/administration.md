@@ -156,8 +156,9 @@ This command emits the sole [version-two format](../design/public-contract.md#ve
 with permanent typed keys on every definition and grant. Individual backend
 exports use the identical definition envelope. Version one and `init --from` are
 removed without translation or parallel legacy support. Resource CLI import/export
-uses that same public API and format; top-level bundle import and browser import
-controls are separate surfaces.
+uses that same public API and format. Top-level `import` accepts a bundle or one
+definition; resource imports remain exactly one matching definition. Browser
+import controls are a separate surface.
 
 The current command's format is independent of database schema versions and is the portable configuration transfer/recovery artifact, not
 an installation backup or secret backup. Absolute executable/working-directory
@@ -174,11 +175,29 @@ agent-gateway init --data-dir /path/to/new-gateway --confirm
 agent-gateway serve --data-dir /path/to/new-gateway
 ```
 
-Authenticate to the running instance using its administrator bearer or browser
-session. Submit the same private version-two individual definition or bundle as
-JSON to `POST /api/v2/config/preview`, inspect the returned creations, dependency
-bindings and declared credential/activation requirements, then deliberately submit
-it to `POST /api/v2/config/import`. These queryless API operations use the normal
+In another terminal, select the receiving installation's administrator credential:
+
+```bash
+agent-gateway --data-dir /path/to/new-gateway import --file gateway-config.json --dry-run
+agent-gateway --data-dir /path/to/new-gateway import --file gateway-config.json --confirm --json
+# Standard input can supply the same document; do not also use bearer stdin.
+agent-gateway --data-dir /path/to/new-gateway import --file - --dry-run < gateway-config.json
+agent-gateway --data-dir /path/to/new-gateway doctor --verbose
+```
+
+`agent-gateway import --help` describes the top-level grammar. It accepts the sole version-two
+bundle or individual definition, not a second file format. Inspect every advisory
+creation, reserved-key binding, dependency and declared credential/activation
+requirement before confirming. There is no prompt: without `--confirm` or
+`--dry-run`, nothing is submitted. JSON output preserves the complete public result;
+human output lists every creation, including reservations and singleton routing.
+Whole-gateway export remains **only** `export config`; it includes all retained
+configuration without filters, dependency traversal or selected-subgraph modes.
+
+The CLI calls `POST /api/v2/config/preview` for read-only dry runs and
+`POST /api/v2/config/import` for confirmed atomic creation against that running
+instance. API clients may use the same administrator bearer or browser session.
+These queryless API operations use the normal
 administrator authentication, Origin/CSRF and JSON-media-type controls. The [API contract](../design/public-contract.md#online-validation-and-create-only-import)
 owns exact representations and bounds. Never place bearer/secret values in a
 portable definition, URL, shell argument or shared transcript.
@@ -188,8 +207,8 @@ portable definition, URL, shell argument or shared transcript.
 Use `import` and `export` beneath `agent`, `mcp server`, `mcp grant`,
 `http credential`, `http grant`, `git credential`, `git repository`, or `git grant`.
 Each import accepts exactly one matching definition, never a bundle or implicit
-dependencies. For bulk input use the top-level import surface when available;
-do not pass bundles to resource commands. Export selects a permanent public key,
+dependencies. For bulk input use top-level `import --file PATH`; do not pass
+bundles to resource commands. Export selects a permanent public key,
 not the internal ID used by get/update/delete, and includes no dependencies.
 
 ```bash

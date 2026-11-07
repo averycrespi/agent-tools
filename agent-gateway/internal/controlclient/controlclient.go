@@ -182,7 +182,8 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 	}
 	defer func() { _ = response.Body.Close() }()
 	responseLimit := MaxResponseBytes
-	if request.Method == http.MethodGet && (request.Path == contract.ConfigExportPath || strings.HasPrefix(request.Path, contract.ConfigResourcePath)) && response.StatusCode == http.StatusOK {
+	if request.Method == http.MethodGet && (request.Path == contract.ConfigExportPath || strings.HasPrefix(request.Path, contract.ConfigResourcePath)) && response.StatusCode == http.StatusOK ||
+		request.Method == http.MethodPost && (request.Path == contract.ConfigPreviewPath && response.StatusCode == http.StatusOK || request.Path == contract.ConfigImportPath && response.StatusCode == http.StatusCreated) {
 		responseLimit = MaxConfigResponseBytes
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, int64(responseLimit)+1))

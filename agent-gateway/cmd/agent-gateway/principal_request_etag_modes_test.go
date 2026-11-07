@@ -81,6 +81,7 @@ func TestCLIPrincipalAndGrantRequestETagModes(t *testing.T) {
 func TestCLIRetainedFileSecurity(t *testing.T) {
 	root := newRootCmd()
 	fileOwners := map[string]bool{
+		"import":                        true,
 		"git repository create":         true,
 		"git repository update":         true,
 		"git grant create":              true,

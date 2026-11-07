@@ -97,7 +97,7 @@ func TestCLIHelpTree(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:2ada8b54eed5850f1358734d654e2991a53b6ac512723c6a44b9ccf9c665f1d9", digest)
+	assert.Equal(t, "sha256:f92cd4f7efb47e2329c3d0c608f1111615876974046b20d7c773fed0992e4939", digest)
 }
 
 func TestCLICredentialSetupHelp(t *testing.T) {
@@ -230,6 +230,7 @@ func TestCLIUnknownCommandsAreInputErrors(t *testing.T) {
 
 func testCLICommandErrors(t *testing.T) {
 	requiredFlags := map[string][]string{
+		"import --file PATH [--dry-run | --confirm]":                         {"file"},
 		"git repository create --file PATH":                                  {"file"},
 		"git repository update ID --file PATH [--etag ETAG]":                 {"file"},
 		"git grant create --file PATH":                                       {"file"},

@@ -28,6 +28,26 @@ func TestConfigurationInputIndependentBoundAndStrictness(t *testing.T) {
 	_, err = readJSONInput(InputOptions{Path: "-", Stdin: strings.NewReader(`{"spec":123}`), AllowedMembers: []string{"spec"}}, 4)
 	require.ErrorIs(t, err, ErrInvalidInput)
 }
+func TestConfigurationCreationResponseBoundsAreRouteScoped(t *testing.T) {
+	body := []byte(`{"creations":"` + strings.Repeat("x", MaxResponseBytes) + `"}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", MediaTypeJSON)
+		if r.URL.Path == contract.ConfigImportPath {
+			w.WriteHeader(http.StatusCreated)
+		}
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+	client, err := New(server.URL, TransportOptions{})
+	require.NoError(t, err)
+	for _, path := range []string{contract.ConfigPreviewPath, contract.ConfigImportPath} {
+		response, err := client.Do(context.Background(), Request{Method: http.MethodPost, Path: path, Body: []byte(`{}`)})
+		require.NoError(t, err)
+		require.Equal(t, body, response.Body)
+	}
+	_, err = client.Do(context.Background(), Request{Method: http.MethodPost, Path: "/api/v2/principals", Body: []byte(`{}`)})
+	require.ErrorIs(t, err, ErrResponseInvalid)
+}
 func TestConfigurationTransportBoundsAreRouteScoped(t *testing.T) {
 	body := []byte(`{"spec":"` + strings.Repeat("x", MaxResponseBytes) + `"}`)
 	calls := 0

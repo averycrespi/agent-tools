@@ -60,6 +60,9 @@ func resourceConfigSpecs() []onlineCommandSpec {
 }
 
 func prepareResourceConfigInput(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions) (onlineIntent, *controlclient.OnlineError) {
+	if !command.Flags().Changed("file") {
+		return onlineIntent{}, onlineUsageProblem(spec, "The --file flag is required.")
+	}
 	if options.dryRun && options.confirm {
 		return onlineIntent{}, controlclient.NewInputError("Choose --dry-run or --confirm, not both.")
 	}
@@ -68,6 +71,9 @@ func prepareResourceConfigInput(command *cobra.Command, spec onlineCommandSpec, 
 	}
 	if options.file == "-" && options.bearerStdin {
 		return onlineIntent{}, controlclient.NewInputError("Standard input cannot provide both configuration and the administrator bearer.")
+	}
+	if len(spec.Path) == 1 && spec.Path[0] == "import" {
+		return prepareBundleConfigInput(command, options)
 	}
 	body, err := controlclient.ReadConfigInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: []string{"format", "version", "kind", "key", "reserved", "spec"}})
 	if err != nil {
@@ -80,7 +86,7 @@ func prepareResourceConfigInput(command *cobra.Command, spec onlineCommandSpec, 
 	return onlineIntent{body: body, file: true}, nil
 }
 func validResourceConfigDefinition(d contract.ConfigDefinition) bool {
-	if !contract.ConfigResourceKind(d.Kind) || contract.ValidateConfigDefinitionEnvelope(d) != nil {
+	if (!contract.ConfigResourceKind(d.Kind) && d.Kind != "git_routing") || contract.ValidateConfigDefinitionEnvelope(d) != nil {
 		return false
 	}
 	if d.Reserved {
@@ -95,8 +101,8 @@ func validResourceConfigDefinition(d contract.ConfigDefinition) bool {
 }
 
 func runResourceConfig(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) error {
-	kind := resourceConfigKind(spec)
 	if resourceConfigAction(spec) == "export" {
+		kind := resourceConfigKind(spec)
 		return runConfigExportAt(command, options, contract.ConfigResourcePath+kind+"/"+args[0], kind, args[0])
 	}
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
@@ -132,40 +138,29 @@ func runResourceConfig(command *cobra.Command, spec onlineCommandSpec, options *
 		if failure == nil {
 			failure = controlclient.ClassifyClientError(controlclient.ErrResponseInvalid)
 		}
+		switch failure.Code {
+		case "conflict":
+			failure.Title = "A submitted typed key is already live or permanently reserved, or Git routing is no longer an untouched seed. Even identical input conflicts. Inspect keys with export config; submit only new explicit definitions. Nothing was partially created or replayed."
+		case "malformed_request":
+			failure.Title = "The configuration graph is invalid. Check kind/key references against the submission and export config, including deleted credential eligibility and policy/transport types. Nothing was partially created or replayed."
+		}
 		return writeOnlineFailure(command, options.output, failure)
 	}
-	var input contract.ConfigDefinition
-	_ = controlclient.DecodeConfigResponse(options.intent.body, &input)
-	table := controlclient.Table{}
-	valid := response.Header.Get("Content-Type") == contract.MediaTypeJSON
-	if options.dryRun {
-		var preview contract.ConfigPreview
-		valid = valid && controlclient.DecodeResponse(response.Body, &preview) == nil && preview.Advisory && len(preview.Creations) == 1
-		if valid {
-			creation := preview.Creations[0]
-			valid = creation.Kind == kind && creation.Key == input.Key && creation.Reserved == input.Reserved && creation.Dependencies != nil && creation.Requirements != nil && validConfigPreviewCreation(creation)
-			dependencies := make([]string, 0, len(creation.Dependencies))
-			for _, ref := range creation.Dependencies {
-				dependencies = append(dependencies, ref.Kind+"/"+ref.Key)
-			}
-			table = controlclient.Table{Headers: []string{"INTENT", "KIND", "KEY", "DEPENDENCIES", "REQUIREMENTS", "LIMITATION"}, Rows: [][]string{{"Create (advisory)", kind, input.Key, strings.Join(dependencies, ", "), strings.Join(creation.Requirements, ", "), "No mutation; credentials and activation unverified"}}}
-		}
-	} else {
-		var result contract.ConfigImportResult
-		valid = valid && controlclient.DecodeResponse(response.Body, &result) == nil && result.Configuration == "committed" && len(result.Creations) == 1 && result.Activation == resourceConfigActivation(input)
-		if valid {
-			creation := result.Creations[0]
-			valid = creation.Kind == kind && creation.Key == input.Key && creation.Reserved == input.Reserved && (creation.Reserved && creation.ID == "" || !creation.Reserved && gatewayIDPattern.MatchString(creation.ID))
-			table = controlclient.Table{Headers: []string{"CONFIGURATION", "KIND", "KEY", "ID", "ACTIVATION", "NEXT"}, Rows: [][]string{{result.Configuration, kind, input.Key, creation.ID, result.Activation, "Credentials, client trust and upstream readiness unverified; inspect resource status"}}}
-		}
-	}
+	inputs := configInputDefinitions(options.intent.body)
+	table, valid := configImportTable(response, inputs, options.dryRun)
 	if !valid {
 		if !options.dryRun {
 			return uncertain()
 		}
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
 	}
-	if err := controlclient.WriteSuccess(command.OutOrStdout(), controlclient.OutputMode(options.output), response.Body, table); err != nil {
+	write := func() error {
+		if controlclient.OutputMode(options.output) == controlclient.OutputJSON {
+			return controlclient.WriteConfigDocument(command.OutOrStdout(), response.Body)
+		}
+		return controlclient.WriteSuccess(command.OutOrStdout(), controlclient.OutputMode(options.output), response.Body, table)
+	}
+	if err := write(); err != nil {
 		if !options.dryRun {
 			return writeOnlineFailure(command, options.output, controlclient.NewInputError("Configuration committed; output delivery failed. Inspect resources by typed key; do not replay.", err))
 		}

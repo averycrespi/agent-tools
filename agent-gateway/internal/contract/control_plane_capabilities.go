@@ -86,6 +86,7 @@ func ConfigurationControlPlaneCapabilityManifest() []ControlPlaneCapability {
 	for _, namespace := range []string{"agent", "mcp server", "mcp grant", "http credential", "http grant", "git credential", "git repository", "git grant"} {
 		uses = append(uses, namespace+" import --file PATH [--dry-run | --confirm]", namespace+" export KEY")
 	}
+	rows = append(rows, ControlPlaneCapability{ID: "bundle-config", Operation: "Bundle configuration creation", CLIUses: []string{"import --file PATH [--dry-run | --confirm]"}, Mechanics: "version-two bundle or individual definition; complete backend read-only preview or atomic confirmed create-only import; no replay", CLIScenario: "cli.bundle-config"})
 	return append(rows, ControlPlaneCapability{ID: "resource-config", Operation: "Resource configuration creation and export", CLIUses: uses, Mechanics: "one matching version-two definition; backend read-only preview or confirmed creation; dependencies already exist; JSON-only export; no replay", CLIScenario: "cli.resource-config"})
 }
 
