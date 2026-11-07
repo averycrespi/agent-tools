@@ -1,7 +1,7 @@
 {
   "version": 1,
   "sourceDigests": {
-    "configuration.tsx": "abae979166a62590e7ab1844e973770ef88ea9dd092ff7fb12b6227b574365e5",
+    "configuration.tsx": "621039548ac7d39a7071782fd6b16156e0fd8a0055fb49cecf0eb0b1ebe71add",
     "audit.tsx": "2fbd97ea4dbe5fd81d9022312235c8dfb218455c4b7af3d4fe7a1a742477a8c5",
     "git-coverage.tsx": "582d5abc7e19f9ae5d30e97726682fc36ee59f6dc9ad0ecf89bb55a436e76478",
     "git-routing.tsx": "50ec15850826c8bb484e5dcdaf0048d61940a4f0db30b859f60cab780aed5c23",
@@ -11,7 +11,7 @@
     "http-grants.tsx": "d56ea629c72560d0b7689439e7f3dbb461a6ff2360941ace99b9f0d56e06f580",
     "http-traffic.tsx": "5dfef54745e1ef8f0149ac39c99cc75b3e6da096e448da03e76e29730ec74693",
     "invocations.tsx": "7645ae1b8f9e9e18c69af62a411a2f31381e03e464d7fa6872e928cd9bafb204",
-    "location.ts": "bba08c6c1c989df231d0de0e5640c3282793e9a410c8a0c06560b2d4796cdbe3",
+    "location.ts": "92e74cb558cea0e8ffc2af81e14f6fb233ae0d2ead35e60a58df4ae9ce1baabb",
     "main.tsx": "4526284f8031e1f10c3a909d951fa8050132b71c5d8417885abb27fe1dc102ed",
     "matcher-editor.tsx": "546c0d8a35bf1a327a77624486c36cebe86f3cabc22e741c484587afe386d209",
     "navigation.tsx": "7ea4a9f9657be2ba033e6f98956d4772d7511bf7baef810d64f40231cd68e3b8",
@@ -27,8 +27,9 @@
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
     "server-reads.tsx": "30f62d86e765bf8f87476f7199d71e9befffb1613f2e1e25339a1c509ca466c4",
     "sinks-ui.tsx": "8d7ac40aa95abc724f8bf8e611ffb3f46310d0b86d5082b4a19e498757b06c5c",
-    "styles.css": "45f343a6b35c3ce26dabfc1029f2ec0ef37e8434169bf8056038e0ed50cb144b",
-    "system.tsx": "cb7207d41d9eadec236652d3c3ef325fb3f07fd35dcd136a5d9b7215a555bd33",
+    "styles.css": "e4ecbba0711c5866d64ea84c6a628b51cb1605959b0dd7e2ac6fc342238a3afc",
+    "system.tsx": "ce0dd389838bee27c51b83ab46d5cf1ea3088ef155a2e91b60582cc8c5f4cc9f",
+    "system-configuration.tsx": "967c4b933d9f5c0746c40aceaa7692680fc0bebbed16a097e4556b9d7f5ccbe7",
     "time.tsx": "607c8d338c394b82e5a4ac41bdcc40939a3e0d0368776fa7790e64cc6e5f643c",
     "toast.tsx": "29724123c1efd625a7a7e79bfd7917f8a61481b2018736f856ead6ee6d158c2c"
   },
@@ -38,6 +39,21 @@
   },
   "themes": ["light", "dark"],
   "scenarios": {
+    "config-system": {
+      "input": "reflow",
+      "version-refused": "standard",
+      "file-refused": "standard",
+      "validating": "standard",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "conflict": "reflow",
+      "validation-failed": "standard",
+      "importing": "standard",
+      "committed": "reflow",
+      "export": "standard",
+      "uncertain": "reflow",
+      "session-cleared": "standard"
+    },
     "config-agent": {
       "input": "reflow",
       "preview": "reflow",

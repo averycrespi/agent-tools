@@ -53,8 +53,37 @@ export function singleDefinition(
     throw new Error("Enter one matching version 2 resource definition.");
   return value;
 }
+export type ConfigurationKind = ResourceKind | "git_routing";
+export const configurationKindLabels: Record<ConfigurationKind, string> = {
+  agent: "Agent",
+  mcp_server: "MCP server",
+  mcp_grant: "MCP grant",
+  http_credential: "HTTP credential",
+  http_grant: "HTTP grant",
+  git_credential: "Git credential",
+  git_repository: "Git repository",
+  git_grant: "Git grant",
+  git_routing: "Git routing",
+};
+const requirementLabels: Record<string, string> = {
+  issue_agent_credential: "Issue agent credential",
+  supply_credential_value: "Supply credential value",
+  supply_static_credentials: "Supply static credentials",
+  supply_oauth_client_secret: "Supply OAuth client secret",
+  authorize_oauth_explicitly: "Authorize OAuth explicitly",
+  activate_after_commit: "Activate after commit",
+  initialize_untouched_routing_seed: "Untouched fresh routing seed required",
+};
+export function configurationRequirementLabel(value: string): string {
+  return requirementLabels[value] ?? value;
+}
+export interface DefinitionIdentity {
+  kind: ConfigurationKind;
+  key: string;
+  reserved: boolean;
+}
 export interface Creation {
-  kind: ResourceKind;
+  kind: ConfigurationKind;
   key: string;
   reserved: boolean;
   dependencies: { kind: string; key?: string }[];
@@ -62,7 +91,7 @@ export interface Creation {
 }
 export function decodePreview(
   value: unknown,
-  kind: ResourceKind,
+  kind: ConfigurationKind,
   key: string,
   reserved = false,
 ): Creation {
@@ -76,7 +105,7 @@ export function decodePreview(
   const item = object(root.creations[0]);
   if (
     item.kind !== kind ||
-    item.key !== key ||
+    (item.key ?? "") !== key ||
     item.reserved !== reserved ||
     !Array.isArray(item.dependencies) ||
     !Array.isArray(item.requirements) ||
@@ -89,6 +118,7 @@ export function decodePreview(
           "supply_oauth_client_secret",
           "authorize_oauth_explicitly",
           "activate_after_commit",
+          "initialize_untouched_routing_seed",
         ].includes(String(v)),
     )
   )
@@ -107,7 +137,9 @@ export function decodePreview(
   if (
     Object.keys(root).sort().join() !== "advisory,creations" ||
     Object.keys(item).sort().join() !==
-      "dependencies,key,kind,requirements,reserved" ||
+      (kind === "git_routing"
+        ? "dependencies,kind,requirements,reserved"
+        : "dependencies,key,kind,requirements,reserved") ||
     item.dependencies.length > 3 ||
     item.requirements.length > 6
   )
@@ -117,7 +149,7 @@ export function decodePreview(
 export interface ImportResult {
   configuration: "committed";
   creations: {
-    kind: ResourceKind;
+    kind: ConfigurationKind;
     key: string;
     id: string;
     reserved: boolean;
@@ -126,7 +158,7 @@ export interface ImportResult {
 }
 export function decodeImport(
   value: unknown,
-  kind: ResourceKind,
+  kind: ConfigurationKind,
   key: string,
   reserved = false,
 ): ImportResult {
@@ -141,15 +173,18 @@ export function decodeImport(
   const item = object(root.creations[0]);
   if (
     item.kind !== kind ||
-    item.key !== key ||
+    (item.key ?? "") !== key ||
     item.reserved !== reserved ||
-    typeof item.id !== "string" ||
-    !/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(item.id)
+    (kind === "git_routing"
+      ? item.id !== undefined || reserved
+      : typeof item.id !== "string" ||
+        !/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/.test(item.id))
   )
     throw new Error("Invalid configuration result.");
   if (
     Object.keys(root).sort().join() !== "activation,configuration,creations" ||
-    Object.keys(item).sort().join() !== "id,key,kind,reserved"
+    Object.keys(item).sort().join() !==
+      (kind === "git_routing" ? "kind,reserved" : "id,key,kind,reserved")
   )
     throw new Error("Invalid configuration result.");
   return root as unknown as ImportResult;

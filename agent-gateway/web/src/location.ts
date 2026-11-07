@@ -72,6 +72,7 @@ const systemTabs = new Set([
   "resource-limits",
   "needs-attention",
   "admin-credentials",
+  "configuration",
   "history",
 ]);
 function isGatewayID(value: string): boolean {

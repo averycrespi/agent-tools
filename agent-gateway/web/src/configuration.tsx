@@ -10,6 +10,7 @@ import {
   type ResourceKind,
 } from "./config-contract";
 import type { SessionClient } from "./session";
+import { bundleDefinitions } from "./bundle-contract";
 import type { MutationCoordinator, MutationSnapshot } from "./mutation";
 import {
   ConfirmationDialog,
@@ -67,7 +68,11 @@ export function ImportLink({
     </a>
   );
 }
-async function boundedText(response: Response): Promise<string> {
+const wholeConfigurationBytes = 512 * 1024 * 1024;
+export async function boundedText(
+  response: Response,
+  maxBytes = 8 * 1024 * 1024,
+): Promise<string> {
   if (
     response.headers.get("Content-Type") !== "application/json" ||
     response.body === null
@@ -81,8 +86,8 @@ async function boundedText(response: Response): Promise<string> {
       const part = await reader.read();
       if (part.done) break;
       length += part.value.length;
-      if (length > configurationInputBytes)
-        throw new Error("Configuration exceeds the browser's 1 MiB limit.");
+      if (length > maxBytes)
+        throw new Error("Configuration response exceeds its byte limit.");
       chunks.push(part.value);
     }
     const bytes = new Uint8Array(length);
@@ -103,8 +108,8 @@ export function ConfigActions({
   resourceKey,
 }: {
   session: SessionClient;
-  kind: ResourceKind;
-  resourceKey: string;
+  kind?: ResourceKind;
+  resourceKey?: string;
 }) {
   const [message, setMessage] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -128,7 +133,9 @@ export function ConfigActions({
     try {
       await session.runProtected(async (context) => {
         const response = await fetch(
-          `/api/v2/config/resources/${kind}/${resourceKey}`,
+          kind
+            ? `/api/v2/config/resources/${kind}/${resourceKey}`
+            : "/api/v2/config/export",
           {
             credentials: "same-origin",
             redirect: "error",
@@ -141,15 +148,20 @@ export function ConfigActions({
         );
         if (await context.sessionLost(response)) return;
         if (!response.ok) throw new Error("Configuration unavailable.");
-        const raw = await boundedText(response);
-        if (singleDefinition(raw, kind).key !== resourceKey)
-          throw new Error("Configuration identity mismatch.");
+        const raw = await boundedText(
+          response,
+          kind ? configurationInputBytes : wholeConfigurationBytes,
+        );
+        if (kind) {
+          if (singleDefinition(raw, kind).key !== resourceKey)
+            throw new Error("Configuration identity mismatch.");
+        } else bundleDefinitions(raw, wholeConfigurationBytes);
         if (!current() || !context.isCurrent()) return;
         const ok = copy
           ? (await copyConfigurationText(raw)) === "copied"
           : downloadConfigurationJSON(
               new Blob([raw], { type: "application/json" }),
-              `${kind}-${resourceKey}.json`,
+              kind ? `${kind}-${resourceKey}.json` : "gateway-config.json",
             );
         if (current() && context.isCurrent())
           setMessage(
@@ -162,20 +174,38 @@ export function ConfigActions({
       });
     } catch {
       if (current())
-        setMessage("Config unavailable. Refresh the resource and try again.");
+        setMessage(
+          kind
+            ? "Config unavailable. Refresh the resource and try again."
+            : "Config unavailable. Check the running Gateway and try again.",
+        );
     } finally {
       if (current()) setBusy(false);
     }
   };
   return (
-    <section class="detail-section" aria-label="Resource configuration">
-      <h2>Configuration</h2>
-      <dl class="detail-facts">
-        <div>
-          <dt>Immutable key</dt>
-          <dd class="technical-value">{resourceKey}</dd>
-        </div>
-      </dl>
+    <section
+      class="detail-section"
+      aria-label={
+        kind ? "Resource configuration" : "Whole-gateway configuration"
+      }
+    >
+      <h2>{kind ? "Configuration" : "Whole-gateway config"}</h2>
+      {!kind && (
+        <p>
+          All retained definitions, including expired grants and deleted
+          targets. Credential values, history and runtime state are not
+          included. Review authored strings before sharing.
+        </p>
+      )}
+      {kind && (
+        <dl class="detail-facts">
+          <div>
+            <dt>Immutable key</dt>
+            <dd class="technical-value">{resourceKey}</dd>
+          </div>
+        </dl>
+      )}
       <div class="form-actions">
         <button
           type="button"
@@ -196,6 +226,88 @@ export function ConfigActions({
       </div>
       <p role="status">{message}</p>
     </section>
+  );
+}
+export function ConfigurationInput({
+  raw,
+  disabled,
+  bundle = false,
+  onChange,
+  onError,
+  onReading,
+}: {
+  raw: string;
+  disabled: boolean;
+  bundle?: boolean;
+  onChange: (raw: string) => void;
+  onError: (error: string | undefined) => void;
+  onReading: (reading: boolean) => void;
+}) {
+  const version = useRef(0);
+  useEffect(
+    () => () => {
+      version.current++;
+    },
+    [],
+  );
+  return (
+    <>
+      <FormField
+        id="configuration-json"
+        label="Configuration JSON"
+        hint={`${bundle ? "A v2 bundle" : "One matching v2 definition"}, at most 1 MiB. Do not paste secret values.`}
+      >
+        {(attributes) => (
+          <textarea
+            {...attributes}
+            rows={12}
+            value={raw}
+            disabled={disabled}
+            maxLength={configurationInputBytes}
+            placeholder={
+              bundle
+                ? "Paste a version 2 configuration bundle"
+                : "Paste a version 2 resource definition"
+            }
+            onInput={(e) => onChange(e.currentTarget.value)}
+          />
+        )}
+      </FormField>
+      <FormField id="configuration-file" label="Upload JSON file">
+        {(attributes) => (
+          <input
+            {...attributes}
+            type="file"
+            accept=".json,application/json"
+            disabled={disabled}
+            onChange={async (e) => {
+              const file = e.currentTarget.files?.[0];
+              e.currentTarget.value = "";
+              if (!file) return;
+              const owned = ++version.current;
+              onChange(raw);
+              onError(undefined);
+              if (file.size > configurationInputBytes) {
+                onError("Configuration must be at most 1 MiB.");
+                return;
+              }
+              onReading(true);
+              try {
+                const text = new TextDecoder("utf-8", { fatal: true }).decode(
+                  await file.arrayBuffer(),
+                );
+                if (owned === version.current) onChange(text);
+              } catch {
+                if (owned === version.current)
+                  onError("The JSON file could not be read as UTF-8.");
+              } finally {
+                if (owned === version.current) onReading(false);
+              }
+            }}
+          />
+        )}
+      </FormField>
+    </>
   );
 }
 function DefinitionFields({ raw }: { raw: string }) {
@@ -436,62 +548,16 @@ export function ResourceImport({
         <>
           <p>
             Create only. Existing or reserved keys cannot be reused. Bundles
-            belong in System Configuration.
+            belong in{" "}
+            <a href="#/system?tab=configuration">System Configuration</a>.
           </p>
-          <FormField
-            id="configuration-json"
-            label="Configuration JSON"
-            hint="One matching v2 definition, at most 1 MiB. Do not paste secret values."
-          >
-            {(attributes) => (
-              <textarea
-                {...attributes}
-                rows={12}
-                value={raw}
-                disabled={locked}
-                maxLength={configurationInputBytes}
-                placeholder="Paste a version 2 resource definition"
-                onInput={(e) => change(e.currentTarget.value)}
-              />
-            )}
-          </FormField>
-          <FormField id="configuration-file" label="Upload JSON file">
-            {(attributes) => (
-              <input
-                {...attributes}
-                type="file"
-                accept=".json,application/json"
-                disabled={locked}
-                onChange={async (e) => {
-                  const file = e.currentTarget.files?.[0];
-                  e.currentTarget.value = "";
-                  if (!file) return;
-                  const generation = ++version.current;
-                  setPreview(undefined);
-                  setError(undefined);
-                  if (file.size > configurationInputBytes) {
-                    setError("Configuration must be at most 1 MiB.");
-                    return;
-                  }
-                  setChecking(true);
-                  try {
-                    const text = new TextDecoder("utf-8", {
-                      fatal: true,
-                    }).decode(await file.arrayBuffer());
-                    if (generation === version.current) {
-                      change(text);
-                      setChecking(false);
-                    }
-                  } catch {
-                    if (generation === version.current) {
-                      setChecking(false);
-                      setError("The JSON file could not be read as UTF-8.");
-                    }
-                  }
-                }}
-              />
-            )}
-          </FormField>
+          <ConfigurationInput
+            raw={raw}
+            disabled={locked}
+            onChange={change}
+            onError={setError}
+            onReading={setChecking}
+          />
           {error && (
             <StateNotice state="error" title="Import not completed">
               <p>{error}</p>

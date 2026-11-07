@@ -1734,6 +1734,7 @@ export async function runOverview(
     "Resource limits",
     "Needs attention",
     "Admin credentials",
+    "Configuration",
     "History export",
   ]);
   await expect(attention.locator("li")).toHaveCount(11);
@@ -3374,7 +3375,7 @@ export async function runSystemStatus(
     .allTextContents();
   if (
     systemTabs.join("|") !==
-    "Status|Resource limits|Needs attention|Admin credentials|History export"
+    "Status|Resource limits|Needs attention|Admin credentials|Configuration|History export"
   )
     fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [

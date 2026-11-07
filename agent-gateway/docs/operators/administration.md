@@ -147,6 +147,32 @@ private: supported secret values are excluded, but ordinary authored strings can
 still contain accidental secrets. Supply real credential values only through the
 existing write-only setup controls.
 
+## System Configuration in the browser
+
+Choose **System → Configuration** for bundles and whole-gateway exports. Initialize
+and start the receiving Gateway first. Paste or upload version 2 JSON (up to 1 MiB),
+then **Validate and preview**. Review every definition, permanent deleted-key
+reservation, typed dependency (existing or same submission), and credential/activation
+requirement before **Import → Confirm import**. There is no hidden resource limit or
+omitted preview row within that byte bound; larger files use the online CLI import.
+Version 1 is rejected explicitly.
+
+This creates reusable configuration, not updates, file synchronization or reconciliation.
+Existing/reserved keys conflict even for identical input. Git routing can seed only an
+untouched fresh profile. A concurrent key/domain/reference conflict commits nothing:
+edit the retained draft and validate again. Unknown outcomes block replay; inspect the
+target before further action. Committed resources stay created even if enabled-server
+startup fails. Follow their existing resource links for credential provisioning and
+current status; creation is not proof of readiness. Expiry is not renewed, deleted
+resources are not resurrected, and no grants or dependencies are invented.
+
+Adjacent **Copy config** and **Download config** retain the complete backend v2 export,
+including expired/duplicate grants, deleted targets and permanent reservations, without
+filters or dependency traversal. Downloads use `gateway-config.json`. Exports retain
+credential slots, not values, history, runtime state or local authority. Review ordinary
+authored strings for accidentally embedded secrets before sharing. The whole export
+supports the backend's 512 MiB bound independently of the browser import bound.
+
 ## Export portable configuration
 
 Run the authenticated online command against the selected Gateway:

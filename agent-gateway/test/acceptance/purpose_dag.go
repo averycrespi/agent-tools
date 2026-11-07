@@ -77,7 +77,7 @@ func purposeEvidenceDAG() purposeEvidenceGraph {
 			"product.client_refresh.no_unsafe_replay", "product.invocation.missing_terminal_unknown",
 		}, 2*time.Minute, 5*time.Minute, 20, 0, 0, []string{"five targeted race scenario results"}),
 
-		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 6*time.Minute, 7*time.Minute, 1, 36, 35, []string{"browser workflow output", "browser cleanup records"}, "agent-gateway/test/e2e/harness_test.go"),
+		"test-browser-workflows":     leaf("test-browser-workflows", []string{"tier.browser.workflows", "product.interface.developer_first", "product.browser.authority_recovery"}, 6*time.Minute, 7*time.Minute, 1, 37, 35, []string{"browser workflow output", "browser cleanup records"}, "agent-gateway/test/e2e/harness_test.go"),
 		"test-browser-privacy":       leaf("test-browser-privacy", []string{"security.browser.storage", "frontend.privacy"}, 30*time.Second, 45*time.Second, 1, 1, 1, []string{"secret canary scan", "browser cleanup records"}, "agent-gateway/test/e2e/browser_secret_storage_privacy_test.go"),
 		"test-browser-visual":        leaf("test-browser-visual", []string{"tier.browser.visual", "product.interface.developer_first"}, 60*time.Second, 75*time.Second, 1, 1, 1, []string{"deterministic visual matrix output"}, "agent-gateway/test/e2e/browser_visual_responsive_test.go"),
 		"test-browser-accessibility": leaf("test-browser-accessibility", []string{"tier.browser.accessibility", "product.browser.accessibility_responsive"}, 45*time.Second, 60*time.Second, 1, 1, 1, []string{"automated accessibility output"}, "agent-gateway/test/e2e/browser_accessibility_test.go"),

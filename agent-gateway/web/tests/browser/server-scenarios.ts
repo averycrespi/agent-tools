@@ -20,6 +20,7 @@ import { exerciseCatalogPagination } from "./catalog-pagination.ts";
 import { exerciseOperationPagination } from "./operation-pagination.ts";
 import { exerciseUpstreamHeaders } from "./upstream-headers.ts";
 import { exerciseResourceConfiguration } from "./configuration.ts";
+import { exerciseSystemConfiguration } from "./system-configuration.ts";
 import {
   assertClosedStorage,
   assertSecretAbsent,
@@ -339,10 +340,12 @@ export async function runServerUpstreamHeaders(
   page: Page,
   bearer: string,
   requestCount: () => number,
+  configuration: string,
 ): Promise<void> {
   await page.getByTestId("admin-bearer-input").fill(bearer);
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
+  await exerciseSystemConfiguration(page, configuration);
   const screenshots = await exerciseUpstreamHeaders(page);
   await exerciseResourceConfiguration(page);
   process.stdout.write(

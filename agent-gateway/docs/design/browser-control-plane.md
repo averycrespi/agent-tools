@@ -10,7 +10,8 @@ This chapter owns browser state, workflows, presentation and secret sinks. [Admi
 
 Each keyed resource collection places **Import** beside **Create**. Queryless `import`
 locations accept exactly one matching v2 definition; bundles and other kinds are
-refused locally with System Configuration guidance, without creating a bulk page.
+refused locally with linked System Configuration guidance; these entry points never
+submit a bundle.
 Paste and UTF-8 JSON upload share a 1 MiB browser input bound. Input remains editable
 after known validation/creation rejection, but uncertain writes remain blocked.
 Online preview shows the immutable key, typed dependencies, setup requirements and
@@ -32,6 +33,36 @@ Session epochs, dirty navigation, confirmation focus, shared mutation coordinati
 and one-shot sinks retain their existing ownership. No browser storage or automatic
 replay is added; general strings may contain accidental secrets and rejected payloads
 are never interpolated into diagnostics.
+
+## System Configuration
+
+System's **Configuration** tab at `#/system?tab=configuration` is the bulk destination.
+It uses the shared pasted/UTF-8-upload input and the same online preview, explicit
+confirmation and one-shot mutation lifecycle as resource import. Browser import is
+bounded to 1 MiB; every submitted definition is listed without pagination, truncation
+or omission, with its immutable type/key, creation or reservation action, typed
+existing/same-submission dependencies and credential/activation requirements. Exact
+source JSON remains inert and unchanged, including numeric lexical tokens. Version 1
+is rejected explicitly. Initialize and start a suitable receiving Gateway before import.
+This is reusable create-only seeding, never authoritative-file updates or reconciliation.
+
+Atomic backend revalidation is mandatory at commit. Existing or permanently reserved
+keys conflict even when definitions are identical; domain, dangling-reference and
+concurrent conflicts create nothing and retain an editable draft for a fresh preview.
+Only an untouched fresh Git routing seed can be initialized from a bundle. No remapping,
+implicit dependency or grant creation, expiry renewal, resurrection or skip-identical
+mode exists. Committed definitions and reservations are listed separately from missing
+credential material and pending/failed activation; enabled definitions remain retained
+when startup fails. Current resource links lead to existing setup/status controls.
+Unknown outcomes freeze the draft and prohibit replay rather than inviting another import.
+
+Adjacent **Copy config** and **Download config** actions publish the exact whole-gateway
+v2 backend export (up to its 512 MiB bound), retaining expired/duplicate grants, deleted
+targets and permanent key reservations by default. There are no filters, grouping,
+dependency traversal or another format. Explicit credential slots are retained, not
+credential values, local authority, history or runtime state. Authored strings can
+accidentally contain secrets and must be reviewed before sharing. Larger exports remain
+complete but require the CLI for import beyond the browser's input bound.
 
 ## Git administration and traffic
 

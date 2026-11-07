@@ -119,6 +119,7 @@ interface BridgeInput {
   admin_bearer: string;
   browser_kind?: "chromium" | "firefox" | "webkit";
   fixture_root?: string;
+  configuration?: string;
 }
 
 const inputLines = createInterface({
@@ -149,7 +150,9 @@ function parseInitialInput(value: unknown): BridgeInput {
       Object.keys(value).sort().join(",") !==
         "admin_bearer,base_url,browser_kind,scenario,version" &&
       Object.keys(value).sort().join(",") !==
-        "admin_bearer,base_url,fixture_root,scenario,version") ||
+        "admin_bearer,base_url,fixture_root,scenario,version" &&
+      Object.keys(value).sort().join(",") !==
+        "admin_bearer,base_url,configuration,scenario,version") ||
     !("version" in value) ||
     value.version !== 1 ||
     !("scenario" in value) ||
@@ -209,6 +212,10 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.browser_kind !== "chromium" &&
       value.browser_kind !== "firefox" &&
       value.browser_kind !== "webkit") ||
+    (value.scenario === "server-create-update") !== "configuration" in value ||
+    ("configuration" in value &&
+      (typeof value.configuration !== "string" ||
+        value.configuration.length > 12 * 1024)) ||
     (value.scenario === "development-live-reload") !==
       "fixture_root" in value ||
     ("fixture_root" in value &&
@@ -778,6 +785,7 @@ try {
         page,
         initialBearer,
         () => requests,
+        input.configuration!,
       );
     } else if (input.scenario === "server-catalog-reads") {
       await runServerCatalogReads(
