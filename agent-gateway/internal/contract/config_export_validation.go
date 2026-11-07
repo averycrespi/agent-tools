@@ -60,7 +60,7 @@ func ValidateConfigExport(v ConfigExport) error {
 		if s.Credentials.OAuthClientSecret != nil && (*s.Credentials.OAuthClientSecret != s.Ref+"/oauth/client_secret" || !s.Credentials.OAuthAuthorization) {
 			return invalid
 		}
-		if !s.Deleted && !validConfigServerCredentials(s) {
+		if !s.Deleted && !ValidConfigServerCredentials(s) {
 			return invalid
 		}
 		servers[s.Ref] = true
@@ -112,7 +112,8 @@ func ValidateConfigExport(v ConfigExport) error {
 	return nil
 }
 
-func validConfigServerCredentials(s ConfigServer) bool {
+// ValidConfigServerCredentials checks declared requirements without material.
+func ValidConfigServerCredentials(s ConfigServer) bool {
 	var transport struct {
 		Kind              TransportKind     `json:"kind"`
 		SecretEnvironment map[string]string `json:"secret_environment"`

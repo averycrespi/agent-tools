@@ -152,9 +152,15 @@ review arguments, ordinary environment values, URLs, headers and names before
 sharing because accidental secrets in unsupported fields cannot be detected
 reliably. Keep exports private even though supported secret material is excluded.
 
-The [version-one format](../design/public-contract.md#portable-configuration-export)
-defines document-local references and exact fields. It is independent of database
-schema versions and is the portable configuration transfer/recovery artifact, not
+During the backend cutover, this command and stopped `init --from` still use the
+[transitional version-one format](../design/public-contract.md#transitional-version-one-surface),
+with document-local references. New backend version-two individual/bundle exports
+use permanent typed keys and are **not** accepted by this old `init --from`.
+The coordinated backend import delivery will retire version one and stopped
+init-from, without a translator or permanent parallel format. Do not treat the
+backend v2 contract as an already available CLI/browser import control.
+
+The current command's format is independent of database schema versions and is the portable configuration transfer/recovery artifact, not
 an installation backup or secret backup. Absolute executable/working-directory
 paths and configured OAuth callback addresses may still need deliberate adaptation
 on another host. Export itself supplies no material; [fresh import](#initialize-from-a-configuration-export)

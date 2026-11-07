@@ -121,10 +121,103 @@ namespaces are unchanged. Previously removed rows with no recoverable key receiv
 no invented historical key. Startup rejects missing current-resource reservations;
 it never repairs them online. All existing ID-based URLs, ETags and internal
 history/authority references remain ID-based. Old ordinary-create callers can
-continue omitting keys. This does not change the configuration file format or
-add CLI/browser key controls.
+continue omitting keys. Ordinary CLI/browser key controls remain separate from
+the backend version-two configuration contract below.
 
 ## Portable configuration export
+
+### Version-two resource and bundle contract
+
+The backend `configexport.Service.ExportResource(kind,key)` and `ExportBundle`
+produce the single version-two creation-input contract. `configdefinition` strictly
+validates individual definitions and complete bundles and supplies reusable
+normalization/comparison. These are backend capabilities, not additional HTTP,
+CLI or browser controls. Files are reusable creation input, never ongoing source
+of truth, synchronization instructions or updates.
+
+An individual definition is exactly `{format,version,kind,key?,reserved?,spec}`:
+`format` is `"agent-gateway-config"`, `version` is integer `2`, `kind` is one of
+`agent`, `mcp_server`, `mcp_grant`, `http_credential`, `http_grant`, `git_credential`,
+`git_repository`, `git_grant`, or `git_routing`. Every ordinary resource, including
+every grant, requires its permanent public `key`. MCP uses its namespace as that
+key, not a second identity. The singleton `git_routing` has no key and its spec is
+`{origins:[...]}`; routing remains independent of repository inventory. A bundle
+is exactly `{format,version,resources:[...]}`. Every member is the identical whole
+individual definition, including its format/version, and can be decoded directly
+as individual input. There are no array-position references.
+
+`spec` contains the same authored fields and policy dialects described below,
+with these changes from the transitional representation:
+
+- Agents omit `ref`. MCP servers omit `ref` and `namespace` (the envelope key is
+  the namespace). Credential definitions and repositories omit `ref`.
+- Dependency references are objects `{kind,key}`: grants reference `agent`, MCP
+  grants reference `mcp_server`, HTTP policies optionally use
+  `credential:{kind:"http_credential",key}`, repositories use nullable
+  `credential:{kind:"git_credential",key}`, and Git grants reference
+  `git_repository`. These typed keys are unchanged across installations.
+- The fixed synthetic MCP target is exactly `{kind:"gateway_mcp"}` with no key.
+  It has no server definition and cannot be exported as a normal resource.
+- HTTP/Git credentials additionally require `deleted` and nullable `secret_ref`.
+  Live definitions declare `http_credential/<key>/secret` or
+  `git_credential/<key>/secret`; deleted definitions require null, never fresh
+  material. MCP credential requirements retain `mcp/<namespace>/static/<slot>`
+  and `mcp/<namespace>/oauth/client_secret`, independent of acquired material.
+- A retained key without a resource row has `reserved:true,spec:null`. This
+  applies also to an MCP namespace reserved without a server row. Reservations
+  are inactive identity constraints, not empty resources or permission to
+  resurrect a target. Retained target references may name an inactive target
+  reservation; agent and credential references must name actual definitions,
+  and deleted credentials cannot supply a policy binding. A live resource and
+  its reservation cannot both occur. Omitted `reserved` means false.
+
+Single export includes only the selected definition and its typed references,
+never dependencies, groups, filtering, remapping or implicit grants. It reads only
+the relevant owner projection and key bindings, not dependency configurations.
+Whole export uses one control-storage snapshot and includes every retained
+configuration definition, deleted targets and credentials, all expired and
+duplicate grants with their independent keys, and permanent reservations. Expiry
+is unchanged, never renewed. Definitions sort by kind/key for deterministic output;
+that order has no policy precedence. Ordered arrays within definitions are kept.
+No verifier, material availability, acquired OAuth authority, installation ID,
+revision, creation/history metadata, runtime or session state is an input to the
+projection. Authored strings still have the accidental-secret caveat below.
+
+Closed parsing rejects unknown/duplicate members, malformed UTF-8, missing required
+fields, invalid/null scalars, trailing JSON and unsupported versions. Nullable
+members are required unless marked optional; collections are never null. Existing
+domain limits and validators remain in force. Documents retain the 512 MiB/depth-64
+bounds; a single server or grant spec additionally has a 2 MiB envelope bound
+without relaxing its tighter domain bounds. At most 1,048,576 permanent typed-key
+bindings are accepted, including live definitions, deleted credential definitions
+and reservations; the separate 1,024 MCP namespace capacity also includes reserved
+namespaces. Live domain capacities remain tighter. Excess inventory fails rather
+than truncates. Whole bundles resolve all typed
+references and validate credential containment, locator collisions, active server
+capacity and singleton presence. An individual definition validates its own
+configuration and reference types without requiring dependencies in the file;
+future creation must separately resolve the receiving installation's bindings.
+
+`configdefinition.Normalize` and `Equivalent` validate before comparing. Comparison
+includes kind/key, reservation/deletion state, authored settings, credential
+requirements, references, policy dialect and expiry. It ignores JSON object-member
+ordering and normalizes domain defaults such as omitted/false private HTTP opt-in.
+It preserves lexical numeric tokens, array ordering, explicit policy fields and
+meaningful omission (including omitted OAuth scopes versus `scopes:[]`). It never
+uses internal IDs, history, runtime or material availability. This comparison does
+not expose skip-identical/idempotence, update, conflict resolution or import
+mutation behavior.
+
+### Transitional version-one surface
+
+The current HTTP/CLI export and stopped `init --from` remain a paired version-one
+surface during the coordinated backend transition only. They do **not** accept or emit
+the backend version-two definitions/bundles. No v1-to-v2 translator exists. The
+next backend import/cutover delivery must remove the version-one surface and
+stopped init-from path and publish version two as the sole supported format;
+version one is explicitly unsupported at that completed backend-stack boundary.
+Online import/preview and ordinary CLI/browser controls are separate deliveries.
+Do not feed a version-two backend export into the old `init --from`.
 
 `GET /api/v2/config/export` is an administrator bearer/session authenticated,
 bodyless, queryless, `no-store` read (`None` → `ConfigExport`, 200). Unknown query
