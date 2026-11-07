@@ -23,13 +23,15 @@ type Boundary struct {
 }
 
 type Definition struct {
+	// Key is a create-only domain input; mutable definition JSON excludes it.
+	Key      string                        `json:"-"`
 	Name     string                        `json:"name"`
 	Boundary Boundary                      `json:"boundary"`
 	Recipe   contract.HTTPCredentialRecipe `json:"recipe"`
 }
 
 func Normalize(def Definition) (Definition, error) {
-	if def.Name == "" || len(def.Name) > contract.HTTPCredentialNameBytes || !utf8.ValidString(def.Name) || strings.TrimSpace(def.Name) != def.Name || !contract.ValidHTTPCredentialRecipe(def.Recipe) {
+	if def.Key != "" && !contract.ValidResourceKey(def.Key) || def.Name == "" || len(def.Name) > contract.HTTPCredentialNameBytes || !utf8.ValidString(def.Name) || strings.TrimSpace(def.Name) != def.Name || !contract.ValidHTTPCredentialRecipe(def.Recipe) {
 		return Definition{}, ErrInvalid
 	}
 	for _, r := range def.Name {

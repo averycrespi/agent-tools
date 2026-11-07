@@ -14,6 +14,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitpolicy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 // ImportedHTTPPolicy substitutes only the installation-local credential identity.
@@ -175,6 +176,9 @@ func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, value contrac
 	timestamp := formatAuthorizationTime(now)
 	for _, a := range value.Agents {
 		id := ids[a.Ref]
+		if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.Agent, id, ""); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO principals(id,display_name,state,visibility,revision,credential_revision,created_at,updated_at) VALUES(?,?,?,?,1,0,?,?)`, id, a.DisplayName, a.State, a.Visibility, timestamp, timestamp); err != nil {
 			return err
 		}
@@ -199,6 +203,9 @@ func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, value contrac
 		if err != nil {
 			return err
 		}
+		if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitRepository, ids[r.Ref], ""); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO git_repositories(id,name,url,aliases_json,credential_id,revision,alias_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,1,1,?,?,?)`, ids[r.Ref], def.Name, def.URL, string(aliases), credential, r.Deleted, timestamp, timestamp); err != nil {
 			return err
 		}
@@ -219,6 +226,9 @@ func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, value contrac
 			}
 			constraint = string(compiled.JSON())
 		}
+		if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.MCPGrant, id, ""); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO grants(id,description,principal_id,effect,server_id,upstream_name,constraint_json,read_only,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`, id, g.Description, ids[g.Agent], g.Effect, ids[g.Server], g.UpstreamName, constraint, g.ReadOnly, g.ExpiresAt, timestamp); err != nil {
 			return err
 		}
@@ -235,6 +245,9 @@ func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, value contrac
 		if err != nil {
 			return err
 		}
+		if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.HTTPGrant, id, ""); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO http_grants(id,principal_id,description,revision,policy_json,expires_at,created_at,updated_at) VALUES(?,?,?,1,?,?,?,?)`, id, ids[g.Agent], g.Description, string(raw), g.ExpiresAt, timestamp, timestamp); err != nil {
 			return err
 		}
@@ -249,6 +262,9 @@ func StageImportedConfigurationTx(ctx context.Context, tx *sql.Tx, value contrac
 		}
 		raw, err := gitpolicy.JSON(g.Policy)
 		if err != nil {
+			return err
+		}
+		if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitGrant, id, ""); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO git_grants(id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at) VALUES(?,?,?,?,1,?,?,?,?)`, id, ids[g.Agent], ids[g.Repository], g.Description, string(raw), g.ExpiresAt, timestamp, timestamp); err != nil {

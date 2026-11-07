@@ -10,11 +10,12 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
 func (repository *Repository) CreatePrincipal(ctx context.Context, request CreatePrincipalRequest) (contract.PrincipalCreation, error) {
-	if !validDisplayName(request.DisplayName) || !validVisibility(request.Visibility) ||
+	if request.Key != "" && !contract.ValidResourceKey(request.Key) || !validDisplayName(request.DisplayName) || !validVisibility(request.Visibility) ||
 		request.HTTPDefault != nil && *request.HTTPDefault != contract.HTTPDefaultAllow && *request.HTTPDefault != contract.HTTPDefaultBlock {
 		return contract.PrincipalCreation{}, ErrInvalidInput
 	}
@@ -44,6 +45,12 @@ func (repository *Repository) CreatePrincipal(ctx context.Context, request Creat
 		}
 		if collisions != 0 {
 			return ErrIdentityUnavailable
+		}
+		if _, err := resourcekeys.ReserveTx(ctx, transaction, resourcekeys.Agent, principalID, request.Key); err != nil {
+			return err
+		}
+		if _, err := resourcekeys.ReserveTx(ctx, transaction, resourcekeys.MCPGrant, grantID, ""); err != nil {
+			return err
 		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO principals (
@@ -222,6 +229,15 @@ func (repository *Repository) mapMutationError(err error) error {
 		return fmt.Errorf("%w: %w", ErrStorageUnavailable, err)
 	}
 	if errors.Is(err, storage.ErrMutationBusy) {
+		return fmt.Errorf("%w: %w", ErrResourceLimit, err)
+	}
+	if errors.Is(err, resourcekeys.ErrInvalid) {
+		return fmt.Errorf("%w: %w", ErrInvalidInput, err)
+	}
+	if errors.Is(err, resourcekeys.ErrConflict) {
+		return fmt.Errorf("%w: %w", ErrConflict, err)
+	}
+	if errors.Is(err, resourcekeys.ErrGeneration) {
 		return fmt.Errorf("%w: %w", ErrResourceLimit, err)
 	}
 	if isRepositoryError(err) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

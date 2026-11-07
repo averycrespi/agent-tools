@@ -222,7 +222,8 @@ func (repository *Repository) scanSelfGrant(scanner grantScanner, principalID st
 		storedPrincipalID                                    string
 		description, upstreamName, constraintJSON, expiresAt sql.NullString
 	)
-	if err := scanner.Scan(&row.sequence, &row.id, &description, &row.revision, &storedPrincipalID, &row.effect, &row.target.ServerID,
+	var key string
+	if err := scanner.Scan(&key, &row.sequence, &row.id, &description, &row.revision, &storedPrincipalID, &row.effect, &row.target.ServerID,
 		&upstreamName, &constraintJSON, &expiresAt, &row.createdAt, &row.readOnly); err != nil {
 		return selfGrantRow{}, fmt.Errorf("scan self grant: %w", err)
 	}

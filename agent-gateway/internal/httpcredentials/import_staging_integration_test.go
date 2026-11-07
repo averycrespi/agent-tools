@@ -55,6 +55,7 @@ func TestIntegrationImportedHTTPDefinitionRestartAndCompletion(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, contract.CredentialNotConfigured, unset.MaterialState)
 	require.False(t, unset.Available)
+	require.True(t, contract.ValidResourceKey(unset.Key))
 	require.Equal(t, def, unset.Definition)
 	require.Equal(t, grantID, unset.References[0].ID)
 	_, err = s.Acquire(ctx, resourceRef(t, unset))

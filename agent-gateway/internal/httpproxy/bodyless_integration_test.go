@@ -98,7 +98,7 @@ func TestIntegrationInterceptBodylessResponses(t *testing.T) {
 			{"truncated_body", "GET", 200, "42", "payload", true},
 		} {
 			t.Run(protocol+"/"+tc.name, func(t *testing.T) {
-				f := fixture(t)
+				f := fixtureWithTrafficAcknowledgments(t)
 				diagnoseProxyCompletionOnFailure(t, f)
 				var calls atomic.Int64
 				upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +177,8 @@ func TestIntegrationInterceptBodylessResponses(t *testing.T) {
 					length = "" // Preserve net/http's existing H1 suppression.
 				}
 				require.Equal(t, length, response.Header.Get("Content-Length"))
+				// Interception admission, request admission, then terminal observation.
+				f.waitForTrafficAcknowledgments(t, 3)
 				require.Eventually(t, func() bool {
 					history, e := f.traffic.HTTPHistory(t.Context(), 0, 10)
 					if e != nil {

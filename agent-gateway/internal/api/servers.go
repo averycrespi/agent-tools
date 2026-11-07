@@ -94,11 +94,14 @@ func (handler *Handler) createServer(writer http.ResponseWriter, request *http.R
 		{contents: raw.DisplayName, field: contract.ServerConfigurationFieldDisplayName, decode: func() error { return json.Unmarshal(raw.DisplayName, &displayName) }},
 		{contents: raw.Enabled, field: contract.ServerConfigurationFieldEnabled, decode: func() error { return json.Unmarshal(raw.Enabled, &enabled) }},
 	} {
+		if member.contents == nil && member.field == contract.ServerConfigurationFieldNamespace {
+			continue
+		}
 		if member.contents == nil {
 			writeServerConfigurationError(writer, serverdomain.NewConfigurationError(member.field, contract.ServerConfigurationRuleRequired))
 			return
 		}
-		if string(member.contents) == "null" || member.decode() != nil {
+		if string(member.contents) == "null" || member.decode() != nil || member.field == contract.ServerConfigurationFieldNamespace && namespace == "" {
 			writeServerConfigurationError(writer, serverdomain.NewConfigurationError(member.field, contract.ServerConfigurationRuleInvalid))
 			return
 		}

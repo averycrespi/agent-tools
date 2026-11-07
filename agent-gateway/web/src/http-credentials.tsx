@@ -50,8 +50,11 @@ function exact(value: unknown, keys: string[]): Record<string, unknown> {
     throw new Error("HTTP credential data is unavailable.");
   return value as Record<string, unknown>;
 }
+import { validResourceKey } from "./resource-key";
+
 export function decodeHTTPCredential(value: unknown): Credential {
   const r = exact(value, [
+    "key",
     "id",
     "name",
     "boundary",
@@ -66,6 +69,7 @@ export function decodeHTTPCredential(value: unknown): Credential {
   const b = exact(r.boundary, ["host", "port", "allow_wildcard"]);
   const recipe = exact(r.recipe, ["header", "prefix"]);
   if (
+    !validResourceKey(r.key) ||
     typeof r.id !== "string" ||
     !idPattern.test(r.id) ||
     typeof r.name !== "string" ||

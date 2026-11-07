@@ -7,12 +7,14 @@ const id = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
 const agentID = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
 const timestamp = "2026-10-01T12:00:00.000000000Z";
 const common = {
+  key: "synthetic-resource",
   id,
   revision: "1",
   created_at: timestamp,
   updated_at: timestamp,
 };
 const agent = {
+  key: "synthetic-agent",
   id: agentID,
   display_name: "Synthetic agent",
   state: "active",

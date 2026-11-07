@@ -58,12 +58,29 @@ type proxyFixture struct {
 	roots        *x509.CertPool
 	publicCA     []byte
 	trafficPath  string
+	trafficAcks  *atomic.Uint64
 	store        *storage.Store
 }
 
 func fixture(t *testing.T) *proxyFixture {
 	t.Helper()
 	return fixtureWithCompletionClock(t, nil)
+}
+
+// Single-record batches expose one successful invalidation per observation, so
+// protocol fixtures can await persistence without racing it with SQL polling.
+func fixtureWithTrafficAcknowledgments(t *testing.T) *proxyFixture {
+	t.Helper()
+	return fixtureWithTrafficConfig(t, nil, nil, func(config *invocation.TrafficConfig) {
+		config.BatchRecords = 1
+	})
+}
+
+func (f *proxyFixture) waitForTrafficAcknowledgments(t *testing.T, observations uint64) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return f.trafficAcks.Load() >= observations
+	}, 3*time.Second, 10*time.Millisecond, "traffic observations must settle before history reads")
 }
 
 func fixtureWithCompletionClock(t *testing.T, completionNow func() time.Time) *proxyFixture {
@@ -131,7 +148,12 @@ func fixtureWithStorageInitialization(t *testing.T, completionNow func() time.Ti
 	traffic, err := invocation.CreateTraffic(ctx, owner, installation, "01ARZ3NDEKTSV4RRFFQ69G5FAW", config)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, traffic.Close()) })
-	evidence, err := invocation.NewTrafficRepository(traffic, clock, rand.Reader, func(contract.Invalidation) {})
+	trafficAcks := new(atomic.Uint64)
+	evidence, err := invocation.NewTrafficRepository(traffic, clock, rand.Reader, func(event contract.Invalidation) {
+		if event.Kind == contract.InvalidationInvocations {
+			trafficAcks.Add(1)
+		}
+	})
 	require.NoError(t, err)
 	admissions, err := invocation.NewAdmissionCoordinator(evidence, authority)
 	require.NoError(t, err)
@@ -158,7 +180,7 @@ func fixtureWithStorageInitialization(t *testing.T, completionNow func() time.Ti
 			t.Error("proxy serve failed to join")
 		}
 	})
-	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, trafficPath: filepath.Join(owner.Layout().Root, "traffic-01ARZ3NDEKTSV4RRFFQ69G5FAW.db"), store: store}
+	return &proxyFixture{engine: engine, address: listener.Addr().String(), credential: credential, traffic: traffic, authority: authority, materials: materials, gitMaterials: gitMaterials, roots: roots, publicCA: public, trafficPath: filepath.Join(owner.Layout().Root, "traffic-01ARZ3NDEKTSV4RRFFQ69G5FAW.db"), trafficAcks: trafficAcks, store: store}
 }
 func (f *proxyFixture) allow(t *testing.T, raw, kind, path, credential string) {
 	t.Helper()

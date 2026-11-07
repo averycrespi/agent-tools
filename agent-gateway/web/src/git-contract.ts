@@ -3,6 +3,8 @@ import {
   type CredentialMaterialState,
 } from "./credential-material.ts";
 
+import { validResourceKey } from "./resource-key.ts";
+
 export type GitKind = "repositories" | "grants" | "credentials";
 export interface GitRef {
   id: string;
@@ -76,7 +78,7 @@ function time(v: unknown): boolean {
   return typeof v === "string" && Number.isFinite(Date.parse(v));
 }
 export function decodeGitResource(kind: GitKind, value: unknown): GitResource {
-  const common = ["id", "revision", "created_at", "updated_at"];
+  const common = ["key", "id", "revision", "created_at", "updated_at"];
   const keys =
     kind === "repositories"
       ? ["name", "url", "aliases", "credential_id", "alias_revision"]
@@ -99,6 +101,7 @@ export function decodeGitResource(kind: GitKind, value: unknown): GitResource {
           ];
   const r = object(value, [...common, ...keys]);
   if (
+    !validResourceKey(r.key) ||
     !id(r.id) ||
     !rev(r.revision) ||
     !time(r.created_at) ||

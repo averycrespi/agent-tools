@@ -12,6 +12,18 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 4. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
 5. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
+## Stable configuration keys
+
+Schema 26 assigns durable keys to retained agents, grants, HTTP/Git credential
+definitions and Git repositories, including retained deletion tombstones. Existing
+MCP namespaces, IDs, policies, secret ownership and history remain unchanged.
+Administrator resource JSON now includes `key`; upgrade strict API consumers and
+reload bundled browser tabs together. ID-based URLs and ETags do not change.
+Ordinary creation can still omit a key; the API generates one. Keys remain reserved
+after deletion, so a new resource needs a new key. They are identifiers, not secret
+values. See [grammar, type scopes and generation](../design/public-contract.md#stable-configuration-resource-keys).
+No ordinary CLI/browser key controls or configuration-format change is included.
+
 ## Backup and restore removal
 
 Installation-snapshot backup create/list/get/delete and stopped restore support is deliberately removed, including restore-only flags, APIs, UI and status occupancy. No aliases, compatibility endpoints, legacy format verification or transition procedure remain. Upgrade CLI/API consumers and reload browser tabs together; old requests and bookmarks do not redirect.

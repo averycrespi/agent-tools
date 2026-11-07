@@ -10,6 +10,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
@@ -111,6 +112,7 @@ func (h *Handler) gitCredential(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	var input struct {
+		Key    json.RawMessage                `json:"key"`
 		Name   *string                        `json:"name"`
 		Origin *string                        `json:"origin"`
 		Recipe *contract.HTTPCredentialRecipe `json:"recipe"`
@@ -120,7 +122,8 @@ func (h *Handler) gitCredential(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	defer clear(input.Secret)
-	if input.Name == nil || input.Origin == nil || input.Recipe == nil || input.Secret == nil {
+	var key string
+	if !decodeCreateKey(input.Key, &key) || input.Name == nil || input.Origin == nil || input.Recipe == nil || input.Secret == nil {
 		writeProblem(w, contract.ProblemInvalidOperation)
 		return
 	}
@@ -129,7 +132,7 @@ func (h *Handler) gitCredential(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	defer clear(secret)
-	c, err := h.gitCredentials.Create(r.Context(), contract.GitCredentialDefinition{Name: *input.Name, Origin: *input.Origin, Recipe: *input.Recipe}, secret)
+	c, err := h.gitCredentials.Create(r.Context(), contract.GitCredentialDefinition{Key: key, Name: *input.Name, Origin: *input.Origin, Recipe: *input.Recipe}, secret)
 	h.gitCredentialResult(w, c, err, http.StatusCreated)
 }
 func (h *Handler) gitCredentialResult(w http.ResponseWriter, c contract.GitCredential, err error, status int) {
@@ -147,7 +150,11 @@ func writeGitCredentialError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, storage.ErrStorageLatched):
 		problem = contract.ProblemStorageUnavailable
-	case errors.Is(err, gitcredentials.ErrInvalid):
+	case errors.Is(err, resourcekeys.ErrConflict):
+		problem = contract.ProblemConflict
+	case errors.Is(err, resourcekeys.ErrGeneration):
+		problem = contract.ProblemResourceLimit
+	case errors.Is(err, gitcredentials.ErrInvalid), errors.Is(err, resourcekeys.ErrInvalid):
 		problem = contract.ProblemInvalidOperation
 	case errors.Is(err, gitcredentials.ErrNotFound):
 		problem = contract.ProblemNotFound

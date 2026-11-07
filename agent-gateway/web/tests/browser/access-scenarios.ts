@@ -240,6 +240,7 @@ export async function runAccessManagementReadCanary(
   let mutationCount = 0;
   const principal = {
     id: principalID,
+    key: "build-agent",
     display_name: "Build agent",
     state: "active",
     visibility: "requestable",
@@ -257,6 +258,7 @@ export async function runAccessManagementReadCanary(
   };
   const grant = {
     id: grantID,
+    key: "safe-build-access",
     description: "Safe build access",
     revision: "1",
     principal_id: principalID,
@@ -420,6 +422,7 @@ export async function runPrincipals(
     revision: string,
   ) => ({
     id,
+    key: `agent-${id.toLowerCase()}`,
     display_name: displayName,
     state,
     visibility,
@@ -538,6 +541,7 @@ export async function runPrincipals(
         principal: created,
         default_grant: {
           id: grantID,
+          key: "default-gateway-access",
           description: "Default Gateway access",
           revision: "1",
           principal_id: createdID,
@@ -1028,6 +1032,7 @@ export async function runPrincipalCredentials(
   const lostBearer = `mgw_agent_${"L".repeat(43)}`;
   const principal = (revision: string, credential: boolean) => ({
     id: principalID,
+    key: "credential-agent",
     display_name: "Credential agent",
     state: "active",
     visibility: "requestable",
@@ -1464,6 +1469,7 @@ export async function runGrantReadsCreate(
   ) => ({
     ...(readOnly ? { read_only: true } : {}),
     id,
+    key: `grant-${id.toLowerCase()}`,
     description: (id === firstGrantID
       ? "Reporting access for quarterly compliance exports across every regional reporting workspace — retain this complete description"
       : "Restricted access") as string | null,
@@ -1521,6 +1527,7 @@ export async function runGrantReadsCreate(
         items: [
           {
             id: principalID,
+            key: "automation-agent",
             display_name: "Automation agent",
             state: "active",
             visibility: "allowed-only",
@@ -2658,7 +2665,28 @@ export async function runGrantReadsCreate(
     !enumOverrideReview.includes('"/region":"outside-enum"')
   )
     fail("equality-only review restricted enum overrides or omitted v2");
+  // Delay one native close to cover the inert-form and focus-restoration handoff.
+  const grantReviewDialog = page.locator(
+    'dialog[aria-labelledby="grant-create-confirm-title"]',
+  );
+  await grantReviewDialog.evaluate((dialog: HTMLDialogElement) => {
+    dialog.addEventListener(
+      "close",
+      () => dialog.setAttribute("data-test-close-settled", "true"),
+      { once: true },
+    );
+    const close = dialog.close;
+    dialog.close = (returnValue?: string) => {
+      dialog.close = close;
+      window.setTimeout(() => close.call(dialog, returnValue), 150);
+    };
+  });
   await page.locator('[data-testid="grant-create-confirm-cancel"]').click();
+  await expect(grantReviewDialog).toHaveAttribute(
+    "data-test-close-settled",
+    "true",
+  );
+  await expect(grantReviewDialog).toBeHidden();
   await scalarType.selectOption("number");
   await scalarValue.fill("1.00e+2");
   await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
@@ -3000,6 +3028,7 @@ export async function runGrantCorrection(
   ) => ({
     ...(readOnly ? { read_only: true } : {}),
     id,
+    key: `grant-${id.toLowerCase()}`,
     description: target === zero ? "Default Gateway access" : `Grant ${id}`,
     revision: "1",
     principal_id: principalID,
@@ -3053,6 +3082,7 @@ export async function runGrantCorrection(
         offset: 0,
         items: principalIDs.map((id, index) => ({
           id,
+          key: `agent-${index}`,
           display_name: `Agent ${index + 1}`,
           state: "active",
           visibility:
@@ -3101,6 +3131,7 @@ export async function runGrantCorrection(
       headers: { ETag: `"principal-${principalID}-1"` },
       body: JSON.stringify({
         id: principalID,
+        key: `agent-${index}`,
         display_name: `Principal ${index}`,
         http_default: "block",
         state: "active",
@@ -3661,6 +3692,7 @@ export async function runRequestReads(
         items: [
           {
             id: principalID,
+            key: "requesting-agent",
             display_name: "Requesting agent",
             http_default: "block",
             state: "active",

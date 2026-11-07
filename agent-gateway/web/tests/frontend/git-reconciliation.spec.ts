@@ -8,6 +8,7 @@ const timestamp = "2026-10-01T12:00:00.000000000Z";
 test("git-rotation-reconciliation", async ({ page, frontend }) => {
   registerCapture(page, "git-rotation-reconciliation");
   let current = {
+    key: "synthetic-credential",
     id,
     revision: "1",
     name: "Synthetic credential",
@@ -145,10 +146,25 @@ test("git-rotation-reconciliation", async ({ page, frontend }) => {
       exact: true,
     }),
   ).toBeVisible();
-  await page
-    .getByRole("dialog")
+  const discardDialog = page.locator(
+    'dialog[aria-labelledby="unsaved-changes-title"]',
+  );
+  // Native close queues focus restoration; a focus check alone can pass before it.
+  await discardDialog.evaluate((dialog: HTMLDialogElement) => {
+    dialog.addEventListener(
+      "close",
+      () => dialog.setAttribute("data-test-close-settled", "true"),
+      { once: true },
+    );
+  });
+  await discardDialog
     .getByRole("button", { name: "Cancel", exact: true })
     .click();
+  await expect(discardDialog).toHaveAttribute(
+    "data-test-close-settled",
+    "true",
+  );
+  await expect(discardDialog).toBeHidden();
   await expect(back).toBeFocused();
   await expect(name).toHaveValue("Retained metadata draft");
   // Acknowledgment adopts only the concurrency precondition; it sends no write.

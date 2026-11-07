@@ -134,6 +134,7 @@ type AgentCredential struct {
 }
 
 type Principal struct {
+	Key                string              `json:"key"`
 	HTTPDefault        HTTPDefault         `json:"http_default"`
 	ID                 string              `json:"id"`
 	DisplayName        string              `json:"display_name"`
@@ -157,6 +158,7 @@ type AgentCredentialCreation struct {
 }
 
 type Grant struct {
+	Key          string           `json:"key"`
 	ReadOnly     bool             `json:"read_only,omitempty"`
 	ID           string           `json:"id"`
 	Description  *string          `json:"description"`

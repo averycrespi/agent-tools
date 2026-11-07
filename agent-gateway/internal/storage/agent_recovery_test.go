@@ -9,6 +9,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -140,6 +142,9 @@ func TestHistoricalEvidenceRejectsUnknownMalformedForeignAndConflictingSlots(t *
 }
 
 func insertRecoveryPrincipal(ctx context.Context, transaction *sql.Tx, principalRevision, credentialRevision int64, credentialID string) error {
+	if _, err := resourcekeys.ReserveTx(ctx, transaction, resourcekeys.Agent, recoveryPrincipalID, ""); err != nil {
+		return err
+	}
 	_, err := transaction.ExecContext(ctx, `INSERT INTO principals (id,display_name,state,visibility,revision,credential_revision,credential_id,credential_verifier,credential_fingerprint,credential_created_at,created_at,updated_at) VALUES (?, 'Agent', 'active', 'requestable', ?, ?, ?, ?, '0123456789abcdef', ?, ?, ?)`, recoveryPrincipalID, principalRevision, credentialRevision, credentialID, make([]byte, 32), recoveryTimestamp, recoveryTimestamp, recoveryTimestamp)
 	return err
 }

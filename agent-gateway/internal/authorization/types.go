@@ -34,6 +34,7 @@ type GrantFilter struct {
 }
 
 type CreatePrincipalRequest struct {
+	Key         string
 	HTTPDefault *contract.HTTPDefault
 	DisplayName string
 	Visibility  contract.PrincipalVisibility
@@ -48,6 +49,7 @@ type PatchPrincipalRequest struct {
 }
 
 type CreateGrantRequest struct {
+	Key         string
 	ReadOnly    bool
 	Description *string
 	PrincipalID string

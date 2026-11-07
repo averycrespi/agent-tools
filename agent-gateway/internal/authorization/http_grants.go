@@ -12,23 +12,25 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 type HTTPGrantInput struct {
+	Key         string
 	PrincipalID string
 	Description *string
 	Policy      json.RawMessage
 	ExpiresAt   *time.Time
 }
 
-const httpGrantSelect = `SELECT id,principal_id,description,revision,policy_json,expires_at,created_at,updated_at,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='http' AND e.id=http_grants.id AND e.expires_at=http_grants.expires_at) FROM http_grants`
+const httpGrantSelect = `SELECT (SELECT key FROM resource_keys WHERE kind='http_grant' AND resource_id=http_grants.id),id,principal_id,description,revision,policy_json,expires_at,created_at,updated_at,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='http' AND e.id=http_grants.id AND e.expires_at=http_grants.expires_at) FROM http_grants`
 
 func scanHTTPGrant(row interface{ Scan(...any) error }, now time.Time) (contract.HTTPGrant, httppolicy.Policy, error) {
 	var g contract.HTTPGrant
 	var description, expires sql.NullString
 	var raw string
 	var importedExpiry bool
-	if err := row.Scan(&g.ID, &g.PrincipalID, &description, &g.Revision, &raw, &expires, &g.CreatedAt, &g.UpdatedAt, &importedExpiry); err != nil {
+	if err := row.Scan(&g.Key, &g.ID, &g.PrincipalID, &description, &g.Revision, &raw, &expires, &g.CreatedAt, &g.UpdatedAt, &importedExpiry); err != nil {
 		return g, httppolicy.Policy{}, err
 	}
 	if description.Valid {
@@ -71,7 +73,7 @@ func (r *Repository) GetHTTPGrant(ctx context.Context, id string) (g contract.HT
 }
 
 func validateHTTPInput(in HTTPGrantInput, now time.Time) (httppolicy.Policy, []byte, error) {
-	if !validOpaqueID(in.PrincipalID) || !validGrantDescription(in.Description) || in.ExpiresAt != nil && !in.ExpiresAt.After(now) {
+	if in.Key != "" && !contract.ValidResourceKey(in.Key) || !validOpaqueID(in.PrincipalID) || !validGrantDescription(in.Description) || in.ExpiresAt != nil && !in.ExpiresAt.After(now) {
 		return httppolicy.Policy{}, nil, ErrInvalidInput
 	}
 	p, err := httppolicy.DecodePolicy(in.Policy)
@@ -102,6 +104,9 @@ func (r *Repository) PutHTTPGrant(ctx context.Context, id, revision string, in H
 		return contract.HTTPGrant{}, err
 	}
 	create := id == ""
+	if !create && in.Key != "" {
+		return contract.HTTPGrant{}, ErrInvalidInput
+	}
 	if create {
 		id, err = r.newID(now)
 	} else if !validOpaqueID(id) || !validRevision(revision) {
@@ -127,6 +132,9 @@ func (r *Repository) PutHTTPGrant(ctx context.Context, id, revision string, in H
 			}
 			if count >= contract.HTTPPolicyGrants {
 				return ErrResourceLimit
+			}
+			if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.HTTPGrant, id, in.Key); err != nil {
+				return err
 			}
 			_, err := tx.ExecContext(ctx, `INSERT INTO http_grants(id,principal_id,description,revision,policy_json,expires_at,created_at,updated_at) VALUES(?,?,?,1,?,?,?,?)`, id, in.PrincipalID, nullableGrantString(in.Description), string(raw), nullableGrantTime(in.ExpiresAt), formatAuthorizationTime(now), formatAuthorizationTime(now))
 			if err != nil {
