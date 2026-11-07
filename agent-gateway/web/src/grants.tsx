@@ -57,6 +57,8 @@ import {
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
 type Effect = "allow" | "deny";
+import { validResourceKey } from "./resource-key";
+
 type GrantState = "active" | "expired";
 interface Grant {
   readOnly: boolean;
@@ -92,6 +94,7 @@ function id(value: unknown): string {
 function decodeGrant(value: unknown): Grant {
   const item = record(value, [
     ...readOnlyKeys(value),
+    "key",
     "id",
     "description",
     "revision",
@@ -104,6 +107,7 @@ function decodeGrant(value: unknown): Grant {
     "state",
     "created_at",
   ]);
+  if (!validResourceKey(item.key)) throw new Error("invalid response");
   const readOnly = decodeReadOnly(item);
   if (
     readOnly &&

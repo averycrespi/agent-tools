@@ -205,6 +205,7 @@ test("git-traffic", async ({ page, frontend }) => {
             : [
                 {
                   id,
+                  key: "current-repository",
                   name: "Current renamed repository",
                   url: "https://example.invalid/team/repo",
                   aliases: [],

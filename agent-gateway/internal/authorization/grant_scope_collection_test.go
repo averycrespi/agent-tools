@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,6 +19,9 @@ func TestGrantCollectionServerScopeAndDescriptorBindings(t *testing.T) {
 	seedProjectedGrant(t, store, projectedGrantRow{id: id(301), principalID: id(1), serverID: id(51), effect: contract.GrantAllow})
 	seedProjectedGrant(t, store, projectedGrantRow{id: id(303), principalID: id(1), serverID: contract.SyntheticServerID, upstreamName: "get_identity", effect: contract.GrantAllow})
 	require.NoError(t, store.Mutate(context.Background(), func(tx *sql.Tx) error {
+		if _, err := resourcekeys.ReserveTx(t.Context(), tx, resourcekeys.MCPGrant, id(302), ""); err != nil {
+			return err
+		}
 		_, err := tx.Exec(`INSERT INTO grants (id, principal_id, effect, server_id, upstream_name, read_only, created_at) VALUES (?, ?, 'allow', ?, NULL, 1, ?)`, id(302), id(1), id(51), timestamp(testNow))
 		return err
 	}))

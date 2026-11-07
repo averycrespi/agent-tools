@@ -41,6 +41,7 @@ func TestIntegrationImportedGitDefinitionRestartAndCompletion(t *testing.T) {
 	require.NoError(t, err)
 	canonical, err := Normalize(definition())
 	require.NoError(t, err)
+	require.True(t, contract.ValidResourceKey(unset.Key))
 	require.Equal(t, canonical, unset.GitCredentialDefinition)
 	require.Equal(t, contract.CredentialNotConfigured, unset.MaterialState)
 	require.False(t, unset.Available)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 // StageImportedDefinitionTx reserves an unset definition only in the caller's
@@ -24,6 +25,9 @@ func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def D
 	}
 	if total >= identityLimit || active >= contract.HTTPPolicyCredentials {
 		return ErrLimit
+	}
+	if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.HTTPCredential, id, canonical.Key); err != nil {
+		return err
 	}
 	timestamp := now.UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO http_credentials(id,name,host,port,allow_wildcard,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,0,0,?,?)`, id, canonical.Name, canonical.Boundary.Host, canonical.Boundary.Port, canonical.Boundary.AllowWildcard, canonical.Recipe.Header, canonical.Recipe.Prefix, timestamp, timestamp); err != nil {

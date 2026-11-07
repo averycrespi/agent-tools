@@ -14,6 +14,7 @@ const otherCredential = "01ARZ3NDEKTSV4RRFFQ69G5FAZ";
 const ref = (id = grantID) => ({ id, revision: 3 });
 function grant(): Grant {
   return {
+    key: "http-policy",
     id: grantID,
     principal_id: principal,
     revision: "2",

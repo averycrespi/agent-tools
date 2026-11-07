@@ -41,6 +41,9 @@ func TestDiagnosticMetadataRefusesActiveWAL(t *testing.T) {
 	store, err := Initialize(t.Context(), owner, testInstallationID)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close()) }()
+	// Exercise the nonempty-WAL boundary independently of the host's umask;
+	// unsupported sidecar modes have their own path-safety coverage.
+	require.NoError(t, os.Chmod(owner.Layout().Database+"-wal", 0600))
 	before, err := os.ReadFile(owner.Layout().Database + "-wal")
 	require.NoError(t, err)
 	require.NotEmpty(t, before)

@@ -7,6 +7,7 @@ const secondID = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
 const thirdID = "01ARZ3NDEKTSV4RRFFQ69G5FA2";
 const timestamp = "2026-10-01T12:00:00.000000000Z";
 const repo = {
+  key: "synthetic-repository",
   id,
   name: "Alpine repository with a long recognizable project name",
   url: "https://example.invalid:443/team/repo",

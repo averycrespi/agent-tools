@@ -8,6 +8,7 @@ const timestamp = "2026-10-01T12:00:00.000000000Z";
 test("git-rotation-reconciliation", async ({ page, frontend }) => {
   registerCapture(page, "git-rotation-reconciliation");
   let current = {
+    key: "synthetic-credential",
     id,
     revision: "1",
     name: "Synthetic credential",

@@ -11,12 +11,17 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 const serverCollection = "servers"
 
 func (repository *Repository) Create(ctx context.Context, request CreateRequest) (CreateResult, error) {
-	transport, err := validateDefinition(request.Definition)
+	definition := request.Definition
+	if definition.Namespace == "" {
+		definition.Namespace = "generated"
+	}
+	transport, err := validateDefinition(definition)
 	if err != nil {
 		return CreateResult{}, err
 	}
@@ -59,6 +64,22 @@ func (repository *Repository) Create(ctx context.Context, request CreateRequest)
 			return err
 		}
 
+		if request.Definition.Namespace == "" {
+			for range 8 {
+				candidate := resourcekeys.Candidate("server")
+				var reserved bool
+				if err := transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM server_identities WHERE namespace=?)`, candidate).Scan(&reserved); err != nil {
+					return err
+				}
+				if !reserved {
+					request.Definition.Namespace = candidate
+					break
+				}
+			}
+			if request.Definition.Namespace == "" {
+				return ErrNamespaceUnavailable
+			}
+		}
 		var idCount, namespaceCount int
 		if err := transaction.QueryRowContext(ctx, `SELECT count(*) FROM server_identities WHERE id = ?`, serverID).Scan(&idCount); err != nil {
 			return fmt.Errorf("check server ID: %w", err)

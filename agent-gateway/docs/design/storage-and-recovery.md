@@ -39,6 +39,21 @@ Schema 23 adds `secret_custody` (the installation key identity/version and nonre
 
 Schema 25 adds configuration-import input/result digests, independent server first-activation fences and exact expired-grant receipts. Existing installations migrate with empty import facts and unchanged authority. The stopped importer owns one atomic definitions/receipt transaction; authorization owns expired-policy validation and servers own explicit activation. The result digest binds the resulting portable graph, activation and expiry facts, while domain checks prove unset imported authority. Storage verifies the exact embedded DDL. Current-schema validation never falls back on missing or damaged import evidence. These are new-installation facts, never restored source history or secret material; see [initialization and import](administrative-control-plane.md#installation-and-stopped-commands).
 
+Schema 26 adds permanent, immutable type-scoped `resource_keys` reservations for
+agents, MCP/HTTP/Git grants, HTTP/Git credential definitions and Git repositories.
+Backfill assigns type-prefixed lowercase existing IDs to every retained row,
+including disabled agents and credential/repository tombstones; it changes no
+existing rows or authority. MCP namespaces keep their existing identity table.
+There is no foreign key from a reservation to a mutable resource: physical grant
+deletion must not free its key or ID. No keys are invented for previously removed
+rows whose keys are unrecoverable. The reservation owner writes on the caller's
+existing creation transaction, including default grants, approval and stopped
+import. Reservation conflicts fail atomically; update/delete triggers protect the
+ledger. Startup verifies the exact DDL and complete retained-resource coverage,
+without backfilling damaged current schemas. The existing 1 GiB control-store
+bound also bounds permanent reservation growth; deletion does not refund it.
+See [public key grammar and generation](public-contract.md#stable-configuration-resource-keys).
+
 The fixed `master-key` file is a 32-byte random key, not a password. Creation uses exclusive no-follow creation relative to a verified 0700 owner directory, a regular single-link 0600 owner file, file sync and directory sync before recording key identity. Setup retains partial/uncertain files rather than overwriting or replaying creation. A complete unbound key from interrupted initial setup can be adopted explicitly; an established database key identity or encrypted material never permits generating a replacement for a missing/wrong key. Reads check ownership, mode, file type, link count and exact size. Initialization provisions custody before administrator/CA authority. Existing installations must already have encrypted custody; separate stopped setup is retired without aliases or automatic invocation. Established missing/wrong keys fail startup closed. Explicit initialization resume additionally retains a custody-publication intent before key creation; an interrupted attempt with no remaining key refuses instead of generating a new identity. The bounded initialization protocol in [administrative control](administrative-control-plane.md#installation-and-stopped-commands) is the sole initialization resume protocol and never clears historical SQL markers.
 
 ### Legacy custody refusal

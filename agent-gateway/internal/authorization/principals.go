@@ -10,7 +10,7 @@ import (
 )
 
 const principalSelect = `
-	SELECT insertion_sequence, id, display_name, state, visibility, revision,
+	SELECT (SELECT key FROM resource_keys WHERE kind='agent' AND resource_id=principals.id), insertion_sequence, id, display_name, state, visibility, revision,
 	       credential_revision, credential_id, credential_fingerprint,
 	       credential_created_at, created_at, updated_at,
 	       (SELECT policy FROM http_defaults WHERE principal_id = principals.id)
@@ -98,7 +98,7 @@ func scanPrincipal(scanner principalScanner) (int64, contract.Principal, error) 
 		credentialCreatedAt   sql.NullString
 	)
 	if err := scanner.Scan(
-		&sequence, &principal.ID, &principal.DisplayName, &principal.State, &principal.Visibility,
+		&principal.Key, &sequence, &principal.ID, &principal.DisplayName, &principal.State, &principal.Visibility,
 		&revision, &credentialRevision, &credentialID, &credentialFingerprint,
 		&credentialCreatedAt, &principal.CreatedAt, &principal.UpdatedAt, &principal.HTTPDefault,
 	); err != nil {

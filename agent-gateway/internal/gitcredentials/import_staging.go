@@ -8,6 +8,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 // StageImportedDefinitionTx reserves an unset definition only on a stopped
@@ -24,6 +25,9 @@ func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def c
 	}
 	if total >= identityLimit || active >= contract.GitCredentials {
 		return ErrLimit
+	}
+	if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitCredential, id, canonical.Key); err != nil {
+		return err
 	}
 	timestamp := now.UTC().Format(contract.AuditTimestampLayout)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO git_credentials(id,name,origin,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,1,0,0,?,?)`, id, canonical.Name, canonical.Origin, canonical.Recipe.Header, canonical.Recipe.Prefix, timestamp, timestamp); err != nil {

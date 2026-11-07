@@ -107,6 +107,7 @@ func (h *Handler) gitRepositories(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	var input struct {
+		Key          json.RawMessage `json:"key"`
 		Name         *string         `json:"name"`
 		URL          *string         `json:"url"`
 		Aliases      *[]string       `json:"aliases"`
@@ -116,11 +117,12 @@ func (h *Handler) gitRepositories(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 	var credential *string
-	if input.Name == nil || input.URL == nil || input.Aliases == nil || !decodeNullableGrantMember(input.CredentialID, &credential) {
+	var key string
+	if id != "" && input.Key != nil || !decodeCreateKey(input.Key, &key) || input.Name == nil || input.URL == nil || input.Aliases == nil || !decodeNullableGrantMember(input.CredentialID, &credential) {
 		writeProblem(w, contract.ProblemInvalidGrant)
 		return
 	}
-	g, err := h.gitPolicies.PutGitRepository(r.Context(), id, revision, contract.GitRepositoryDefinition{Name: *input.Name, URL: *input.URL, Aliases: *input.Aliases, CredentialID: credential})
+	g, err := h.gitPolicies.PutGitRepository(r.Context(), id, revision, contract.GitRepositoryDefinition{Key: key, Name: *input.Name, URL: *input.URL, Aliases: *input.Aliases, CredentialID: credential})
 	if err != nil {
 		writeGitPolicyError(w, err)
 		return
@@ -185,6 +187,7 @@ func (h *Handler) gitGrants(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	var raw struct {
+		Key          json.RawMessage `json:"key"`
 		PrincipalID  json.RawMessage `json:"principal_id"`
 		RepositoryID json.RawMessage `json:"repository_id"`
 		Description  json.RawMessage `json:"description"`
@@ -196,7 +199,7 @@ func (h *Handler) gitGrants(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	var input authorization.GitGrantInput
 	var expiry *string
-	if !decodeRequiredGrantMember(raw.PrincipalID, &input.PrincipalID) || !decodeRequiredGrantMember(raw.RepositoryID, &input.RepositoryID) || !decodeNullableGrantMember(raw.Description, &input.Description) || !decodeNullableGrantMember(raw.ExpiresAt, &expiry) || raw.Policy == nil {
+	if id != "" && raw.Key != nil || !decodeCreateKey(raw.Key, &input.Key) || !decodeRequiredGrantMember(raw.PrincipalID, &input.PrincipalID) || !decodeRequiredGrantMember(raw.RepositoryID, &input.RepositoryID) || !decodeNullableGrantMember(raw.Description, &input.Description) || !decodeNullableGrantMember(raw.ExpiresAt, &expiry) || raw.Policy == nil {
 		writeProblem(w, contract.ProblemInvalidGrant)
 		return
 	}

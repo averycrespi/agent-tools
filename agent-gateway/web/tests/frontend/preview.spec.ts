@@ -85,6 +85,7 @@ test("http-preview", async ({ page, frontend }) => {
         items: [
           {
             id,
+            key: "synthetic-preview-agent",
             display_name: "Synthetic preview agent",
             state: "active",
             visibility: "all",

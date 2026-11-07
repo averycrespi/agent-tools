@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -206,6 +207,9 @@ func seedProjectedGrant(t *testing.T, store interface {
 }, row projectedGrantRow) {
 	t.Helper()
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		if _, err := resourcekeys.ReserveTx(t.Context(), transaction, resourcekeys.MCPGrant, row.id, ""); err != nil {
+			return err
+		}
 		var upstream, constraint, expires any
 		if row.upstreamName != "" {
 			upstream = row.upstreamName

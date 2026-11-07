@@ -87,6 +87,43 @@ The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for
 
 Item reads additionally return a detail-only `recognition` sidecar with nullable `server` (`server_id`, `display_name`) and `grant` (`grant_id`, `description`). These are current control metadata, not admission-time evidence. After closing the traffic snapshot, the service makes at most one targeted owner-local read per recorded downstream server and grant, under one shared 500 ms deadline. No inventory traversal, cross-store SQL, write-time enrichment or schema migration occurs. Server reads exclude deleted resources; existing undescribed grants return an empty description. Missing or unavailable metadata yields a null relationship without failing the retained item or asserting deletion. Gateway-local/unresolved targets do not acquire server recognition, and absent grant IDs do not acquire grants. Labels retain their 256-byte UTF-8 bounds. Clients validate sidecar identities against the recorded relationship, reject extra fields and mismatches, and fall back to recorded IDs for null recognition or older responses omitting the sidecar. Recorded IDs, tool/requested/upstream names, authorization, timestamps, capture bytes, history exports and collection projections remain unchanged.
 
+## Stable configuration resource keys
+
+Administrator resource representations for agents (`Principal`), MCP/HTTP/Git grants,
+HTTP/Git credential definitions and Git repositories include an immutable `key`.
+Keys are unique within each of these seven resource types, not within an agent or
+installation-wide across types. Identical duplicate grants have independent keys.
+MCP servers instead use their existing immutable `namespace` as their key; no
+second server-key field or authority is introduced. Mutable names and descriptions
+remain separate recognition metadata. Keys are public identifiers, not secrets.
+
+For the seven `key` types the grammar is `[a-z][a-z0-9_-]{0,63}` (ASCII, case
+sensitive, no normalization). Their ordinary POST requests optionally accept
+`key`; omission generates a type prefix plus `-` and twelve random lowercase hex
+digits, with at most eight collision-checked candidates inside the existing
+creation transaction. Explicit null, empty or malformed keys fail with the
+resource's existing invalid-input problem. An existing or deleted reservation
+conflicts; generated-candidate exhaustion returns `resource_limit`. Creation also
+reserves generated default/approval grants and stopped imported definitions.
+Updates reject a `key` field; keys cannot be renamed or reassigned.
+
+MCP namespaces retain `[a-z][a-z0-9_-]{0,31}` and the reserved `mcp_gateway`
+identity. Server POST may omit `namespace` to generate `server-` plus twelve
+lowercase hex digits, with the same eight-candidate bound and existing
+`namespace_unavailable` exhaustion/conflict problem. Idempotent replay returns
+the originally generated namespace. Explicit null or empty namespaces are invalid.
+
+Reservations survive deletion permanently, including physically removed grant
+rows. Schema 26 backfills retained resources and tombstones with type-prefixed
+lowercase installation-local IDs, without changing any ID, relationship,
+permission, credential ownership, revision or historical record. Existing MCP
+namespaces are unchanged. Previously removed rows with no recoverable key receive
+no invented historical key. Startup rejects missing current-resource reservations;
+it never repairs them online. All existing ID-based URLs, ETags and internal
+history/authority references remain ID-based. Old ordinary-create callers can
+continue omitting keys. This does not change the configuration file format or
+add CLI/browser key controls.
+
 ## Portable configuration export
 
 `GET /api/v2/config/export` is an administrator bearer/session authenticated,
@@ -333,7 +370,7 @@ See [imported setup](downstream-servers.md#imported-credential-setup).
 | `/api/v2/http/credentials/{id}`        | `DELETE, GET, PATCH` |
 | `/api/v2/http/credentials/{id}/rotate` | `POST`               |
 
-All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting singleton nonempty `cursor`, `limit` (default 50, maximum 100), `name`, `boundary`, `recipe`, `status`, `sort` and `direction`. Omitted sort retains creation-descending API/CLI compatibility; the browser explicitly requests name ascending. Sort keys are name/boundary/recipe/status, with ascending or descending direction (direction requires sort; omitted direction for an explicit sort is ascending). Normalized primary ties use immutable ID ascending. Filtering and ordering precede page slicing, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `material_state`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned. Name searches safe names or literal case-sensitive identifier substrings; boundary recognizes host/port metadata and recipe recognizes header/fixed-prefix metadata, never material. Text follows the bounded NFKD/mark-removal/lowercase, conjunctive token-substring or nondigit four-character one-edit recognition used for resources. Status is `configured` or `unavailable`; filters combine before slicing the bounded authoritative inventory. Empty, repeated, unknown, oversized (>256 UTF-8 bytes) or control/format-bearing members fail closed. Recognition is not wildcard boundary authority. Version-two cursors (at most 512 bytes) authenticate the effective query, safe inventory/order/availability metadata, continuation position and original expiry with a private process-local API-owner HMAC key. The key is neither serialized nor persisted; a new API owner cannot resume an old traversal. Cursors expire five minutes after the first page and never extend on continuation. Failed authentication, changed query or metadata and expired traversal return `409 stale_cursor`; malformed/closed-shape failures return `400 invalid_cursor`. Unfiltered v1 clients may finish their existing traversal; newly issued cursors use v2.
+All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting singleton nonempty `cursor`, `limit` (default 50, maximum 100), `name`, `boundary`, `recipe`, `status`, `sort` and `direction`. Omitted sort retains creation-descending API/CLI compatibility; the browser explicitly requests name ascending. Sort keys are name/boundary/recipe/status, with ascending or descending direction (direction requires sort; omitted direction for an explicit sort is ascending). Normalized primary ties use immutable ID ascending. Filtering and ordering precede page slicing, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `key`, `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `material_state`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned. Name searches safe names or literal case-sensitive identifier substrings; boundary recognizes host/port metadata and recipe recognizes header/fixed-prefix metadata, never material. Text follows the bounded NFKD/mark-removal/lowercase, conjunctive token-substring or nondigit four-character one-edit recognition used for resources. Status is `configured` or `unavailable`; filters combine before slicing the bounded authoritative inventory. Empty, repeated, unknown, oversized (>256 UTF-8 bytes) or control/format-bearing members fail closed. Recognition is not wildcard boundary authority. Version-two cursors (at most 512 bytes) authenticate the effective query, safe inventory/order/availability metadata, continuation position and original expiry with a private process-local API-owner HMAC key. The key is neither serialized nor persisted; a new API owner cannot resume an old traversal. Cursors expire five minutes after the first page and never extend on continuation. Failed authentication, changed query or metadata and expired traversal return `409 stale_cursor`; malformed/closed-shape failures return `400 invalid_cursor`. Unfiltered v1 clients may finish their existing traversal; newly issued cursors use v2.
 
 `HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
 
@@ -429,11 +466,11 @@ remain valid without reinterpretation or a database migration.
 
 `GitRepositoryWrite` requires exactly `name`, `url`, nonnull `aliases` array and
 nullable `credential_id`. No omitted credential selector means public access:
-public configuration deliberately supplies null. `GitRepository` adds `id`,
+public configuration deliberately supplies null. `GitRepository` adds `key`, `id`,
 `revision`, `alias_revision`, `created_at`, `updated_at`. Locator retargeting and
 alias collisions conflict. `GitGrantWrite` requires exactly `principal_id`,
 `repository_id`, nullable `description`, `policy`, nullable `expires_at`.
-`GitGrant` adds `id`, `revision`, `state`, `created_at`, `updated_at`; state is
+`GitGrant` adds `key`, `id`, `revision`, `state`, `created_at`, `updated_at`; state is
 active/expired, timestamps are fixed UTC nanoseconds, expiry follows creation.
 The [Git policy chapter](identity-and-authorization.md#persisted-git-authority)
 owns immutable identity and closed bounded selector semantics.
@@ -460,7 +497,7 @@ and treat the mutation outcome as uncertain, never a reason to replay.
 
 Git credential create requires `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
 and write-only `secret`. Update replaces the same metadata without a secret;
-rotate is exactly `{secret}`. `GitCredential` contains `id`, `name`, `origin`, `material_state`,
+rotate is exactly `{secret}`. `GitCredential` contains `key`, `id`, `name`, `origin`, `material_state`,
 `recipe`, `revision`, `available`, `referencing_repositories:[{id}]`, `created_at`,
 `updated_at`. Ordinary reads return neither secret nor handle. The credential
 owner retains the established 4,096-byte prefix-plus-secret bound and protected
@@ -960,7 +997,7 @@ The sole operator query path scans compact recognition metadata bounded by the f
 
 Grant identity and policy are immutable and expose no idempotency surface. Create, read, and description-only PATCH return the grant ETag; PATCH requires that exact current value. Successful create, description update, and delete publish only the ID-free authorization invalidation.
 
-`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{id,display_name,state,visibility,http_default,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` requires `{id,description,revision,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}` and optionally includes `read_only:true`; unrestricted grants omit that member. The self-service `AgentGrant` projection is exactly `{id,description,effect,policy,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`; the grant ETag is exactly `"grant-<id>-<revision>"`.
+`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{key,id,display_name,state,visibility,http_default,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` requires `{key,id,description,revision,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}` and optionally includes `read_only:true`; unrestricted grants omit that member. The self-service `AgentGrant` projection is exactly `{id,description,effect,policy,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`; the grant ETag is exactly `"grant-<id>-<revision>"`.
 
 ## Strict JSON
 

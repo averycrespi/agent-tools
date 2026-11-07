@@ -30,6 +30,8 @@ import {
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const decimal = /^(0|[1-9][0-9]*)$/;
+import { validResourceKey } from "./resource-key";
+
 type PrincipalState = "active" | "disabled";
 type PrincipalVisibility = "requestable" | "allowed-only" | "all";
 type JSONRecord = Record<string, unknown>;
@@ -96,6 +98,7 @@ function closed<T extends string>(value: unknown, values: readonly T[]): T {
 }
 export function decodePrincipal(value: unknown): Principal {
   const item = record(value, [
+    "key",
     "id",
     "display_name",
     "state",
@@ -107,6 +110,7 @@ export function decodePrincipal(value: unknown): Principal {
     "created_at",
     "updated_at",
   ]);
+  if (!validResourceKey(item.key)) throw new Error("invalid response");
   const credential =
     item.credential === null
       ? null
@@ -141,6 +145,7 @@ export function decodePrincipal(value: unknown): Principal {
 function decodeCreation(value: unknown): PrincipalCreation {
   const creation = record(value, ["principal", "default_grant"]);
   const grant = record(creation.default_grant, [
+    "key",
     "id",
     "description",
     "revision",
@@ -153,6 +158,7 @@ function decodeCreation(value: unknown): PrincipalCreation {
     "state",
     "created_at",
   ]);
+  if (!validResourceKey(grant.key)) throw new Error("invalid response");
   const principal = decodePrincipal(creation.principal);
   if (
     grant.description !== "Default Gateway access" ||

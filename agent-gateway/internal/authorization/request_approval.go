@@ -11,6 +11,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/accesstarget"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
@@ -103,6 +104,9 @@ func (repository *Repository) ApproveGrantRequest(ctx context.Context, transitio
 		if material.DurationSeconds != nil {
 			expires := now.Add(time.Duration(*material.DurationSeconds) * time.Second)
 			expiresAt = &expires
+		}
+		if _, err := resourcekeys.ReserveTx(ctx, transaction, resourcekeys.MCPGrant, grantID, ""); err != nil {
+			return err
 		}
 		if _, insertErr := transaction.ExecContext(ctx, `INSERT INTO grants (
 			id, description, principal_id, effect, server_id, upstream_name,

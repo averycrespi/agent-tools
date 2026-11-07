@@ -312,6 +312,18 @@ material is valid unavailable configuration, never uninjected or old-generation
 fallback. See [Git credentials](downstream-servers.md#scoped-git-credentials) and
 [Git administrative contracts](public-contract.md#git-configuration-resources).
 
+## Stable configuration identity
+
+Agents, MCP/HTTP/Git grants and Git repositories have immutable type-scoped
+portable keys independently of their mutable names/descriptions and local IDs.
+HTTP/Git credential definitions follow the same reservation contract. MCP server
+keys remain namespaces. Keys select no authority by themselves: relationships,
+leases, history, custody, URLs and ETags remain bound to existing local IDs.
+Creation reserves each key atomically with the existing domain mutation and audit;
+physical grant deletion retains the reservation permanently. Default and approved
+grants also acquire distinct generated keys. See the [public key contract](public-contract.md#stable-configuration-resource-keys)
+and [schema-26 durability](storage-and-recovery.md#storage-durability).
+
 ## Principal and grant contract
 
 The [public principal and grant contract](public-contract.md#principal-and-grant-contract) owns routes, closed shapes, ETags and collection mechanics. This chapter owns identity, policy, transactional authority and failure semantics.

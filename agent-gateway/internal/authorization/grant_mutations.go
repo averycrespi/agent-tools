@@ -11,6 +11,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 func (repository *Repository) CreateGrant(
@@ -18,7 +19,7 @@ func (repository *Repository) CreateGrant(
 	request CreateGrantRequest,
 	validateTarget CurrentGrantTargetValidator,
 ) (contract.Grant, error) {
-	if validateTarget == nil || !validGrantDescription(request.Description) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.Target.ServerID) || !validGrantEffect(request.Effect) ||
+	if request.Key != "" && !contract.ValidResourceKey(request.Key) || validateTarget == nil || !validGrantDescription(request.Description) || !validOpaqueID(request.PrincipalID) || !validOpaqueID(request.Target.ServerID) || !validGrantEffect(request.Effect) ||
 		request.Target.UpstreamName != nil && !validUpstreamName(*request.Target.UpstreamName) || request.Target.UpstreamName == nil && request.Constraint != nil ||
 		request.ReadOnly && (request.Effect != contract.GrantAllow || request.Target.UpstreamName != nil || request.Constraint != nil) {
 		return contract.Grant{}, ErrInvalidInput
@@ -68,6 +69,9 @@ func (repository *Repository) CreateGrant(
 		}
 		if collisions != 0 {
 			return ErrIdentityUnavailable
+		}
+		if _, err := resourcekeys.ReserveTx(ctx, transaction, resourcekeys.MCPGrant, grantID, request.Key); err != nil {
+			return err
 		}
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO grants (

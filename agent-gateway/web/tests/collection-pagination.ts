@@ -30,6 +30,7 @@ export async function exerciseCollectionPagination(
     alphabet[index % 32]!;
   const principal = (index: number) => ({
     id: id(index),
+    key: `agent-${index}`,
     display_name: index === 127 ? "Zulu needle" : "Duplicate name",
     state: index === 127 ? "disabled" : "active",
     visibility: index === 127 ? "all" : "requestable",
@@ -42,6 +43,7 @@ export async function exerciseCollectionPagination(
   });
   const grant = (index: number) => ({
     grant: {
+      key: `grant-${index}`,
       id: id(index + 200),
       description: index === 127 ? "Zulu needle" : "Duplicate policy",
       revision: "1",

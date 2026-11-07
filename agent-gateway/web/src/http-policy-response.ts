@@ -21,6 +21,7 @@ export interface Policy {
   credential_id?: string;
 }
 export interface Grant {
+  key: string;
   id: string;
   principal_id: string;
   description: string | null;
@@ -251,8 +252,11 @@ export function validatePolicy(value: unknown): void {
     }
   }
 }
+import { validResourceKey } from "./resource-key.ts";
+
 export function decodeGrant(value: unknown): Grant {
   const g = exact(value, [
+    "key",
     "id",
     "principal_id",
     "description",
@@ -264,6 +268,7 @@ export function decodeGrant(value: unknown): Grant {
     "updated_at",
   ]);
   if (
+    !validResourceKey(g.key) ||
     typeof g.id !== "string" ||
     !idPattern.test(g.id) ||
     typeof g.principal_id !== "string" ||
