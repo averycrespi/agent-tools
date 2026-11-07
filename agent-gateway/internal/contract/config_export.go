@@ -54,6 +54,7 @@ type ConfigServerCredentials struct {
 }
 
 type ConfigMCPGrant struct {
+	ID           string          `json:"-"`
 	Agent        string          `json:"agent"`
 	Server       string          `json:"server"`
 	Description  *string         `json:"description"`
@@ -87,6 +88,7 @@ type ConfigHTTPPolicy struct {
 }
 
 type ConfigHTTPGrant struct {
+	ID          string           `json:"-"`
 	Agent       string           `json:"agent"`
 	Description *string          `json:"description"`
 	Policy      ConfigHTTPPolicy `json:"policy"`
@@ -116,6 +118,7 @@ type ConfigGitRepository struct {
 }
 
 type ConfigGitGrant struct {
+	ID          string    `json:"-"`
 	Agent       string    `json:"agent"`
 	Repository  string    `json:"repository"`
 	Description *string   `json:"description"`

@@ -25,7 +25,7 @@ var (
 	ErrNotConfigured = errors.New("HTTP credential not configured: supply a value using this credential's rotate action")
 )
 
-const identityLimit = 1024
+const identityLimit = contract.HTTPCredentialIdentities
 
 type Clock interface{ Now() time.Time }
 
