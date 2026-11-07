@@ -5,18 +5,18 @@ import (
 	"database/sql"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 // RetainedConfigurationTx includes deleted definitions but never material facts.
 // Map keys are private joins, not output references.
 func RetainedConfigurationTx(ctx context.Context, tx *sql.Tx) (map[string]contract.ConfigHTTPCredentialSpec, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT id,name,host,port,allow_wildcard,header,prefix,deleted FROM http_credentials ORDER BY id LIMIT ?`, resourcekeys.ConfigurationLimit+1)
+	rows, err := tx.QueryContext(ctx, `SELECT id,name,host,port,allow_wildcard,header,prefix,deleted FROM http_credentials ORDER BY id LIMIT ?`, identityLimit+1)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	out := map[string]contract.ConfigHTTPCredentialSpec{}
+	active := 0
 	for rows.Next() {
 		var id string
 		var s contract.ConfigHTTPCredentialSpec
@@ -26,10 +26,13 @@ func RetainedConfigurationTx(ctx context.Context, tx *sql.Tx) (map[string]contra
 		if _, err := Normalize(Definition{Name: s.Name, Boundary: Boundary{Host: s.Boundary.Host, Port: s.Boundary.Port, AllowWildcard: s.Boundary.AllowWildcard}, Recipe: s.Recipe}); err != nil {
 			return nil, err
 		}
+		if !s.Deleted {
+			active++
+		}
 		out[id] = s
 	}
-	if len(out) > resourcekeys.ConfigurationLimit {
-		return nil, ErrInvalid
+	if len(out) > identityLimit || active > contract.HTTPPolicyCredentials {
+		return nil, ErrLimit
 	}
 	return out, rows.Err()
 }

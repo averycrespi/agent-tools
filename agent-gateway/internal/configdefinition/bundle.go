@@ -16,6 +16,7 @@ func ValidateBundle(b contract.ConfigBundle) error {
 	}
 	present := map[string]bool{}
 	counts := map[string]int{}
+	retainedCredentials := map[string]int{}
 	keyBindings := 0
 	namespaces := 0
 	for _, d := range b.Resources {
@@ -33,6 +34,16 @@ func ValidateBundle(b contract.ConfigBundle) error {
 			}
 			_ = json.Unmarshal(d.Spec, &state)
 			deletedCredential = state.Deleted
+		}
+		if !d.Reserved && (d.Kind == "http_credential" || d.Kind == "git_credential") {
+			retainedCredentials[d.Kind]++
+			maximum := contract.HTTPCredentialIdentities
+			if d.Kind == "git_credential" {
+				maximum = contract.GitCredentialIdentities
+			}
+			if retainedCredentials[d.Kind] > maximum {
+				return ErrInvalid
+			}
 		}
 		present[id] = !d.Reserved && !deletedCredential
 		if d.Kind == "mcp_server" {

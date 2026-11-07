@@ -38,7 +38,7 @@ var (
 	ErrNotConfigured = errors.New("git credential not configured: supply a value using this credential's rotate action")
 )
 
-const identityLimit = 1024
+const identityLimit = contract.GitCredentialIdentities
 
 type Clock interface{ Now() time.Time }
 type Service struct {

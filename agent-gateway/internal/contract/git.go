@@ -4,6 +4,7 @@ package contract
 const (
 	GitRepositories         = 256
 	GitRepositoryIdentities = 1024
+	GitCredentialIdentities = 1024
 	GitGrants               = 4096
 	GitCredentials          = 256
 	GitAliases              = 4

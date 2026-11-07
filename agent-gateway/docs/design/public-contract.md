@@ -191,8 +191,10 @@ bounds; a single server or grant spec additionally has a 2 MiB envelope bound
 without relaxing its tighter domain bounds. At most 1,048,576 permanent typed-key
 bindings are accepted, including live definitions, deleted credential definitions
 and reservations; the separate 1,024 MCP namespace capacity also includes reserved
-namespaces. Live domain capacities remain tighter. Excess inventory fails rather
-than truncates. Whole bundles resolve all typed
+namespaces. HTTP and Git credential definitions each retain their native limits
+of 1,024 live-plus-deleted rows and 256 live rows; key-only reservations do not
+consume row capacity. Other live domain capacities remain tighter. Excess
+inventory fails rather than truncates. Whole bundles resolve all typed
 references and validate credential containment, locator collisions, active server
 capacity and singleton presence. An individual definition validates its own
 configuration and reference types without requiring dependencies in the file;

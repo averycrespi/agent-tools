@@ -3,6 +3,7 @@ package contract
 import "strings"
 
 const (
+	HTTPCredentialIdentities  = 1024
 	HTTPCredentialNameBytes   = 256
 	HTTPCredentialHeaderBytes = 128
 	HTTPCredentialPrefixBytes = 128
