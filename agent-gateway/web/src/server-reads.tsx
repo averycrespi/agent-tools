@@ -1,3 +1,4 @@
+import { ConfigActions, ImportLink } from "./configuration";
 import { useEffect, useState } from "preact/hooks";
 import {
   decodeDiagnosticCorrelation,
@@ -1450,12 +1451,14 @@ function serverExplanation(
 }
 
 function ServerNavigation({
+  session,
   server,
   serverID,
   current,
   fresh,
   compact = false,
 }: {
+  session: SessionClient;
   server: ServerView | undefined;
   serverID: string;
   current: string;
@@ -1491,6 +1494,11 @@ function ServerNavigation({
           <code data-testid="server-id">{server.id}</code>
         </p>
       </header>
+      <ConfigActions
+        session={session}
+        kind="mcp_server"
+        resourceKey={server.namespace}
+      />
       <ServerTabs serverID={serverID} current={current} />
     </>
   );
@@ -2125,6 +2133,7 @@ export function ServerReads({
           >
             Create server
           </a>
+          <ImportLink kind="mcp_server" label="server" />
         </div>
         <section class="panel domain-panel" aria-labelledby="page-title">
           <ServerCollectionTable
@@ -2145,6 +2154,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="server-authentication-view">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={authenticationTab[1]!}
           fresh={overviewPanel?.status === "current"}
           current="authentication"
@@ -2213,6 +2223,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="server-auth-flows-view">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={serverID}
           fresh={panel?.status === "current"}
           current="authentication"
@@ -2246,6 +2257,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="server-activity-view">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={activityTab[1]!}
           fresh={overviewPanel?.status === "current"}
           current="operations"
@@ -2469,6 +2481,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="descriptor-list">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={descriptorList}
           fresh={overviewPanel?.status === "current"}
           current="tools"
@@ -2499,6 +2512,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="server-settings-view">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={settingsTab[1]!}
           fresh={panel?.status === "current"}
           current="settings"
@@ -2536,6 +2550,7 @@ export function ServerReads({
       <div class="domain-view" data-testid="server-status-view">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={statusServerID}
           fresh={panel?.status === "current"}
           current="status"
@@ -2783,6 +2798,7 @@ export function ServerReads({
       <div class="domain-view">
         <ServerNavigation
           server={snapshot.server}
+          session={session}
           serverID={otherTab[1]!}
           fresh={panel?.status === "current"}
           current={otherTab[2]!}

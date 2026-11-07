@@ -20,6 +20,7 @@ export interface GitPolicy {
   refs: GitRule[];
 }
 export interface GitResource {
+  key: string;
   id: string;
   revision: string;
   created_at: string;

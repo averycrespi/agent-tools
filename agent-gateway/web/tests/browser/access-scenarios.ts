@@ -519,11 +519,12 @@ export async function runPrincipals(
       unknown
     >;
     if (
+      body.key !== "principal_investigator" ||
       body.display_name !== "Principal investigator" ||
       body.visibility !== "allowed-only" ||
       body.http_default !== "block" ||
       Object.keys(body).sort().join(",") !==
-        "display_name,http_default,visibility"
+        "display_name,http_default,key,visibility"
     )
       fail("principal create body changed shape");
     const created = principal(
@@ -821,6 +822,9 @@ export async function runPrincipals(
   await page
     .locator('[data-testid="principal-display-name"]')
     .fill("Principal investigator");
+  await page
+    .getByLabel("Stable key (optional)", { exact: true })
+    .fill("principal_investigator");
   await page.getByRole("link", { name: "Servers", exact: true }).click();
   await page.locator('[data-testid="unsaved-changes-cancel"]').waitFor();
   await page.locator('[data-testid="unsaved-changes-cancel"]').click();
@@ -1924,7 +1928,8 @@ export async function runGrantReadsCreate(
     const body = JSON.parse(raw) as Record<string, unknown>;
     if (
       Object.keys(body).join(",") !==
-        `description,principal_id,effect,server_id,upstream_name,constraint,expires_at${attempts <= 2 ? ",read_only" : ""}` ||
+        `${attempts <= 2 ? "key," : ""}description,principal_id,effect,server_id,upstream_name,constraint,expires_at${attempts <= 2 ? ",read_only" : ""}` ||
+      body.key !== (attempts <= 2 ? "explicit_grant" : undefined) ||
       body.description !== "New access" ||
       body.principal_id !== principalID ||
       body.server_id !== serverID
@@ -2344,6 +2349,9 @@ export async function runGrantReadsCreate(
   if (Number(attempts) !== 0)
     fail("control-character grant description reached the API");
   await page.locator('[data-testid="grant-description"]').fill("New access");
+  await page
+    .getByLabel("Stable key (optional)", { exact: true })
+    .fill("explicit_grant");
   const allowedTools = page.getByRole("combobox", { name: "Allowed tools" });
   await expect(allowedTools).toHaveValue("all");
   await allowedTools.selectOption("read-only");

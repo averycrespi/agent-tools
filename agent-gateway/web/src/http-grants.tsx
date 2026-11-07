@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
+import { ConfigActions, ImportLink, StableKeyField } from "./configuration";
 import { localExpiry, submittedExpiry } from "./edit-values";
 import type { RefObject } from "preact";
 import type { ResolvedLocation } from "./location";
@@ -480,6 +481,11 @@ export function HTTPGrants(props: Props) {
         </div>
         <p class="technical-value">{detail.id}</p>
       </header>
+      <ConfigActions
+        session={props.session}
+        kind="http_grant"
+        resourceKey={detail.key}
+      />
       {error && (
         <StateNotice
           state="stale"
@@ -626,6 +632,7 @@ function GrantCollection(props: Props) {
         <a class="button-link create-action" href="#/http/grants/new">
           Create grant
         </a>
+        <ImportLink kind="http_grant" label="grant" />
         <a class="button-link" href="#/http/grants/test-access">
           Test access
         </a>
@@ -778,6 +785,7 @@ function GrantEditor(
   const p = g?.policy;
   const request = p?.request;
   const { principals, credentials, loadError, loading } = props.choices;
+  const [stableKey, setStableKey] = useState("");
   const [principal, setPrincipal] = useState(g?.principal_id ?? "");
   const [description, setDescription] = useState(g?.description ?? "");
   const [kind, setKind] = useState<Kind>(p?.type ?? "allow_requests");
@@ -901,6 +909,7 @@ function GrantEditor(
     const body = deleting
       ? null
       : JSON.stringify({
+          ...(g === undefined && stableKey ? { key: stableKey } : {}),
           principal_id: principal,
           description: description || null,
           policy,
@@ -988,6 +997,13 @@ function GrantEditor(
           }
         }}
       >
+        {g === undefined && (
+          <StableKeyField
+            value={stableKey}
+            onChange={setStableKey}
+            disabled={mutation.blocked || props.unavailable === true}
+          />
+        )}
         <div role="group" aria-label="Agent and description">
           <FormField
             id="http-grant-principal"

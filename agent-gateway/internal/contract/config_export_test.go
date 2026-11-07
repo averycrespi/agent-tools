@@ -35,6 +35,11 @@ func TestConfigurationRouteAndCapability(t *testing.T) {
 	require.Len(t, rows[2].CLIUses, 16)
 	require.Equal(t, []string{"export config"}, rows[0].CLIUses)
 	require.Empty(t, rows[0].WebControl)
+	require.Empty(t, rows[1].WebControl, "bundle import remains CLI-only")
+	require.Equal(t, "browser.resource-config", rows[2].WebScenario)
+	for _, control := range []string{"Import", "Copy config", "Download config"} {
+		require.Contains(t, rows[2].WebControl, control)
+	}
 	rows[0].CLIUses[0] = "changed"
 	require.Equal(t, []string{"export config"}, ConfigurationControlPlaneCapabilityManifest()[0].CLIUses)
 }

@@ -25,6 +25,30 @@ export function downloadHistoryJSON(blob: Blob): boolean {
   }
 }
 
+export function downloadConfigurationJSON(
+  blob: Blob,
+  filename: string,
+): boolean {
+  if (!/^[a-z][a-z0-9_-]*-[a-z][a-z0-9_-]{0,63}\.json$/.test(filename))
+    return false;
+  let url: string | undefined;
+  const anchor = document.createElement("a");
+  try {
+    url = URL.createObjectURL(blob);
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.hidden = true;
+    document.body.append(anchor);
+    anchor.click();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    anchor.remove();
+    if (url !== undefined) URL.revokeObjectURL(url);
+  }
+}
+
 export async function copyToClipboard(
   value: string,
   write: (candidate: string) => Promise<void>,

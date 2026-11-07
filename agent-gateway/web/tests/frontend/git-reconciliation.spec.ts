@@ -102,7 +102,19 @@ test("git-rotation-reconciliation", async ({ page, frontend }) => {
   };
   await open();
   await rotate();
-  await expect(page.locator(".detail-section")).toContainText("2");
+  await expect(
+    page
+      .locator(".detail-section")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Credential details",
+          exact: true,
+        }),
+      })
+      .locator(".detail-facts > div")
+      .filter({ has: page.locator("dt", { hasText: /^Revision$/ }) })
+      .locator("dd"),
+  ).toHaveText("2");
   await expect(page.getByText("Revision changed", { exact: true })).toHaveCount(
     0,
   );

@@ -1,22 +1,23 @@
 {
   "version": 1,
   "sourceDigests": {
+    "configuration.tsx": "abae979166a62590e7ab1844e973770ef88ea9dd092ff7fb12b6227b574365e5",
     "audit.tsx": "2fbd97ea4dbe5fd81d9022312235c8dfb218455c4b7af3d4fe7a1a742477a8c5",
     "git-coverage.tsx": "582d5abc7e19f9ae5d30e97726682fc36ee59f6dc9ad0ecf89bb55a436e76478",
     "git-routing.tsx": "50ec15850826c8bb484e5dcdaf0048d61940a4f0db30b859f60cab780aed5c23",
-    "git.tsx": "25b2461828bbcc4f8c0905fd6a80d6b3a417a3bd630d171d22e22083b63e0c3a",
-    "grants.tsx": "3e7807eb454ce81d5c022d13796492de7034758841dee1b6a41ff7f4938bea32",
-    "http-credentials.tsx": "bc3dd1b4da2e5aa1fc8753b4be9e927522e2d5d49dbc33e06c0f4f3033777aae",
-    "http-grants.tsx": "694df6122c22703b83e4d53b5526c64c28f12af67045da6b801cc59775dd7bff",
+    "git.tsx": "2701c4524f2c36fabcf0070b480dfadaaf916fddd399260f0d103dc0d7a741e1",
+    "grants.tsx": "27f285b9dc48529abcac608507038b5782c2140ff147a596ecd2ef2b652dace9",
+    "http-credentials.tsx": "aec153f802a22b7f00226131178f802ab310107d0fff13f3346a3f0d86715bd8",
+    "http-grants.tsx": "d56ea629c72560d0b7689439e7f3dbb461a6ff2360941ace99b9f0d56e06f580",
     "http-traffic.tsx": "5dfef54745e1ef8f0149ac39c99cc75b3e6da096e448da03e76e29730ec74693",
     "invocations.tsx": "7645ae1b8f9e9e18c69af62a411a2f31381e03e464d7fa6872e928cd9bafb204",
-    "location.ts": "f1c0ce861f11a9ac3430ac45dd8b5a69441ff22a40fc2550ef58ff605eb0aa10",
-    "main.tsx": "49e1d31fd162c242e8fb7fac588dbeba8f04e2965f34a2a47de870ce969975ae",
+    "location.ts": "bba08c6c1c989df231d0de0e5640c3282793e9a410c8a0c06560b2d4796cdbe3",
+    "main.tsx": "4526284f8031e1f10c3a909d951fa8050132b71c5d8417885abb27fe1dc102ed",
     "matcher-editor.tsx": "546c0d8a35bf1a327a77624486c36cebe86f3cabc22e741c484587afe386d209",
     "navigation.tsx": "7ea4a9f9657be2ba033e6f98956d4772d7511bf7baef810d64f40231cd68e3b8",
     "overview.tsx": "979b07c6552355483dd069b8ea6c905caff57f89601e82c971205e759dad1524",
-    "primitives.tsx": "e529c27a24120619fae5b511943ace2b28245b267f588ffed4aeeabd47fb73f9",
-    "principals.tsx": "668275ce80c098cb86e0125f20ab1a037d5bb68dcbda2e72c10707307dee211d",
+    "primitives.tsx": "04dfc81ea92acb93d1da1d2d4b61157b327f5a6dc30f3af1408032420705967e",
+    "principals.tsx": "cd8659e8db5d24deef008c58bcad7974ceaca2d3e44689953e862eab62b394e3",
     "recorded-activity-view.tsx": "5db4b29ea4a07a75d1d5e438fc17a743e65708d4fee4d93e05a6f352f0aa718e",
     "requests.tsx": "b1e01238dd6b94867608312a0255495459ecb8566e58ac13518d32a12f16cf10",
     "server-auth-flows.tsx": "957336afd6767d5766930ed856fc5f4a79ef93120f611be393df3e159dd311b8",
@@ -24,8 +25,8 @@
     "server-destructive.tsx": "e791c5576ee662f6d982dc9ea4e7c7d53e1efb533b21e8547c3f6c7b6b0c42b1",
     "server-editor.tsx": "b52a1a32f83ac4de6f1bcbe473be80deb50d9c852cb4e40ef8f186a88a4ffd56",
     "server-operations.tsx": "dc01f29c84a8dfe25ba904fc8fccdca0ed8055c986cf7fad6b1ca421d80925be",
-    "server-reads.tsx": "6c6f7e394d67b269c04dccaee7cdc91373ed492491f88f99df4bac8866b553e7",
-    "sinks-ui.tsx": "909c10148e7213c91e1b435be7a0805d3b899a0464b51ff47053bda244880406",
+    "server-reads.tsx": "30f62d86e765bf8f87476f7199d71e9befffb1613f2e1e25339a1c509ca466c4",
+    "sinks-ui.tsx": "8d7ac40aa95abc724f8bf8e611ffb3f46310d0b86d5082b4a19e498757b06c5c",
     "styles.css": "45f343a6b35c3ce26dabfc1029f2ec0ef37e8434169bf8056038e0ed50cb144b",
     "system.tsx": "cb7207d41d9eadec236652d3c3ef325fb3f07fd35dcd136a5d9b7215a555bd33",
     "time.tsx": "607c8d338c394b82e5a4ac41bdcc40939a3e0d0368776fa7790e64cc6e5f643c",
@@ -37,6 +38,71 @@
   },
   "themes": ["light", "dark"],
   "scenarios": {
+    "config-agent": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow",
+      "bundle-refused": "reflow",
+      "conflict": "reflow",
+      "copy-failed": "reflow",
+      "uncertain": "reflow",
+      "validation-failed": "reflow",
+      "validating": "reflow",
+      "file-refused": "reflow",
+      "importing": "reflow"
+    },
+    "config-mcp-server": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+    "config-mcp-grant": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+    "config-http-credential": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+    "config-http-grant": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+    "config-git-credential": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+    "config-git-repository": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+    "config-git-grant": {
+      "input": "reflow",
+      "preview": "reflow",
+      "confirmation": "reflow",
+      "committed": "reflow",
+      "export": "reflow"
+    },
+
     "http-credential-setup": {
       "unset-list": "standard",
       "unset-detail": "standard",

@@ -1105,6 +1105,15 @@ export function FormField({
   );
 }
 
+function closeConfirmationDialog(
+  node: HTMLDialogElement,
+  returnFocus: RefObject<HTMLElement>,
+): void {
+  // The native close event is queued. Restore now, not after a later focus choice.
+  node.close();
+  returnFocus.current?.focus();
+}
+
 export function TypedConfirmationDialog({
   id,
   open,
@@ -1136,7 +1145,7 @@ export function TypedConfirmationDialog({
     const node = dialog.current;
     if (node === null) return;
     if (open && !node.open) node.showModal();
-    if (!open && node.open) node.close();
+    if (!open && node.open) closeConfirmationDialog(node, returnFocus);
   }, [open]);
 
   return (
@@ -1149,7 +1158,6 @@ export function TypedConfirmationDialog({
         event.preventDefault();
         onCancel();
       }}
-      onClose={() => returnFocus.current?.focus()}
     >
       <form method="dialog">
         <h2 id={`${id}-title`}>{title}</h2>
@@ -1218,12 +1226,8 @@ export function ConfirmationDialog({
     const node = dialog.current;
     if (node === null) return;
     if (open && !node.open) node.showModal();
-    if (!open && node.open) node.close();
+    if (!open && node.open) closeConfirmationDialog(node, returnFocus);
   }, [open]);
-
-  const restoreFocus = () => {
-    returnFocus.current?.focus();
-  };
 
   return (
     <dialog
@@ -1235,7 +1239,6 @@ export function ConfirmationDialog({
         event.preventDefault();
         onCancel();
       }}
-      onClose={restoreFocus}
     >
       <form method="dialog">
         <h2 id={`${id}-title`}>{title}</h2>
@@ -1251,7 +1254,8 @@ export function ConfirmationDialog({
             type="button"
             data-testid={`${id}-submit`}
             onClick={() => {
-              dialog.current?.close();
+              if (dialog.current !== null)
+                closeConfirmationDialog(dialog.current, returnFocus);
               onConfirm();
             }}
           >

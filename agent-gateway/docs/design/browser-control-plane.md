@@ -6,6 +6,33 @@ Authority: Normative product design
 
 This chapter owns browser state, workflows, presentation and secret sinks. [Administrative control plane](administrative-control-plane.md) owns server-side sessions, HTTP administration and CLI authority; [frontend development](../maintainers/frontend-development.md) owns implementation and verification procedures.
 
+## Resource configuration
+
+Each keyed resource collection places **Import** beside **Create**. Queryless `import`
+locations accept exactly one matching v2 definition; bundles and other kinds are
+refused locally with System Configuration guidance, without creating a bulk page.
+Paste and UTF-8 JSON upload share a 1 MiB browser input bound. Input remains editable
+after known validation/creation rejection, but uncertain writes remain blocked.
+Online preview shows the immutable key, typed dependencies, setup requirements and
+inert intended fields before an explicit creation confirmation. Preview is advisory,
+not a reservation: import revalidates atomically and concurrent conflicts require a
+fresh preview. Raw JSON tokens reach the existing backend unchanged; no update,
+remapping, dependency traversal, implicit grant or expiry synthesis is introduced.
+
+Details show the immutable key separately from display names and internal IDs, with
+adjacent **Copy config** and **Download config** actions and local publication feedback.
+These explicit actions export only that v2 definition and its references. Existing
+ID-based URLs and lifecycle controls remain authoritative. Ordinary agent, grant,
+credential and repository creation offers an optional immutable key; blank omits it
+for backend generation. MCP servers retain their required immutable namespace as key.
+Committed import is separate from credential setup and pending/failed activation;
+created-resource links lead to current status and existing setup controls rather
+than claiming upstream readiness. A reserved definition commits only a reservation.
+Session epochs, dirty navigation, confirmation focus, shared mutation coordination
+and one-shot sinks retain their existing ownership. No browser storage or automatic
+replay is added; general strings may contain accidental secrets and rejected payloads
+are never interpolated into diagnostics.
+
 ## Git administration and traffic
 
 The dedicated Git group contains Routing, Credentials, Repositories, Grants and Traffic at
@@ -17,7 +44,7 @@ removing an origin returns it to HTTP policy. No repository grants or client pro
 settings are created. Failed reads retain explicitly stale facts and block saves;
 conflicts preserve drafts for deliberate revision review, and uncertain saves
 remain blocked without replay. Controls are frozen during submission.
-Configuration supports `new` and ID detail; traffic supports read-only ID detail.
+Configuration supports `new`, `import` and ID detail; traffic supports read-only ID detail.
 All compose existing session/view, collection, mutation, confirmation, dirty-form,
 write-only sink and table primitives. No HTTP or MCP authority is shared.
 Repository destination is immutable; explicit aliases cannot retarget it. Grant
@@ -399,7 +426,7 @@ User-facing projections prefer display names for recognition while retaining sta
 
 Ordinary **Review changes**, **Save agent**, **Save settings** and **Save description** actions use the shared green primary styling and form-action spacing; Cancel remains neutral. They are disabled at their semantic baseline, enabled for meaningful changes when otherwise eligible, and disabled again on reversion. Equality compares only domain-normalized submitted nonsecret values: origin/default-port and unordered policy/list equivalence, applicable conditional fields, and unchanged exact expiry instants despite minute-resolution controls. Invalid changed drafts still reach native/local validation. Matcher number tokens and pattern bytes are never normalized. Loading, failed reads, revision review, storage latch, submission and uncertain-outcome gates remain authoritative; equality never silently adopts external revisions. Only verified acknowledged local revision transitions can reconcile pristine neighboring credential forms. HTTP credential reference explanations use warning styling beside disabled deletion. Creation, approvals, secret replacement/rotation and deletion retain their separate eligibility and confirmation semantics; secrets never enter equality fingerprints.
 
-Actions use one shared visual hierarchy for creation, routine operation, secondary navigation, and destructive mutation, with stable placement and no more than one primary action in each page section or dialog. Destructive actions remain visually separated and require consequence confirmation. Creation workflows with operator-selected input collect that input, identify immutable choices before commitment, review the normalized payload and consequences, and then submit through the shared mutation lifecycle; creation without configurable input still presents consequential confirmation before submission.
+Actions use one shared visual hierarchy for creation, routine operation, secondary navigation, and destructive mutation, with stable placement and no more than one primary action in each page section or dialog. Destructive actions remain visually separated and require consequence confirmation. Creation workflows with operator-selected input collect that input, identify immutable choices before commitment, review the normalized payload and consequences, and then submit through the shared mutation lifecycle; creation without configurable input still presents consequential confirmation before submission. Dialog closure restores the invoking control synchronously; the later native close event must not override a subsequent explicit focus choice.
 
 Asynchronous reads, navigation, polling, and mutation settlement preserve visual stability. Matching prior content and established dimensions remain in place when safe, initial loading is distinct from background refresh, and transient freshness or loading state must not flash, move navigation, reorder unrelated content, or shift controls unnecessarily. Focus and announcements still reflect the authoritative transition.
 

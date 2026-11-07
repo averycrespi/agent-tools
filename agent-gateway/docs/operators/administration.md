@@ -117,6 +117,36 @@ agent-gateway --data-dir /path/to/gateway-data \
 
 See [Recovery and fresh initialization](backup-and-recovery.md) for replacement-authority workflows.
 
+## Resource configuration in the browser
+
+Use **Import agent/server/grant/credential/repository** beside the corresponding
+collection's Create action. Paste one version 2 resource definition or choose a UTF-8
+JSON file (at most 1 MiB). Select **Validate and preview**, review the immutable key,
+typed dependencies, intended fields and setup requirements, then **Import → Confirm
+import**. Validation is online and advisory; creation checks the graph again atomically.
+An existing or permanently reserved key fails even for identical configuration.
+After a known rejection the input remains editable. For an unknown outcome, inspect
+the collection by immutable key before starting another import; no request is replayed.
+Bundles belong in System Configuration; this resource workflow never imports other
+kinds, resolves missing dependencies for you, or updates existing resources.
+
+Resource details show the immutable key separately from the name and internal ID.
+**Copy config** and **Download config** export the same single-resource JSON with
+references only, never a dependency traversal. Check their local success/failure
+feedback. Ordinary creation offers an optional stable key; leaving it blank generates
+one. A server's required namespace is already its permanent key. Resource links keep
+using internal IDs, not these portable keys.
+
+A committed import is not proof of usable credentials or upstream activation. Follow
+**View created resource** to issue/install credentials and inspect current status;
+server imports also link to **Set up authentication**. Pending or failed activation
+does not roll back committed configuration. Imports create only the explicit graph,
+not an ordinary agent's implicit Default Gateway access grant. Reservations retain
+deleted keys without creating a live resource. Keep pasted/uploaded/exported JSON
+private: supported secret values are excluded, but ordinary authored strings can
+still contain accidental secrets. Supply real credential values only through the
+existing write-only setup controls.
+
 ## Export portable configuration
 
 Run the authenticated online command against the selected Gateway:

@@ -58,9 +58,11 @@ const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 type JSONRecord = Record<string, unknown>;
 type Effect = "allow" | "deny";
 import { validResourceKey } from "./resource-key";
+import { ConfigActions, ImportLink, StableKeyField } from "./configuration";
 
 type GrantState = "active" | "expired";
 interface Grant {
+  key: string;
   readOnly: boolean;
   id: string;
   description: string | null;
@@ -126,6 +128,7 @@ function decodeGrant(value: unknown): Grant {
   )
     throw new Error("invalid response");
   return {
+    key: item.key,
     readOnly,
     id: id(item.id),
     description: item.description === null ? null : text(item.description),
@@ -248,6 +251,7 @@ function GrantCreate({
   servers: readonly ServerView[];
 }) {
   const initialDraft = useRef({
+    stableKey: "",
     description: "",
     principalID: query.principal_id ?? "",
     effect: "allow" as Effect,
@@ -258,6 +262,7 @@ function GrantCreate({
     expiresAt: "",
     atoms: [] as Atom[],
   });
+  const [stableKey, setStableKey] = useState("");
   const [description, setDescription] = useState(
     initialDraft.current.description,
   );
@@ -330,6 +335,7 @@ function GrantCreate({
     }
   })();
   const draftFingerprint = JSON.stringify({
+    stableKey,
     description,
     principalID,
     effect,
@@ -442,7 +448,7 @@ function GrantCreate({
           return;
         if (diagnostic !== null) throw new Error(diagnostic);
       }
-      const body = `{"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}${readOnlyMember(readOnly)}}`;
+      const body = `{${stableKey ? `"key":${JSON.stringify(stableKey)},` : ""}"description":${description === "" ? "null" : JSON.stringify(description)},"principal_id":${JSON.stringify(principalID)},"effect":${JSON.stringify(effect)},"server_id":${JSON.stringify(serverID)},"upstream_name":${scope === "server" ? "null" : JSON.stringify(upstreamName)},"constraint":${constraint},"expires_at":${expiresAt === "" ? "null" : JSON.stringify(new Date(expiresAt).toISOString())}${readOnlyMember(readOnly)}}`;
       const spec: MutationSpec<Grant> = {
         route: "/api/v2/mcp/grants",
         method: "POST",
@@ -488,6 +494,11 @@ function GrantCreate({
             void review();
           }}
         >
+          <StableKeyField
+            value={stableKey}
+            onChange={setStableKey}
+            disabled={disabled}
+          />
           <FormField id="grant-description" label="Description" optional>
             {(attributes) => (
               <input
@@ -1394,6 +1405,11 @@ export function Grants({
           </div>
           <p class="technical-value">{detail.id}</p>
         </header>
+        <ConfigActions
+          session={session}
+          kind="mcp_grant"
+          resourceKey={detail.key}
+        />
         <section class="detail-section" aria-labelledby="grant-title">
           <div class="panel-heading">
             <h2 id="grant-title">Grant details</h2>
@@ -1565,6 +1581,7 @@ function GrantCollection({
         >
           Create grant
         </a>
+        <ImportLink kind="mcp_grant" label="grant" />
       </div>
       <section class="panel domain-panel" aria-labelledby="page-title">
         <CollectionTable

@@ -1,0 +1,126 @@
+{
+  "agent": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "agent",
+    "key": "portable",
+    "spec": {
+      "display_name": "Imported agent",
+      "state": "active",
+      "visibility": "all",
+      "http_default": "block"
+    }
+  },
+  "mcp_server": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "mcp_server",
+    "key": "portable",
+    "spec": {
+      "display_name": "Imported server",
+      "enabled": true,
+      "deleted": false,
+      "transport": {
+        "kind": "stdio",
+        "executable": "/bin/cat",
+        "arguments": [],
+        "working_directory": "/tmp",
+        "environment": {},
+        "secret_environment": { "TOKEN": "primary" }
+      },
+      "credentials": {
+        "static": { "primary": "mcp/portable/static/primary" },
+        "oauth_client_secret": null,
+        "oauth_authorization": false
+      }
+    }
+  },
+  "mcp_grant": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "mcp_grant",
+    "key": "portable",
+    "spec": {
+      "agent": { "kind": "agent", "key": "reader" },
+      "server": { "kind": "gateway_mcp" },
+      "description": "Imported grant",
+      "effect": "allow",
+      "upstream_name": null,
+      "constraint": null,
+      "read_only": false,
+      "expires_at": null
+    }
+  },
+  "http_credential": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "http_credential",
+    "key": "portable",
+    "spec": {
+      "name": "Imported HTTP credential",
+      "boundary": {
+        "host": "example.invalid",
+        "port": 443,
+        "allow_wildcard": false
+      },
+      "recipe": { "header": "Authorization", "prefix": "Bearer " },
+      "deleted": false,
+      "secret_ref": "http_credential/portable/secret"
+    }
+  },
+  "http_grant": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "http_grant",
+    "key": "portable",
+    "spec": {
+      "agent": { "kind": "agent", "key": "reader" },
+      "description": "Imported HTTP grant",
+      "policy": {
+        "version": 1,
+        "type": "block_destination",
+        "destination": { "host": "example.invalid", "port": 443 }
+      },
+      "expires_at": null
+    }
+  },
+  "git_credential": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "git_credential",
+    "key": "portable",
+    "spec": {
+      "name": "Imported Git credential",
+      "origin": "https://example.invalid:443",
+      "recipe": { "header": "Authorization", "prefix": "Bearer " },
+      "deleted": false,
+      "secret_ref": "git_credential/portable/secret"
+    }
+  },
+  "git_repository": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "git_repository",
+    "key": "portable",
+    "spec": {
+      "name": "Imported repository",
+      "url": "https://example.invalid:443/team/repo",
+      "aliases": [],
+      "credential": null,
+      "deleted": false
+    }
+  },
+  "git_grant": {
+    "format": "agent-gateway-config",
+    "version": 2,
+    "kind": "git_grant",
+    "key": "portable",
+    "spec": {
+      "agent": { "kind": "agent", "key": "reader" },
+      "repository": { "kind": "git_repository", "key": "project" },
+      "description": "Imported Git grant",
+      "policy": { "version": 1, "read": true, "refs": [] },
+      "expires_at": null
+    }
+  }
+}
