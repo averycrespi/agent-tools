@@ -49,7 +49,7 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 	full := pkt("unpack ok\n") + pkt("ok refs/heads/private-a\n") + pkt("ng refs/heads/private-b secret-message-canary\n") + "0000"
 	for _, mode := range []string{"partial", "success", "failure", "truncated", "missing", "gzip", "unsupported_encoding", "sideband", "interrupted", "http401", "http403"} {
 		t.Run(mode, func(t *testing.T) {
-			f := fixture(t)
+			f := fixtureWithTrafficAcknowledgments(t)
 			loss := &gitStatusTrafficLoss{}
 			f.traffic.SetTrafficDiagnostics(loss)
 			t.Cleanup(func() {
@@ -179,6 +179,8 @@ func TestIntegrationGitStatusObservationPreservesLiveResponse(t *testing.T) {
 			require.NoError(t, f.engine.Wait(drain))
 			require.NoError(t, conn.Close())
 			require.NoError(t, f.engine.Close(drain))
+			// Interception admission, Git admission, then terminal observation.
+			f.waitForTrafficAcknowledgments(t, 3)
 			require.Eventually(t, func() bool {
 				history, err := f.traffic.GitHistory(t.Context(), 0, 10)
 				return err == nil && len(history.Records) == 1 && history.Records[0].Completion != nil
