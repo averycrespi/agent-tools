@@ -2665,7 +2665,28 @@ export async function runGrantReadsCreate(
     !enumOverrideReview.includes('"/region":"outside-enum"')
   )
     fail("equality-only review restricted enum overrides or omitted v2");
+  // Delay one native close to cover the inert-form and focus-restoration handoff.
+  const grantReviewDialog = page.locator(
+    'dialog[aria-labelledby="grant-create-confirm-title"]',
+  );
+  await grantReviewDialog.evaluate((dialog: HTMLDialogElement) => {
+    dialog.addEventListener(
+      "close",
+      () => dialog.setAttribute("data-test-close-settled", "true"),
+      { once: true },
+    );
+    const close = dialog.close;
+    dialog.close = (returnValue?: string) => {
+      dialog.close = close;
+      window.setTimeout(() => close.call(dialog, returnValue), 150);
+    };
+  });
   await page.locator('[data-testid="grant-create-confirm-cancel"]').click();
+  await expect(grantReviewDialog).toHaveAttribute(
+    "data-test-close-settled",
+    "true",
+  );
+  await expect(grantReviewDialog).toBeHidden();
   await scalarType.selectOption("number");
   await scalarValue.fill("1.00e+2");
   await page.locator('[data-testid="grant-upstream"]').fill("future.tool");
