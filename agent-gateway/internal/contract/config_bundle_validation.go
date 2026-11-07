@@ -12,6 +12,16 @@ import (
 // private domain access. Consumers additionally strictly decode every spec using
 // ConfigSpecDestination; full creation policy normalization stays owner-local.
 func ValidateConfigBundleEnvelope(b ConfigBundle) error {
+	return validateConfigEnvelope(b, true)
+}
+
+// ValidateConfigDefinitionEnvelope checks one definition without requiring its
+// dependencies in the document. Receiving dependency resolution is backend-owned.
+func ValidateConfigDefinitionEnvelope(d ConfigDefinition) error {
+	return validateConfigEnvelope(ConfigBundle{Format: d.Format, Version: d.Version, Resources: []ConfigDefinition{d}}, false)
+}
+
+func validateConfigEnvelope(b ConfigBundle, complete bool) error {
 	invalid := errors.New("invalid version-2 configuration response")
 	if b.Format != ConfigExportFormat || b.Version != ConfigV2Version || b.Resources == nil || len(b.Resources) > ConfigV2KeyBindings+1025 {
 		return invalid
@@ -102,7 +112,9 @@ func ValidateConfigBundleEnvelope(b ConfigBundle) error {
 			} else {
 				dependencies = append(dependencies, binding{s.Server, "mcp_server", true})
 			}
-			if s.Effect != GrantAllow && s.Effect != GrantDeny || !configWireExpiry(s.ExpiresAt) || !json.Valid(s.Constraint) {
+			constraint := bytes.TrimSpace(s.Constraint)
+			constrained := !bytes.Equal(constraint, []byte("null"))
+			if s.Effect != GrantAllow && s.Effect != GrantDeny || !configWireExpiry(s.ExpiresAt) || !json.Valid(constraint) || constrained && (len(constraint) == 0 || constraint[0] != '{' || s.UpstreamName == nil) {
 				return invalid
 			}
 			if s.ReadOnly && (s.Effect != GrantAllow || s.UpstreamName != nil || !bytes.Equal(bytes.TrimSpace(s.Constraint), []byte("null"))) {
@@ -162,7 +174,7 @@ func ValidateConfigBundleEnvelope(b ConfigBundle) error {
 			return invalid
 		}
 	}
-	if !present["git_routing/"] {
+	if complete && !present["git_routing/"] {
 		return invalid
 	}
 	for _, dependency := range dependencies {
@@ -174,7 +186,7 @@ func ValidateConfigBundleEnvelope(b ConfigBundle) error {
 			return invalid
 		}
 		live, exists := present[r.Kind+"/"+r.Key]
-		if !exists || !live && !dependency.inactive {
+		if complete && (!exists || !live && !dependency.inactive) {
 			return invalid
 		}
 	}

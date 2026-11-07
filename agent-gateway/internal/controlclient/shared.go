@@ -37,6 +37,16 @@ type InputOptions struct {
 }
 
 func ReadJSONInput(options InputOptions) ([]byte, error) {
+	return readJSONInput(options, MaxInputBytes)
+}
+
+// ReadConfigInput retains the portable format's independent bound without
+// relaxing ordinary command inputs.
+func ReadConfigInput(options InputOptions) ([]byte, error) {
+	return readJSONInput(options, MaxConfigResponseBytes)
+}
+
+func readJSONInput(options InputOptions, maximum int) ([]byte, error) {
 	if options.Path == "" {
 		return nil, ErrInvalidInput
 	}
@@ -58,14 +68,14 @@ func ReadJSONInput(options InputOptions) ([]byte, error) {
 		defer func() { _ = file.Close() }()
 		reader = file
 	}
-	contents, err := io.ReadAll(io.LimitReader(reader, MaxInputBytes+1))
+	contents, err := io.ReadAll(io.LimitReader(reader, int64(maximum)+1))
 	if err != nil {
 		return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "read input", options.Path, err)}
 	}
-	if len(contents) > MaxInputBytes {
+	if len(contents) > maximum {
 		return nil, &Failure{kind: ErrInvalidInput, local: diagnostics.Snapshot("control-client", "read input", options.Path, errors.New("input exceeds size limit"))}
 	}
-	value, err := strictjson.ParseValue(contents, strictjson.Options{MaxBytes: MaxInputBytes, MaxDepth: MaxJSONDepth})
+	value, err := strictjson.ParseValue(contents, strictjson.Options{MaxBytes: int64(maximum), MaxDepth: MaxJSONDepth})
 	if err != nil || value.Type != strictjson.ValueObject {
 		return nil, ErrInvalidInput
 	}

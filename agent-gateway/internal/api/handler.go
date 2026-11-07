@@ -411,7 +411,7 @@ func (handler *Handler) ServeHTTP(writer http.ResponseWriter, request *http.Requ
 		} else {
 			writeProblem(writer, contract.ProblemNotFound)
 		}
-	case path == contract.ConfigExportPath:
+	case path == contract.ConfigExportPath || strings.HasPrefix(path, contract.ConfigResourcePath):
 		handler.configurationExport(writer, request)
 	case path == contract.ConfigPreviewPath || path == contract.ConfigImportPath:
 		handler.configurationInput(writer, request)

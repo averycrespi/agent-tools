@@ -155,9 +155,9 @@ reliably. Keep exports private even though supported secret material is excluded
 This command emits the sole [version-two format](../design/public-contract.md#version-two-resource-and-bundle-contract),
 with permanent typed keys on every definition and grant. Individual backend
 exports use the identical definition envelope. Version one and `init --from` are
-removed without translation or parallel legacy support. Online import is an
-administrator API capability; new resource/bundle CLI and browser controls are
-not implied.
+removed without translation or parallel legacy support. Resource CLI import/export
+uses that same public API and format; top-level bundle import and browser import
+controls are separate surfaces.
 
 The current command's format is independent of database schema versions and is the portable configuration transfer/recovery artifact, not
 an installation backup or secret backup. Absolute executable/working-directory
@@ -179,10 +179,44 @@ session. Submit the same private version-two individual definition or bundle as
 JSON to `POST /api/v2/config/preview`, inspect the returned creations, dependency
 bindings and declared credential/activation requirements, then deliberately submit
 it to `POST /api/v2/config/import`. These queryless API operations use the normal
-administrator authentication, Origin/CSRF and JSON-media-type controls. No new CLI
-or browser import control is provided here. The [API contract](../design/public-contract.md#online-validation-and-create-only-import)
+administrator authentication, Origin/CSRF and JSON-media-type controls. The [API contract](../design/public-contract.md#online-validation-and-create-only-import)
 owns exact representations and bounds. Never place bearer/secret values in a
 portable definition, URL, shell argument or shared transcript.
+
+### Import or export one resource
+
+Use `import` and `export` beneath `agent`, `mcp server`, `mcp grant`,
+`http credential`, `http grant`, `git credential`, `git repository`, or `git grant`.
+Each import accepts exactly one matching definition, never a bundle or implicit
+dependencies. For bulk input use the top-level import surface when available;
+do not pass bundles to resource commands. Export selects a permanent public key,
+not the internal ID used by get/update/delete, and includes no dependencies.
+
+```bash
+# Source: stdout is one backend version-2 JSON document; keep it private.
+(umask 077; agent-gateway agent export build-agent > agent.json)
+# Destination: inspect advisory bindings and requirements, then create once.
+agent-gateway agent import --file agent.json --dry-run
+agent-gateway agent import --file agent.json --confirm
+# Standard input is supported; bearer input must use a different source.
+agent-gateway mcp grant import --file - --dry-run < grant.json
+agent-gateway mcp server import --file server.json --confirm --json
+```
+
+No confirmation means no submission; there is no prompt. `--dry-run` and
+`--confirm` are mutually exclusive. A dry run calls only backend read-only preview.
+Human output names creations, bindings and declared requirements; `--json` retains
+the public structured result. Actual import reports configuration `committed` and
+activation `pending` or `not_required`, not credential availability or readiness.
+Failure after handoff never retries. Inspect lists by key and server status after
+an uncertain result; do not blindly reimport. Broken stdout can leave a partial
+export file; discard it rather than treating it as usable input.
+
+Ordinary resource `create` commands accept optional `--key`; JSON create files
+also accept `key` (MCP uses its existing `namespace`). Supply the key only once.
+Omission asks the backend for a human-friendly permanent key, including an omitted
+MCP namespace. Lists, reads and creation output retain that key alongside local
+IDs; MCP's namespace is its key. `get`, updates and deletions still address IDs.
 
 Preview is read-only and advisory, not a reservation or a promise that import will
 still succeed. Neither validation nor preview reads secret values, launches a

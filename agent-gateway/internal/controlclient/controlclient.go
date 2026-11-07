@@ -151,7 +151,11 @@ func New(address string, options TransportOptions) (*Client, error) {
 func (client *Client) Address() string { return client.address }
 
 func (client *Client) Do(ctx context.Context, request Request) (Response, error) {
-	if client == nil || client.http == nil || request.Method == "" || !validRequestPath(request.Path) || len(request.Body) > MaxResponseBytes || !validRequestHeaders(request.Header) {
+	requestLimit := MaxResponseBytes
+	if request.Method == http.MethodPost && (request.Path == contract.ConfigPreviewPath || request.Path == contract.ConfigImportPath) {
+		requestLimit = MaxConfigResponseBytes
+	}
+	if client == nil || client.http == nil || request.Method == "" || !validRequestPath(request.Path) || len(request.Body) > requestLimit || !validRequestHeaders(request.Header) {
 		return Response{}, &Failure{kind: ErrInvalidRequest}
 	}
 	requestContext, cancel := context.WithTimeout(ctx, client.requestTimeout)
@@ -178,7 +182,7 @@ func (client *Client) Do(ctx context.Context, request Request) (Response, error)
 	}
 	defer func() { _ = response.Body.Close() }()
 	responseLimit := MaxResponseBytes
-	if request.Method == http.MethodGet && request.Path == contract.ConfigExportPath && response.StatusCode == http.StatusOK {
+	if request.Method == http.MethodGet && (request.Path == contract.ConfigExportPath || strings.HasPrefix(request.Path, contract.ConfigResourcePath)) && response.StatusCode == http.StatusOK {
 		responseLimit = MaxConfigResponseBytes
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, int64(responseLimit)+1))

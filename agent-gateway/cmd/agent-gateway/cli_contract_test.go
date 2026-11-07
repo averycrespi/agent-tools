@@ -41,7 +41,7 @@ func testCLIDocumentationDrift(t *testing.T) {
 	}
 	walk(root)
 	digest := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(snapshot.String())))
-	assert.Equal(t, "sha256:bf09b34191947bb11e51890a0298bbd14dabbeab6c8befec00606c4e239e844a", digest)
+	assert.Equal(t, "sha256:2970a33c90a0964c0f406ab3a4ffd3dccfab8b4413d0a572e2e561d922f8e217", digest)
 }
 
 func testCLIGuideGeneratedHelpAndDefaultDrift(t *testing.T) {
@@ -104,6 +104,9 @@ func TestCLIContract(t *testing.T) {
 			require.NoError(t, err, strings.Join(spec.Path, " "))
 			assert.Equal(t, spec.Use, command.Use, strings.Join(spec.Path, " "))
 			expectedFlags := append([]string{"address", "admin-bearer-file", "admin-bearer-stdin"}, spec.Flags...)
+			if resourceConfigKind(spec) != "" && spec.Path[len(spec.Path)-1] == "create" {
+				expectedFlags = append(expectedFlags, "key")
+			}
 			if strings.Join(spec.Path, " ") != "export config" {
 				expectedFlags = append(expectedFlags, "json", "output")
 			}

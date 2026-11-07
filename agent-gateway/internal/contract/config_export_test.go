@@ -23,14 +23,15 @@ func TestConfigurationEnvelopeAndRequirements(t *testing.T) {
 	require.False(t, ValidConfigServerCredentials(s))
 }
 func TestConfigurationRouteAndCapability(t *testing.T) {
-	for _, test := range []struct{ path, method string }{{ConfigExportPath, "GET"}, {ConfigPreviewPath, "POST"}, {ConfigImportPath, "POST"}} {
+	for _, test := range []struct{ path, method string }{{ConfigExportPath, "GET"}, {ConfigPreviewPath, "POST"}, {ConfigImportPath, "POST"}, {ConfigResourcePath + "agent/example", "GET"}} {
 		route, ok := RouteForPath(test.path)
 		require.True(t, ok)
 		require.Equal(t, AuthorityAdmin, route.Authority)
 		require.Equal(t, []string{test.method}, route.Methods)
 	}
 	rows := ConfigurationControlPlaneCapabilityManifest()
-	require.Len(t, rows, 1)
+	require.Len(t, rows, 2)
+	require.Len(t, rows[1].CLIUses, 16)
 	require.Equal(t, []string{"export config"}, rows[0].CLIUses)
 	require.Empty(t, rows[0].WebControl)
 	rows[0].CLIUses[0] = "changed"

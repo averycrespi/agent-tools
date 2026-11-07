@@ -10,6 +10,17 @@ const ConfigV2Version = 2
 // deleted definitions and reservations. MCP namespace capacity remains separate.
 const ConfigV2KeyBindings = 1 << 20
 
+// ConfigResourceKind identifies the ordinary keyed resource kinds exposed by
+// resource-specific import/export. The routing singleton is bundle-only.
+func ConfigResourceKind(kind string) bool {
+	switch kind {
+	case "agent", "mcp_server", "mcp_grant", "http_credential", "http_grant", "git_credential", "git_repository", "git_grant":
+		return true
+	default:
+		return false
+	}
+}
+
 // ConfigReference is a typed portable key, never an installation identity. The
 // fixed gateway_mcp target has no key and is not a normal server definition.
 type ConfigReference struct {

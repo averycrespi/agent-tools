@@ -89,6 +89,27 @@ func TestCLIConfigurationExportRejectsInvalidDocumentsBeforeStdout(t *testing.T)
 	}
 }
 
+func TestCLIConfigurationExportMCPConstraintDefensiveRegression(t *testing.T) {
+	for _, constraint := range []string{`[]`, `true`, `123`, `"scalar"`, `{}`} {
+		document := emptyConfig()
+		document.Resources = append(document.Resources,
+			contract.ConfigDefinition{Format: contract.ConfigExportFormat, Version: 2, Kind: "agent", Key: "existing-agent", Spec: json.RawMessage(`{"display_name":"Example","state":"active","visibility":"allowed-only","http_default":"block"}`)},
+			contract.ConfigDefinition{Format: contract.ConfigExportFormat, Version: 2, Kind: "mcp_server", Key: "existing-server", Reserved: true, Spec: json.RawMessage(`null`)})
+		var grant contract.ConfigDefinition
+		require.NoError(t, json.Unmarshal(resourceDefinition(t, "mcp_grant"), &grant))
+		grant.Spec = json.RawMessage(strings.Replace(string(grant.Spec), `"constraint":null`, `"constraint":`+constraint, 1))
+		document.Resources = append(document.Resources, grant)
+		body, err := json.Marshal(document)
+		require.NoError(t, err)
+		var out bytes.Buffer
+		stderr, calls, err := configCommand(t, string(body), &out)
+		require.Error(t, err)
+		require.Empty(t, out.String())
+		require.NotEmpty(t, stderr)
+		require.Equal(t, 1, calls)
+	}
+}
+
 type shortConfigWriter struct{}
 
 func (shortConfigWriter) Write(body []byte) (int, error) { return len(body) - 1, nil }

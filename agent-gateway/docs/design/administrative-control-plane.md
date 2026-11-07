@@ -129,6 +129,19 @@ CLI direct `--read-only` and the browser **Allowed tools** option **Only tools m
 
 `export config` is a nonmutating online administrator command with one coherent configuration-only public read and JSON-only stdout, no output-mode/confirmation/file/filter/secret-inclusion flags, and stderr-only failures. It never opens private storage or resolves secret material; the [portable format contract](public-contract.md#portable-configuration-export) owns its fields, references and snapshot semantics. The CLI's complete-response limit is resource-specific, not a relaxation of ordinary one-MiB reads. Shell redirection owns permissions and output failure may leave a partial file.
 
+Resource `import`/`export` leaves under the eight ordinary resource namespaces
+use only the public control client. Import requires exactly one matching v2
+definition and `--file PATH` (or `-`), rejects bundles and never creates implicit
+dependencies. `--dry-run` calls backend advisory read-only preview and reports
+bindings plus credential/activation requirements; actual creation needs explicit
+`--confirm`, without prompt or replay. Commit acknowledgment stays distinct from
+activation and credential readiness. Resource export selects a public key and
+emits the backend single JSON definition directly, with stderr-only diagnostics
+and the same bounded complete-validation/partial-output failure semantics as
+whole export. Ordinary creates accept optional explicit keys, otherwise use
+backend generation; human/machine results retain keys alongside existing IDs.
+MCP uses its namespace as key; get/update/delete retain internal-ID addressing.
+
 Human output is the default for other commands; `--output json` and `--json` select exact JSON public-API projections. The control client accepts the prior context-free `invalid_server_configuration` envelope during client/Gateway version skew. Finite successes use stdout, finite failures leave stdout empty and use stderr, invalid server configuration failures append the closed field/rule context in human output, startup emits one acknowledgement, clean shutdown emits no stdout trailer, and post-start failure emits one bounded terminal problem. Serve diagnostics are separate JSON lines on stderr, not a change to that problem representation.
 
 No command polls, refreshes a precondition after conflict, recovers a one-time value, invokes a private owner, or replays automatically. A proven refused selected loopback renders the exact `agent-gateway serve` command, including explicit address and data-directory choices. Hostname connection refusal instead directs the operator to check trusted forwarding and the numeric-loopback listener with an explicit allowed hostname; it never recommends a hostname bind.

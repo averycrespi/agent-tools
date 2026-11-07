@@ -87,7 +87,7 @@ func TestCLILocalIntentPrecedesAuthority(t *testing.T) {
 	require.NoError(t, os.WriteFile(semantic, []byte(`{}`), 0o600))
 	semanticOutput := assertRejectedBeforeAuthority(t, []string{"mcp", "server", "create", "--file", semantic})
 	assert.Contains(t, semanticOutput, `"code":"invalid_server_configuration"`)
-	assert.Contains(t, semanticOutput, `"context":{"field":"namespace","rule":"required"}`)
+	assert.Contains(t, semanticOutput, `"context":{"field":"display_name","rule":"required"}`)
 
 	patch := filepath.Join(root, "patch.json")
 	require.NoError(t, os.WriteFile(patch, []byte(`{"display_name":"new"}`), 0o600))

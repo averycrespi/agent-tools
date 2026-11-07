@@ -40,6 +40,9 @@ type onlineOptions struct {
 	cursor         string
 	limit          int
 	yes            bool
+	confirm        bool
+	dryRun         bool
+	resourceKey    string
 	open           bool
 	direct         map[string]*string
 	toggles        map[string]*bool
@@ -49,7 +52,7 @@ type onlineOptions struct {
 func newOnlineCommands() []*cobra.Command {
 	groups := make(map[string]*cobra.Command)
 	roots := make(map[string]*cobra.Command)
-	for _, spec := range onlineCommandSpecs() {
+	for _, spec := range append(onlineCommandSpecs(), resourceConfigSpecs()...) {
 		parentPath := spec.Path[:len(spec.Path)-1]
 		var parent *cobra.Command
 		for index, name := range parentPath {
@@ -157,7 +160,7 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 	flags.StringVar(&options.address, "address", controlclient.DefaultAddress, "HTTP Gateway URL with port: numeric 127/8 or an explicitly trusted local forwarding hostname")
 	flags.StringVar(&options.bearerFile, "admin-bearer-file", "", "owner-readable admin bearer file")
 	flags.BoolVar(&options.bearerStdin, "admin-bearer-stdin", false, "read the admin bearer from standard input")
-	if strings.Join(spec.Path, " ") != "export config" {
+	if strings.Join(spec.Path, " ") != "export config" && resourceConfigAction(spec) != "export" {
 		flags.StringVar(&options.output, "output", string(controlclient.OutputHuman), "output mode: human or json")
 		flags.BoolVar(&options.jsonOutput, "json", false, "shorthand for --output json")
 	}
@@ -179,6 +182,10 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 			continue
 		}
 		switch flag {
+		case "confirm":
+			flags.BoolVar(&options.confirm, flag, false, "confirm create-only import noninteractively")
+		case "dry-run":
+			flags.BoolVar(&options.dryRun, flag, false, "validate creation and requirements without mutation")
 		case "file":
 			flags.StringVar(&options.file, flag, "", "one strict JSON input document path or -")
 		case "etag":
@@ -201,6 +208,9 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 			flags.StringVar(options.filters[flag], flag, "", "exact API-supported list filter")
 		}
 	}
+	if resourceConfigKind(spec) != "" && spec.Path[len(spec.Path)-1] == "create" {
+		flags.StringVar(&options.resourceKey, "key", "", "explicit permanent resource key (omitted: backend-generated)")
+	}
 	if strings.Join(spec.Path, " ") == "history export" {
 		flags.Lookup("limit").Usage = "maximum records in this snapshot (1–256; default 256)"
 		flags.Lookup("after-sequence").Usage = "exclude sequence numbers up to this value (default 0); each request is a new snapshot"
@@ -214,6 +224,12 @@ func newOnlineLeaf(spec onlineCommandSpec) *cobra.Command {
 }
 
 func onlineLongDescription(spec onlineCommandSpec) string {
+	if action := resourceConfigAction(spec); action != "" {
+		if action == "export" {
+			return spec.Short + ". Select the stable public KEY, not an internal ID. Emits exactly one backend version-2 JSON definition on stdout, without dependencies. Redirect with an owner-private umask; failed writes may leave a partial file. Diagnostics use stderr."
+		}
+		return spec.Short + ". Supply exactly one matching version-2 definition using --file PATH or --file -. Use top-level import for bundles. Dependencies must already exist. --dry-run performs advisory backend validation only; --confirm creates configuration once and may activate enabled servers after commit. Credentials, client trust and upstream readiness require separate setup and inspection. No prompt, update, skipping or automatic replay."
+	}
 	switch strings.Join(spec.Path, " ") {
 	case "export config":
 		return spec.Short + ". Emits one coherent versioned JSON document to stdout, without secret material or runtime state. No confirmation or upstream connection is required. Use an owner-private shell umask when redirecting: (umask 077; agent-gateway export config > gateway-config.json). See docs/operators/administration.md."
@@ -408,6 +424,9 @@ func onlineCapabilityUses() []string {
 	specs := onlineCommandSpecs()
 	uses := make([]string, 0, len(specs))
 	for _, spec := range specs {
+		uses = append(uses, spec.ManifestUse)
+	}
+	for _, spec := range resourceConfigSpecs() {
 		uses = append(uses, spec.ManifestUse)
 	}
 	return uses

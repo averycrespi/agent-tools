@@ -180,7 +180,7 @@ func gitRepositoryTable(body []byte) (controlclient.Table, error) {
 	if controlclient.DecodeExactResponse(body, &g) != nil || !validGitRepository(g) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"NAME", "ID", "URL", "REVISION"}, Rows: [][]string{{g.Name, g.ID, g.URL, g.Revision}}}, nil
+	return controlclient.Table{Headers: []string{"NAME", "KEY", "ID", "URL", "REVISION"}, Rows: [][]string{{g.Name, g.Key, g.ID, g.URL, g.Revision}}}, nil
 }
 func gitGrantTable(body []byte) (controlclient.Table, error) {
 	var g contract.GitGrant
@@ -188,7 +188,7 @@ func gitGrantTable(body []byte) (controlclient.Table, error) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
 	policy, _ := json.Marshal(g.Policy)
-	return controlclient.Table{Headers: []string{"ID", "AGENT", "REPOSITORY", "POLICY"}, Rows: [][]string{{g.ID, g.PrincipalID, g.RepositoryID, string(policy)}}}, nil
+	return controlclient.Table{Headers: []string{"ID", "KEY", "AGENT", "REPOSITORY", "POLICY"}, Rows: [][]string{{g.ID, g.Key, g.PrincipalID, g.RepositoryID, string(policy)}}}, nil
 }
 func validGitCredential(c contract.GitCredential) bool {
 	if !c.MaterialState.Valid(c.Available) {
@@ -209,7 +209,7 @@ func gitCredentialTable(body []byte) (controlclient.Table, error) {
 	if controlclient.DecodeExactResponse(body, &c) != nil || !validGitCredential(c) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"NAME", "ID", "ORIGIN", "STATUS", "REFERENCES"}, Rows: [][]string{{c.Name, c.ID, c.Origin, c.MaterialState.Label(), strconv.Itoa(len(c.References))}}}, nil
+	return controlclient.Table{Headers: []string{"NAME", "KEY", "ID", "ORIGIN", "STATUS", "REFERENCES"}, Rows: [][]string{{c.Name, c.Key, c.ID, c.Origin, c.MaterialState.Label(), strconv.Itoa(len(c.References))}}}, nil
 }
 func gitProfileTable(body []byte) (controlclient.Table, error) {
 	var g contract.GitRoutingProfile

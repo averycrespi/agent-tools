@@ -78,6 +78,7 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
 | `/api/v2/config/export`                              | `GET`                | admin bearer or session                           |
+| `/api/v2/config/resources/{kind}/{key}`              | `GET`                | admin bearer or session                           |
 | `/api/v2/config/preview`                             | `POST`               | admin bearer or session                           |
 | `/api/v2/config/import`                              | `POST`               | admin bearer or session                           |
 
@@ -134,8 +135,9 @@ The backend `configexport.Service.ExportResource(kind,key)` and `ExportBundle`
 produce the single version-two creation-input contract. `configdefinition` strictly
 validates individual definitions and complete bundles and supplies reusable
 normalization/comparison. The administrator export route and existing CLI emit
-version two. Online validation/import are administrator API operations; additional
-resource/bundle CLI and browser controls are separate surfaces. Files are reusable
+version two. Online validation/import are administrator API operations; resource CLI commands
+use those same operations for exactly one matching definition. Bundle CLI and
+browser controls are separate surfaces. Files are reusable
 creation input, never ongoing source of truth, synchronization instructions or updates.
 
 An individual definition is exactly `{format,version,kind,key?,reserved?,spec}`:
@@ -273,6 +275,15 @@ filtering, confirmation, secret-inclusion mode or file destination. The online
 `agent-gateway export config` command always emits one JSON document to stdout;
 diagnostics use stderr. It uses only the public controlclient transport.
 
+`GET /api/v2/config/resources/{kind}/{key}` exports exactly one ordinary keyed
+resource as `ConfigDefinition` through the existing `ExportResource` service, without dependency
+traversal. The eight ordinary resource kinds above are supported; `git_routing`
+is bundle-only. It retains the whole-export bodyless/queryless administrator,
+no-store, strict-size and complete-delivery boundary. Missing keys return 404;
+invalid kinds/keys return 400; unavailable projections return 503. Resource CLI
+`export KEY` emits this backend definition directly, after finite response
+validation, never synthesizing it from a bundle or private-domain reads.
+
 Format version is independent of SQLite schema and MCP/HTTP/Git policy dialects.
 Required spec members are:
 
@@ -349,8 +360,10 @@ accidentally embedded secret. Export does not scan/refuse or silently redact suc
 strings. Supported secret inputs must use the explicit slot/reference boundary.
 Operator procedure and private-file guidance belong to
 [administration](../operators/administration.md#export-portable-configuration).
-Online import and material supply are separate actions; backend API support does
-not imply a new CLI or browser import control.
+Online import and material supply are separate actions. Resource CLI imports
+require `--confirm` or read-only `--dry-run`, reject bundles/wrong kinds and never
+create implicit dependencies. They use the public backend version-two contract;
+no update, skip-identical or grouped export mode is exposed.
 
 ## Optional history export
 

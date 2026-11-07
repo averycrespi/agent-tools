@@ -256,6 +256,9 @@ func stoppedLeafArguments(t *testing.T, leaf discoveredOnlineLeaf, root string, 
 	if strings.Contains(leaf.help, "--secret-output string") && !containsArgument(args, "--secret-output") {
 		args = append(args, "--secret-output", filepath.Join(root, "secret-"+strings.ReplaceAll(name, " ", "-")+string(rune('a'+index%26))))
 	}
+	if strings.HasSuffix(name, " import") {
+		args = append(args, "--confirm")
+	}
 	if strings.Contains(leaf.help, "--yes") && !containsArgument(args, "--yes") {
 		args = append(args, "--yes")
 	}
@@ -269,6 +272,14 @@ func stoppedMatrixValue(t *testing.T, value, root, command string) string {
 	case "ID", "OPERATION_ID", "FLOW_ID", "TOOL_ID", "REQUEST_ID", "INVOCATION_ID", "AUDIT_EVENT_ID", "OLD_CREDENTIAL_ID":
 		return stoppedMatrixID
 	case "PATH":
+		if strings.HasSuffix(command, " import") {
+			kind := strings.ReplaceAll(strings.TrimSuffix(command, " import"), " ", "_")
+			body, err := json.Marshal(contract.ConfigDefinition{Format: contract.ConfigExportFormat, Version: 2, Kind: kind, Key: "stopped-matrix", Reserved: true, Spec: json.RawMessage(`null`)})
+			require.NoError(t, err)
+			path := filepath.Join(root, "resource-import.json")
+			require.NoError(t, os.WriteFile(path, body, 0o600))
+			return path
+		}
 		if strings.HasPrefix(command, "git ") {
 			return writeStoppedMatrixGitFile(t, root, command)
 		}

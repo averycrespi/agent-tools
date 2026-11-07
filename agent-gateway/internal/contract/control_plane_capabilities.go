@@ -81,7 +81,12 @@ func GitControlPlaneCapabilityManifest() []ControlPlaneCapability {
 // Configuration export is a CLI-only administration surface, not a browser
 // workflow or a one-time secret sink.
 func ConfigurationControlPlaneCapabilityManifest() []ControlPlaneCapability {
-	return []ControlPlaneCapability{{ID: "config-export", Operation: "Portable configuration export", CLIUses: []string{"export config"}, Mechanics: "one authenticated coherent configuration-only snapshot; versioned JSON; no material resolution or mutation", CLIScenario: "cli.config-export"}}
+	rows := []ControlPlaneCapability{{ID: "config-export", Operation: "Portable configuration export", CLIUses: []string{"export config"}, Mechanics: "one authenticated coherent configuration-only snapshot; versioned JSON; no material resolution or mutation", CLIScenario: "cli.config-export"}}
+	uses := []string{}
+	for _, namespace := range []string{"agent", "mcp server", "mcp grant", "http credential", "http grant", "git credential", "git repository", "git grant"} {
+		uses = append(uses, namespace+" import --file PATH [--dry-run | --confirm]", namespace+" export KEY")
+	}
+	return append(rows, ControlPlaneCapability{ID: "resource-config", Operation: "Resource configuration creation and export", CLIUses: uses, Mechanics: "one matching version-two definition; backend read-only preview or confirmed creation; dependencies already exist; JSON-only export; no replay", CLIScenario: "cli.resource-config"})
 }
 
 func ControlPlaneLifecycleManifest() []ControlPlaneCapability {

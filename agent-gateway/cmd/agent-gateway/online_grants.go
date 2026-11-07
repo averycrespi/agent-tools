@@ -42,12 +42,12 @@ func runGrantCreate(command *cobra.Command, options *onlineOptions) error {
 
 func readGrantCreateInput(command *cobra.Command, options *onlineOptions) ([]byte, error) {
 	allowed := []string{"description", "principal_id", "effect", "server_id", "upstream_name", "constraint", "expires_at"}
-	body, err := readOnlineJSONInput(command, options, append(allowed, "read_only"))
+	body, err := readOnlineJSONInput(command, options, append(allowed, "read_only", "key"))
 	if err != nil {
 		return nil, err
 	}
 	var object map[string]json.RawMessage
-	if json.Unmarshal(body, &object) != nil || (len(object) != len(allowed) && len(object) != len(allowed)+1) {
+	if json.Unmarshal(body, &object) != nil || (len(object) < len(allowed) || len(object) > len(allowed)+2) {
 		return nil, controlclient.ErrInvalidInput
 	}
 	for _, member := range allowed {
@@ -449,7 +449,7 @@ func grantTable(grants []contract.Grant, truncateDescriptions bool) controlclien
 				description = string(characters[:61]) + "…"
 			}
 		}
-		rows = append(rows, []string{description, grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
+		rows = append(rows, []string{description, grant.Key, grant.ID, grant.PrincipalID, string(grant.Effect), grant.ServerID, upstream, constraint, pointerText(grant.ExpiresAt), string(grant.State), grant.CreatedAt})
 	}
-	return controlclient.Table{Headers: []string{"DESCRIPTION", "ID", "AGENT", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"DESCRIPTION", "KEY", "ID", "AGENT", "EFFECT", "SERVER", "UPSTREAM", "CONSTRAINT", "EXPIRES", "STATE", "CREATED"}, Rows: rows}
 }

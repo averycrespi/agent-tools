@@ -67,7 +67,7 @@ func TestCLIPrivateAuthorityBoundary(t *testing.T) {
 					if selector, ok := node.(*ast.SelectorExpr); ok {
 						if owner, ok := selector.X.(*ast.Ident); ok {
 							if owner.Name == "contract" {
-								assert.True(t, selector.Sel.Name == "NormalizeHostname" || entry.Name() == "controlclient.go" && (selector.Sel.Name == "ConfigExportPath" || selector.Sel.Name == "ConfigExportMaxBytes"), "controlclient may consume only hostname grammar and exact configuration resource bounds")
+								assert.True(t, selector.Sel.Name == "NormalizeHostname" || entry.Name() == "controlclient.go" && (selector.Sel.Name == "ConfigExportPath" || selector.Sel.Name == "ConfigExportMaxBytes" || selector.Sel.Name == "ConfigResourcePath" || selector.Sel.Name == "ConfigPreviewPath" || selector.Sel.Name == "ConfigImportPath"), "controlclient may consume only hostname grammar and exact configuration resource bounds")
 							}
 							if owner.Name == "diagnostics" {
 								assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, selector.Sel.Name, "finite CLI may consume value formatting, not the serve writer")

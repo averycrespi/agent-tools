@@ -1,8 +1,9 @@
 package contract
 
 const (
-	ConfigPreviewPath = "/api/v2/config/preview"
-	ConfigImportPath  = "/api/v2/config/import"
+	ConfigPreviewPath  = "/api/v2/config/preview"
+	ConfigImportPath   = "/api/v2/config/import"
+	ConfigResourcePath = "/api/v2/config/resources/"
 )
 
 // ConfigPreview contains only bounded public keys and closed requirement facts,

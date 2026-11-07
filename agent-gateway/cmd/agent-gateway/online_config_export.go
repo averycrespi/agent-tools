@@ -9,6 +9,10 @@ import (
 )
 
 func runConfigExport(command *cobra.Command, options *onlineOptions) error {
+	return runConfigExportAt(command, options, contract.ConfigExportPath, "", "")
+}
+
+func runConfigExportAt(command *cobra.Command, options *onlineOptions, path, kind, key string) error {
 	client, err := controlclient.New(options.address, controlclient.TransportOptions{})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
@@ -17,15 +21,24 @@ func runConfigExport(command *cobra.Command, options *onlineOptions) error {
 	if err != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(err))
 	}
-	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: contract.ConfigExportPath, Header: header})
+	response, err := client.Do(command.Context(), controlclient.Request{Method: http.MethodGet, Path: path, Header: header})
 	if err != nil {
 		return writeOnlineFailure(command, options.output, classifyReadFailure(err))
 	}
 	if failure := evaluateOnlineResponse(response, options.adminBearer.path); failure != nil {
 		return writeOnlineFailure(command, options.output, failure)
 	}
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != contract.MediaTypeJSON {
+		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
+	}
 	var document contract.ConfigBundle
-	if controlclient.DecodeConfigResponse(response.Body, &document) != nil || contract.ValidateConfigBundleEnvelope(document) != nil {
+	if kind != "" {
+		var definition contract.ConfigDefinition
+		if controlclient.DecodeConfigResponse(response.Body, &definition) != nil || definition.Kind != kind || definition.Key != key || !validResourceConfigDefinition(definition) {
+			return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
+		}
+		document.Resources = []contract.ConfigDefinition{definition}
+	} else if controlclient.DecodeConfigResponse(response.Body, &document) != nil || contract.ValidateConfigBundleEnvelope(document) != nil {
 		return writeOnlineFailure(command, options.output, controlclient.ClassifyClientError(controlclient.ErrResponseInvalid))
 	}
 	for _, definition := range document.Resources {

@@ -235,7 +235,6 @@ func readServerMutationInput(command *cobra.Command, options *onlineOptions, cre
 			name  string
 			field contract.ServerConfigurationField
 		}{
-			{name: "namespace", field: contract.ServerConfigurationFieldNamespace},
 			{name: "display_name", field: contract.ServerConfigurationFieldDisplayName},
 			{name: "enabled", field: contract.ServerConfigurationFieldEnabled},
 			{name: "transport", field: contract.ServerConfigurationFieldTransport},
@@ -244,7 +243,7 @@ func readServerMutationInput(command *cobra.Command, options *onlineOptions, cre
 				return nil, nil, invalidServerMutationInput(required.field, contract.ServerConfigurationRuleRequired)
 			}
 		}
-		if len(object) != 4 {
+		if len(object) != 3 && (len(object) != 4 || !members["namespace"]) {
 			return nil, nil, invalidServerMutationInput(contract.ServerConfigurationFieldConfiguration, contract.ServerConfigurationRuleInvalid)
 		}
 	}
