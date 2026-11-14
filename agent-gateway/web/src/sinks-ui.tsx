@@ -9,6 +9,12 @@ import {
   type WriteOnlyValue,
 } from "./sinks.ts";
 
+export function copyConfigurationText(value: string) {
+  return copyToClipboard(value, (candidate) =>
+    navigator.clipboard.writeText(candidate),
+  );
+}
+
 function clearSelection(): void {
   const selection = window.getSelection();
   if (selection !== null) selection.removeAllRanges();

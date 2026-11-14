@@ -11,7 +11,7 @@ import (
 )
 
 const grantSelect = `
-	SELECT insertion_sequence, id, description, revision, principal_id, effect, server_id, upstream_name,
+	SELECT (SELECT key FROM resource_keys WHERE kind='mcp_grant' AND resource_id=grants.id), insertion_sequence, id, description, revision, principal_id, effect, server_id, upstream_name,
 	       constraint_json, expires_at, created_at, read_only
 	FROM grants`
 
@@ -99,7 +99,7 @@ func (repository *Repository) scanGrant(scanner grantScanner, now time.Time) (in
 		expiresAt      sql.NullString
 	)
 	if err := scanner.Scan(
-		&sequence, &grant.ID, &description, &grant.Revision, &grant.PrincipalID, &grant.Effect, &grant.ServerID,
+		&grant.Key, &sequence, &grant.ID, &description, &grant.Revision, &grant.PrincipalID, &grant.Effect, &grant.ServerID,
 		&upstreamName, &constraintJSON, &expiresAt, &grant.CreatedAt, &grant.ReadOnly,
 	); err != nil {
 		return 0, contract.Grant{}, err

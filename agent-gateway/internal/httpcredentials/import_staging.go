@@ -7,13 +7,12 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
-// StageImportedDefinitionTx reserves an unset definition only in the caller's
-// stopped import-stage transaction. The importer owns fresh identity mapping,
-// transaction rollback and stage validation before publication. There is no live
-// service/API counterpart. No provider, generation, fence or dummy handle is made.
-func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def Definition, now time.Time) error {
+// StageConfigurationDefinitionTx creates an unset live or retained deleted
+// definition, without acquiring material or changing ordinary public creation.
+func StageConfigurationDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def Definition, deleted bool, now time.Time) error {
 	canonical, err := Normalize(def)
 	if err != nil || tx == nil || !contract.ValidAuditID(id) || now.IsZero() {
 		return ErrInvalid
@@ -22,25 +21,17 @@ func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def D
 	if err := tx.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(deleted=0),0) FROM http_credentials`).Scan(&total, &active); err != nil {
 		return err
 	}
-	if total >= identityLimit || active >= contract.HTTPPolicyCredentials {
+	if total >= identityLimit || !deleted && active >= contract.HTTPPolicyCredentials {
 		return ErrLimit
 	}
+	if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.HTTPCredential, id, canonical.Key); err != nil {
+		return err
+	}
 	timestamp := now.UTC().Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO http_credentials(id,name,host,port,allow_wildcard,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,0,0,?,?)`, id, canonical.Name, canonical.Boundary.Host, canonical.Boundary.Port, canonical.Boundary.AllowWildcard, canonical.Recipe.Header, canonical.Recipe.Prefix, timestamp, timestamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO http_credentials(id,name,host,port,allow_wildcard,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,0,?,?,?)`, id, canonical.Name, canonical.Boundary.Host, canonical.Boundary.Port, canonical.Boundary.AllowWildcard, canonical.Recipe.Header, canonical.Recipe.Prefix, deleted, timestamp, timestamp); err != nil {
 		return err
 	}
 	return audit.MutationTx(ctx, tx, now, "http_credential", "create", contract.AuditTarget{Type: "http_credential", ID: id})
-}
-
-func ValidateImportedUnsetTx(ctx context.Context, tx *sql.Tx) error {
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM http_credentials WHERE material_revision<>0 OR handle IS NOT NULL OR deleted<>0`).Scan(&count); err != nil {
-		return err
-	}
-	if count != 0 {
-		return ErrInvalid
-	}
-	return nil
 }
 
 // SetupFactsTx supplies only missing setup, on the stopped doctor's read view.

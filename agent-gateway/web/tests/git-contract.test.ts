@@ -102,6 +102,7 @@ test("Git traffic pages use bounded cursors without fabricated totals", () => {
 });
 test("Git browser rejects write-only grant representations", () => {
   const grant = {
+    key: "git-policy",
     id,
     revision: "1",
     created_at: time,

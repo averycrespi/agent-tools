@@ -3257,6 +3257,22 @@ button.sort-button:not(:disabled):hover {
   }
 }
 
+.config-creation-list {
+  padding-inline-start: 1.5rem;
+}
+.config-creation-list > li {
+  padding-block: 0.75rem;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.config-creation-list h4 {
+  margin-block: 0 0.5rem;
+}
+.config-creation-list .detail-facts ul {
+  margin: 0;
+  padding-inline-start: 1.25rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

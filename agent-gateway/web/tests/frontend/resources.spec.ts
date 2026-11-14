@@ -7,12 +7,14 @@ const id = "01ARZ3NDEKTSV4RRFFQ69G5FA0";
 const agentID = "01ARZ3NDEKTSV4RRFFQ69G5FA1";
 const timestamp = "2026-10-01T12:00:00.000000000Z";
 const common = {
+  key: "synthetic-resource",
   id,
   revision: "1",
   created_at: timestamp,
   updated_at: timestamp,
 };
 const agent = {
+  key: "synthetic-agent",
   id: agentID,
   display_name: "Synthetic agent",
   state: "active",
@@ -258,6 +260,9 @@ for (const entity of entities) {
         const payload = req.postDataJSON();
         expect(payload).toBeTruthy();
         if (req.method() === "POST") {
+          expect(payload.key).toBe(
+            writes === 1 ? "explicit_resource" : undefined,
+          );
           expect(
             payload[entity.path.endsWith("grants") ? "description" : "name"],
           ).toBe(
@@ -504,6 +509,10 @@ for (const entity of entities) {
     expect(writes).toBe(0);
     await capture(page, "create-validation");
     await fillCreate(page, entity.path);
+    await page
+      .getByLabel("Stable key (optional)", { exact: true })
+      .fill("explicit_resource");
+    await assertCreationPlaceholders(page);
     if (entity.path === "http/grants") {
       for (const kind of ["allow_tunnel", "block_requests", "allow_requests"]) {
         await page.getByLabel("Grant type", { exact: true }).selectOption(kind);

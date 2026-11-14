@@ -11,6 +11,7 @@ import {
   compatibleGitCredential,
   type GitChoices,
 } from "./git-choices";
+import { ConfigActions, ImportLink, StableKeyField } from "./configuration";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { serializeLocation, type ResolvedLocation } from "./location";
 import {
@@ -196,6 +197,17 @@ export function GitConfiguration(props: Props & { kind: GitKind }) {
         </div>
         <p class="technical-value">{value.id}</p>
       </header>
+      <ConfigActions
+        session={props.session}
+        kind={
+          kind === "repositories"
+            ? "git_repository"
+            : kind === "credentials"
+              ? "git_credential"
+              : "git_grant"
+        }
+        resourceKey={value.key}
+      />
       {error && (
         <StateNotice state="error" title="Git resource refresh unavailable">
           Saved facts may be stale. Refresh before making changes.
@@ -434,6 +446,16 @@ function GitCollection(
         <a class="button-link create-action" href={`#/git/${kind}/new`}>
           Create {singular(kind)}
         </a>
+        <ImportLink
+          kind={
+            kind === "repositories"
+              ? "git_repository"
+              : kind === "credentials"
+                ? "git_credential"
+                : "git_grant"
+          }
+          label={singular(kind)}
+        />
       </div>
       <section class="panel domain-panel">
         <CollectionTable
@@ -730,6 +752,7 @@ function GitEditor({
   mode: "create" | "edit" | "rotate" | "delete";
   unavailable?: boolean;
 }) {
+  const [stableKey, setStableKey] = useState("");
   const [baseline, setBaseline] = useState(() => gitDraft(resource));
   const [draft, setDraft] = useState(() => gitDraft(resource));
   const [hasSecret, setHasSecret] = useState(false);
@@ -737,7 +760,9 @@ function GitEditor({
     material =
       kind === "credentials" && (mode === "create" || mode === "rotate");
   const dirty =
-    (metadata && gitDraftKey(draft) !== gitDraftKey(baseline)) || hasSecret;
+    stableKey !== "" ||
+    (metadata && gitDraftKey(draft) !== gitDraftKey(baseline)) ||
+    hasSecret;
   const aliasesEdited = useRef(false);
   const [expected, setExpected] = useState(
     resource ? gitETag(kind, resource) : null,
@@ -995,7 +1020,11 @@ function GitEditor({
         body:
           mode === "delete" && kind !== "credentials"
             ? null
-            : JSON.stringify(body),
+            : JSON.stringify(
+                mode === "create" && stableKey
+                  ? { ...body, key: stableKey }
+                  : body,
+              ),
         precondition: expected,
         requiresPrecondition: resource !== undefined,
         idempotency: "none",
@@ -1059,6 +1088,9 @@ function GitEditor({
             mutation.state === "submitting" || mutation.state === "uncertain"
           }
         >
+          {mode === "create" && (
+            <StableKeyField value={stableKey} onChange={setStableKey} />
+          )}
           {metadata &&
             kind !== "grants" &&
             field(

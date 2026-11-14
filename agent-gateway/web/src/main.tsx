@@ -19,6 +19,8 @@ import { Invocations, InvocationsController } from "./invocations";
 import { MutationCoordinator, type MutationAvailability } from "./mutation";
 import { configureNavigationGuard, type NavigationGuard } from "./navigation";
 import { Overview, OverviewController } from "./overview";
+import { ResourceImport } from "./configuration";
+import type { ResourceKind } from "./config-contract";
 import { PrincipalDirectory, Principals } from "./principals";
 import { GitConfiguration, GitTrafficView } from "./git";
 import { GitTrafficController } from "./git-traffic-history";
@@ -535,11 +537,24 @@ function App() {
     setTheme(value);
   };
   const destination = resolved.location.destination;
+  const importKinds: Record<string, ResourceKind> = {
+    principals: "agent",
+    servers: "mcp_server",
+    grants: "mcp_grant",
+    "http-grants": "http_grant",
+    "http-credentials": "http_credential",
+    "git-grants": "git_grant",
+    "git-credentials": "git_credential",
+    "git-repositories": "git_repository",
+  };
+  const importing = resolved.location.segments[1] === "import";
   const isServerDetail =
+    !importing &&
     destination === "servers" &&
     resolved.location.segments[1] !== undefined &&
     resolved.location.segments[1] !== "new";
   const isPrincipalDetail =
+    !importing &&
     destination === "principals" &&
     resolved.location.segments[1] !== undefined &&
     resolved.location.segments[1] !== "new";
@@ -547,6 +562,7 @@ function App() {
     destination === "invocations" &&
     resolved.location.segments[1] !== undefined;
   const isGrantDetail =
+    !importing &&
     destination === "grants" &&
     resolved.location.segments[1] !== undefined &&
     resolved.location.segments[1] !== "new";
@@ -562,15 +578,17 @@ function App() {
       destination === "http-traffic") &&
       resolved.location.segments[1] !== undefined &&
       resolved.location.segments[1] !== "new" &&
-      resolved.location.segments[1] !== "test-access") ||
+      resolved.location.segments[1] !== "test-access" &&
+      !importing) ||
     isServerDetail ||
     isPrincipalDetail ||
     isInvocationDetail ||
     isGrantDetail ||
     isRequestDetail ||
     (destination === "audit" && resolved.location.segments[1] !== undefined);
-  const destinationLabel =
-    destination.startsWith("git-") && resolved.location.segments[1] === "new"
+  const destinationLabel = importing
+    ? "Import resource"
+    : destination.startsWith("git-") && resolved.location.segments[1] === "new"
       ? `Create Git ${destination === "git-repositories" ? "repository" : destination === "git-credentials" ? "credential" : "grant"}`
       : destination === "http-grants" && resolved.location.segments[1] === "new"
         ? "Create HTTP grant"
@@ -875,7 +893,14 @@ function App() {
         session.lifecycle === "reauthenticating" ? (
           <SessionTransition lifecycle={session.lifecycle} />
         ) : authenticated ? (
-          destination === "overview" ? (
+          importing && importKinds[destination] ? (
+            <ResourceImport
+              key={resolved.canonicalFragment}
+              session={sessionClient}
+              mutations={mutationCoordinator}
+              kind={importKinds[destination]!}
+            />
+          ) : destination === "overview" ? (
             <Overview
               controller={overviewController}
               principals={principalDirectory}

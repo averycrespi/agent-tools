@@ -19,6 +19,8 @@ import { assertTableConventions } from "./table-conventions.ts";
 import { exerciseCatalogPagination } from "./catalog-pagination.ts";
 import { exerciseOperationPagination } from "./operation-pagination.ts";
 import { exerciseUpstreamHeaders } from "./upstream-headers.ts";
+import { exerciseResourceConfiguration } from "./configuration.ts";
+import { exerciseSystemConfiguration } from "./system-configuration.ts";
 import {
   assertClosedStorage,
   assertSecretAbsent,
@@ -266,7 +268,14 @@ export async function runServerManagementCanary(
   await page.setViewportSize({ width: 1280, height: 900 });
   await captureDetailLayout(page, "server-status-healthy");
   await compareBaseline("server-status-healthy");
-  await expect(serverStatus.locator(".detail-section")).toHaveCount(1);
+  await expect(serverStatus.locator(".detail-section")).toHaveCount(2);
+  await expect(
+    serverStatus.getByRole("region", {
+      name: "Resource configuration",
+      exact: true,
+    }),
+  ).toHaveClass("detail-section");
+  await expect(serverStatus.locator(".operator-status-view")).toHaveCount(1);
   await expect(
     serverStatus.locator(".detail-section .detail-section"),
   ).toHaveCount(0);
@@ -331,11 +340,14 @@ export async function runServerUpstreamHeaders(
   page: Page,
   bearer: string,
   requestCount: () => number,
+  configuration: string,
 ): Promise<void> {
   await page.getByTestId("admin-bearer-input").fill(bearer);
   await page.getByTestId("sign-in-submit").click();
   await waitForLifecycle(page, "authenticated");
+  await exerciseSystemConfiguration(page, configuration);
   const screenshots = await exerciseUpstreamHeaders(page);
+  await exerciseResourceConfiguration(page);
   process.stdout.write(
     JSON.stringify({
       event: "server_create_update_complete",

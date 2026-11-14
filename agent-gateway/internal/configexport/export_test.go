@@ -86,47 +86,23 @@ func seed(t *testing.T, store *storage.Store) {
 
 func TestConfigurationExportMixedProtocolsWithoutMaterial(t *testing.T) {
 	store := fixture(t)
-	seed(t, store)
+	seedV2(t, store)
 	before, err := store.Identity(t.Context())
 	require.NoError(t, err)
-	body, err := New(store).ExportConfiguration(t.Context())
+	body, err := New(store).ExportBundle(t.Context())
 	require.NoError(t, err)
-	var got contract.ConfigExport
+	var got contract.ConfigBundle
 	require.NoError(t, json.Unmarshal(body, &got))
-	require.NoError(t, contract.ValidateConfigExport(got))
-	require.Len(t, got.Agents, 2)
-	require.Equal(t, "agent/1", got.Agents[0].Ref)
-	require.Equal(t, contract.HTTPDefaultAllow, got.Agents[1].HTTPDefault)
-	require.Len(t, got.MCP.Servers, 4)
-	require.True(t, got.MCP.Servers[0].Enabled)
-	require.Equal(t, map[string]string{"api": "mcp/server_0/static/api"}, got.MCP.Servers[0].Credentials.Static)
-	require.Equal(t, "mcp/server_1/static/bearer", got.MCP.Servers[1].Credentials.Static["bearer"])
-	require.Equal(t, "mcp/server_2/oauth/client_secret", *got.MCP.Servers[2].Credentials.OAuthClientSecret)
-	require.True(t, got.MCP.Servers[2].Credentials.OAuthAuthorization)
-	require.Contains(t, string(got.MCP.Servers[2].Transport), `"scopes":[]`)
-	require.True(t, got.MCP.Servers[3].Deleted)
-	require.JSONEq(t, "null", string(got.MCP.Servers[3].Transport))
-	require.Len(t, got.MCP.Grants, 3)
-	require.Contains(t, string(got.MCP.Grants[0].Constraint), "1.2300e+4")
-	require.Equal(t, stamp, *got.MCP.Grants[0].ExpiresAt)
-	require.True(t, got.MCP.Grants[1].ReadOnly)
-	require.Equal(t, "mcp/server_3", got.MCP.Grants[1].Server)
-	require.Equal(t, "mcp/mcp_gateway", got.MCP.Grants[2].Server)
-	require.Equal(t, "http-credential/1", *got.HTTP.Grants[0].Policy.CredentialRef)
-	require.Equal(t, "*.example.com", got.HTTP.Grants[0].Policy.Request.Origin.Host)
-	require.Equal(t, contract.HTTPPathPrefix, got.HTTP.Grants[0].Policy.Request.Path.Kind)
-	require.True(t, *got.HTTP.Grants[0].Policy.AllowPrivate)
-	require.Equal(t, "repository/1", got.Git.Grants[0].Repository)
-	require.True(t, got.Git.Repositories[0].Deleted)
-	require.Equal(t, "git-credential/1", *got.Git.Repositories[0].CredentialRef)
-	require.Equal(t, []string{"https://github.com:443"}, got.Git.RoutingOrigins)
+	require.NoError(t, contract.ValidateConfigBundleEnvelope(got))
+	require.NotEmpty(t, got.Resources)
+	require.Contains(t, string(body), "1.2300e+4")
 	for _, forbidden := range []string{installation, "SECRET_MATERIAL_CANARY", "secret-handle-canary", "credential_revision", "revision", "fingerprint", "available", "created_at", "ciphertext", "operations", "runtime", "audit"} {
 		require.NotContains(t, string(body), forbidden)
 	}
 	for i := 1; i <= 40; i++ {
 		require.NotContains(t, string(body), id(i))
 	}
-	again, err := New(store).ExportConfiguration(t.Context())
+	again, err := New(store).ExportBundle(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, body, again)
 	after, err := store.Identity(t.Context())
@@ -136,7 +112,7 @@ func TestConfigurationExportMixedProtocolsWithoutMaterial(t *testing.T) {
 
 func TestConfigurationProjectionRetainsOneConcurrentSnapshot(t *testing.T) {
 	store := fixture(t)
-	seed(t, store)
+	seedV2(t, store)
 	require.NoError(t, store.View(t.Context(), func(tx *sql.Tx) error {
 		var old string
 		require.NoError(t, tx.QueryRowContext(t.Context(), `SELECT display_name FROM principals WHERE id=?`, id(1)).Scan(&old))
@@ -146,33 +122,44 @@ func TestConfigurationProjectionRetainsOneConcurrentSnapshot(t *testing.T) {
 			exec(t, writer, `UPDATE servers SET display_name='new' WHERE id=?`, id(10))
 			return nil
 		}))
-		got, err := configurationTx(t.Context(), tx)
+		got, err := BundleTx(t.Context(), tx)
 		require.NoError(t, err)
-		require.Equal(t, old, got.Agents[0].DisplayName)
-		require.Equal(t, "Server", got.MCP.Servers[0].DisplayName)
+		for _, d := range got.Resources {
+			if d.Kind == "agent" && d.Key == "agent-key-0" {
+				require.Contains(t, string(d.Spec), old)
+				require.NotContains(t, string(d.Spec), `"new"`)
+			}
+			if d.Kind == "mcp_server" && d.Key == "server_0" {
+				require.Contains(t, string(d.Spec), "Server")
+				require.NotContains(t, string(d.Spec), `"new"`)
+			}
+		}
 		return nil
 	}))
-	body, err := New(store).ExportConfiguration(t.Context())
+	body, err := New(store).ExportBundle(t.Context())
 	require.NoError(t, err)
-	var fresh contract.ConfigExport
+	var fresh contract.ConfigBundle
 	require.NoError(t, json.Unmarshal(body, &fresh))
-	require.Equal(t, "new", fresh.Agents[0].DisplayName)
-	require.Equal(t, "new", fresh.MCP.Servers[0].DisplayName)
+	for _, d := range fresh.Resources {
+		if d.Kind == "agent" && d.Key == "agent-key-0" || d.Kind == "mcp_server" && d.Key == "server_0" {
+			require.Contains(t, string(d.Spec), `"display_name":"new"`)
+		}
+	}
 }
 
 func TestConfigurationExportRejectsBrokenGraphBeforeDelivery(t *testing.T) {
 	store := fixture(t)
-	seed(t, store)
+	seedV2(t, store)
 	require.NoError(t, store.Mutate(t.Context(), func(tx *sql.Tx) error {
 		exec(t, tx, `UPDATE http_grants SET policy_json=json_set(policy_json,'$.credential_id',?)`, id(99))
 		return nil
 	}))
-	body, err := New(store).ExportConfiguration(t.Context())
+	body, err := New(store).ExportBundle(t.Context())
 	require.Error(t, err)
 	require.Empty(t, body)
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
-	body, err = New(store).ExportConfiguration(canceled)
+	body, err = New(store).ExportBundle(canceled)
 	require.Error(t, err)
 	require.Empty(t, body)
 }

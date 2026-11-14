@@ -12,13 +12,25 @@ Purpose: Coordinate client/service upgrades without rewriting durable authority 
 4. Discard old cursors and inspect current resources with the upgraded client. A rejected or undecodable response is not proof that a mutation failed. Retain uncertain input/key/precondition and resolve its outcome before new intent; never automatically replay.
 5. Configure clients using the [client compatibility gate](access-control.md#consumer-compatibility-qualification-and-rollback). Source changes and CI do not qualify installed resources.
 
+## Stable configuration keys
+
+Schema 26 assigns durable keys to retained agents, grants, HTTP/Git credential
+definitions and Git repositories, including retained deletion tombstones. Existing
+MCP namespaces, IDs, policies, secret ownership and history remain unchanged.
+Administrator resource JSON now includes `key`; upgrade strict API consumers and
+reload bundled browser tabs together. ID-based URLs and ETags do not change.
+Ordinary creation can still omit a key; the API generates one. Keys remain reserved
+after deletion, so a new resource needs a new key. They are identifiers, not secret
+values. See [grammar, type scopes and generation](../design/public-contract.md#stable-configuration-resource-keys).
+No ordinary CLI/browser key controls or configuration-format change is included.
+
 ## Backup and restore removal
 
 Installation-snapshot backup create/list/get/delete and stopped restore support is deliberately removed, including restore-only flags, APIs, UI and status occupancy. No aliases, compatibility endpoints, legacy format verification or transition procedure remain. Upgrade CLI/API consumers and reload browser tabs together; old requests and bookmarks do not redirect.
 
 Existing backup inventory and restore-specific residue remain untouched, even malformed or unsafe artifacts. Startup, init/resume and status do not inspect their contents or let them gate readiness. Shared security recovery, initialization, rotation and cleanup provenance remain fail-closed; do not clear unknown markers. No schema or historical file is rewritten by removal.
 
-Use `export config` plus fresh `init --from` for portable definitions, with new authority and CA identity, unset secrets and explicit upstream activation. It is not installation restoration or rollback. Existing `history export` and System / History export retain bounded rolling-history behavior, without a complete-audit claim. See [artifact preservation and fresh initialization](backup-and-recovery.md#backup-and-restore-removal). No installed-resource mutation or live qualification is authorized by this source cutover.
+Use version-two `export config`, ordinary initialization/start and online create-only import for portable definitions. Import leaves material unset, retains receiving installation/CA authority and honors enabled state after commit through normal lifecycle. Version one and `init --from` are removed; incomplete historical imports are preserved without replay or cleanup. It is not installation restoration or rollback. Existing `history export` and System / History export retain bounded rolling-history behavior, without a complete-audit claim. See [artifact preservation and fresh initialization](backup-and-recovery.md#backup-and-restore-removal). No installed-resource mutation or live qualification is authorized by this source cutover.
 
 ## HTTP URL compatibility expansion
 
@@ -179,7 +191,7 @@ Existing same-key server work retains its durable identity across the route rena
 
 ## Setup and maintenance CLI cutover
 
-Use `init` (`initialize` remains a quiet alias), `doctor` instead of top-level `status`, and `agent` instead of `principal`. Initial CA setup belongs to init; `http ca create` is removed. Export writes `<data-dir>/http-ca.pem` unless `--output PATH` or `--stdout` is selected. `--json` chooses structured output. Exceptional stopped work uses `maintenance reset-admin-credentials` or `maintenance rotate-master-key` (including `--recover`); inspect `--dry-run` and supply `--confirm` for unattended execution. Separate custody setup and legacy traffic cutover are retired without aliases or automatic startup invocation. Ordinary init/import provision both stores and custody; recognized interrupted setup uses only `init --resume`. Preserve all historical generations, keys, tombstones and backups. Old command locations have no aliases. These grammar changes do not rename database tables, API endpoints, credential identities or installed resources.
+Use `init` (`initialize` remains a quiet alias), `doctor` instead of top-level `status`, and `agent` instead of `principal`. Initial CA setup belongs to init; `http ca create` is removed. Export writes `<data-dir>/http-ca.pem` unless `--output PATH` or `--stdout` is selected. `--json` chooses structured output. Exceptional stopped work uses `maintenance reset-admin-credentials` or `maintenance rotate-master-key` (including `--recover`); inspect `--dry-run` and supply `--confirm` for unattended execution. Separate custody setup and legacy traffic cutover are retired without aliases or automatic startup invocation. Ordinary init provisions both stores and custody; online `import --file PATH` creates explicit configuration only after startup. Review with `--dry-run` before `--confirm`, then provision credentials and inspect readiness separately. Recognized interrupted ordinary setup uses only `init --resume`. Preserve all historical generations, keys, tombstones and backups. Old command locations have no aliases. These grammar changes do not rename database tables, API endpoints, credential identities or installed resources.
 
 <a id="principal-http-default-client-cutover"></a>
 

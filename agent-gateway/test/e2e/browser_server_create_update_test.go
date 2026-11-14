@@ -5,11 +5,13 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +19,19 @@ import (
 
 func TestBrowserServerCreateUpdate(t *testing.T) {
 	assertBrowserEnvironmentManifest(t)
+	// Export the complete retained graph from an independently initialized running
+	// source, then stop it before giving the browser its fresh receiving Gateway.
+	source := newGatewayHarness(t)
+	source.Start()
+	seed := bundleCLIGraph()
+	seed.Resources[2].Spec = json.RawMessage(strings.ReplaceAll(string(seed.Resources[2].Spec), `"/decimal":1.0`, `"/decimal":1.0,"/exponent":1e+2`))
+	seeded := source.adminSnapshot(http.MethodPost, contract.ConfigImportPath, mustMarshalConfigurationE2E(t, seed))
+	require.Equal(t, http.StatusCreated, seeded.StatusCode)
+	exported := source.adminSnapshot(http.MethodGet, contract.ConfigExportPath, nil)
+	require.Equal(t, http.StatusOK, exported.StatusCode)
+	require.NotContains(t, string(exported.Body), source.bearer)
+	source.Stop(os.Interrupt)
+	assert.Len(t, source.results, 1)
 	harness := newGatewayHarness(t)
 	harness.Start()
 
@@ -36,7 +51,7 @@ func TestBrowserServerCreateUpdate(t *testing.T) {
 	})
 	require.NoError(t, json.NewEncoder(input).Encode(map[string]any{
 		"version": 1, "scenario": "server-create-update", "base_url": "http://" + harness.authority,
-		"admin_bearer": harness.bearer,
+		"admin_bearer": harness.bearer, "configuration": string(exported.Body),
 	}))
 	require.NoError(t, input.Close())
 
@@ -68,5 +83,5 @@ func TestBrowserServerCreateUpdate(t *testing.T) {
 	assert.Len(t, event.HeaderScreenshots, 15)
 
 	harness.Stop(os.Interrupt)
-	assert.Len(t, harness.results, 1, "T24 must own one Gateway lifecycle")
+	assert.Len(t, harness.results, 1, "receiving fixture owns one Gateway lifecycle, separate from the closed source")
 }

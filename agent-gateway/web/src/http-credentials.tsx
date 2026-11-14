@@ -28,6 +28,7 @@ import {
 } from "./credential-material";
 
 interface Credential {
+  key: string;
   id: string;
   name: string;
   boundary: { host: string; port: number; allow_wildcard: boolean };
@@ -50,8 +51,12 @@ function exact(value: unknown, keys: string[]): Record<string, unknown> {
     throw new Error("HTTP credential data is unavailable.");
   return value as Record<string, unknown>;
 }
+import { validResourceKey } from "./resource-key";
+import { ConfigActions, ImportLink, StableKeyField } from "./configuration";
+
 export function decodeHTTPCredential(value: unknown): Credential {
   const r = exact(value, [
+    "key",
     "id",
     "name",
     "boundary",
@@ -66,6 +71,7 @@ export function decodeHTTPCredential(value: unknown): Credential {
   const b = exact(r.boundary, ["host", "port", "allow_wildcard"]);
   const recipe = exact(r.recipe, ["header", "prefix"]);
   if (
+    !validResourceKey(r.key) ||
     typeof r.id !== "string" ||
     !idPattern.test(r.id) ||
     typeof r.name !== "string" ||
@@ -211,6 +217,11 @@ export function HTTPCredentials(props: Props) {
         </div>
         <p class="technical-value">{detail.id}</p>
       </header>
+      <ConfigActions
+        session={props.session}
+        kind="http_credential"
+        resourceKey={detail.key}
+      />
       <section
         class="detail-section"
         aria-labelledby="credential-details-title"
@@ -325,6 +336,7 @@ function CredentialCollection(props: Props) {
         <a class="button-link create-action" href="#/http/credentials/new">
           Create credential
         </a>
+        <ImportLink kind="http_credential" label="credential" />
       </div>
       <section class="panel domain-panel">
         <CollectionTable
@@ -447,6 +459,7 @@ function CredentialEditor({
   unavailable?: boolean;
   mode: "create" | "edit" | "rotate" | "delete";
 }) {
+  const [stableKey, setStableKey] = useState("");
   const [name, setName] = useState(credential?.name ?? "");
   const [host, setHost] = useState(credential?.boundary.host ?? "");
   const [port, setPort] = useState(String(credential?.boundary.port ?? 443));
@@ -622,6 +635,7 @@ function CredentialEditor({
     const element = document.getElementById(inputID);
     const value = element instanceof HTMLInputElement ? element.value : "";
     const definition = {
+      ...(mode === "create" && stableKey ? { key: stableKey } : {}),
       name,
       boundary: { host, port: Number(port), allow_wildcard: wildcard },
       recipe: { header, prefix },
@@ -715,6 +729,9 @@ function CredentialEditor({
             mutation.availability === "storage_latched"
           }
         >
+          {mode === "create" && (
+            <StableKeyField value={stableKey} onChange={setStableKey} />
+          )}
           {metadata && (
             <>
               <FormField id={`http-name-${mode}`} label="Name">

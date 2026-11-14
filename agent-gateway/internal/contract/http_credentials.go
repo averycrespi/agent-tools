@@ -3,6 +3,7 @@ package contract
 import "strings"
 
 const (
+	HTTPCredentialIdentities  = 1024
 	HTTPCredentialNameBytes   = 256
 	HTTPCredentialHeaderBytes = 128
 	HTTPCredentialPrefixBytes = 128
@@ -16,6 +17,8 @@ type HTTPCredentialBoundary struct {
 }
 
 type HTTPCredentialDefinition struct {
+	// Key is a create-only domain input; mutable definition JSON excludes it.
+	Key      string                 `json:"-"`
 	Name     string                 `json:"name"`
 	Boundary HTTPCredentialBoundary `json:"boundary"`
 	Recipe   HTTPCredentialRecipe   `json:"recipe"`
@@ -26,7 +29,8 @@ type HTTPCredentialReference struct {
 }
 
 type HTTPCredential struct {
-	ID string `json:"id"`
+	Key string `json:"key"`
+	ID  string `json:"id"`
 	HTTPCredentialDefinition
 	Revision      string                    `json:"revision"`
 	Available     bool                      `json:"available"`

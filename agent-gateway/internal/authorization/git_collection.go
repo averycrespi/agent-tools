@@ -220,7 +220,7 @@ func (r *Repository) QueryGitGrants(ctx context.Context, q GitCollectionQuery, c
 	var page contract.QueryCollection[contract.GitGrant]
 	err := r.view(ctx, func(tx *sql.Tx) error {
 		now := r.clock.Now()
-		rows, e := tx.QueryContext(ctx, `SELECT g.id,coalesce(g.description,''),g.principal_id,p.display_name,g.repository_id,r.name,g.revision,g.expires_at FROM git_grants g JOIN principals p ON p.id=g.principal_id JOIN git_repositories r ON r.id=g.repository_id ORDER BY g.id LIMIT ?`, contract.GitGrants+1)
+		rows, e := tx.QueryContext(ctx, `SELECT g.id,coalesce(g.description,''),g.principal_id,p.display_name,g.repository_id,coalesce(r.name,''),g.revision,g.expires_at FROM git_grants g JOIN principals p ON p.id=g.principal_id LEFT JOIN git_repositories r ON r.id=g.repository_id ORDER BY g.id LIMIT ?`, contract.GitGrants+1)
 		if e != nil {
 			return e
 		}

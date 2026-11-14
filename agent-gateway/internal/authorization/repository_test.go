@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	gatewaypaths "github.com/averycrespi/agent-tools/agent-gateway/internal/paths"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil/storagefixture"
 	"github.com/stretchr/testify/assert"
@@ -189,6 +191,9 @@ func seedPrincipal(t *testing.T, store *storage.Store, row principalRow) {
 		row.visibility = contract.VisibilityRequestable
 	}
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		if _, err := resourcekeys.ReserveTx(t.Context(), transaction, resourcekeys.Agent, row.id, ""); err != nil {
+			return err
+		}
 		if row.credential {
 			_, err := transaction.Exec(`INSERT INTO principals
 				(id, display_name, state, visibility, revision, credential_revision, credential_id, credential_verifier, credential_fingerprint, credential_created_at, created_at, updated_at)
@@ -214,6 +219,9 @@ type grantRow struct {
 func seedGrant(t *testing.T, store *storage.Store, row grantRow) {
 	t.Helper()
 	require.NoError(t, store.Mutate(context.Background(), func(transaction *sql.Tx) error {
+		if _, err := resourcekeys.ReserveTx(t.Context(), transaction, resourcekeys.MCPGrant, row.id, ""); err != nil {
+			return err
+		}
 		var constraint any
 		if row.constraint != "" {
 			constraint = row.constraint
@@ -230,6 +238,11 @@ func seedGrant(t *testing.T, store *storage.Store, row grantRow) {
 }
 
 func insertGrantFixtures(transaction *sql.Tx, count int64, principalID, serverID string, upstreamName any) error {
+	for i := int64(1); i <= count; i++ {
+		if _, err := resourcekeys.ReserveTx(context.Background(), transaction, resourcekeys.MCPGrant, fmt.Sprintf("%026d", i+100000), ""); err != nil {
+			return err
+		}
+	}
 	_, err := transaction.Exec(`WITH RECURSIVE fixtures(sequence) AS (
 		SELECT 1 UNION ALL SELECT sequence + 1 FROM fixtures WHERE sequence < ?
 	) INSERT INTO grants

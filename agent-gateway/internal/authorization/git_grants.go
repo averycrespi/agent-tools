@@ -9,9 +9,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitpolicy"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
 type GitGrantInput struct {
+	Key          string
 	PrincipalID  string
 	RepositoryID string
 	Description  *string
@@ -19,7 +21,7 @@ type GitGrantInput struct {
 	ExpiresAt    *time.Time
 }
 
-const gitGrantColumns = `SELECT id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at`
+const gitGrantColumns = `SELECT (SELECT key FROM resource_keys WHERE kind='git_grant' AND resource_id=git_grants.id),id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at`
 const gitGrantSelect = gitGrantColumns + `,EXISTS(SELECT 1 FROM configuration_import_grant_expiries e WHERE e.kind='git' AND e.id=git_grants.id AND e.expires_at=git_grants.expires_at) FROM git_grants`
 
 func scanGitGrant(row interface{ Scan(...any) error }, now time.Time) (contract.GitGrant, error) {
@@ -27,7 +29,7 @@ func scanGitGrant(row interface{ Scan(...any) error }, now time.Time) (contract.
 	var description, expiry sql.NullString
 	var raw string
 	var importedExpiry bool
-	if err := row.Scan(&g.ID, &g.PrincipalID, &g.RepositoryID, &description, &g.Revision, &raw, &expiry, &g.CreatedAt, &g.UpdatedAt, &importedExpiry); err != nil {
+	if err := row.Scan(&g.Key, &g.ID, &g.PrincipalID, &g.RepositoryID, &description, &g.Revision, &raw, &expiry, &g.CreatedAt, &g.UpdatedAt, &importedExpiry); err != nil {
 		return g, err
 	}
 	if description.Valid {
@@ -95,7 +97,7 @@ func (r *Repository) ListGitGrants(ctx context.Context) (out []contract.GitGrant
 
 func (r *Repository) PutGitGrant(ctx context.Context, id, revision string, in GitGrantInput) (contract.GitGrant, error) {
 	now := r.clock.Now().UTC()
-	if !validOpaqueID(in.PrincipalID) || !validOpaqueID(in.RepositoryID) || !validGrantDescription(in.Description) || in.ExpiresAt != nil && !in.ExpiresAt.After(now) {
+	if in.Key != "" && !contract.ValidResourceKey(in.Key) || !validOpaqueID(in.PrincipalID) || !validOpaqueID(in.RepositoryID) || !validGrantDescription(in.Description) || in.ExpiresAt != nil && !in.ExpiresAt.After(now) {
 		return contract.GitGrant{}, ErrInvalidInput
 	}
 	p, err := gitpolicy.Decode(in.Policy)
@@ -107,6 +109,9 @@ func (r *Repository) PutGitGrant(ctx context.Context, id, revision string, in Gi
 		return contract.GitGrant{}, ErrInvalidInput
 	}
 	create := id == ""
+	if !create && in.Key != "" {
+		return contract.GitGrant{}, ErrInvalidInput
+	}
 	if create {
 		id, err = r.newID(now)
 	} else if !validOpaqueID(id) || !validRevision(revision) {
@@ -136,6 +141,9 @@ func (r *Repository) PutGitGrant(ctx context.Context, id, revision string, in Gi
 			}
 			if count >= contract.GitGrants {
 				return ErrResourceLimit
+			}
+			if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitGrant, id, in.Key); err != nil {
+				return err
 			}
 			_, e = tx.ExecContext(ctx, `INSERT INTO git_grants(id,principal_id,repository_id,description,revision,policy_json,expires_at,created_at,updated_at) VALUES(?,?,?,?,1,?,?,?,?)`, id, in.PrincipalID, in.RepositoryID, nullableGrantString(in.Description), string(raw), nullableGrantTime(in.ExpiresAt), formatAuthorizationTime(now), formatAuthorizationTime(now))
 		} else {
@@ -251,6 +259,15 @@ func validateGitAuthorityTx(ctx context.Context, tx *sql.Tx, principals map[stri
 		}
 		if err := checkGitCredentialTx(ctx, tx, rec.resource.GitRepositoryDefinition); err != nil {
 			return ErrInvalidState
+		}
+	}
+	keys, err := resourcekeys.ConfigurationTx(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, key := range keys {
+		if key.Kind == resourcekeys.GitRepository {
+			ids[key.ResourceID] = true
 		}
 	}
 	grants, err := readGitGrantsTx(ctx, tx, time.Now())

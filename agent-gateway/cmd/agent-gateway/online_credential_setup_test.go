@@ -17,7 +17,7 @@ func TestCLICredentialSetupStatusAndClosedState(t *testing.T) {
 		require.NoError(t, err)
 		table, err := httpCredentialItemTable(raw)
 		require.NoError(t, err)
-		require.Equal(t, state.Label(), table.Rows[0][5])
+		require.Equal(t, state.Label(), table.Rows[0][6])
 		git := gitCLIResource()
 		git.MaterialState = state
 		git.Available = http.Available
@@ -25,7 +25,7 @@ func TestCLICredentialSetupStatusAndClosedState(t *testing.T) {
 		require.NoError(t, err)
 		table, err = gitCredentialTable(raw)
 		require.NoError(t, err)
-		require.Equal(t, state.Label(), table.Rows[0][3])
+		require.Equal(t, state.Label(), table.Rows[0][4])
 	}
 	http := httpCredentialCLIResource()
 	http.MaterialState = contract.CredentialNotConfigured

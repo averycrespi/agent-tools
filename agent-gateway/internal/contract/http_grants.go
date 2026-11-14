@@ -4,6 +4,7 @@ import "encoding/json"
 
 // HTTP grants remain separate from MCP grants and principal settings.
 type HTTPGrant struct {
+	Key         string          `json:"key"`
 	ID          string          `json:"id"`
 	PrincipalID string          `json:"principal_id"`
 	Description *string         `json:"description"`

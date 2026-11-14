@@ -4,22 +4,20 @@ import "encoding/json"
 
 // Configuration format versions are independent of database and policy versions.
 const (
-	ConfigExportFormat  = "agent-gateway-config"
-	ConfigExportVersion = 1
-	ConfigExportPath    = "/api/v2/config/export"
+	ConfigExportFormat = "agent-gateway-config"
+	ConfigExportPath   = "/api/v2/config/export"
 	// Covers the combined bounded server and MCP/HTTP/Git policy inventories.
 	ConfigExportMaxBytes = 512 * 1024 * 1024
 )
 
-// ConfigExport contains configuration only. No installation authority, material,
-// availability, revisions, history, or process-local state belongs in this type.
-type ConfigExport struct {
-	Format  string        `json:"format"`
-	Version int           `json:"version"`
-	Agents  []ConfigAgent `json:"agents"`
-	MCP     ConfigMCP     `json:"mcp"`
-	HTTP    ConfigHTTP    `json:"http"`
-	Git     ConfigGit     `json:"git"`
+// ConfigurationGraph is an internal owner-projection aggregate for pure policy
+// validation, not a wire format or a decoder. The sole wire format is ConfigBundle
+// or ConfigDefinition, version two, with typed permanent keys.
+type ConfigurationGraph struct {
+	Agents []ConfigAgent
+	MCP    ConfigMCP
+	HTTP   ConfigHTTP
+	Git    ConfigGit
 }
 
 type ConfigAgent struct {
@@ -54,6 +52,7 @@ type ConfigServerCredentials struct {
 }
 
 type ConfigMCPGrant struct {
+	ID           string          `json:"-"`
 	Agent        string          `json:"agent"`
 	Server       string          `json:"server"`
 	Description  *string         `json:"description"`
@@ -87,6 +86,7 @@ type ConfigHTTPPolicy struct {
 }
 
 type ConfigHTTPGrant struct {
+	ID          string           `json:"-"`
 	Agent       string           `json:"agent"`
 	Description *string          `json:"description"`
 	Policy      ConfigHTTPPolicy `json:"policy"`
@@ -116,6 +116,7 @@ type ConfigGitRepository struct {
 }
 
 type ConfigGitGrant struct {
+	ID          string    `json:"-"`
 	Agent       string    `json:"agent"`
 	Repository  string    `json:"repository"`
 	Description *string   `json:"description"`

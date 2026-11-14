@@ -78,6 +78,9 @@ The main callback remains unchanged. A configured per-flow callback-only numeric
 | `/api/v2/audit-events`                               | `GET`                | admin bearer or session                           |
 | `/api/v2/audit-events/{id}`                          | `GET`                | admin bearer or session                           |
 | `/api/v2/config/export`                              | `GET`                | admin bearer or session                           |
+| `/api/v2/config/resources/{kind}/{key}`              | `GET`                | admin bearer or session                           |
+| `/api/v2/config/preview`                             | `POST`               | admin bearer or session                           |
+| `/api/v2/config/import`                              | `POST`               | admin bearer or session                           |
 
 `/assets/*` requires a nonempty path below `/assets/`. Item patterns require exactly one nonempty segment. All other paths are unowned and therefore `404`.
 
@@ -87,42 +90,220 @@ The invocation-read mechanics are `InvocationListQuery` → `InvocationPage` for
 
 Item reads additionally return a detail-only `recognition` sidecar with nullable `server` (`server_id`, `display_name`) and `grant` (`grant_id`, `description`). These are current control metadata, not admission-time evidence. After closing the traffic snapshot, the service makes at most one targeted owner-local read per recorded downstream server and grant, under one shared 500 ms deadline. No inventory traversal, cross-store SQL, write-time enrichment or schema migration occurs. Server reads exclude deleted resources; existing undescribed grants return an empty description. Missing or unavailable metadata yields a null relationship without failing the retained item or asserting deletion. Gateway-local/unresolved targets do not acquire server recognition, and absent grant IDs do not acquire grants. Labels retain their 256-byte UTF-8 bounds. Clients validate sidecar identities against the recorded relationship, reject extra fields and mismatches, and fall back to recorded IDs for null recognition or older responses omitting the sidecar. Recorded IDs, tool/requested/upstream names, authorization, timestamps, capture bytes, history exports and collection projections remain unchanged.
 
+## Stable configuration resource keys
+
+Administrator resource representations for agents (`Principal`), MCP/HTTP/Git grants,
+HTTP/Git credential definitions and Git repositories include an immutable `key`.
+Keys are unique within each of these seven resource types, not within an agent or
+installation-wide across types. Identical duplicate grants have independent keys.
+MCP servers instead use their existing immutable `namespace` as their key; no
+second server-key field or authority is introduced. Mutable names and descriptions
+remain separate recognition metadata. Keys are public identifiers, not secrets.
+
+For the seven `key` types the grammar is `[a-z][a-z0-9_-]{0,63}` (ASCII, case
+sensitive, no normalization). Their ordinary POST requests optionally accept
+`key`; omission generates a type prefix plus `-` and twelve random lowercase hex
+digits, with at most eight collision-checked candidates inside the existing
+creation transaction. Explicit null, empty or malformed keys fail with the
+resource's existing invalid-input problem. An existing or deleted reservation
+conflicts; generated-candidate exhaustion returns `resource_limit`. Creation also
+reserves generated default/approval grants and explicitly keyed online imports.
+Updates reject a `key` field; keys cannot be renamed or reassigned.
+
+MCP namespaces retain `[a-z][a-z0-9_-]{0,31}` and the reserved `mcp_gateway`
+identity. Server POST may omit `namespace` to generate `server-` plus twelve
+lowercase hex digits, with the same eight-candidate bound and existing
+`namespace_unavailable` exhaustion/conflict problem. Idempotent replay returns
+the originally generated namespace. Explicit null or empty namespaces are invalid.
+
+Reservations survive deletion permanently, including physically removed grant
+rows. Schema 26 backfills retained resources and tombstones with type-prefixed
+lowercase installation-local IDs, without changing any ID, relationship,
+permission, credential ownership, revision or historical record. Existing MCP
+namespaces are unchanged. Previously removed rows with no recoverable key receive
+no invented historical key. Startup rejects missing current-resource reservations;
+it never repairs them online. All existing ID-based URLs, ETags and internal
+history/authority references remain ID-based. Old ordinary-create callers can
+continue omitting keys. Ordinary CLI/browser key controls remain separate from
+the backend version-two configuration contract below.
+
 ## Portable configuration export
 
+### Version-two resource and bundle contract
+
+The backend `configexport.Service.ExportResource(kind,key)` and `ExportBundle`
+produce the single version-two creation-input contract. `configdefinition` strictly
+validates individual definitions and complete bundles and supplies reusable
+normalization/comparison. The administrator export route and existing CLI emit
+version two. Online validation/import are administrator API operations; resource CLI commands
+use those same operations for exactly one matching definition. Bundle CLI and
+browser controls are separate surfaces. Files are reusable
+creation input, never ongoing source of truth, synchronization instructions or updates.
+
+An individual definition is exactly `{format,version,kind,key?,reserved?,spec}`:
+`format` is `"agent-gateway-config"`, `version` is integer `2`, `kind` is one of
+`agent`, `mcp_server`, `mcp_grant`, `http_credential`, `http_grant`, `git_credential`,
+`git_repository`, `git_grant`, or `git_routing`. Every ordinary resource, including
+every grant, requires its permanent public `key`. MCP uses its namespace as that
+key, not a second identity. The singleton `git_routing` has no key and its spec is
+`{origins:[...]}`; routing remains independent of repository inventory. A bundle
+is exactly `{format,version,resources:[...]}`. Every member is the identical whole
+individual definition, including its format/version, and can be decoded directly
+as individual input. There are no array-position references.
+
+`spec` contains the same authored fields and policy dialects described below,
+with these changes from the transitional representation:
+
+- Agents omit `ref`. MCP servers omit `ref` and `namespace` (the envelope key is
+  the namespace). Credential definitions and repositories omit `ref`.
+- Dependency references are objects `{kind,key}`: grants reference `agent`, MCP
+  grants reference `mcp_server`, HTTP policies optionally use
+  `credential:{kind:"http_credential",key}`, repositories use nullable
+  `credential:{kind:"git_credential",key}`, and Git grants reference
+  `git_repository`. These typed keys are unchanged across installations.
+- The fixed synthetic MCP target is exactly `{kind:"gateway_mcp"}` with no key.
+  It has no server definition and cannot be exported as a normal resource.
+- HTTP/Git credentials additionally require `deleted` and nullable `secret_ref`.
+  Live definitions declare `http_credential/<key>/secret` or
+  `git_credential/<key>/secret`; deleted definitions require null, never fresh
+  material. MCP credential requirements retain `mcp/<namespace>/static/<slot>`
+  and `mcp/<namespace>/oauth/client_secret`, independent of acquired material.
+- A retained key without a resource row has `reserved:true,spec:null`. This
+  applies also to an MCP namespace reserved without a server row. Reservations
+  are inactive identity constraints, not empty resources or permission to
+  resurrect a target. Retained target references may name an inactive target
+  reservation; agent and credential references must name actual definitions,
+  and deleted credentials cannot supply a policy binding. A live resource and
+  its reservation cannot both occur. Omitted `reserved` means false.
+
+Single export includes only the selected definition and its typed references,
+never dependencies, groups, filtering, remapping or implicit grants. It reads only
+the relevant owner projection and key bindings, not dependency configurations.
+Whole export uses one control-storage snapshot and includes every retained
+configuration definition, deleted targets and credentials, all expired and
+duplicate grants with their independent keys, and permanent reservations. Expiry
+is unchanged, never renewed. Definitions sort by kind/key for deterministic output;
+that order has no policy precedence. Ordered arrays within definitions are kept.
+No verifier, material availability, acquired OAuth authority, installation ID,
+revision, creation/history metadata, runtime or session state is an input to the
+projection. Authored strings still have the accidental-secret caveat below.
+
+Closed parsing rejects unknown/duplicate members, malformed UTF-8, missing required
+fields, invalid/null scalars, trailing JSON and unsupported versions. Nullable
+members are required unless marked optional; collections are never null. Existing
+domain limits and validators remain in force. Documents retain the 512 MiB/depth-64
+bounds; a single server or grant spec additionally has a 2 MiB envelope bound
+without relaxing its tighter domain bounds. At most 1,048,576 permanent typed-key
+bindings are accepted, including live definitions, deleted credential definitions
+and reservations; the separate 1,024 MCP namespace capacity also includes reserved
+namespaces. HTTP and Git credential definitions each retain their native limits
+of 1,024 live-plus-deleted rows and 256 live rows; key-only reservations do not
+consume row capacity. Other live domain capacities remain tighter. Excess
+inventory fails rather than truncates. Whole bundles resolve all typed
+references and validate credential containment, locator collisions, active server
+capacity and singleton presence. An individual definition validates its own
+configuration and reference types without requiring dependencies in the file;
+future creation must separately resolve the receiving installation's bindings.
+
+`configdefinition.Normalize` and `Equivalent` validate before comparing. Comparison
+includes kind/key, reservation/deletion state, authored settings, credential
+requirements, references, policy dialect and expiry. It ignores JSON object-member
+ordering and normalizes domain defaults such as omitted/false private HTTP opt-in.
+It preserves lexical numeric tokens, array ordering, explicit policy fields and
+meaningful omission (including omitted OAuth scopes versus `scopes:[]`). It never
+uses internal IDs, history, runtime or material availability. This comparison does
+not expose skip-identical/idempotence, update, conflict resolution or import
+mutation behavior.
+
+### Online validation and create-only import
+
+`POST /api/v2/config/preview` and `POST /api/v2/config/import` accept the identical
+v2 individual definition or bundle (`ConfigSubmission`), authenticated as administrator bearer/session
+with the normal Origin/CSRF/media-type boundary. Both reject queries, including a
+bare `?`, unknown members and exposed skip/update/reconciliation modes. Version one
+and `init --from` are unsupported, with no translator or parallel legacy parser.
+
+Import bundles may be partial: typed references resolve against the submission or
+existing matching public keys. Agent and credential references require actual
+eligible definitions; deleted/key-only targets remain inactive. No key remapping,
+dependency traversal, implicit creation or automatic grants occurs. Every submitted
+key/namespace conflicts with any existing resource or permanent reservation, even
+when identical. Reusable normalization/comparison does not enable skip-identical.
+
+Preview returns `ConfigPreview` (200): `advisory:true` and bounded `creations`, each
+with `kind`, optional `key`, `reserved`, typed `dependencies` and closed
+`requirements`. Requirements identify agent credential issuance, credential-value
+supply, static/client-secret supply, explicit OAuth authorization, intended
+post-commit activation and singleton seed initialization. They describe declared
+needs, never probe secret availability. Preview uses one read snapshot, writes no
+SQL/audit and performs no material, process, DNS, upstream or OAuth work. It is not
+a reservation, authorization to activate, or a guarantee against concurrent edits.
+
+Import repeats all graph/reference/domain/capacity checks under one
+configuration transaction, with authority-before-storage ordering. Every owner
+creates only explicit definitions, grants and reservations with fresh local IDs
+and actual new creation/audit facts. Expired and duplicate grants retain their
+exact policies and expiry; narrowly owned expiry receipts do not weaken ordinary
+future-expiry public creation. Storage, domain, capacity, conflict or mandatory
+audit refusal rolls back the entire graph, reservations and audit together.
+
+The keyless `git_routing` singleton has one narrow initialization rule: explicit
+input may initialize only the seeded empty profile at revision 1 with no historical
+stopped-import receipt. This consumes eligibility by advancing revision even for
+empty origins. Previously changed, reset-to-empty or already initialized profiles
+conflict, including identical input. Omission leaves routing unchanged. Preview
+and import check the same eligibility and current opaque-origin occupancy; import
+rechecks under the authority gate and transaction. Rollback does not consume it.
+
+Import returns `ConfigImportResult` (201) only after acknowledged commit:
+`configuration:"committed"`, bounded `creations` (`kind`, optional `key`/fresh `id`,
+`reserved`) and `activation:"pending"` when enabled servers need normal lifecycle
+work, otherwise `"not_required"`. Configuration success is not activation success.
+Enabled desired state enters the ordinary runtime lifecycle only after commit;
+unset credentials/startup failure leaves the committed resource visible and
+blocked/failed, never compensates configuration. Agent tokens, secret material,
+acquired OAuth registration/token authority, source history and runtime state are
+never imported. OAuth authorization/material acquisition requires separate explicit
+consent. Lost/uncertain commit or response acknowledgment never permits automatic
+replay: inspect current resources by typed key and runtime status before deciding
+any next action. Empty submissions create nothing and acquire no reservation.
+
 `GET /api/v2/config/export` is an administrator bearer/session authenticated,
-bodyless, queryless, `no-store` read (`None` → `ConfigExport`, 200). Unknown query
+bodyless, queryless, `no-store` read (`None` → `ConfigBundle`, 200). Unknown query
 members, even an empty `?`, and request bodies refuse. There is no pagination,
 filtering, confirmation, secret-inclusion mode or file destination. The online
 `agent-gateway export config` command always emits one JSON document to stdout;
 diagnostics use stderr. It uses only the public controlclient transport.
 
-The closed format identifier is `"agent-gateway-config"`, with integer `version:1`,
-independent of SQLite schema and MCP/HTTP/Git policy dialect versions. Unknown
-versions, unknown members, duplicate keys, invalid UTF-8, trailing JSON and missing
-required members refuse. Empty collections/maps are `[]`/`{}`, never null. Nullable
-members below are required unless explicitly marked optional. Bounds remain the
-existing domain capacities; the complete serialized document has a separate
-512 MiB ceiling and depth 64, rather than the ordinary one-MiB page-response bound.
-The ceiling covers the combined maximum bounded configuration inventories; it
-never authorizes an oversized individual domain definition.
+`GET /api/v2/config/resources/{kind}/{key}` exports exactly one ordinary keyed
+resource as `ConfigDefinition` through the existing `ExportResource` service, without dependency
+traversal. The eight ordinary resource kinds above are supported; `git_routing`
+is bundle-only. It retains the whole-export bodyless/queryless administrator,
+no-store, strict-size and complete-delivery boundary. Missing keys return 404;
+invalid kinds/keys return 400; unavailable projections return 503. Resource CLI
+`export KEY` emits this backend definition directly, after finite response
+validation, never synthesizing it from a bundle or private-domain reads.
 
-Top-level members are exactly `{format,version,agents,mcp,http,git}`:
+Format version is independent of SQLite schema and MCP/HTTP/Git policy dialects.
+Required spec members are:
 
-| Object             | Required members and semantics                                                                                                                                                               |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| agent              | `{ref,display_name,state,visibility,http_default}`; current shared agent settings, not bearer issuance or availability                                                                       |
-| mcp                | `{servers,grants}`                                                                                                                                                                           |
-| MCP server         | `{ref,namespace,display_name,enabled,deleted,transport,credentials}`; intended enabled setting, never runtime health                                                                         |
-| server credentials | `{static,oauth_client_secret,oauth_authorization}`; `static` maps declared slot names to portable secret references; nullable client-secret reference; fresh OAuth authorization requirement |
-| MCP grant          | `{agent,server,description,effect,upstream_name,constraint,read_only,expires_at}`; nullable description, exact upstream name, constraint and expiry                                          |
-| http               | `{credentials,grants}`                                                                                                                                                                       |
-| HTTP credential    | `{ref,name,boundary,recipe,secret_ref}`; boundary `{host,port,allow_wildcard}` and recipe `{header,prefix}` retain exact scope and injection intent                                          |
-| HTTP grant         | `{agent,description,policy,expires_at}`; nullable description and expiry                                                                                                                     |
-| HTTP policy        | Existing closed v1 policy union, except optional `credential_ref` replaces `credential_id`; all other fields, explicit false values, selectors and matcher semantics are unchanged           |
-| git                | `{credentials,repositories,grants,routing_origins}`; routing origins are independent of repositories, without derived activation state                                                       |
-| Git credential     | `{ref,name,origin,recipe,secret_ref}`; exact HTTPS origin and one-header recipe                                                                                                              |
-| Git repository     | `{ref,name,url,aliases,credential_ref,deleted}`; nullable credential reference, explicit aliases, exact canonical destination                                                                |
-| Git grant          | `{agent,repository,description,policy,expires_at}`; nullable description/expiry; unchanged closed v1 ref/action policy                                                                       |
+| Kind               | Spec                                                                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| agent              | `{display_name,state,visibility,http_default}`                                                                                                             |
+| mcp_server         | `{display_name,enabled,deleted,transport,credentials}`                                                                                                     |
+| server credentials | `{static,oauth_client_secret,oauth_authorization}`: declared slot references, nullable client-secret requirement and fresh OAuth authorization requirement |
+| mcp_grant          | `{agent,server,description,effect,upstream_name,constraint,read_only,expires_at}`                                                                          |
+| http_credential    | `{name,boundary,recipe,deleted,secret_ref}`: boundary `{host,port,allow_wildcard}`, recipe `{header,prefix}`                                               |
+| http_grant         | `{agent,description,policy,expires_at}`: HTTP v1 policy uses optional typed `credential` instead of installation `credential_id`                           |
+| git_credential     | `{name,origin,recipe,deleted,secret_ref}`                                                                                                                  |
+| git_repository     | `{name,url,aliases,credential,deleted}`: nullable typed credential                                                                                         |
+| git_grant          | `{agent,repository,description,policy,expires_at}`: unchanged Git v1 policy dialect                                                                        |
+| git_routing        | `{origins}`                                                                                                                                                |
+
+Descriptions, expiry, constraint, upstream name and declared nullable members
+remain required even when null. Collections/maps are never null. HTTP policy union
+fields retain their existing optionality and explicit false semantics. The sole
+outer format is the version-two envelope above, not an installation backup.
 
 Live MCP transports use the existing sanitized closed transport/authentication
 unions, including nonsecret headers, declared `secret_environment` mappings,
@@ -135,19 +316,11 @@ multiple environment names can share one slot. Bearer transport declares slot
 `oauth_client_secret` reference; dynamic registration results are not portable.
 OAuth servers declare `oauth_authorization:true`, never tokens or session state.
 
-References are document-local, not installation IDs. Agents use `agent/N`, HTTP
-credentials `http-credential/N`, Git credentials `git-credential/N`, repositories
-`repository/N` (one-based array order). MCP uses `mcp/<namespace>`; the fixed local
-synthetic target is `mcp/mcp_gateway`, without a server definition. Static secret
-references are `mcp/<namespace>/static/<slot>`; OAuth client-secret references are
-`mcp/<namespace>/oauth/client_secret`; HTTP/Git credential secret references append
-`/secret` to their credential reference. These are declarations, not resolvable
-installation handles or values. `init --from PATH` creates
-fresh internal identities, remaps every relationship and leaves material unset;
-[initialization](administrative-control-plane.md#installation-and-stopped-commands)
-owns its stopped import/resume and explicit activation contract.
-Reference numbers are scoped to this document and may change after inventory edits;
-never persist them as installation authority or infer uniqueness from display names.
+Typed key references are stable across installations; display names and array
+positions are never identity. Secret references are declarations, not resolvable
+installation handles or values. Receiving IDs are freshly generated for explicit
+creations and existing IDs satisfy references only through their matching typed
+keys. Import never renames/remaps keys or infers uniqueness from display names.
 
 All retained grants, including expired grants and duplicates, are preserved. MCP
 constraints preserve lexical number tokens and their original versioned matching
@@ -162,11 +335,10 @@ Deleted MCP targets retain namespace/name with `enabled:false`, `deleted:true`,
 their nonsecret configuration with `deleted:true`. These inactive configuration
 targets preserve otherwise dangling policies without resurrecting access; they
 are not installation tombstone IDs, revisions or recovery markers. Unreferenced
-retained target reservations are included. Deleted HTTP/Git credential identities
-have no policy references and are omitted. Import must not reinterpret a deleted
+retained target reservations are included. Deleted HTTP/Git credential definitions
+are retained with `deleted:true,secret_ref:null` and cannot supply policy references. Import must not reinterpret a deleted
 target as live. Historical creation/update/deletion timestamps are absent; grant
-expiry remains policy. Servers sort by namespace; other definitions and grants
-retain stable internal identity order, but those identities are never serialized.
+expiry remains policy. Definitions sort by kind/key; installation identities are never serialized.
 Array ordering conveys no policy precedence.
 
 `internal/configexport` composes restricted owner-local SELECT projections inside
@@ -188,7 +360,15 @@ accidentally embedded secret. Export does not scan/refuse or silently redact suc
 strings. Supported secret inputs must use the explicit slot/reference boundary.
 Operator procedure and private-file guidance belong to
 [administration](../operators/administration.md#export-portable-configuration).
-Import and material supply are separate deliveries; no import command is implied.
+Online import and material supply are separate actions. Resource CLI imports
+require `--confirm` or read-only `--dry-run`, reject bundles/wrong kinds and never
+create implicit dependencies. Top-level `import --file PATH` (or `-`) accepts the
+same version-two bundle or individual definition, using the identical confirmation,
+backend preview, atomic creation and no-replay boundary. It reports every explicit
+creation/reservation, dependency and declared requirement; JSON preserves the
+complete public result. Configuration acknowledgment never claims successful
+activation, material availability or client trust. They use the public backend version-two contract;
+no update, skip-identical or grouped export mode is exposed.
 
 ## Optional history export
 
@@ -333,7 +513,7 @@ See [imported setup](downstream-servers.md#imported-credential-setup).
 | `/api/v2/http/credentials/{id}`        | `DELETE, GET, PATCH` |
 | `/api/v2/http/credentials/{id}/rotate` | `POST`               |
 
-All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting singleton nonempty `cursor`, `limit` (default 50, maximum 100), `name`, `boundary`, `recipe`, `status`, `sort` and `direction`. Omitted sort retains creation-descending API/CLI compatibility; the browser explicitly requests name ascending. Sort keys are name/boundary/recipe/status, with ascending or descending direction (direction requires sort; omitted direction for an explicit sort is ascending). Normalized primary ties use immutable ID ascending. Filtering and ordering precede page slicing, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `material_state`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned. Name searches safe names or literal case-sensitive identifier substrings; boundary recognizes host/port metadata and recipe recognizes header/fixed-prefix metadata, never material. Text follows the bounded NFKD/mark-removal/lowercase, conjunctive token-substring or nondigit four-character one-edit recognition used for resources. Status is `configured` or `unavailable`; filters combine before slicing the bounded authoritative inventory. Empty, repeated, unknown, oversized (>256 UTF-8 bytes) or control/format-bearing members fail closed. Recognition is not wildcard boundary authority. Version-two cursors (at most 512 bytes) authenticate the effective query, safe inventory/order/availability metadata, continuation position and original expiry with a private process-local API-owner HMAC key. The key is neither serialized nor persisted; a new API owner cannot resume an old traversal. Cursors expire five minutes after the first page and never extend on continuation. Failed authentication, changed query or metadata and expired traversal return `409 stale_cursor`; malformed/closed-shape failures return `400 invalid_cursor`. Unfiltered v1 clients may finish their existing traversal; newly issued cursors use v2.
+All use existing administrator bearer/session authority, strict bounded JSON, no-store responses, and no idempotency or automatic replay. GET collection uses `HTTPCredentialListQuery`, accepting singleton nonempty `cursor`, `limit` (default 50, maximum 100), `name`, `boundary`, `recipe`, `status`, `sort` and `direction`. Omitted sort retains creation-descending API/CLI compatibility; the browser explicitly requests name ascending. Sort keys are name/boundary/recipe/status, with ascending or descending direction (direction requires sort; omitted direction for an explicit sort is ascending). Normalized primary ties use immutable ID ascending. Filtering and ordering precede page slicing, returning `QueryPage<HTTPCredential>` (including `total_count` and `offset`). Item GET is bodyless and queryless. `HTTPCredential` contains `key`, `id`, `name`, `boundary:{host,port,allow_wildcard}`, `recipe:{header,prefix}`, decimal-string `revision`, `available`, `material_state`, `referencing_grants:[{id}]`, `created_at`, and `updated_at`. Availability is coherent selected-generation metadata, not a guarantee of later keyring access. No secret or keyring handle is returned. Name searches safe names or literal case-sensitive identifier substrings; boundary recognizes host/port metadata and recipe recognizes header/fixed-prefix metadata, never material. Text follows the bounded NFKD/mark-removal/lowercase, conjunctive token-substring or nondigit four-character one-edit recognition used for resources. Status is `configured` or `unavailable`; filters combine before slicing the bounded authoritative inventory. Empty, repeated, unknown, oversized (>256 UTF-8 bytes) or control/format-bearing members fail closed. Recognition is not wildcard boundary authority. Version-two cursors (at most 512 bytes) authenticate the effective query, safe inventory/order/availability metadata, continuation position and original expiry with a private process-local API-owner HMAC key. The key is neither serialized nor persisted; a new API owner cannot resume an old traversal. Cursors expire five minutes after the first page and never extend on continuation. Failed authentication, changed query or metadata and expired traversal return `409 stale_cursor`; malformed/closed-shape failures return `400 invalid_cursor`. Unfiltered v1 clients may finish their existing traversal; newly issued cursors use v2.
 
 `HTTPCredentialCreate` requires `name`, `boundary`, `recipe`, and write-only `secret`; POST returns 201 plus the safe resource. PATCH `HTTPCredentialUpdate` is a complete secret-free metadata replacement requiring `name`, `boundary`, and `recipe`; it returns 200. POST rotate accepts only `HTTPCredentialRotate` with `{secret}` and returns 200. DELETE accepts `EmptyObject` and returns 204. Every mutation except create requires exact strong `If-Match: "http-credential-ID-REVISION"`; missing/stale preconditions use `precondition_required`/`stale_revision`. Resource reads and successful create/update/rotate return that ETag. Incompatible references use `conflict`; invalid recipes use `invalid_operation`, never reflected input. Secret ingress is bounded by the recipe and standard JSON body bounds; the browser validates those bounds before confirmation and clears rejected write-only input. Keyring capability/material failures use `keyring_unavailable`, not a storage latch; a joined actual storage latch retains `storage_unavailable` precedence. The [credential owner](downstream-servers.md#scoped-http-credentials) defines validation, lifecycle, containment, and failure behavior.
 
@@ -429,11 +609,11 @@ remain valid without reinterpretation or a database migration.
 
 `GitRepositoryWrite` requires exactly `name`, `url`, nonnull `aliases` array and
 nullable `credential_id`. No omitted credential selector means public access:
-public configuration deliberately supplies null. `GitRepository` adds `id`,
+public configuration deliberately supplies null. `GitRepository` adds `key`, `id`,
 `revision`, `alias_revision`, `created_at`, `updated_at`. Locator retargeting and
 alias collisions conflict. `GitGrantWrite` requires exactly `principal_id`,
 `repository_id`, nullable `description`, `policy`, nullable `expires_at`.
-`GitGrant` adds `id`, `revision`, `state`, `created_at`, `updated_at`; state is
+`GitGrant` adds `key`, `id`, `revision`, `state`, `created_at`, `updated_at`; state is
 active/expired, timestamps are fixed UTC nanoseconds, expiry follows creation.
 The [Git policy chapter](identity-and-authorization.md#persisted-git-authority)
 owns immutable identity and closed bounded selector semantics.
@@ -460,7 +640,7 @@ and treat the mutation outcome as uncertain, never a reason to replay.
 
 Git credential create requires `name`, exact HTTPS `origin`, safe `recipe:{header,prefix}`
 and write-only `secret`. Update replaces the same metadata without a secret;
-rotate is exactly `{secret}`. `GitCredential` contains `id`, `name`, `origin`, `material_state`,
+rotate is exactly `{secret}`. `GitCredential` contains `key`, `id`, `name`, `origin`, `material_state`,
 `recipe`, `revision`, `available`, `referencing_repositories:[{id}]`, `created_at`,
 `updated_at`. Ordinary reads return neither secret nor handle. The credential
 owner retains the established 4,096-byte prefix-plus-secret bound and protected
@@ -960,7 +1140,7 @@ The sole operator query path scans compact recognition metadata bounded by the f
 
 Grant identity and policy are immutable and expose no idempotency surface. Create, read, and description-only PATCH return the grant ETag; PATCH requires that exact current value. Successful create, description update, and delete publish only the ID-free authorization invalidation.
 
-`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{id,display_name,state,visibility,http_default,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` requires `{id,description,revision,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}` and optionally includes `read_only:true`; unrestricted grants omit that member. The self-service `AgentGrant` projection is exactly `{id,description,effect,policy,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`; the grant ETag is exactly `"grant-<id>-<revision>"`.
+`AgentCredential` is exactly `{id,fingerprint,revision,created_at}`. `Principal` is exactly `{key,id,display_name,state,visibility,http_default,revision,credential_revision,credential,created_at,updated_at}`; its credential is nullable. `PrincipalCreation` is exactly `{principal,default_grant}`, and `AgentCredentialCreation` is exactly `{principal,bearer}`. `Grant` requires `{key,id,description,revision,principal_id,effect,server_id,upstream_name,constraint,expires_at,state,created_at}` and optionally includes `read_only:true`; unrestricted grants omit that member. The self-service `AgentGrant` projection is exactly `{id,description,effect,policy,expires_at,state,created_at}`. Authorization evidence is exactly `{decision,authorization_revision,evaluated_at,grant_id}`. Principal state is `active` or `disabled`; visibility is `requestable`, `allowed-only`, or `all`; grant effect is `allow` or `deny`; derived grant state is `active` or `expired`; and authorization decision is `allow`, `deny`, or `block`. The reserved synthetic identity is ULID `00000000000000000000000000` with namespace `mcp_gateway`. The principal ETag is exactly `"principal-<id>-<revision>"`; the grant ETag is exactly `"grant-<id>-<revision>"`.
 
 ## Strict JSON
 

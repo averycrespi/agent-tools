@@ -120,7 +120,10 @@ var resourceMechanics = []ResourceMechanic{
 	{Pattern: "/api/v2/http/credentials/{id}/rotate", Method: "POST", RequestSchema: "HTTPCredentialRotate", SuccessSchema: "HTTPCredential", SuccessStatuses: []int{200}, Precondition: true, ETag: true},
 	{Pattern: "/api/v2/protocol-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "ProtocolActivity", SuccessStatuses: []int{200}},
 	{Pattern: "/api/v2/recorded-activity", Method: "GET", RequestSchema: "None", SuccessSchema: "RecordedActivitySummary", SuccessStatuses: []int{200}},
-	{Pattern: ConfigExportPath, Method: "GET", RequestSchema: "None", SuccessSchema: "ConfigExport", SuccessStatuses: []int{200}},
+	{Pattern: ConfigExportPath, Method: "GET", RequestSchema: "None", SuccessSchema: "ConfigBundle", SuccessStatuses: []int{200}},
+	{Pattern: ConfigResourcePath + "{kind}/{key}", Method: "GET", RequestSchema: "None", SuccessSchema: "ConfigDefinition", SuccessStatuses: []int{200}},
+	{Pattern: ConfigPreviewPath, Method: "POST", RequestSchema: "ConfigSubmission", SuccessSchema: "ConfigPreview", SuccessStatuses: []int{200}},
+	{Pattern: ConfigImportPath, Method: "POST", RequestSchema: "ConfigSubmission", SuccessSchema: "ConfigImportResult", SuccessStatuses: []int{201}},
 	{Pattern: "/api/v2/history/export", Method: "GET", RequestSchema: "HistoryExportQuery", SuccessSchema: "HistoryExport", SuccessStatuses: []int{200}},
 }
 

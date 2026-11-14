@@ -33,7 +33,7 @@ agent-gateway doctor --data-dir /path/to/gateway-data
 agent-gateway init --resume --data-dir /path/to/gateway-data --confirm
 ```
 
-Resume retains one stopped owner, reconciles durable evidence and completes only proven-missing work. It preserves established key, CA and credential identity. Unknown/damaged evidence, changed files, missing established material, uncertain publication, unresolved recovery markers or nonempty WAL/journal state can require a separate stopped diagnosis rather than continuation. A refusal is not permission to rerun an uncertain step, replace a credential, delete the directory, remove evidence or discard SQLite sidecars. Keep `<root>/initialization` with the installation; it is local progress evidence, not a portable configuration export. `serve` refuses incomplete initialization. For portable configuration, use [fresh configuration import](#initialize-from-a-configuration-export).
+Resume retains one stopped owner, reconciles durable evidence and completes only proven-missing work. It preserves established key, CA and credential identity. Unknown/damaged evidence, changed files, missing established material, uncertain publication, unresolved recovery markers or nonempty WAL/journal state can require a separate stopped diagnosis rather than continuation. A refusal is not permission to rerun an uncertain step, replace a credential, delete the directory, remove evidence or discard SQLite sidecars. Keep `<root>/initialization` with the installation; it is local progress evidence, not a portable configuration export. `serve` refuses incomplete initialization. For portable configuration, initialize/start normally, then use [online configuration import](#import-configuration-online).
 
 Exact syntax and defaults:
 
@@ -117,6 +117,62 @@ agent-gateway --data-dir /path/to/gateway-data \
 
 See [Recovery and fresh initialization](backup-and-recovery.md) for replacement-authority workflows.
 
+## Resource configuration in the browser
+
+Use **Import agent/server/grant/credential/repository** beside the corresponding
+collection's Create action. Paste one version 2 resource definition or choose a UTF-8
+JSON file (at most 1 MiB). Select **Validate and preview**, review the immutable key,
+typed dependencies, intended fields and setup requirements, then **Import → Confirm
+import**. Validation is online and advisory; creation checks the graph again atomically.
+An existing or permanently reserved key fails even for identical configuration.
+After a known rejection the input remains editable. For an unknown outcome, inspect
+the collection by immutable key before starting another import; no request is replayed.
+Bundles belong in System Configuration; this resource workflow never imports other
+kinds, resolves missing dependencies for you, or updates existing resources.
+
+Resource details show the immutable key separately from the name and internal ID.
+**Copy config** and **Download config** export the same single-resource JSON with
+references only, never a dependency traversal. Check their local success/failure
+feedback. Ordinary creation offers an optional stable key; leaving it blank generates
+one. A server's required namespace is already its permanent key. Resource links keep
+using internal IDs, not these portable keys.
+
+A committed import is not proof of usable credentials or upstream activation. Follow
+**View created resource** to issue/install credentials and inspect current status;
+server imports also link to **Set up authentication**. Pending or failed activation
+does not roll back committed configuration. Imports create only the explicit graph,
+not an ordinary agent's implicit Default Gateway access grant. Reservations retain
+deleted keys without creating a live resource. Keep pasted/uploaded/exported JSON
+private: supported secret values are excluded, but ordinary authored strings can
+still contain accidental secrets. Supply real credential values only through the
+existing write-only setup controls.
+
+## System Configuration in the browser
+
+Choose **System → Configuration** for bundles and whole-gateway exports. Initialize
+and start the receiving Gateway first. Paste or upload version 2 JSON (up to 1 MiB),
+then **Validate and preview**. Review every definition, permanent deleted-key
+reservation, typed dependency (existing or same submission), and credential/activation
+requirement before **Import → Confirm import**. There is no hidden resource limit or
+omitted preview row within that byte bound; larger files use the online CLI import.
+Version 1 is rejected explicitly.
+
+This creates reusable configuration, not updates, file synchronization or reconciliation.
+Existing/reserved keys conflict even for identical input. Git routing can seed only an
+untouched fresh profile. A concurrent key/domain/reference conflict commits nothing:
+edit the retained draft and validate again. Unknown outcomes block replay; inspect the
+target before further action. Committed resources stay created even if enabled-server
+startup fails. Follow their existing resource links for credential provisioning and
+current status; creation is not proof of readiness. Expiry is not renewed, deleted
+resources are not resurrected, and no grants or dependencies are invented.
+
+Adjacent **Copy config** and **Download config** retain the complete backend v2 export,
+including expired/duplicate grants, deleted targets and permanent reservations, without
+filters or dependency traversal. Downloads use `gateway-config.json`. Exports retain
+credential slots, not values, history, runtime state or local authority. Review ordinary
+authored strings for accidentally embedded secrets before sharing. The whole export
+supports the backend's 512 MiB bound independently of the browser import bound.
+
 ## Export portable configuration
 
 Run the authenticated online command against the selected Gateway:
@@ -152,73 +208,143 @@ review arguments, ordinary environment values, URLs, headers and names before
 sharing because accidental secrets in unsupported fields cannot be detected
 reliably. Keep exports private even though supported secret material is excluded.
 
-The [version-one format](../design/public-contract.md#portable-configuration-export)
-defines document-local references and exact fields. It is independent of database
-schema versions and is the portable configuration transfer/recovery artifact, not
+This command emits the sole [version-two format](../design/public-contract.md#version-two-resource-and-bundle-contract),
+with permanent typed keys on every definition and grant. Individual backend
+exports use the identical definition envelope. Version one and `init --from` are
+removed without translation or parallel legacy support. Resource CLI import/export
+uses that same public API and format. Top-level `import` accepts a bundle or one
+definition; resource imports remain exactly one matching definition. Browser
+import controls are a separate surface.
+
+The current command's format is independent of database schema versions and is the portable configuration transfer/recovery artifact, not
 an installation backup or secret backup. Absolute executable/working-directory
 paths and configured OAuth callback addresses may still need deliberate adaptation
-on another host. Export itself supplies no material; [fresh import](#initialize-from-a-configuration-export)
-uses a separate stopped command. Installation-snapshot backup/restore is [removed without artifact cleanup](backup-and-recovery.md#backup-and-restore-removal); unrelated stopped recovery remains supported.
+on another host. Export supplies no material; [online import](#import-configuration-online)
+uses the running installation's administrator API. Installation-snapshot backup/restore is [removed without artifact cleanup](backup-and-recovery.md#backup-and-restore-removal); unrelated stopped recovery remains supported.
 
-## Initialize from a configuration export
+## Import configuration online
 
-Transfer definitions and exact policies into a **new absent or empty** safe data
-directory. This is not restore, merge, overwrite or synchronization:
+For a new installation, initialize and start it normally before importing:
 
 ```bash
-agent-gateway init --from /safe/gateway-config.json --data-dir /path/to/new-gateway
-# For noninteractive consent to the preview:
-agent-gateway init --from /safe/gateway-config.json --data-dir /path/to/new-gateway --confirm
+agent-gateway init --data-dir /path/to/new-gateway --confirm
 agent-gateway serve --data-dir /path/to/new-gateway
 ```
 
-The default-no preview reports definition/grant counts and fresh-authority
-consequences. The complete bounded format, references, policies and capacities must
-validate before any installation files are created. Keep the export private:
-ordinary authored strings are not guaranteed secret-free. No scanner or placeholder
-secret is required. Unsupported versions, partial output, unknown fields and invalid
-bindings refuse; populated roots are never imported into, even if already initialized.
+In another terminal, select the receiving installation's administrator credential:
 
-All identities, agent bearers, administrator authority, encryption key and CA are
-new. Included expired/duplicate grants and inactive deleted targets retain their
-policy meaning; no default grant is added beyond those actually exported. No
-source bearer/verifier, secret material, history, request, operation, OAuth session
-or runtime state is restored. Init/resume never launches upstream subprocesses,
-contacts upstreams or starts OAuth flows. It starts no listeners or native services.
+```bash
+agent-gateway --data-dir /path/to/new-gateway import --file gateway-config.json --dry-run
+agent-gateway --data-dir /path/to/new-gateway import --file gateway-config.json --confirm --json
+# Standard input can supply the same document; do not also use bearer stdin.
+agent-gateway --data-dir /path/to/new-gateway import --file - --dry-run < gateway-config.json
+agent-gateway --data-dir /path/to/new-gateway doctor --verbose
+```
 
-After starting the new Gateway, sign in using the reported **new** administrator
-bearer file, then:
+`agent-gateway import --help` describes the top-level grammar. It accepts the sole version-two
+bundle or individual definition, not a second file format. Inspect every advisory
+creation, reserved-key binding, dependency and declared credential/activation
+requirement before confirming. There is no prompt: without `--confirm` or
+`--dry-run`, nothing is submitted. JSON output preserves the complete public result;
+human output lists every creation, including reservations and singleton routing.
+Whole-gateway export remains **only** `export config`; it includes all retained
+configuration without filters, dependency traversal or selected-subgraph modes.
 
-1. Run `doctor --verbose` against the new data directory to identify unset material.
-   Keep each imported HTTP/Git definition and supply its value with `http credential rotate ID --file PATH`
-   or `git credential rotate ID --file PATH`. Supply MCP static/client secrets with
-   `mcp server credential replace ID --file PATH`; authorize OAuth afresh using the
-   [upstream procedure](upstream-servers.md). Do not recreate bound definitions.
+The CLI calls `POST /api/v2/config/preview` for read-only dry runs and
+`POST /api/v2/config/import` for confirmed atomic creation against that running
+instance. API clients may use the same administrator bearer or browser session.
+These queryless API operations use the normal
+administrator authentication, Origin/CSRF and JSON-media-type controls. The [API contract](../design/public-contract.md#online-validation-and-create-only-import)
+owns exact representations and bounds. Never place bearer/secret values in a
+portable definition, URL, shell argument or shared transcript.
+
+### Import or export one resource
+
+Use `import` and `export` beneath `agent`, `mcp server`, `mcp grant`,
+`http credential`, `http grant`, `git credential`, `git repository`, or `git grant`.
+Each import accepts exactly one matching definition, never a bundle or implicit
+dependencies. For bulk input use top-level `import --file PATH`; do not pass
+bundles to resource commands. Export selects a permanent public key,
+not the internal ID used by get/update/delete, and includes no dependencies.
+
+```bash
+# Source: stdout is one backend version-2 JSON document; keep it private.
+(umask 077; agent-gateway agent export build-agent > agent.json)
+# Destination: inspect advisory bindings and requirements, then create once.
+agent-gateway agent import --file agent.json --dry-run
+agent-gateway agent import --file agent.json --confirm
+# Standard input is supported; bearer input must use a different source.
+agent-gateway mcp grant import --file - --dry-run < grant.json
+agent-gateway mcp server import --file server.json --confirm --json
+```
+
+No confirmation means no submission; there is no prompt. `--dry-run` and
+`--confirm` are mutually exclusive. A dry run calls only backend read-only preview.
+Human output names creations, bindings and declared requirements; `--json` retains
+the public structured result. Actual import reports configuration `committed` and
+activation `pending` or `not_required`, not credential availability or readiness.
+Failure after handoff never retries. Inspect lists by key and server status after
+an uncertain result; do not blindly reimport. Broken stdout can leave a partial
+export file; discard it rather than treating it as usable input.
+
+Ordinary resource `create` commands accept optional `--key`; JSON create files
+also accept `key` (MCP uses its existing `namespace`). Supply the key only once.
+Omission asks the backend for a human-friendly permanent key, including an omitted
+MCP namespace. Lists, reads and creation output retain that key alongside local
+IDs; MCP's namespace is its key. `get`, updates and deletions still address IDs.
+
+Preview is read-only and advisory, not a reservation or a promise that import will
+still succeed. Neither validation nor preview reads secret values, launches a
+process, contacts an upstream or starts OAuth. Import revalidates current state
+and creates exactly the explicit graph in one atomic configuration/audit
+transaction. References can bind existing resources with matching typed keys;
+there is no remapping, automatic dependency creation or implicit grant. Any
+submitted existing/reserved key conflicts, even identically. Domain/capacity,
+dangling-reference, conflict, SQL or mandatory-audit failure leaves no partial
+configuration. Review authored strings for accidental secrets before sharing.
+
+The keyless Git routing profile has one narrow creation rule: explicit input may
+initialize only an untouched empty revision-one seed with no historical
+initialization-import receipt. Even importing empty origins consumes that one-time
+eligibility; a later identical import or a profile edited/reset to empty conflicts.
+Omitting routing leaves it unchanged. This permits a whole-bundle transfer into a
+fresh initialized instance without authorizing updates to established routing.
+
+A successful import acknowledges **committed configuration**, not successful
+activation. Imported enabled servers enter normal lifecycle only after commit;
+missing material or startup failure leaves visible blocked/failed resources. There
+is no new first-reload fence. Check `mcp server list/get` and runtime status rather
+than reimporting a failed server. Import never infers consent to authorize OAuth
+or acquire credential material. Disabled imports remain disabled.
+
+After import:
+
+1. Run `doctor --verbose` to identify unset material. Keep each bound definition;
+   supply HTTP/Git values with `http credential rotate ID --file PATH` or
+   `git credential rotate ID --file PATH`. Supply MCP static/client secrets with
+   `mcp server credential replace ID --file PATH`; authorize OAuth separately using
+   the [upstream procedure](upstream-servers.md).
 2. Use `agent list`, then `agent credential issue ID --secret-output NEW_PATH` for
-   each required fresh agent bearer. Source tokens cannot authenticate here.
-3. Use `mcp server list` to identify intended-enabled servers. Every live imported
-   definition has a separate first-activation fence, including credential-free
-   servers: explicitly run `mcp server operation start ID --kind reload --yes` after
-   checking its paths, destinations and credentials. Disabled imports must first
-   be deliberately enabled. Merely serving, supplying material or enabling an
-   import does not remove this first-reload requirement. Check the resulting
-   operation; do not blindly replay it.
-4. Configure clients with the new endpoint and fresh agent credentials. Explicitly
-   adopt the reported new public CA certificate for HTTPS interception; source CA
-   trust does not transfer. No client trust or shell settings are installed.
+   required fresh agent bearers. Source tokens have no imported authority.
+3. Verify activation independently. A new deliberate reload may be appropriate
+   after correcting a blocked server; inspect the exact operation and never
+   automatically replay an uncertain mutation.
+4. Configure clients deliberately. Import does not replace the receiving
+   installation's administrator authority, encryption key, traffic identity or CA.
+   For a new installation, explicitly adopt its endpoint, agent credentials and
+   public CA; source trust does not transfer.
 
-If interrupted, preserve all artifacts and run the same root's
-`init --resume --confirm` **without `--from`**. Validated input is privately retained
-and bound to that root, so the original source may be changed or deleted. Resume
-verifies committed imports instead of duplicating definitions/grants or replacing
-keys/CA/bearers. Missing/changed input, inconsistent committed configuration,
-partial publication and generic storage markers can refuse with diagnosis guidance.
-Only confirmed completion removes temporary retained input; keep the remaining
-initialization evidence. If only temporary-input cleanup remains, resume previews
-that work and still requires default-no confirmation or `--confirm`; it reports a
-cleanup change, not “Nothing changed.” Once cleanup is confirmed, completed resume
-is an unchanged no-op without another confirmation, including while running.
-Repeated completed resume changes no authority.
+If the import response/commit acknowledgment is lost, do not automatically submit
+again. Inspect resources by their typed keys and runtime status to establish
+current committed state; an identical resubmission is still a conflict, not an
+idempotent retry. Configuration files are reusable creation input, never updates,
+synchronization or an ongoing source of authority.
+
+Historical initialization imports are not resumable in this version. Preserve
+all retained input, plans, receipts and databases and obtain a separately reviewed
+recovery plan for an incomplete old import. Completed old initialization remains
+a read-only no-op, even with retained temporary input; this binary performs no
+legacy cleanup. Ordinary interrupted setup still uses explicit `init --resume`.
 
 ## Confirmations and one-time values
 
@@ -326,7 +452,7 @@ then start the server's authorization flow. Keep the ID and bindings; do not cre
 a duplicate credential or use dummy values. Reads/JSON expose only safe setup
 state (`material_state` for HTTP/Git), never values. Ordinary credential creation
 still requires a real secret; only the internal import staging seam creates unset
-scoped definitions. See [fresh configuration import](#initialize-from-a-configuration-export) for initialization and explicit activation.
+scoped definitions. See [online configuration import](#import-configuration-online) for create-only transfer and separate activation results.
 
 ## Scoped HTTP credentials
 

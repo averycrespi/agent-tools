@@ -9,6 +9,7 @@ for (const domain of ["http", "git"] as const) {
     const canary = "SYNTHETIC_INITIAL_SETUP_CANARY";
     const path = `/api/v2/${domain}/credentials`;
     let current = {
+      key: "synthetic-credential",
       id,
       name: "Imported credential",
       revision: "1",

@@ -44,6 +44,65 @@ test("view foundation generations", assertViewGenerationFoundation);
 test("mutation foundation", assertMutationFoundation);
 test("sensitive sink foundation", assertSensitiveSinkFoundation);
 
+test("configuration imports preserve lexical JSON without replay", async () => {
+  const session = new SessionClient(
+    async () =>
+      new Response(JSON.stringify(sessionFixture()), {
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  session.start();
+  await eventually(
+    () => session.snapshot().lifecycle === "authenticated",
+    "configuration session bootstrap failed",
+  );
+  const raw =
+    ' {"format":"agent-gateway-config","version":2,"kind":"mcp_grant","spec":{"constraint":{"version":2,"equals":{"/integer":9007199254740993,"/fraction":1.0,"/exponent":1e+2}}}} ';
+  let calls = 0;
+  const coordinator = new MutationCoordinator(session, {
+    request: async (_route, init) => {
+      calls++;
+      if (
+        init?.body !== raw ||
+        new Headers(init.headers).get("X-CSRF-Token") !== "A".repeat(43) ||
+        new Headers(init.headers).has("Idempotency-Key")
+      )
+        fail("configuration handoff changed lexical tokens or authority");
+      throw new Error("connection lost after handoff");
+    },
+  });
+  const controller = coordinator.create<string>();
+  const spec: MutationSpec<string> = {
+    route: "/api/v2/config/import",
+    method: "POST",
+    body: raw,
+    precondition: null,
+    requiresPrecondition: false,
+    idempotency: "none",
+    successStatuses: [201],
+    decode: async () => "committed",
+  };
+  controller.begin(spec);
+  controller.confirm();
+  const outcome = await controller.submit();
+  if (outcome.kind !== "uncertain" || controller.snapshot().canReplay)
+    fail("configuration uncertainty acquired replay authority");
+  await controller.replay();
+  await controller.submit();
+  if (calls !== 1) fail("configuration mutation was replayed");
+  let rejected = false;
+  try {
+    coordinator
+      .create<string>()
+      .begin({ ...spec, route: "/api/v2/principals" });
+  } catch {
+    rejected = true;
+  }
+  if (!rejected)
+    fail("raw configuration exception widened to ordinary mutations");
+  coordinator.close();
+});
+
 export async function assertSessionFoundationEpochs(): Promise<void> {
   if (
     parseSessionBootstrap(sessionFixture()) === undefined ||

@@ -7,6 +7,7 @@ Purpose: Preserve installation evidence, recover recognized stopped state, and c
 [Storage and recovery](../design/storage-and-recovery.md) owns normative durability and recovery semantics. [Installation safety](installation-safety.md) owns root selection and retained identities. Renaming a binary never bypasses the installation lock. Generated help owns exact syntax:
 
 - `agent-gateway export config --help`
+- `agent-gateway import --help`
 - `agent-gateway init --help`
 - `agent-gateway history --help`
 - `agent-gateway http ca --help`
@@ -19,27 +20,33 @@ Installation-snapshot backup and restore support is deliberately removed. The ba
 
 **Existing artifacts are untouched.** Startup, initialization/resume, upgrades and ordinary status do not traverse, validate, rewrite, move, chmod or delete historical backup inventory or restore-specific residue. Retain `backups/`, `gateway.db.restore` and its sidecars/markers, and any other historical artifacts. Malformed inventory does not gate normal readiness or status. This is not permission to remove unknown markers: historical control mutation intents, initialization evidence, `run.unclean`, rotation bundles and native cleanup provenance retain their actual safety owners and fail-closed rules.
 
-The replacement for portable configuration is export plus fresh initialization:
+Portable configuration transfer uses version-two export, ordinary initialization/start and online create-only import:
 
 ```bash
 (umask 077; agent-gateway export config > gateway-config.json)
-agent-gateway init --from gateway-config.json --data-dir /new/empty/gateway --confirm
+agent-gateway init --data-dir /new/empty/gateway --confirm
+agent-gateway serve --data-dir /new/empty/gateway
+# In another terminal, select the receiving installation and review, then create:
+agent-gateway --data-dir /new/empty/gateway import --file gateway-config.json --dry-run
+agent-gateway --data-dir /new/empty/gateway import --file gateway-config.json --confirm
+# Provision credentials separately, then inspect readiness:
+agent-gateway --data-dir /new/empty/gateway doctor --verbose
 ```
 
-See [configuration export and import](administration.md) for the full contract. Export contains definitions only, not installation authority, credentials, CA signing identity, history or in-flight work. Import requires an absent or empty selected directory, creates fresh authority and CA identity, leaves secrets unset and requires explicit upstream activation. Source tokens and CA trust do not transfer. It is not installation recovery, cloning, merge or rollback. Never run init over an established installation to bypass a refusal.
+See [configuration export and online import](administration.md#import-configuration-online) for the full procedure and administrator API. Export contains definitions only, not installation authority, credentials, CA signing identity, history or in-flight work. Online import creates only explicit keyed resources on the running instance, leaves material unset and honors enabled state after commit through normal lifecycle. Existing/reserved keys conflict even identically; there is no update or merge. Source tokens and CA trust do not transfer. Import does not replace receiving installation authority or CA. It is not installation recovery, cloning or rollback. Never initialize over an established installation to bypass a refusal. `init --from` and version-one import/export are removed; incomplete historical imports are preserved for separately reviewed recovery, never replayed or cleaned up.
 
 Historical encrypted artifacts can retain secrets retired from current use. Protect their keys and permissions; removal of executable support does not erase that sensitive material. Do not manually roll back the current database or key: nonrefundable encryption usage must remain monotonic.
 
 ## Choose a recovery task
 
-| Task                                                         | Service state  | Procedure                                                       |
-| ------------------------------------------------------------ | -------------- | --------------------------------------------------------------- |
-| Export portable configuration                                | Running        | [Administration](administration.md)                             |
-| Create a fresh installation from configuration               | New empty root | `init --from PATH`                                              |
-| Export retained traffic                                      | Running        | [Export optional history](#export-optional-history)             |
-| Rotate the master key while retaining recovery keys          | Stopped        | [Rotate the master key](#rotate-the-master-key)                 |
-| Replace all administrator authority, retaining product state | Stopped        | [Reset administrator authority](#reset-administrator-authority) |
-| Replace interception signing authority or export public CA   | Stopped        | [CA commands](#stopped-interception-ca-commands)                |
+| Task                                                         | Service state | Procedure                                                                  |
+| ------------------------------------------------------------ | ------------- | -------------------------------------------------------------------------- |
+| Export portable configuration                                | Running       | [Administration](administration.md)                                        |
+| Transfer explicit configuration definitions                  | Running       | [Online create-only import](administration.md#import-configuration-online) |
+| Export retained traffic                                      | Running       | [Export optional history](#export-optional-history)                        |
+| Rotate the master key while retaining recovery keys          | Stopped       | [Rotate the master key](#rotate-the-master-key)                            |
+| Replace all administrator authority, retaining product state | Stopped       | [Reset administrator authority](#reset-administrator-authority)            |
+| Replace interception signing authority or export public CA   | Stopped       | [CA commands](#stopped-interception-ca-commands)                           |
 
 Gateway must be stopped for maintenance. Stop service supervisors as well as Gateway; obtain authorization before disrupting a live service. Unknown outcomes require inspection, not replay.
 
@@ -49,7 +56,7 @@ All maintenance operations support `--dry-run`, `--confirm`, and `--json`. Dry r
 
 New init installations provision `<data-dir>/master-key` as a random, exclusive 0600 file under the 0700 root. MCP static/OAuth, HTTP/Git and CA material is authenticated-encrypted in control SQLite, never traffic history. Administrator and agent tokens remain hash-only; the protected `admin-bearer` file is separate.
 
-Ordinary `init` and `init --from` provision custody and both databases before publishing authority. Recognized interrupted initialization continues only through `init --resume`. There is no separate maintenance setup or legacy traffic cutover command, alias or automatic startup migration. Existing installations must already have completed those retired workflows; unresolved older state requires a qualified stopped plan, not reinitialization.
+Ordinary `init` provisions custody and both databases before publishing authority; online import uses that existing installation. Recognized ordinary interrupted initialization continues only through `init --resume`. Incomplete historical initialization imports require separately reviewed recovery and are never resumed or cleaned up by this binary. There is no separate maintenance setup or legacy traffic cutover command, alias or automatic startup migration. Existing installations must already have completed those retired workflows; unresolved older state requires a qualified stopped plan, not reinitialization.
 
 Explicit legacy generations and unresolved native cleanup refuse without changing references or accessing native storage. All protected reads and writes require encrypted custody; missing/corrupt selected records never fall back to native values.
 

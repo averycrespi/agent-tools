@@ -374,10 +374,7 @@ func partitionLifecycleCommands(moduleRoot string, inventory SuiteInventory, com
 				if test.Package == "./internal/composition" {
 					// These scheduling hints only move discovered identities. Retain the
 					// full inventory index so neither ordinary batch acquires other work.
-					switch test.Name {
-					case "TestInitializationReconcilesCompletedEffectsWithoutDuplication",
-						"TestConfigurationImportReconcilesActualTransactionAndCompletionBoundaries",
-						"TestConfigurationImportActualMarkerPublicationFailuresNeverReplay":
+					if test.Name == "TestInitializationReconcilesCompletedEffectsWithoutDuplication" {
 						batch = 2
 					}
 				}

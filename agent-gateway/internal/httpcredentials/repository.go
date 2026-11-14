@@ -12,6 +12,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httppolicy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
@@ -24,7 +25,7 @@ var (
 	ErrNotConfigured = errors.New("HTTP credential not configured: supply a value using this credential's rotate action")
 )
 
-const identityLimit = 1024
+const identityLimit = contract.HTTPCredentialIdentities
 
 type Clock interface{ Now() time.Time }
 
@@ -41,7 +42,8 @@ type Reference struct {
 }
 
 type Resource struct {
-	ID string `json:"id"`
+	Key string `json:"key"`
+	ID  string `json:"id"`
 	Definition
 	Revision      string                           `json:"revision"`
 	Available     bool                             `json:"available"`
@@ -75,7 +77,7 @@ func NewRepository(store *storage.Store, clock Clock, entropy io.Reader, refs Re
 func readTx(ctx context.Context, tx *sql.Tx, id string) (record, error) {
 	var r record
 	var revision uint64
-	err := tx.QueryRowContext(ctx, `SELECT id,name,host,port,allow_wildcard,header,prefix,revision,material_revision,handle,deleted,created_at,updated_at FROM http_credentials WHERE id=?`, id).Scan(&r.ID, &r.Name, &r.Boundary.Host, &r.Boundary.Port, &r.Boundary.AllowWildcard, &r.Recipe.Header, &r.Recipe.Prefix, &revision, &r.materialRevision, &r.handle, &r.deleted, &r.CreatedAt, &r.UpdatedAt)
+	err := tx.QueryRowContext(ctx, `SELECT (SELECT key FROM resource_keys WHERE kind='http_credential' AND resource_id=http_credentials.id),id,name,host,port,allow_wildcard,header,prefix,revision,material_revision,handle,deleted,created_at,updated_at FROM http_credentials WHERE id=?`, id).Scan(&r.Key, &r.ID, &r.Name, &r.Boundary.Host, &r.Boundary.Port, &r.Boundary.AllowWildcard, &r.Recipe.Header, &r.Recipe.Prefix, &revision, &r.materialRevision, &r.handle, &r.deleted, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return record{}, ErrNotFound
 	}
@@ -204,7 +206,12 @@ func (r *Repository) create(ctx context.Context, def Definition) (Resource, erro
 			return ErrUnavailable
 		}
 		now := r.clock.Now().UTC().Format(time.RFC3339Nano)
-		resource = Resource{ID: id, Definition: def, Revision: "1", References: []Reference{}, CreatedAt: now, UpdatedAt: now}
+		key, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.HTTPCredential, id, def.Key)
+		if err != nil {
+			return err
+		}
+		def.Key = ""
+		resource = Resource{Key: key, ID: id, Definition: def, Revision: "1", References: []Reference{}, CreatedAt: now, UpdatedAt: now}
 		_, err = tx.ExecContext(ctx, `INSERT INTO http_credentials(id,name,host,port,allow_wildcard,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,?,?,1,0,0,?,?)`, resource.ID, def.Name, def.Boundary.Host, def.Boundary.Port, def.Boundary.AllowWildcard, def.Recipe.Header, def.Recipe.Prefix, now, now)
 		if err != nil {
 			return err
@@ -232,6 +239,9 @@ func (r *Repository) update(ctx context.Context, id, revision string, def Defini
 		}
 		if err := r.readReferences(ctx, tx, &rec); err != nil {
 			return err
+		}
+		if def.Key != "" && def.Key != rec.Key {
+			return ErrInvalid
 		}
 		if len(rec.References) != 0 && def.Recipe != rec.Recipe {
 			return ErrReferenced

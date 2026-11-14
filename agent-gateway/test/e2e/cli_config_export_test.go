@@ -26,16 +26,29 @@ func TestCLIConfigurationExportOnlineWithoutUpstreamMaterial(t *testing.T) {
 	require.NoError(t, json.Unmarshal(created.Stdout, &agent))
 	exported := runOnlineCLI(t, harness, bearerPath, true, "export", "config")
 	require.Empty(t, exported.Stderr)
-	var document contract.ConfigExport
+	var document contract.ConfigBundle
 	require.NoError(t, json.Unmarshal(exported.Stdout, &document))
-	require.NoError(t, contract.ValidateConfigExport(document))
-	require.Len(t, document.Agents, 1)
-	require.Len(t, document.MCP.Servers, 1)
-	require.False(t, document.MCP.Servers[0].Enabled)
-	require.Equal(t, "mcp/export-canary/static/primary", document.MCP.Servers[0].Credentials.Static["primary"])
-	require.Len(t, document.MCP.Grants, 1)
-	require.Equal(t, "mcp/mcp_gateway", document.MCP.Grants[0].Server)
-	require.Equal(t, "agent/1", document.MCP.Grants[0].Agent)
+	require.NoError(t, contract.ValidateConfigBundleEnvelope(document))
+	counts := map[string]int{}
+	for _, d := range document.Resources {
+		counts[d.Kind]++
+		switch d.Kind {
+		case "mcp_server":
+			var spec contract.ConfigServerSpec
+			require.NoError(t, json.Unmarshal(d.Spec, &spec))
+			require.False(t, spec.Enabled)
+			require.Equal(t, "export-canary", d.Key)
+			require.Equal(t, "mcp/export-canary/static/primary", spec.Credentials.Static["primary"])
+		case "mcp_grant":
+			var spec contract.ConfigMCPGrantSpec
+			require.NoError(t, json.Unmarshal(d.Spec, &spec))
+			require.Equal(t, contract.ConfigReference{Kind: "gateway_mcp"}, spec.Server)
+			require.Equal(t, contract.ConfigReference{Kind: "agent", Key: agent.Principal.Key}, spec.Agent)
+		}
+	}
+	require.Equal(t, 1, counts["agent"])
+	require.Equal(t, 1, counts["mcp_server"])
+	require.Equal(t, 1, counts["mcp_grant"])
 	require.NotContains(t, string(exported.Stdout), agent.Principal.ID)
 	require.NotContains(t, string(exported.Stdout), harness.bearer)
 	require.False(t, exported.StdoutTruncated)

@@ -20,7 +20,9 @@ func TestIntegrationImportedGitDefinitionRestartAndCompletion(t *testing.T) {
 	s, _, owner := fixtureWithFault(t, nil)
 	ctx := audit.WithSystem(t.Context())
 	const id = "01ARZ3NDEKTSV4RRFFQ69G5FAX"
-	require.NoError(t, s.store.Mutate(ctx, func(tx *sql.Tx) error { return StageImportedDefinitionTx(ctx, tx, id, definition(), testClock{}.Now()) }))
+	require.NoError(t, s.store.Mutate(ctx, func(tx *sql.Tx) error {
+		return StageConfigurationDefinitionTx(ctx, tx, id, definition(), false, testClock{}.Now())
+	}))
 	credentialID := id
 	repository, err := s.authority.PutGitRepository(ctx, "", "", contract.GitRepositoryDefinition{Name: "Imported repository", URL: "https://example.com/team/repo", Aliases: []string{}, CredentialID: &credentialID})
 	require.NoError(t, err)
@@ -41,6 +43,7 @@ func TestIntegrationImportedGitDefinitionRestartAndCompletion(t *testing.T) {
 	require.NoError(t, err)
 	canonical, err := Normalize(definition())
 	require.NoError(t, err)
+	require.True(t, contract.ValidResourceKey(unset.Key))
 	require.Equal(t, canonical, unset.GitCredentialDefinition)
 	require.Equal(t, contract.CredentialNotConfigured, unset.MaterialState)
 	require.False(t, unset.Available)

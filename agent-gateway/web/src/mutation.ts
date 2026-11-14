@@ -115,13 +115,13 @@ function isCanonicalJSON(value: string): boolean {
   }
 }
 
-function isTokenPreservingMatcherMutationJSON(
-  spec: MutationSpec<unknown>,
-): boolean {
+// Configuration and matcher inputs retain lexical numbers; the backend owns strict validation.
+function isTokenPreservingMutationJSON(spec: MutationSpec<unknown>): boolean {
   if (
     spec.method !== "POST" ||
     spec.body === null ||
     (spec.route !== "/api/v2/mcp/grants" &&
+      spec.route !== "/api/v2/config/import" &&
       !matcherApprovalRoute.test(spec.route))
   )
     return false;
@@ -147,7 +147,7 @@ function validateSpec<T>(spec: MutationSpec<T>): void {
     (spec.body !== null &&
       (new TextEncoder().encode(spec.body).byteLength > maximumBodyBytes ||
         (!isCanonicalJSON(spec.body) &&
-          !isTokenPreservingMatcherMutationJSON(spec)))) ||
+          !isTokenPreservingMutationJSON(spec)))) ||
     spec.requiresPrecondition !== requiresPrecondition ||
     requiresPrecondition !== (spec.precondition !== null) ||
     (spec.precondition !== null && !strongETag.test(spec.precondition)) ||

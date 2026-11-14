@@ -23,6 +23,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/diagnostics"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitpolicy"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
@@ -37,7 +38,7 @@ var (
 	ErrNotConfigured = errors.New("git credential not configured: supply a value using this credential's rotate action")
 )
 
-const identityLimit = 1024
+const identityLimit = contract.GitCredentialIdentities
 
 type Clock interface{ Now() time.Time }
 type Service struct {
@@ -69,7 +70,7 @@ func NewService(store *storage.Store, coordinator *keyring.Coordinator, authorit
 	return &Service{store: store, coordinator: coordinator, authority: authority, clock: clock, entropy: entropy, installationID: installationID, mutation: make(chan struct{}, 1)}, nil
 }
 func Normalize(def contract.GitCredentialDefinition) (contract.GitCredentialDefinition, error) {
-	if !utf8.ValidString(def.Name) || len(def.Name) == 0 || len(def.Name) > 256 || strings.TrimSpace(def.Name) != def.Name || !contract.ValidHTTPCredentialRecipe(def.Recipe) {
+	if def.Key != "" && !contract.ValidResourceKey(def.Key) || !utf8.ValidString(def.Name) || len(def.Name) == 0 || len(def.Name) > 256 || strings.TrimSpace(def.Name) != def.Name || !contract.ValidHTTPCredentialRecipe(def.Recipe) {
 		return def, ErrInvalid
 	}
 	for _, r := range def.Name {
@@ -87,7 +88,7 @@ func Normalize(def contract.GitCredentialDefinition) (contract.GitCredentialDefi
 }
 func readTx(ctx context.Context, tx *sql.Tx, id string) (record, error) {
 	var r record
-	err := tx.QueryRowContext(ctx, `SELECT id,name,origin,header,prefix,revision,material_revision,handle,deleted,created_at,updated_at FROM git_credentials WHERE id=?`, id).Scan(&r.ID, &r.Name, &r.Origin, &r.Recipe.Header, &r.Recipe.Prefix, &r.Revision, &r.materialRevision, &r.handle, &r.deleted, &r.CreatedAt, &r.UpdatedAt)
+	err := tx.QueryRowContext(ctx, `SELECT (SELECT key FROM resource_keys WHERE kind='git_credential' AND resource_id=git_credentials.id),id,name,origin,header,prefix,revision,material_revision,handle,deleted,created_at,updated_at FROM git_credentials WHERE id=?`, id).Scan(&r.Key, &r.ID, &r.Name, &r.Origin, &r.Recipe.Header, &r.Recipe.Prefix, &r.Revision, &r.materialRevision, &r.handle, &r.deleted, &r.CreatedAt, &r.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}
@@ -220,6 +221,9 @@ func (s *Service) Create(ctx context.Context, def contract.GitCredentialDefiniti
 			return ErrLimit
 		}
 		now := s.clock.Now().UTC().Format(contract.AuditTimestampLayout)
+		if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitCredential, id, def.Key); err != nil {
+			return err
+		}
 		if _, e := tx.ExecContext(ctx, `INSERT INTO git_credentials(id,name,origin,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,1,0,0,?,?)`, id, def.Name, def.Origin, def.Recipe.Header, def.Recipe.Prefix, now, now); e != nil {
 			return e
 		}
@@ -261,6 +265,9 @@ func (s *Service) Update(ctx context.Context, id, revision string, def contract.
 		}
 		if e := referencesTx(ctx, tx, &rec); e != nil {
 			return e
+		}
+		if def.Key != "" && def.Key != rec.Key {
+			return ErrInvalid
 		}
 		if len(rec.References) > 0 && (def.Origin != rec.Origin || def.Recipe != rec.Recipe) {
 			return ErrReferenced

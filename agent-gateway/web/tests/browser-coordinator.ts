@@ -1,4 +1,10 @@
-import { type Browser, chromium, firefox, webkit } from "@playwright/test";
+import {
+  type Browser,
+  type Request,
+  chromium,
+  firefox,
+  webkit,
+} from "@playwright/test";
 import { runGit } from "./browser/git-scenarios.ts";
 import { runGitRouting } from "./browser/git-routing-scenarios.ts";
 import { runHTTPCredentials } from "./browser/http-credential-scenarios.ts";
@@ -113,6 +119,7 @@ interface BridgeInput {
   admin_bearer: string;
   browser_kind?: "chromium" | "firefox" | "webkit";
   fixture_root?: string;
+  configuration?: string;
 }
 
 const inputLines = createInterface({
@@ -143,7 +150,9 @@ function parseInitialInput(value: unknown): BridgeInput {
       Object.keys(value).sort().join(",") !==
         "admin_bearer,base_url,browser_kind,scenario,version" &&
       Object.keys(value).sort().join(",") !==
-        "admin_bearer,base_url,fixture_root,scenario,version") ||
+        "admin_bearer,base_url,fixture_root,scenario,version" &&
+      Object.keys(value).sort().join(",") !==
+        "admin_bearer,base_url,configuration,scenario,version") ||
     !("version" in value) ||
     value.version !== 1 ||
     !("scenario" in value) ||
@@ -203,6 +212,10 @@ function parseInitialInput(value: unknown): BridgeInput {
       value.browser_kind !== "chromium" &&
       value.browser_kind !== "firefox" &&
       value.browser_kind !== "webkit") ||
+    (value.scenario === "server-create-update") !== "configuration" in value ||
+    ("configuration" in value &&
+      (typeof value.configuration !== "string" ||
+        value.configuration.length > 12 * 1024)) ||
     (value.scenario === "development-live-reload") !==
       "fixture_root" in value ||
     ("fixture_root" in value &&
@@ -238,8 +251,9 @@ try {
   let gitExpectedFailures: number[] = [];
   const originFailures: string[] = [];
   const requestHeaderChecks: Array<Promise<void>> = [];
+  let requestHeaderFailures = 0;
   let requests = 0;
-  context.on("request", (request) => {
+  const observeRequest = (request: Request) => {
     requests += 1;
     if (!request.url().startsWith(baseURL))
       externalRequests.push(request.url());
@@ -248,12 +262,18 @@ try {
       request.method() !== "GET"
     ) {
       requestHeaderChecks.push(
-        request.allHeaders().then((headers) => {
-          if (headers.origin !== baseURL) originFailures.push(request.url());
-        }),
+        request.allHeaders().then(
+          (headers) => {
+            if (headers.origin !== baseURL) originFailures.push(request.url());
+          },
+          () => {
+            requestHeaderFailures++;
+          },
+        ),
       );
     }
-  });
+  };
+  context.on("request", observeRequest);
   const consoleFailures: string[] = [];
   const apiFailures: string[] = [];
   context.on("response", (response) => {
@@ -765,6 +785,7 @@ try {
         page,
         initialBearer,
         () => requests,
+        input.configuration!,
       );
     } else if (input.scenario === "server-catalog-reads") {
       await runServerCatalogReads(
@@ -786,6 +807,8 @@ try {
         readBoundedInput,
       );
     }
+    // Fence observation before draining; teardown must not start unowned header reads.
+    context.off("request", observeRequest);
     await Promise.all(requestHeaderChecks);
     const expectedOAuthOpen =
       "https://issuer.example/authorize?client_id=safe&state=one-time-state&code_challenge=pkce";
@@ -924,10 +947,11 @@ try {
     if (
       externalFailure ||
       originFailures.length !== 0 ||
+      requestHeaderFailures !== 0 ||
       (consoleFailures.length !== 0 && !expectedConsoleFailures)
     ) {
       fail(
-        `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, console=${consoleFailures.length}, console_classes=${consoleFailures.map((value) => /^Failed to load resource: the server responded with a status of ([0-9]{3})/.exec(value)?.[1] ?? "other").join(",")}, expected_http_grant_classes=${httpGrantExpectedFailures.join(",")}, api_failures=${apiFailures.join(",")})`,
+        `unexpected browser protocol side effect (external=${externalRequests.length}, origin=${originFailures.length}, unavailable_headers=${requestHeaderFailures}, console=${consoleFailures.length}, console_classes=${consoleFailures.map((value) => /^Failed to load resource: the server responded with a status of ([0-9]{3})/.exec(value)?.[1] ?? "other").join(",")}, expected_http_grant_classes=${httpGrantExpectedFailures.join(",")}, api_failures=${apiFailures.join(",")})`,
       );
     }
     if (

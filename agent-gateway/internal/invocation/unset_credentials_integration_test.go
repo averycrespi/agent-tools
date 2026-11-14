@@ -25,7 +25,7 @@ func TestIntegrationUnsetHTTPBindingRefusesDispatchWithoutFallback(t *testing.T)
 	coordinator, audits, authority, principal, credential, _ := newAdmissionCoordinatorWithOwnership(t, nil)
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAX"
 	require.NoError(t, audits.store.Mutate(ctx, func(tx *sql.Tx) error {
-		return httpcredentials.StageImportedDefinitionTx(ctx, tx, id, httpcredentials.Definition{Name: "Imported", Boundary: httpcredentials.Boundary{Host: "example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, audits.clock.Now())
+		return httpcredentials.StageConfigurationDefinitionTx(ctx, tx, id, httpcredentials.Definition{Name: "Imported", Boundary: httpcredentials.Boundary{Host: "example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, false, audits.clock.Now())
 	}))
 	_, err := authority.PutHTTPGrant(ctx, "", "", authorization.HTTPGrantInput{PrincipalID: principal.ID, Policy: json.RawMessage(`{"version":1,"type":"allow_requests","request":{"origin":{"scheme":"https","host":"example.com","port":443},"methods":{"any":true},"path":{"kind":"any"}},"credential_id":"` + id + `"}`)})
 	require.NoError(t, err)
@@ -58,7 +58,7 @@ func TestIntegrationUnsetGitBindingRefusesDispatchWithoutFallback(t *testing.T) 
 	coordinator, audits, authority, principal, credential, _ := newAdmissionCoordinatorWithOwnership(t, nil)
 	id := "01ARZ3NDEKTSV4RRFFQ69G5FAX"
 	require.NoError(t, audits.store.Mutate(ctx, func(tx *sql.Tx) error {
-		return gitcredentials.StageImportedDefinitionTx(ctx, tx, id, contract.GitCredentialDefinition{Name: "Imported", Origin: "https://example.com", Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, audits.clock.Now())
+		return gitcredentials.StageConfigurationDefinitionTx(ctx, tx, id, contract.GitCredentialDefinition{Name: "Imported", Origin: "https://example.com", Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, false, audits.clock.Now())
 	}))
 	profile, err := authority.GetGitRoutingProfile(ctx)
 	require.NoError(t, err)

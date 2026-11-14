@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/invocation"
@@ -169,15 +175,18 @@ func TestDoctorAutomaticIdentityAndPassiveBoundary(t *testing.T) {
 }
 
 func TestDoctorImportedUnsetCredentialsNeedValues(t *testing.T) {
-	root := filepath.Join(t.TempDir(), "gateway")
-	source := filepath.Join(t.TempDir(), "config.json")
-	document := strings.Replace(cliImportDocument, `"http":{"credentials":[]`, `"http":{"credentials":[{"ref":"http-credential/1","name":"Imported","boundary":{"host":"example.com","port":443,"allow_wildcard":false},"recipe":{"header":"Authorization","prefix":"Bearer "},"secret_ref":"http-credential/1/secret"}]`, 1)
-	require.NoError(t, os.WriteFile(source, []byte(document), 0600))
-	command := newTestRootCmd(t)
-	command.SetOut(new(bytes.Buffer))
-	command.SetErr(new(bytes.Buffer))
-	command.SetArgs([]string{"init", "--from", source, "--confirm", "--data-dir", root})
-	require.NoError(t, command.ExecuteContext(t.Context()))
+	layout, _ := initializedDoctorRoot(t)
+	root := layout.Root
+	owner, err := gatewaypaths.AcquireStoppedControl(root)
+	require.NoError(t, err)
+	ctx := audit.WithOffline(t.Context())
+	store, err := storage.Open(ctx, owner)
+	require.NoError(t, err)
+	require.NoError(t, store.Mutate(ctx, func(tx *sql.Tx) error {
+		return httpcredentials.StageConfigurationDefinitionTx(ctx, tx, "01ARZ3NDEKTSV4RRFFQ69G5FAX", httpcredentials.Definition{Key: "imported", Name: "Imported", Boundary: httpcredentials.Boundary{Host: "example.com", Port: 443}, Recipe: contract.HTTPCredentialRecipe{Header: "Authorization", Prefix: "Bearer "}}, false, time.Now())
+	}))
+	require.NoError(t, store.Close())
+	require.NoError(t, owner.Close())
 	before := treeBytes(t, root)
 	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

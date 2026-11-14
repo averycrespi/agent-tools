@@ -44,6 +44,7 @@ var documentationGuides = []DocumentationGuide{
 }
 
 var documentationCommandFamilies = []DocumentationCommandFamily{
+	{ID: "docs.command.import", CommandPath: "import", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway import --help"},
 	{ID: "docs.command.export", CommandPath: "export", CanonicalOwner: "docs/operators/administration.md", HelpInvocation: "agent-gateway export --help"},
 	{ID: "docs.command.http.ca", CommandPath: "http ca", CanonicalOwner: "docs/operators/backup-and-recovery.md", HelpInvocation: "agent-gateway http ca --help"},
 	{ID: "docs.command.git", CommandPath: "git", CanonicalOwner: "docs/operators/git.md", HelpInvocation: "agent-gateway git --help"},

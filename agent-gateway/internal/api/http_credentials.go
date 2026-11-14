@@ -13,6 +13,7 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/keyring"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
 )
 
@@ -26,6 +27,7 @@ type HTTPCredentialService interface {
 }
 
 type httpCredentialInput struct {
+	Key      json.RawMessage                `json:"key"`
 	Name     *string                        `json:"name"`
 	Boundary *httpcredentials.Boundary      `json:"boundary"`
 	Recipe   *contract.HTTPCredentialRecipe `json:"recipe"`
@@ -99,7 +101,8 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer clear(input.Secret)
-	if input.Name == nil || input.Boundary == nil || input.Recipe == nil || input.Secret == nil {
+	var key string
+	if !decodeCreateKey(input.Key, &key) || input.Name == nil || input.Boundary == nil || input.Recipe == nil || input.Secret == nil {
 		writeProblem(w, contract.ProblemInvalidOperation)
 		return
 	}
@@ -108,7 +111,7 @@ func (h *Handler) httpCredentialCollection(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer clear(secret)
-	resource, err := h.httpCredentials.Create(r.Context(), httpcredentials.Definition{Name: *input.Name, Boundary: *input.Boundary, Recipe: *input.Recipe}, secret)
+	resource, err := h.httpCredentials.Create(r.Context(), httpcredentials.Definition{Key: key, Name: *input.Name, Boundary: *input.Boundary, Recipe: *input.Recipe}, secret)
 	h.observeLocalFailure("create HTTP credential", resource.ID, "publication/activation=unconfirmed; inspect current credential; do not replay", err, string(secret))
 	h.httpCredentialResult(w, resource, err, http.StatusCreated)
 }
@@ -233,7 +236,11 @@ func writeHTTPCredentialError(w http.ResponseWriter, err error) {
 	problem := contract.ProblemStorageUnavailable
 	var capability *keyring.CapabilityError
 	switch {
-	case errors.Is(err, httpcredentials.ErrInvalid):
+	case errors.Is(err, resourcekeys.ErrConflict):
+		problem = contract.ProblemConflict
+	case errors.Is(err, resourcekeys.ErrGeneration):
+		problem = contract.ProblemResourceLimit
+	case errors.Is(err, httpcredentials.ErrInvalid), errors.Is(err, resourcekeys.ErrInvalid):
 		problem = contract.ProblemInvalidOperation
 	case errors.Is(err, httpcredentials.ErrNotFound):
 		problem = contract.ProblemNotFound

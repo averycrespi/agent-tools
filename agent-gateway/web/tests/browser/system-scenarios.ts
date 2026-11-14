@@ -1446,6 +1446,7 @@ export async function runOverview(
         items: [
           {
             id: overviewRequestFixture().principal_id,
+            key: "overview-agent",
             display_name: "Overview agent",
             http_default: "block",
             state: "active",
@@ -1733,6 +1734,7 @@ export async function runOverview(
     "Resource limits",
     "Needs attention",
     "Admin credentials",
+    "Configuration",
     "History export",
   ]);
   await expect(attention.locator("li")).toHaveCount(11);
@@ -2495,6 +2497,7 @@ export async function runInvocations(
         items: [
           {
             id: invocationIDs.principal,
+            key: "build-agent",
             display_name: "Build agent",
             http_default: "block",
             state: "active",
@@ -3372,7 +3375,7 @@ export async function runSystemStatus(
     .allTextContents();
   if (
     systemTabs.join("|") !==
-    "Status|Resource limits|Needs attention|Admin credentials|History export"
+    "Status|Resource limits|Needs attention|Admin credentials|Configuration|History export"
   )
     fail(`System tabs were not task-oriented: ${systemTabs.join("|")}`);
   for (const phrase of [

@@ -45,7 +45,6 @@ type offlineDependencies struct {
 	newComposition             func(composition.Options) (*composition.Composition, error)
 	caOperation                func(context.Context, string, string, string, composition.Clock, io.Reader, composition.CACallbacks) ([]byte, error)
 	diagnostics                *diagnostics.Adapter
-	initializationCleanup      func(*gatewaypaths.Ownership) error
 	initializationConfirmation controlclient.ConfirmationPrompt
 }
 
@@ -309,11 +308,13 @@ func executeServe(command *cobra.Command, dataDir, authority string, allowedHost
 		Principals:    authorizationRepository,
 		GrantRequests: controlAPI.GrantRequests,
 		HistoryExport: controlAPI.Invocations,
-		Configuration: controlAPI.Configuration,
 		Invocations:   controlAPI.Invocations,
 		HTTPTraffic:   controlAPI.HTTPTraffic,
 		GitTraffic:    controlAPI.GitTraffic,
 		Audit:         controlAPI.Audit,
+
+		Configuration:       controlAPI.Configuration,
+		ConfigurationImport: controlAPI.ConfigurationImport,
 
 		ProtocolActivity: controlAPI.ProtocolActivity,
 		RecordedActivity: controlAPI.RecordedActivity,

@@ -24,7 +24,7 @@ func httpGrantTable(body []byte) (controlclient.Table, error) {
 	if g.Description != nil {
 		description = *g.Description
 	}
-	return controlclient.Table{Headers: []string{"ID", "DESCRIPTION", "AGENT", "STATE", "POLICY"}, Rows: [][]string{{g.ID, description, g.PrincipalID, string(g.State), string(g.Policy)}}}, nil
+	return controlclient.Table{Headers: []string{"ID", "KEY", "DESCRIPTION", "AGENT", "STATE", "POLICY"}, Rows: [][]string{{g.ID, g.Key, description, g.PrincipalID, string(g.State), string(g.Policy)}}}, nil
 }
 func httpDefaultTable(body []byte) (controlclient.Table, error) {
 	var d contract.Principal
@@ -41,14 +41,14 @@ func httpGrantListTable(body []byte) (controlclient.Table, error) {
 	if page.NextCursor != nil && (*page.NextCursor == "" || len(*page.NextCursor) > 512 || containsControl(*page.NextCursor)) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	table := controlclient.Table{Headers: []string{"ID", "AGENT", "STATE", "POLICY"}}
+	table := controlclient.Table{Headers: []string{"ID", "KEY", "AGENT", "STATE", "POLICY"}}
 	seen := map[string]bool{}
 	for _, item := range page.Items {
 		if !validHTTPGrant(item.Grant) || seen[item.Grant.ID] || len(item.PrincipalDisplayName) == 0 || len(item.PrincipalDisplayName) > 256 || !utf8.ValidString(item.PrincipalDisplayName) || containsControl(item.PrincipalDisplayName) {
 			return table, controlclient.ErrResponseInvalid
 		}
 		seen[item.Grant.ID] = true
-		table.Rows = append(table.Rows, []string{item.Grant.ID, item.PrincipalDisplayName, string(item.Grant.State), string(item.Grant.Policy)})
+		table.Rows = append(table.Rows, []string{item.Grant.ID, item.Grant.Key, item.PrincipalDisplayName, string(item.Grant.State), string(item.Grant.Policy)})
 	}
 	return withNextCursor(table, page.NextCursor), nil
 }

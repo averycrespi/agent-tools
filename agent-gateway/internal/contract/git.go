@@ -4,6 +4,7 @@ package contract
 const (
 	GitRepositories         = 256
 	GitRepositoryIdentities = 1024
+	GitCredentialIdentities = 1024
 	GitGrants               = 4096
 	GitCredentials          = 256
 	GitAliases              = 4
@@ -36,6 +37,8 @@ type GitPolicy struct {
 }
 
 type GitRepositoryDefinition struct {
+	// Key is a create-only domain input; mutable definition JSON excludes it.
+	Key          string   `json:"-"`
 	Name         string   `json:"name"`
 	URL          string   `json:"url"`
 	Aliases      []string `json:"aliases"`
@@ -43,7 +46,8 @@ type GitRepositoryDefinition struct {
 }
 
 type GitRepository struct {
-	ID string `json:"id"`
+	Key string `json:"key"`
+	ID  string `json:"id"`
 	GitRepositoryDefinition
 	Revision      string `json:"revision"`
 	AliasRevision string `json:"alias_revision"`
@@ -52,13 +56,16 @@ type GitRepository struct {
 }
 
 type GitCredentialDefinition struct {
+	// Key is a create-only domain input; mutable definition JSON excludes it.
+	Key    string               `json:"-"`
 	Name   string               `json:"name"`
 	Origin string               `json:"origin"`
 	Recipe HTTPCredentialRecipe `json:"recipe"`
 }
 
 type GitCredential struct {
-	ID string `json:"id"`
+	Key string `json:"key"`
+	ID  string `json:"id"`
 	GitCredentialDefinition
 	Revision      string                   `json:"revision"`
 	Available     bool                     `json:"available"`
@@ -73,6 +80,7 @@ type GitCredentialReference struct {
 }
 
 type GitGrant struct {
+	Key          string     `json:"key"`
 	ID           string     `json:"id"`
 	PrincipalID  string     `json:"principal_id"`
 	RepositoryID string     `json:"repository_id"`

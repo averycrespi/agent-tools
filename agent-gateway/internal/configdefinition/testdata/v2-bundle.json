@@ -1,0 +1,40 @@
+{
+  "format": "agent-gateway-config",
+  "version": 2,
+  "resources": [
+    {
+      "format": "agent-gateway-config",
+      "version": 2,
+      "kind": "agent",
+      "key": "builder",
+      "spec": {
+        "display_name": "Builder",
+        "state": "active",
+        "visibility": "allowed-only",
+        "http_default": "block"
+      }
+    },
+    {
+      "format": "agent-gateway-config",
+      "version": 2,
+      "kind": "mcp_grant",
+      "key": "gateway-tools",
+      "spec": {
+        "agent": { "kind": "agent", "key": "builder" },
+        "server": { "kind": "gateway_mcp" },
+        "description": null,
+        "effect": "allow",
+        "upstream_name": null,
+        "constraint": null,
+        "read_only": false,
+        "expires_at": null
+      }
+    },
+    {
+      "format": "agent-gateway-config",
+      "version": 2,
+      "kind": "git_routing",
+      "spec": { "origins": [] }
+    }
+  ]
+}

@@ -3,6 +3,7 @@ import { expect, type Page } from "@playwright/test";
 // This is an explicit rendered-field inventory, not a label-derived fallback.
 // Shared sites and added rows are checked on every exercised creation branch.
 const copy: Record<string, string> = {
+  "resource-stable-key": "workshop_reader",
   "http-name-create": "Example API credential",
   "http-host-create": "api.example.com",
   "http-port-create": "443",

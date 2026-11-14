@@ -8,12 +8,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/authorization"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 )
 
-// StageImportedDefinitionTx reserves an unset definition only on a stopped
-// import-stage transaction. The importer owns fresh identity mapping, rollback
-// and complete stage validation. No live service/API, material or handle is made.
-func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def contract.GitCredentialDefinition, now time.Time) error {
+// StageConfigurationDefinitionTx creates only metadata with unset material.
+func StageConfigurationDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def contract.GitCredentialDefinition, deleted bool, now time.Time) error {
 	canonical, err := Normalize(def)
 	if err != nil || tx == nil || !contract.ValidAuditID(id) || now.IsZero() {
 		return ErrInvalid
@@ -22,28 +21,20 @@ func StageImportedDefinitionTx(ctx context.Context, tx *sql.Tx, id string, def c
 	if err := tx.QueryRowContext(ctx, `SELECT count(*),coalesce(sum(deleted=0),0) FROM git_credentials`).Scan(&total, &active); err != nil {
 		return err
 	}
-	if total >= identityLimit || active >= contract.GitCredentials {
+	if total >= identityLimit || !deleted && active >= contract.GitCredentials {
 		return ErrLimit
 	}
+	if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitCredential, id, canonical.Key); err != nil {
+		return err
+	}
 	timestamp := now.UTC().Format(contract.AuditTimestampLayout)
-	if _, err := tx.ExecContext(ctx, `INSERT INTO git_credentials(id,name,origin,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,1,0,0,?,?)`, id, canonical.Name, canonical.Origin, canonical.Recipe.Header, canonical.Recipe.Prefix, timestamp, timestamp); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO git_credentials(id,name,origin,header,prefix,revision,material_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,1,0,?,?,?)`, id, canonical.Name, canonical.Origin, canonical.Recipe.Header, canonical.Recipe.Prefix, deleted, timestamp, timestamp); err != nil {
 		return err
 	}
 	if err := authorization.AdvanceGitCredentialRevisionTx(ctx, tx); err != nil {
 		return err
 	}
 	return audit.MutationTx(ctx, tx, now, "git_credential", "create", contract.AuditTarget{Type: "git_credential", ID: id})
-}
-
-func ValidateImportedUnsetTx(ctx context.Context, tx *sql.Tx) error {
-	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM git_credentials WHERE material_revision<>0 OR handle IS NOT NULL OR deleted<>0`).Scan(&count); err != nil {
-		return err
-	}
-	if count != 0 {
-		return ErrInvalid
-	}
-	return nil
 }
 
 // SetupFactsTx is a focused input for stopped doctor/setup consumers, not a

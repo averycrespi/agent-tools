@@ -279,8 +279,23 @@ discovery and exact flush-only probes require read plus at least one active
 push-capable grant and have separate optional nonmutation observations. Each actual push
 independently checks every requested create/update/delete before dispatch.
 
+Online v2 import uses that same authority-before-storage gate for one combined
+configuration transaction. It creates only explicit agents, grants, repositories
+and reservations, advances authorization revision and commits actual creation
+audit facts; no default grant or agent credential is synthesized. Existing typed
+keys resolve dependencies but cannot be resubmitted, even identically. Exact
+expired-policy receipts preserve retained expiry without backdating creation or
+weakening normal public-create validation. A Git grant may retain an inactive
+key-only repository identity; without a live repository it cannot become routable
+access. Preview reads the same pure combined-graph rules without mutation.
+
 The singleton routing profile stores an independently revisioned bounded set of
-HTTPS origins. Repository creation/deletion never modifies that intent, even when
+HTTPS origins. Explicit online configuration input may initialize only the empty
+revision-one seed with no historical stopped-import receipt, advancing revision
+even for an empty input. Omitted routing is untouched; consumed, modified or
+reset-to-empty profiles conflict. Current opaque-origin ownership is checked in
+preview and revalidated under the transaction's authority gate, preserving
+ordinary profile mutation safeguards and atomic rollback. Repository creation/deletion never modifies that intent, even when
 the last repository is deleted. `active:true` is read-only, not an editable switch.
 The shared authority gate serializes profile changes with final opaque CONNECT
 confirmation. Activation refuses while any matching previously confirmed tunnel
@@ -311,6 +326,18 @@ is removed without changing historical files or retained authority. Missing
 material is valid unavailable configuration, never uninjected or old-generation
 fallback. See [Git credentials](downstream-servers.md#scoped-git-credentials) and
 [Git administrative contracts](public-contract.md#git-configuration-resources).
+
+## Stable configuration identity
+
+Agents, MCP/HTTP/Git grants and Git repositories have immutable type-scoped
+portable keys independently of their mutable names/descriptions and local IDs.
+HTTP/Git credential definitions follow the same reservation contract. MCP server
+keys remain namespaces. Keys select no authority by themselves: relationships,
+leases, history, custody, URLs and ETags remain bound to existing local IDs.
+Creation reserves each key atomically with the existing domain mutation and audit;
+physical grant deletion retains the reservation permanently. Default and approved
+grants also acquire distinct generated keys. See the [public key contract](public-contract.md#stable-configuration-resource-keys)
+and [schema-26 durability](storage-and-recovery.md#storage-durability).
 
 ## Principal and grant contract
 

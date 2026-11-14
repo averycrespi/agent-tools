@@ -12,10 +12,11 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/audit"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/contract"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/gitpolicy"
+	"github.com/averycrespi/agent-tools/agent-gateway/internal/resourcekeys"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/strictjson"
 )
 
-const gitRepositorySelect = `SELECT id,name,url,aliases_json,credential_id,revision,alias_revision,deleted,created_at,updated_at FROM git_repositories`
+const gitRepositorySelect = `SELECT (SELECT key FROM resource_keys WHERE kind='git_repository' AND resource_id=git_repositories.id),id,name,url,aliases_json,credential_id,revision,alias_revision,deleted,created_at,updated_at FROM git_repositories`
 
 type storedGitRepository struct {
 	resource contract.GitRepository
@@ -23,7 +24,7 @@ type storedGitRepository struct {
 }
 
 func normalizeGitRepository(def contract.GitRepositoryDefinition) (contract.GitRepositoryDefinition, error) {
-	if !validGrantDescription(&def.Name) || def.CredentialID != nil && !validOpaqueID(*def.CredentialID) {
+	if def.Key != "" && !contract.ValidResourceKey(def.Key) || !validGrantDescription(&def.Name) || def.CredentialID != nil && !validOpaqueID(*def.CredentialID) {
 		return def, ErrInvalidInput
 	}
 	canonical, err := gitpolicy.Locator(def.URL)
@@ -43,7 +44,7 @@ func scanGitRepository(row interface{ Scan(...any) error }) (storedGitRepository
 	g := &rec.resource
 	var raw string
 	var credential sql.NullString
-	if err := row.Scan(&g.ID, &g.Name, &g.URL, &raw, &credential, &g.Revision, &g.AliasRevision, &rec.deleted, &g.CreatedAt, &g.UpdatedAt); err != nil {
+	if err := row.Scan(&g.Key, &g.ID, &g.Name, &g.URL, &raw, &credential, &g.Revision, &g.AliasRevision, &rec.deleted, &g.CreatedAt, &g.UpdatedAt); err != nil {
 		return rec, err
 	}
 	if strictjson.Decode([]byte(raw), &g.Aliases, strictjson.Options{MaxBytes: contract.GitPolicyBytes, MaxDepth: 2}) != nil {
@@ -210,6 +211,9 @@ func (r *Repository) PutGitRepository(ctx context.Context, id, revision string, 
 			if len(rows) >= contract.GitRepositoryIdentities || active >= contract.GitRepositories {
 				return ErrResourceLimit
 			}
+			if _, err := resourcekeys.ReserveTx(ctx, tx, resourcekeys.GitRepository, id, def.Key); err != nil {
+				return err
+			}
 			_, e = tx.ExecContext(ctx, `INSERT INTO git_repositories(id,name,url,aliases_json,credential_id,revision,alias_revision,deleted,created_at,updated_at) VALUES(?,?,?,?,?,1,1,0,?,?)`, id, def.Name, def.URL, string(aliases), nullableGrantString(def.CredentialID), formatAuthorizationTime(now), formatAuthorizationTime(now))
 		} else {
 			current, e := gitRepositoryTx(ctx, tx, id)
@@ -221,6 +225,9 @@ func (r *Repository) PutGitRepository(ctx context.Context, id, revision string, 
 			}
 			if current.resource.Revision != revision {
 				return ErrStaleRevision
+			}
+			if def.Key != "" && def.Key != current.resource.Key {
+				return ErrInvalidInput
 			}
 			if current.resource.URL != def.URL {
 				return ErrConflict

@@ -31,21 +31,21 @@ func validHTTPCredential(r contract.HTTPCredential) bool {
 	return created == nil && updated == nil
 }
 func httpCredentialRow(r contract.HTTPCredential) []string {
-	return []string{r.Name, r.ID, r.Boundary.Host + ":" + strconv.Itoa(int(r.Boundary.Port)), r.Recipe.Header, r.Recipe.Prefix, r.MaterialState.Label(), strconv.Itoa(len(r.References))}
+	return []string{r.Name, r.Key, r.ID, r.Boundary.Host + ":" + strconv.Itoa(int(r.Boundary.Port)), r.Recipe.Header, r.Recipe.Prefix, r.MaterialState.Label(), strconv.Itoa(len(r.References))}
 }
 func httpCredentialItemTable(body []byte) (controlclient.Table, error) {
 	var resource contract.HTTPCredential
 	if controlclient.DecodeResponse(body, &resource) != nil || !validHTTPCredential(resource) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	return controlclient.Table{Headers: []string{"NAME", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "STATUS", "REFERENCES"}, Rows: [][]string{httpCredentialRow(resource)}}, nil
+	return controlclient.Table{Headers: []string{"NAME", "KEY", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "STATUS", "REFERENCES"}, Rows: [][]string{httpCredentialRow(resource)}}, nil
 }
 func httpCredentialListTable(body []byte) (controlclient.Table, error) {
 	var page contract.QueryCollection[contract.HTTPCredential]
 	if controlclient.DecodeResponse(body, &page) != nil || page.Items == nil || len(page.Items) > 100 || page.TotalCount < 0 || page.Offset < 0 || page.Offset > page.TotalCount-len(page.Items) || (page.NextCursor != nil) != (page.Offset+len(page.Items) < page.TotalCount) {
 		return controlclient.Table{}, controlclient.ErrResponseInvalid
 	}
-	table := controlclient.Table{Headers: []string{"NAME", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "STATUS", "REFERENCES"}}
+	table := controlclient.Table{Headers: []string{"NAME", "KEY", "ID", "HTTPS BOUNDARY", "HEADER", "PREFIX", "STATUS", "REFERENCES"}}
 	for _, r := range page.Items {
 		if !validHTTPCredential(r) {
 			return controlclient.Table{}, controlclient.ErrResponseInvalid

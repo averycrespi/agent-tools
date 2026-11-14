@@ -72,7 +72,7 @@ func testProductionSourceOwnershipGuards(t *testing.T, root string, sources []pr
 					assert.Contains(t, []string{"Detail", "Snapshot", "Text"}, value.Sel.Name, "local control consumes only finite diagnostic values, not the serve writer")
 				}
 				if strings.HasPrefix(source.path, "internal/controlclient/") && source.selectorPackage(value) == "github.com/averycrespi/agent-tools/agent-gateway/internal/contract" {
-					assert.True(t, value.Sel.Name == "NormalizeHostname" || source.path == "internal/controlclient/controlclient.go" && (value.Sel.Name == "ConfigExportPath" || value.Sel.Name == "ConfigExportMaxBytes"), "controlclient may consume only hostname grammar and exact configuration resource bounds")
+					assert.True(t, value.Sel.Name == "NormalizeHostname" || source.path == "internal/controlclient/controlclient.go" && (value.Sel.Name == "ConfigExportPath" || value.Sel.Name == "ConfigExportMaxBytes" || value.Sel.Name == "ConfigResourcePath" || value.Sel.Name == "ConfigPreviewPath" || value.Sel.Name == "ConfigImportPath"), "controlclient may consume only hostname grammar and exact configuration resource bounds")
 				}
 			case *ast.CompositeLit:
 				selector, ok := value.Type.(*ast.SelectorExpr)
@@ -643,6 +643,45 @@ func productionSliceViolations(source productionSource) []string {
 	return violations
 }
 
+func TestResourceKeyCoverageSQLGuardStaysReadOnlyAndScoped(t *testing.T) {
+	for _, test := range []struct {
+		name, path, function, sql string
+		allowed                   bool
+	}{
+		{name: "principal coverage", sql: "SELECT id FROM principals", allowed: true},
+		{name: "grant coverage", sql: "SELECT id FROM grants", allowed: true},
+		{name: "update", sql: "UPDATE principals SET revision = 1"},
+		{name: "insert", sql: "INSERT INTO grants VALUES (1)"},
+		{name: "delete", sql: "DELETE FROM principals"},
+		{name: "drop", sql: "DROP TABLE grants"},
+		{name: "alter", sql: "ALTER TABLE principals ADD COLUMN bypass INTEGER"},
+		{name: "create", sql: "CREATE TABLE grants (bypass INTEGER)"},
+		{name: "appended mutation", sql: "SELECT id FROM principals; DELETE FROM principals"},
+		{name: "appended replace", sql: "SELECT id FROM principals; REPLACE INTO principals VALUES (1)"},
+		{name: "replace from select", sql: "REPLACE INTO principals SELECT id FROM principals"},
+		{name: "authority metadata", sql: "SELECT revision FROM authorization_meta"},
+		{name: "other function", function: "load", sql: "SELECT id FROM principals"},
+		{name: "other path", path: "internal/storage/other.go", sql: "SELECT id FROM principals"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, function := test.path, test.function
+			if path == "" {
+				path = "internal/storage/resource_keys.go"
+			}
+			if function == "" {
+				function = "verifyResourceKeys"
+			}
+			contents := fmt.Sprintf("package storage\nfunc %s() { _ = %q }\n", function, test.sql)
+			violations := s3SQLViolations(parseProductionFixture(t, path, contents))
+			if test.allowed {
+				require.Empty(t, violations)
+			} else {
+				require.NotEmpty(t, violations)
+			}
+		})
+	}
+}
+
 func s3SQLViolations(source productionSource) []string {
 	if strings.HasPrefix(source.path, "internal/authorization/") {
 		return nil
@@ -673,6 +712,13 @@ func s3SQLViolations(source productionSource) []string {
 		seen := make(map[string]struct{})
 		for _, match := range s3SQLTable.FindAllStringSubmatch(value, -1) {
 			table := strings.ToLower(match[1])
+			// Storage checks schema-26 reservation coverage, not authority. Keep
+			// this structural read exception exact and reject every write verb.
+			if source.path == "internal/storage/resource_keys.go" && functions[literal] == "verifyResourceKeys" &&
+				(table == "principals" || table == "grants") && strings.HasPrefix(strings.TrimSpace(value), "SELECT ") &&
+				!strings.Contains(value, ";") && !auditSQLWrite.MatchString(value) {
+				continue
+			}
 			if _, duplicate := seen[table]; duplicate {
 				continue
 			}
@@ -795,14 +841,19 @@ func s3MigrationViolations(t *testing.T, root string) []string {
 	for _, path := range paths {
 		contents, readErr := os.ReadFile(path)
 		require.NoError(t, readErr)
-		if filepath.Base(path) == "008_authorization.sql" || filepath.Base(path) == "012_grant_names.sql" || filepath.Base(path) == "013_grant_descriptions.sql" || filepath.Base(path) == "016_read_only_grants.sql" || filepath.Base(path) == "020_http_grants.sql" || filepath.Base(path) == "022_git_authority.sql" || !s3SQLVerb.Match(contents) {
+		if filepath.Base(path) == "008_authorization.sql" || filepath.Base(path) == "012_grant_names.sql" || filepath.Base(path) == "013_grant_descriptions.sql" || filepath.Base(path) == "016_read_only_grants.sql" || filepath.Base(path) == "020_http_grants.sql" || filepath.Base(path) == "022_git_authority.sql" || filepath.Base(path) == "026_resource_keys.sql" || !s3SQLVerb.Match(contents) {
 			continue
 		}
 		relative, relErr := filepath.Rel(root, path)
 		require.NoError(t, relErr)
+		scan := string(contents)
+		if filepath.Base(path) == "027_configuration_targets.sql" {
+			// Preserve only the existing Git grant principal FK, not arbitrary S3 SQL.
+			scan = strings.Replace(scan, "principal_id TEXT NOT NULL REFERENCES principals(id)", "principal_id TEXT NOT NULL", 1)
+		}
 		seen := make(map[string]struct{})
-		for _, match := range s3SQLTable.FindAllSubmatch(contents, -1) {
-			table := strings.ToLower(string(match[1]))
+		for _, match := range s3SQLTable.FindAllStringSubmatch(scan, -1) {
+			table := strings.ToLower(match[1])
 			if _, duplicate := seen[table]; duplicate {
 				continue
 			}

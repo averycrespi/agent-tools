@@ -17,8 +17,6 @@ import (
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpca"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/httpcredentials"
 	"github.com/averycrespi/agent-tools/agent-gateway/internal/servers"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/storage"
-	"github.com/averycrespi/agent-tools/agent-gateway/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -62,25 +60,44 @@ func TestConfigurationImportMixedProtocolRoundTripPreservesPolicyNotAuthority(t 
 	require.NoError(t, a.httpCA.Replace(ctx, "0"))
 	var caA httpca.Inspection
 	require.NoError(t, optionsA.Store.View(ctx, func(tx *sql.Tx) error { var err error; caA, err = httpca.InspectTx(ctx, tx); return err }))
-	exported, err := a.configuration.ExportConfiguration(ctx)
+	exported, err := a.configuration.ExportBundle(ctx)
 	require.NoError(t, err)
-	ownerB, planB := importBytesFixture(t, exported)
-	clockB := testutil.NewFakeClock(compositionTime)
-	initialized, err := InitializeOwned(ctx, ownerB, planB, clockB, rand.Reader)
-	require.NoError(t, err)
-	require.NotEqual(t, optionsA.InstallationID, initialized.InstallationID)
-	require.NotEqual(t, caA.Certificate, initialized.Certificate)
-	keyA, err := os.ReadFile(filepath.Join(optionsA.Ownership.Layout().Root, "master-key"))
-	require.NoError(t, err)
-	keyB, err := os.ReadFile(filepath.Join(ownerB.Layout().Root, "master-key"))
-	require.NoError(t, err)
-	require.NotEqual(t, keyA, keyB)
-	storeB, err := storage.Open(ctx, ownerB)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, storeB.Close()) }()
-	b, err := New(Options{Ownership: ownerB, Store: storeB, InstallationID: planB.Installation, CallbackURL: "http://127.0.0.1:47101/oauth/callback", Clock: clockB, Entropy: rand.Reader, Invalidate: func(contract.Invalidation) {}, Ready: func() bool { return true }})
+	optionsB, cleanupB := newCompositionOptions(t)
+	defer cleanupB()
+	optionsB.Entropy = rand.Reader
+	b, err := New(optionsB)
 	require.NoError(t, err)
 	defer b.shutdownConstructed()
+	require.NoError(t, b.httpCA.Replace(ctx, "0"))
+	var caB httpca.Inspection
+	require.NoError(t, optionsB.Store.View(ctx, func(tx *sql.Tx) error { var err error; caB, err = httpca.InspectTx(ctx, tx); return err }))
+	require.NotEqual(t, caA.Certificate, caB.Certificate)
+	keyA, err := os.ReadFile(filepath.Join(optionsA.Ownership.Layout().Root, "master-key"))
+	require.NoError(t, err)
+	keyB, err := os.ReadFile(filepath.Join(optionsB.Ownership.Layout().Root, "master-key"))
+	require.NoError(t, err)
+	require.NotEqual(t, keyA, keyB)
+	require.NoError(t, b.Start(ctx))
+	preview, err := b.configurationImport.Preview(ctx, exported)
+	require.NoError(t, err)
+	require.True(t, preview.Advisory)
+	_, err = os.Stat(sentinel)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	result, err := b.configurationImport.Import(ctx, exported)
+	require.NoError(t, err)
+	require.Equal(t, "committed", result.Configuration)
+	// Desired-enabled import starts through normal lifecycle after commit. A
+	// real executable that exits before MCP initialization fails independently.
+	require.Eventually(t, func() bool {
+		_, statErr := os.Stat(sentinel)
+		owned, waiting := optionsB.Store.MutationOccupancy()
+		return statErr == nil && b.ReconciliationStatus().InUse == 0 && !owned && waiting == 0
+	}, 5*time.Second, time.Millisecond)
+	require.NoError(t, optionsB.Store.View(ctx, func(tx *sql.Tx) error {
+		current, err := httpca.InspectTx(ctx, tx)
+		require.Equal(t, caB.Certificate, current.Certificate)
+		return err
+	}))
 	_, err = b.authorization.Authenticate(ctx, token.Bearer)
 	require.Error(t, err, "source token has no authority in B")
 	agentsB, err := b.authorization.ListPrincipals(ctx, nil, contract.CollectionPageDefault)
@@ -93,7 +110,8 @@ func TestConfigurationImportMixedProtocolRoundTripPreservesPolicyNotAuthority(t 
 	require.NoError(t, err)
 	require.Len(t, serversB.Items, 1)
 	serverB := serversB.Items[0]
-	require.True(t, serverB.ActivationRequired)
+	require.False(t, serverB.ActivationRequired)
+	require.NotEqual(t, contract.RuntimeActive, b.manager.Status(serverB.ID).State)
 	require.Equal(t, contract.DesiredServerEnabled, serverB.DesiredState)
 	require.NotEqual(t, server.Server.ID, serverB.ID)
 	credentialsB, err := b.httpCredentials.List(ctx)
@@ -143,15 +161,6 @@ func TestConfigurationImportMixedProtocolRoundTripPreservesPolicyNotAuthority(t 
 		require.NoError(t, err)
 		require.Equal(t, resultA.Allowed, resultB.Allowed, ref)
 	}
-	// Starting B must not activate even this credential-free imported executable.
-	require.NoError(t, b.Start(ctx))
-	_, err = os.Stat(sentinel)
-	require.True(t, os.IsNotExist(err))
-	require.Equal(t, contract.RuntimeInactive, b.manager.Status(serverB.ID).State)
-	operation, err := b.servers.CreateOperation(ctx, servers.OperationRequest{ServerID: serverB.ID, Kind: contract.OperationReload, ExpectedDesiredRevision: serverB.DesiredRevision, TriggerState: pointer(b.OperationState(ctx, serverB.ID)), Idempotency: &servers.IdempotencyRequest{AuthorityID: planB.Installation, Method: "POST", Route: "/api/v2/mcp/servers/" + serverB.ID + "/operations", Key: "explicit-activation", RequestHash: [32]byte{1}, Precondition: contract.ServerETag(serverB.ID, serverB.DesiredRevision)}})
-	require.NoError(t, err)
-	b.manager.Trigger(serverB.ID, &operation.Operation.ID, true)
-	require.Eventually(t, func() bool { _, err := os.Stat(sentinel); return err == nil }, 5*time.Second, 10*time.Millisecond)
 	require.Zero(t, (<-b.Drain(ctx)).Unconfirmed)
 }
 

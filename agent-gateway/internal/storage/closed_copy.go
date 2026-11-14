@@ -80,6 +80,11 @@ func InspectClosedDatabase(ctx context.Context, path string) (Identity, error) {
 			return Identity{}, fmt.Errorf("%w: Git schema mismatch: %w", ErrInvalidDatabase, err)
 		}
 	}
+	if schema >= 27 {
+		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "027_configuration_targets.sql"); err != nil {
+			return Identity{}, fmt.Errorf("%w: configuration target schema mismatch: %w", ErrInvalidDatabase, err)
+		}
+	}
 	if schema >= 24 {
 		if err := (&Store{database: database}).verifyMigrationStructure(ctx, "024_native_cleanup.sql"); err != nil {
 			return Identity{}, err

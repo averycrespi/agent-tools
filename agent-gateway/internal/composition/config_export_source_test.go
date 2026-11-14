@@ -10,11 +10,20 @@ import (
 )
 
 func TestConfigurationExportNeverReadsMaterialOrRuntime(t *testing.T) {
-	projections := map[string]bool{"internal/servers/config_export.go": true, "internal/authorization/config_export.go": true, "internal/httpcredentials/config_export.go": true, "internal/gitcredentials/config_export.go": true}
+	projections := map[string]bool{
+		"internal/servers/config_export.go":         true,
+		"internal/servers/config_references.go":     true,
+		"internal/authorization/config_export.go":   true,
+		"internal/httpcredentials/config_export.go": true,
+		"internal/httpcredentials/config_v2.go":     true,
+		"internal/gitcredentials/config_export.go":  true,
+		"internal/gitcredentials/config_v2.go":      true,
+		"internal/resourcekeys/config_export.go":    true,
+	}
 	found := 0
 	for _, source := range productionSources(t, gatewayModuleRoot(t)) {
 		projection := projections[source.path]
-		if !projection && source.path != "internal/configexport/export.go" {
+		if !projection && source.path != "internal/configexport/export.go" && source.path != "internal/configexport/v2.go" {
 			continue
 		}
 		found++
@@ -43,12 +52,12 @@ func TestConfigurationExportNeverReadsMaterialOrRuntime(t *testing.T) {
 				if selector, ok := value.Fun.(*ast.SelectorExpr); ok {
 					owner := source.selectorPackage(selector)
 					if strings.HasSuffix(owner, "/servers") || strings.HasSuffix(owner, "/authorization") || strings.HasSuffix(owner, "/httpcredentials") || strings.HasSuffix(owner, "/gitcredentials") {
-						require.Contains(t, []string{"ConfigurationTx", "SortedConfiguration"}, selector.Sel.Name, "export may consume only configuration projections")
+						require.Contains(t, []string{"ConfigurationTx", "ConfigurationForKindTx", "ConfigurationReferencesTx", "RetainedConfigurationTx", "SortedConfiguration"}, selector.Sel.Name, "export may consume only configuration projections")
 					}
 				}
 			}
 			return true
 		})
 	}
-	require.Equal(t, 5, found, "all explicit configuration projection owners must remain covered")
+	require.Equal(t, 10, found, "all explicit configuration projection owners must remain covered")
 }

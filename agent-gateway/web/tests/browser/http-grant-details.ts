@@ -342,7 +342,10 @@ export async function exerciseGrantDetails(
     }
     const response = await route.fetch();
     const data = await response.json();
-    for (const item of data.items) item.available = false;
+    for (const item of data.items) {
+      item.available = false;
+      item.material_state = "unavailable";
+    }
     if (credentialLookup === "missing") {
       data.items = [];
       data.total_count = 0;

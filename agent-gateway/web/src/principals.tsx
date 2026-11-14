@@ -30,6 +30,9 @@ import {
 
 const gatewayID = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 const decimal = /^(0|[1-9][0-9]*)$/;
+import { validResourceKey } from "./resource-key";
+import { ConfigActions, ImportLink, StableKeyField } from "./configuration";
+
 type PrincipalState = "active" | "disabled";
 type PrincipalVisibility = "requestable" | "allowed-only" | "all";
 type JSONRecord = Record<string, unknown>;
@@ -42,6 +45,7 @@ interface AgentCredential {
 }
 
 export interface Principal {
+  key: string;
   id: string;
   displayName: string;
   state: PrincipalState;
@@ -96,6 +100,7 @@ function closed<T extends string>(value: unknown, values: readonly T[]): T {
 }
 export function decodePrincipal(value: unknown): Principal {
   const item = record(value, [
+    "key",
     "id",
     "display_name",
     "state",
@@ -107,6 +112,7 @@ export function decodePrincipal(value: unknown): Principal {
     "created_at",
     "updated_at",
   ]);
+  if (!validResourceKey(item.key)) throw new Error("invalid response");
   const credential =
     item.credential === null
       ? null
@@ -117,6 +123,7 @@ export function decodePrincipal(value: unknown): Principal {
           "created_at",
         ]);
   return {
+    key: item.key,
     id: identifier(item.id),
     displayName: text(item.display_name),
     state: closed(item.state, ["active", "disabled"]),
@@ -141,6 +148,7 @@ export function decodePrincipal(value: unknown): Principal {
 function decodeCreation(value: unknown): PrincipalCreation {
   const creation = record(value, ["principal", "default_grant"]);
   const grant = record(creation.default_grant, [
+    "key",
     "id",
     "description",
     "revision",
@@ -153,6 +161,7 @@ function decodeCreation(value: unknown): PrincipalCreation {
     "state",
     "created_at",
   ]);
+  if (!validResourceKey(grant.key)) throw new Error("invalid response");
   const principal = decodePrincipal(creation.principal);
   if (
     grant.description !== "Default Gateway access" ||
@@ -348,6 +357,7 @@ function PrincipalEditor({
     visibility: principal?.visibility ?? ("requestable" as PrincipalVisibility),
     httpDefault: principal?.httpDefault ?? ("block" as const),
   });
+  const [stableKey, setStableKey] = useState("");
   const [displayName, setDisplayName] = useState(
     initialDraft.current.displayName,
   );
@@ -371,8 +381,9 @@ function PrincipalEditor({
   );
   const submitButton = useRef<HTMLButtonElement>(null);
   const dirty =
+    stableKey !== "" ||
     JSON.stringify({ displayName, state, visibility, httpDefault }) !==
-    JSON.stringify(initialDraft.current);
+      JSON.stringify(initialDraft.current);
   const stale = !create && (readUnavailable || expected !== detail?.etag);
   const navigate = useUnsavedChanges(dirty);
   useEffect(() => controller.subscribe(setMutation), [controller]);
@@ -445,6 +456,7 @@ function PrincipalEditor({
           route: "/api/v2/principals",
           method: "POST",
           body: JSON.stringify({
+            ...(stableKey ? { key: stableKey } : {}),
             display_name: displayName,
             visibility,
             http_default: httpDefault,
@@ -538,6 +550,13 @@ function PrincipalEditor({
           start();
         }}
       >
+        {create && (
+          <StableKeyField
+            value={stableKey}
+            onChange={setStableKey}
+            disabled={disabled}
+          />
+        )}
         <FormField id="principal-display-name" label="Display name" required>
           {(attributes) => (
             <input
@@ -1186,6 +1205,11 @@ export function Principals({
           </div>
           <p class="technical-value">{principal.id}</p>
         </header>
+        <ConfigActions
+          session={session}
+          kind="agent"
+          resourceKey={principal.key}
+        />
         <section class="detail-section" aria-labelledby="principal-title">
           <div class="panel-heading">
             <h2 id="principal-title">Agent details</h2>
@@ -1282,6 +1306,7 @@ function PrincipalCollection({
         >
           Create agent
         </a>
+        <ImportLink kind="agent" label="agent" />
       </div>
       <section class="panel domain-panel" aria-labelledby="page-title">
         <CollectionTable

@@ -23,6 +23,7 @@ type HTTPPolicyService interface {
 }
 
 type rawHTTPGrant struct {
+	Key         json.RawMessage `json:"key"`
 	PrincipalID json.RawMessage `json:"principal_id"`
 	Description json.RawMessage `json:"description"`
 	Policy      json.RawMessage `json:"policy"`
@@ -102,7 +103,7 @@ func (h *Handler) httpGrants(w http.ResponseWriter, r *http.Request, id string) 
 	}
 	var in authorization.HTTPGrantInput
 	var expiry *string
-	if !decodeRequiredGrantMember(raw.PrincipalID, &in.PrincipalID) || !decodeNullableGrantMember(raw.Description, &in.Description) || !decodeNullableGrantMember(raw.ExpiresAt, &expiry) || raw.Policy == nil {
+	if id != "" && raw.Key != nil || !decodeCreateKey(raw.Key, &in.Key) || !decodeRequiredGrantMember(raw.PrincipalID, &in.PrincipalID) || !decodeNullableGrantMember(raw.Description, &in.Description) || !decodeNullableGrantMember(raw.ExpiresAt, &expiry) || raw.Policy == nil {
 		writeProblem(w, contract.ProblemInvalidGrant)
 		return
 	}

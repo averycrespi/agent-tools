@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -12,7 +11,7 @@ import (
 )
 
 func TestInitResumePreservesRetiredBackupArtifacts(t *testing.T) {
-	for _, mode := range []string{"incomplete", "completed-import-cleanup"} {
+	for _, mode := range []string{"incomplete", "completed"} {
 		t.Run(mode, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "gateway")
 			if mode == "incomplete" {
@@ -22,16 +21,11 @@ func TestInitResumePreservesRetiredBackupArtifacts(t *testing.T) {
 				require.NoError(t, gatewaypaths.BeginInitialization(owner, plan))
 				require.NoError(t, owner.Close())
 			} else {
-				source := filepath.Join(t.TempDir(), "config.json")
-				require.NoError(t, os.WriteFile(source, []byte(cliImportDocument), 0o600))
 				command := newTestRootCmd(t)
 				command.SetOut(new(bytes.Buffer))
 				command.SetErr(new(bytes.Buffer))
-				command.SetArgs([]string{"init", "--from", source, "--confirm", "--data-dir", root})
+				command.SetArgs([]string{"init", "--confirm", "--data-dir", root})
 				require.NoError(t, command.ExecuteContext(t.Context()))
-				evidence := filepath.Join(root, gatewaypaths.InitializationName)
-				require.NoError(t, os.Remove(filepath.Join(evidence, "input-removed")))
-				require.NoError(t, os.WriteFile(filepath.Join(evidence, "input"), []byte(cliImportDocument), 0o600))
 			}
 			retained := testutil.RetiredBackupArtifacts(t, root)
 			before := testutil.FingerprintArtifacts(t, retained)

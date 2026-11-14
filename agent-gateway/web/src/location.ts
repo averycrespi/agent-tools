@@ -72,6 +72,7 @@ const systemTabs = new Set([
   "resource-limits",
   "needs-attention",
   "admin-credentials",
+  "configuration",
   "history",
 ]);
 function isGatewayID(value: string): boolean {
@@ -359,6 +360,22 @@ export function parseFragment(raw: string): ApplicationLocation | undefined {
     if (first === "servers" && serverCollectionQuery(query, "servers"))
       return location("servers", segments, query);
   }
+  if (
+    segments.length === 2 &&
+    second === "import" &&
+    noQuery &&
+    [
+      "principals",
+      "servers",
+      "grants",
+      "http-grants",
+      "http-credentials",
+      "git-grants",
+      "git-credentials",
+      "git-repositories",
+    ].includes(first!)
+  )
+    return location(destination, segments, query);
   if (first === "servers") {
     if (segments.length === 2 && second === "new" && noQuery) {
       return location("servers", segments, query);

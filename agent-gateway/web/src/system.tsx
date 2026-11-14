@@ -55,6 +55,8 @@ function formatStorageBytes(bytes: number): string {
   return `${(bytes / 1024 ** index).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${units[index]}`;
 }
 
+import { SystemConfiguration } from "./system-configuration";
+
 type Listener = (status: StatusView | undefined) => void;
 type CredentialListener = (credentials: AdminCredential[] | undefined) => void;
 type SystemTab =
@@ -62,6 +64,7 @@ type SystemTab =
   | "resource-limits"
   | "needs-attention"
   | "admin-credentials"
+  | "configuration"
   | "history";
 type CredentialStatus = "active" | "revoked" | "expired";
 type AdminCredential = {
@@ -221,7 +224,8 @@ function tab(viewKey: string): SystemTab {
     selected === "resource-limits" ||
     selected === "needs-attention" ||
     selected === "admin-credentials" ||
-    selected === "history"
+    selected === "history" ||
+    selected === "configuration"
   )
     return selected;
   return "status";
@@ -413,6 +417,7 @@ function SystemTabs({ current }: { current: SystemTab }) {
       "Admin credentials",
       "#/system?tab=admin-credentials",
     ],
+    ["configuration", "Configuration", "#/system?tab=configuration"],
     ["history", "History export", "#/system?tab=history"],
   ];
   return (
@@ -1758,6 +1763,8 @@ export function System({
           onRefresh={onRefresh}
           createMode={view.viewKey === "#/system/admin-credentials/new"}
         />
+      ) : current === "configuration" ? (
+        <SystemConfiguration session={session} mutations={mutations} />
       ) : current === "history" ? (
         <HistoryExport controller={controller} />
       ) : (

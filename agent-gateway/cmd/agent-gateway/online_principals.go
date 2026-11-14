@@ -16,7 +16,7 @@ var principalETagPattern = regexp.MustCompile(`^"principal-([0-7][0-9A-HJKMNP-TV
 
 func runPrincipalCreate(command *cobra.Command, options *onlineOptions) error {
 	body, members, err := readPrincipalInput(command, options, true)
-	if err != nil || !members["display_name"] || !members["visibility"] || len(members) != 2 {
+	if err != nil || !members["display_name"] || !members["visibility"] || len(members) != 2 && (len(members) != 3 || !members["key"]) {
 		return writeOnlineFailure(command, options.output, controlclient.NewInputError("The agent create input is invalid."))
 	}
 	return runPrincipalMutation(command, options, principalMutationRequest{method: http.MethodPost, path: "/api/v2/principals", body: body, create: true})
@@ -44,6 +44,9 @@ func runPrincipalUpdate(command *cobra.Command, options *onlineOptions, args []s
 
 func readPrincipalInput(command *cobra.Command, options *onlineOptions, create bool) ([]byte, map[string]bool, error) {
 	allowed := []string{"display_name", "visibility"}
+	if create {
+		allowed = append(allowed, "key")
+	}
 	if !create {
 		allowed = append(allowed, "state", "http_default")
 	}
@@ -207,7 +210,7 @@ func principalTable(principals []contract.Principal) controlclient.Table {
 		if principal.Credential != nil {
 			credential = principal.Credential.ID + " revision=" + principal.Credential.Revision
 		}
-		rows = append(rows, []string{principal.ID, principal.DisplayName, string(principal.State), string(principal.Visibility), string(principal.HTTPDefault), principal.Revision, principal.CredentialRevision, credential, principal.UpdatedAt})
+		rows = append(rows, []string{principal.ID, principal.Key, principal.DisplayName, string(principal.State), string(principal.Visibility), string(principal.HTTPDefault), principal.Revision, principal.CredentialRevision, credential, principal.UpdatedAt})
 	}
-	return controlclient.Table{Headers: []string{"ID", "DISPLAY", "STATE", "VISIBILITY", "HTTP DEFAULT", "REVISION", "CREDENTIAL_REVISION", "CREDENTIAL", "UPDATED"}, Rows: rows}
+	return controlclient.Table{Headers: []string{"ID", "KEY", "DISPLAY", "STATE", "VISIBILITY", "HTTP DEFAULT", "REVISION", "CREDENTIAL_REVISION", "CREDENTIAL", "UPDATED"}, Rows: rows}
 }

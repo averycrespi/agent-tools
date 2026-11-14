@@ -78,10 +78,16 @@ func GitControlPlaneCapabilityManifest() []ControlPlaneCapability {
 	}
 }
 
-// Configuration export is a CLI-only administration surface, not a browser
-// workflow or a one-time secret sink.
+// Whole-gateway configuration remains CLI-only. Resource definitions also have
+// browser import/export controls; neither surface is a one-time secret sink.
 func ConfigurationControlPlaneCapabilityManifest() []ControlPlaneCapability {
-	return []ControlPlaneCapability{{ID: "config-export", Operation: "Portable configuration export", CLIUses: []string{"export config"}, Mechanics: "one authenticated coherent configuration-only snapshot; versioned JSON; no material resolution or mutation", CLIScenario: "cli.config-export"}}
+	rows := []ControlPlaneCapability{{ID: "config-export", Operation: "Portable configuration export", CLIUses: []string{"export config"}, Mechanics: "one authenticated coherent configuration-only snapshot; versioned JSON; no material resolution or mutation", CLIScenario: "cli.config-export"}}
+	uses := []string{}
+	for _, namespace := range []string{"agent", "mcp server", "mcp grant", "http credential", "http grant", "git credential", "git repository", "git grant"} {
+		uses = append(uses, namespace+" import --file PATH [--dry-run | --confirm]", namespace+" export KEY")
+	}
+	rows = append(rows, ControlPlaneCapability{ID: "bundle-config", Operation: "Bundle configuration creation", CLIUses: []string{"import --file PATH [--dry-run | --confirm]"}, Mechanics: "version-two bundle or individual definition; complete backend read-only preview or atomic confirmed create-only import; no replay", CLIScenario: "cli.bundle-config"})
+	return append(rows, ControlPlaneCapability{ID: "resource-config", Operation: "Resource configuration creation and export", WebControl: "Resource collections / Import; resource details / Copy config / Download config", WebScenario: "browser.resource-config", CLIUses: uses, Mechanics: "one matching version-two definition; backend read-only preview or confirmed creation; dependencies already exist; JSON-only export; no replay", CLIScenario: "cli.resource-config"})
 }
 
 func ControlPlaneLifecycleManifest() []ControlPlaneCapability {
@@ -91,7 +97,7 @@ func ControlPlaneLifecycleManifest() []ControlPlaneCapability {
 		{ID: "web-logout", Operation: "Browser logout", WebControl: "Sign out", Mechanics: "POST logout", WebScenario: "browser.logout"},
 		{ID: "web-events", Operation: "Browser invalidations", WebControl: "Application refresh", Mechanics: "POST event stream", WebScenario: "browser.events"},
 		{ID: "cli-bearer", Operation: "CLI bearer acquisition", CLIUses: []string{"--admin-bearer-file PATH", "--admin-bearer-stdin"}, Mechanics: "owner-only explicit file/exclusive stdin/resolved default file", CLIScenario: "cli.bearer"},
-		{ID: "cli-initialize", Operation: "Create, import or explicitly resume initialization", CLIUses: []string{"init"}, Mechanics: "creation-only absent/empty safe root; default-no consent; bounded durable progress; strict full-format --from preflight; fresh authority and remapped references; unset credentials; intended enabled state with explicit upstream activation; retained input and atomic import receipts; explicit --resume with stopped single-owner proven-missing work; no uncertain replay; no upstream/process/OAuth effects; existing setup needs no bearer or history validation", CLIScenario: "cli.initialize"},
+		{ID: "cli-initialize", Operation: "Create or explicitly resume initialization", CLIUses: []string{"init"}, Mechanics: "creation-only absent/empty safe root; default-no consent; bounded durable progress; fresh installation authority; explicit --resume with stopped single-owner proven-missing ordinary setup; no uncertain replay; historical import evidence is preserved without replay or cleanup; start before online version-two import; existing setup needs no bearer or history validation", CLIScenario: "cli.initialize"},
 		{ID: "cli-admin-reset", Operation: "Stopped admin reset", CLIUses: []string{"maintenance reset-admin-credentials"}, Mechanics: "stopped all-authority recovery", CLIScenario: "cli.admin-reset"},
 	}
 }

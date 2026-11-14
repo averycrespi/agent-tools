@@ -34,6 +34,41 @@ type onlineIntent struct {
 }
 
 func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) (onlineIntent, *controlclient.OnlineError) {
+	if resourceConfigAction(spec) == "import" || strings.Join(spec.Path, " ") == "import" {
+		if failure := validateOnlineLocalOptions(command, spec, options, args); failure != nil {
+			return onlineIntent{}, failure
+		}
+		return prepareResourceConfigInput(command, spec, options)
+	}
+	intent, failure := prepareOnlineIntentBody(command, spec, options, args)
+	if failure != nil || intent.body == nil || resourceConfigKind(spec) == "" || spec.Path[len(spec.Path)-1] != "create" {
+		return intent, failure
+	}
+	var object map[string]json.RawMessage
+	if json.Unmarshal(intent.body, &object) != nil {
+		return onlineIntent{}, controlclient.NewInputError("The resource create input is invalid.")
+	}
+	member := "key"
+	if resourceConfigKind(spec) == "mcp_server" {
+		member = "namespace"
+	}
+	if command.Flags().Changed("key") {
+		if object[member] != nil {
+			return onlineIntent{}, controlclient.NewInputError("Supply the permanent key either in the file or with --key, not both.")
+		}
+		object[member], _ = json.Marshal(options.resourceKey)
+	}
+	if raw, ok := object[member]; ok {
+		var key string
+		if json.Unmarshal(raw, &key) != nil || !contract.ValidResourceKey(key) || member == "namespace" && (len(key) > 32 || key == contract.SyntheticServerNamespace) {
+			return onlineIntent{}, controlclient.NewInputError("The permanent resource key is invalid.")
+		}
+	}
+	intent.body, _ = json.Marshal(object)
+	return intent, nil
+}
+
+func prepareOnlineIntentBody(command *cobra.Command, spec onlineCommandSpec, options *onlineOptions, args []string) (onlineIntent, *controlclient.OnlineError) {
 	if failure := validateOnlineLocalOptions(command, spec, options, args); failure != nil {
 		return onlineIntent{}, failure
 	}
@@ -79,7 +114,7 @@ func prepareOnlineIntent(command *cobra.Command, spec onlineCommandSpec, options
 		if options.file == "-" && options.bearerStdin {
 			return onlineIntent{}, controlclient.NewInputError("Standard input cannot provide both command input and the administrator bearer.")
 		}
-		body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: intentSpec.fileMembers})
+		body, err := controlclient.ReadJSONInput(controlclient.InputOptions{Path: options.file, Stdin: command.InOrStdin(), AllowedMembers: createKeyMembers(spec, intentSpec.fileMembers)})
 		if err != nil {
 			return onlineIntent{}, controlclient.NewInputError("The command file input is invalid.", err)
 		}
@@ -139,6 +174,12 @@ func validateOnlineLocalOptions(command *cobra.Command, spec onlineCommandSpec, 
 		return controlclient.NewInputError("The Gateway address is invalid.")
 	}
 	for index := range requiredPositionals(spec.Use) {
+		if resourceConfigAction(spec) == "export" {
+			if index >= len(args) || !contract.ValidResourceKey(args[index]) || resourceConfigKind(spec) == "mcp_server" && (len(args[index]) > 32 || args[index] == contract.SyntheticServerNamespace) {
+				return controlclient.NewInputError("The permanent resource key is invalid.")
+			}
+			continue
+		}
 		if index >= len(args) || !gatewayIDPattern.MatchString(args[index]) {
 			return controlclient.NewInputError("A command resource ID is invalid.")
 		}
